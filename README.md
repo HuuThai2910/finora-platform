@@ -1,7 +1,5 @@
 # 🚀 FINORA Platform — Hệ thống P2P Lending
 
-> **Đồ án Khóa luận Tốt nghiệp** — Trường Đại học Công nghiệp TP.HCM (IUH)
-
 ## 📖 Giới thiệu
 
 FINORA là nền tảng cho vay ngang hàng (Peer-to-Peer Lending) được xây dựng trên kiến trúc **Microservices**, tích hợp **Trí tuệ Nhân tạo (AI)** để chấm điểm tín dụng và **Blockchain (Hyperledger Fabric)** để đảm bảo tính minh bạch, toàn vẹn dữ liệu.
