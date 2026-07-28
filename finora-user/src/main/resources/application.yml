@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: finora-user
+  datasource:
+    url: jdbc:mysql://localhost:3306/finora_user?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh&allowPublicKeyRetrieval=true
+    username: root
+    password: finora_root_2026
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+server:
+  port: 8085

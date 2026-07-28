@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: finora-blockchain
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: blockchain-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+
+server:
+  port: 8083
+
+# Hyperledger Fabric
+fabric:
+  channel-name: finora-channel
+  chaincode-name: finora-ledger
+  msp-id: Org1MSP
+  # Các path này sẽ được cấu hình khi dựng mạng Fabric
+  cert-path: ${FABRIC_CERT_PATH:./fabric-config/cert.pem}
+  key-path: ${FABRIC_KEY_PATH:./fabric-config/key.pem}
+  tls-cert-path: ${FABRIC_TLS_CERT_PATH:./fabric-config/tls-cert.pem}
+  peer-endpoint: ${FABRIC_PEER_ENDPOINT:localhost:7051}

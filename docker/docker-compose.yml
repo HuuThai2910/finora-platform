@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # ============ DATABASE ============
+  mysql:
+    image: mysql:8.0
+    container_name: finora-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: finora_root_2026
+      MYSQL_DATABASE: finora_loan
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - finora-network
+
+  mongodb:
+    image: mongo:7.0
+    container_name: finora-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - finora-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: finora-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - finora-network
+
+  # ============ MESSAGE BROKER ============
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: finora-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    networks:
+      - finora-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: finora-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - finora-network
+
+  # ============ IDENTITY & ACCESS ============
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    container_name: finora-keycloak
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "8180:8080"
+    networks:
+      - finora-network
+
+volumes:
+  mysql-data:
+  mongo-data:
+
+networks:
+  finora-network:
+    driver: bridge
