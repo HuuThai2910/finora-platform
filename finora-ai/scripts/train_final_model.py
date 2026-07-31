@@ -55,6 +55,7 @@ from app.ml.features import (
     FEATURE_NAMES,
     HOME_OWNERSHIP_CATS,
     PURPOSE_CATS,
+    COLUMNS_WITH_MISSING,
     encode_features,
 )
 from app.ml.model_registry import luu_mo_hinh
@@ -63,30 +64,27 @@ from app.ml.preprocessing import PURPOSE_MAP, _parse_emp_length, _parse_issue_ye
 from app.ml.training import RANDOM_STATE, XGB_TUNED_PARAMS, fit_xgboost
 
 # ── Cấu hình ──────────────────────────────────────────────────────────────────
-PHIEN_BAN = "9.0.0"
-# Average annual earnings của Mỹ năm 2018 (OECD)
-AVERAGE_US_2018 = 52_543  # USD/year
+PHIEN_BAN = "10.0.0"
+# Hệ số quy đổi thu nhập và khoản vay theo năm
+VN_AVG = {
+    2012: 44_400_000,
+    2014: 53_880_000,
+}
 
-# Thu nhập bình quân người lao động Việt Nam năm 2025
-AVERAGE_VN_2025 = 8_400_000 * 12  # VND/year
-
-HE_SO_CHUAN_HOA = AVERAGE_VN_2025 / AVERAGE_US_2018
-
-KY_HAN_HUAN_LUYEN = 36
+US_AVG = {
+    2012: 55_300,
+    2014: 57_450,
+}
 
 # Ngưỡng cắt PD để tính Recall/Precision/F1/Accuracy khi BÁO CÁO.
 # Đường ra quyết định KHÔNG dùng ngưỡng này — `tinh_diem_tong_hop()` nhận PD liên tục.
 NGUONG_BAO_CAO = 0.5
 
-COT_TIEN_TE = ["annual_inc", "loan_amnt"]
+COT_TIEN_TE = ["annual_inc", "loan_amnt", "installment"]
 
-# Fold out-of-time bắt đầu từ 2012, không phải 2011: dữ liệu lệch nặng về các năm
-# gần (2007-2011 chỉ chiếm 4,7%), nên fold "≤2011 → 2012" sẽ có tập train NHỎ HƠN
-# tập val — AUC thấp khi đó phản ánh thiếu dữ liệu chứ không phải trôi theo thời gian.
+# Fold out-of-time: huấn luyện trên năm 2012, kiểm thử trên năm 2014
 FOLD_OUT_OF_TIME = [
-    ("<=2012 -> 2013", 2012, 2013),
-    ("<=2013 -> 2014", 2013, 2014),
-    ("<=2014 -> 2015", 2014, 2015),  # tái lập đúng thí nghiệm chọn mô hình trước đó
+    ("2012 -> 2014", 2012, 2014),
 ]
 
 SO_FOLD_NGAU_NHIEN = 5
@@ -118,7 +116,7 @@ THU_MUC_MO_HINH = THU_MUC_GOC / "models"
 
 # ── Nạp và chuẩn hóa ──────────────────────────────────────────────────────────
 def nap_va_chuan_hoa() -> pd.DataFrame:
-    """Nạp lc_clean.csv, tính lại cột dẫn xuất, lọc kỳ hạn, quy đổi VND."""
+    """Nạp lc_clean.csv, tính lại cột dẫn xuất, lọc năm 2012 và 2014, chuẩn hóa VND theo năm."""
     d = pd.read_csv(DATA_FILE, low_memory=False)
     print(f"  Nạp {len(d):,} dòng × {len(d.columns)} cột")
 
@@ -127,14 +125,18 @@ def nap_va_chuan_hoa() -> pd.DataFrame:
     d["issue_year"] = _parse_issue_year(d["issue_d"])
     d["emp_length_years"] = d["emp_length"].apply(_parse_emp_length)
 
+    # Lọc chỉ lấy năm 2012 và 2014
     truoc = len(d)
-    d = d[d["term_months"] == KY_HAN_HUAN_LUYEN].copy()
-    print(f"  Lọc kỳ hạn {KY_HAN_HUAN_LUYEN} tháng: {truoc:,} → {len(d):,} dòng")
+    d = d[d["issue_year"].isin([2012, 2014])].copy()
+    print(f"  Lọc chỉ lấy năm 2012 và 2014: {truoc:,} → {len(d):,} dòng")
 
+    # Tính toán và chuẩn hóa tiền tệ động theo từng năm
+    he_so_k = d["issue_year"].map(lambda y: VN_AVG[y] / US_AVG[y])
     for col in COT_TIEN_TE:
-        d[col] = d[col] * HE_SO_CHUAN_HOA
+        d[col] = d[col] * he_so_k
+
     d["purpose_cat"] = d["purpose"].map(PURPOSE_MAP).fillna("OTHER")
-    print(f"  Quy đổi VND ({HE_SO_CHUAN_HOA:.0f}đ/USD) cho {len(COT_TIEN_TE)} cột tiền tệ")
+    print(f"  Quy đổi VND động theo từng năm cho {len(COT_TIEN_TE)} cột tiền tệ")
     print(f"  Tỷ lệ vỡ nợ: {d['loan_status'].mean() * 100:.2f}%")
 
     return d.reset_index(drop=True)
@@ -146,13 +148,23 @@ def tinh_median(df: pd.DataFrame) -> dict[str, float]:
     return {cot: float(df[cot].median()) for cot in COT_DIEN_MEDIAN}
 
 
-def tao_ma_tran(df: pd.DataFrame, median: dict[str, float]) -> tuple[np.ndarray, np.ndarray]:
+def tao_ma_tran(
+    df: pd.DataFrame,
+    median: dict[str, float],
+    target_encodings: dict[str, dict[str, float]] | None = None,
+    global_mean: float | None = None
+) -> tuple[np.ndarray, np.ndarray]:
     """Điền thiếu bằng median cho trước → tạo đặc trưng → trả (X, y)."""
     d = df.copy()
+
+    # Tạo chỉ báo thiếu trước khi điền median
+    for cot in COLUMNS_WITH_MISSING:
+        d[f"{cot}_missing"] = d[cot].isna().astype(int)
+
     for cot, gia_tri in median.items():
         d[cot] = d[cot].fillna(gia_tri)
 
-    d = encode_features(d)
+    d = encode_features(d, target_encodings, global_mean)
     X = d[FEATURE_NAMES].values.astype(np.float64)
     y = d["loan_status"].values.astype(int)
 
@@ -166,8 +178,13 @@ def tao_ma_tran(df: pd.DataFrame, median: dict[str, float]) -> tuple[np.ndarray,
 def do_mot_fold(train: pd.DataFrame, val: pd.DataFrame, ten: str) -> dict:
     """Đo hiệu năng một fold. Median fit CHỈ trên train — không thì val rò sang train."""
     median = tinh_median(train)
-    X_train, y_train = tao_ma_tran(train, median)
-    X_val, y_val = tao_ma_tran(val, median)
+
+    from app.ml.features import tinh_target_encodings
+    target_cols = ["home_ownership", "purpose_cat", "verification_status"]
+    target_encodings, global_mean = tinh_target_encodings(train, target_cols, "loan_status", m=10.0)
+
+    X_train, y_train = tao_ma_tran(train, median, target_encodings, global_mean)
+    X_val, y_val = tao_ma_tran(val, median, target_encodings, global_mean)
 
     model, scale_pos_weight = fit_xgboost(X_train, y_train)
     chi_so = evaluate_model(model, X_val, y_val)
@@ -236,7 +253,12 @@ def main() -> None:
 
     print(f"\n[4/5] Huấn luyện lại trên 100% dữ liệu ({len(d):,} dòng)")
     median_cuoi = tinh_median(d)
-    X, y = tao_ma_tran(d, median_cuoi)
+
+    from app.ml.features import tinh_target_encodings
+    target_cols = ["home_ownership", "purpose_cat", "verification_status"]
+    encodings_cuoi, global_mean_cuoi = tinh_target_encodings(d, target_cols, "loan_status", m=10.0)
+
+    X, y = tao_ma_tran(d, median_cuoi, encodings_cuoi, global_mean_cuoi)
     model, scale_pos_weight = fit_xgboost(X, y)
     print(f"  scale_pos_weight = {scale_pos_weight:.3f}")
 
@@ -250,12 +272,15 @@ def main() -> None:
     thong_so_bo_sung = {
         "du_lieu_huan_luyen": {
             "nguon": "data/lc_clean.csv",
-            "loc": f"term_months == {KY_HAN_HUAN_LUYEN}",
+            "loc": "issue_year in [2012, 2014]",
             "n_dong": int(len(d)),
             "khoang_nam": [int(d.issue_year.min()), int(d.issue_year.max())],
             "ty_le_vo_no": float(d["loan_status"].mean()),
             "don_vi_tien": "VND",
-            "he_so_chuan_hoa": HE_SO_CHUAN_HOA,
+            "he_so_chuan_hoa": {
+                "2012": VN_AVG[2012] / US_AVG[2012],
+                "2014": VN_AVG[2014] / US_AVG[2014],
+            },
         },
         "sieu_tham_so": {
             **XGB_TUNED_PARAMS,
@@ -264,6 +289,8 @@ def main() -> None:
             "random_state": RANDOM_STATE,
         },
         "median_dien_thieu": median_cuoi,
+        "target_encodings": encodings_cuoi,
+        "global_mean": global_mean_cuoi,
         "cong_thuc_dan_xuat": {
             "log_income": "log1p(annual_inc)",
             "loan_to_income": "clip(loan_amnt / annual_inc, 0, 5)",
@@ -275,6 +302,7 @@ def main() -> None:
         "muc_phan_loai": {
             "home_ownership": HOME_OWNERSHIP_CATS,
             "purpose": PURPOSE_CATS,
+            "verification_status": ["Verified", "Source Verified", "Not Verified"],
         },
         "nguong_bao_cao": NGUONG_BAO_CAO,
         "ghi_chu_nguong": (

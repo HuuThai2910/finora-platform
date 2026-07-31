@@ -43,6 +43,19 @@ PURPOSE_CATS = [
     "MAJOR_PURCHASE", "MEDICAL", "CAR", "SMALL_BUSINESS",
     "MOVING", "VACATION", "EDUCATION",
 ]
+VERIFICATION_CATS = ["Verified", "Source Verified", "Not Verified"]
+
+COLUMNS_WITH_MISSING = [
+    "person_age",
+    "emp_length_years",
+    "dti",
+    "delinq_2yrs",
+    "pub_rec",
+    "int_rate",
+    "installment",
+]
+MISSING_INDICATORS = [f"{c}_missing" for c in COLUMNS_WITH_MISSING]
+AGE_BINS = ["age_under_25", "age_25_to_39", "age_40_to_59", "age_over_60"]
 
 NUMERIC_FEATURES = [
     # Character — nhân thân
@@ -52,30 +65,84 @@ NUMERIC_FEATURES = [
     "annual_inc",             # Tự khai + sao kê lương
     # Conditions — điều kiện khoản vay
     "loan_amnt",              # Form nộp hồ sơ
+    # Các đặc trưng tài chính bổ sung từ CIC/FICO
+    "dti",                    # Tỷ lệ nợ/thu nhập
+    "term_months",            # Kỳ hạn vay (tháng)
+    "delinq_2yrs",            # Số lần trễ hạn trong 2 năm
+    "pub_rec",                # Hồ sơ công khai xấu
+    "int_rate",               # Lãi suất khoản vay (%)
+    "installment",            # Số tiền phải trả hàng tháng
     # Đặc trưng dẫn xuất
     "log_income",             # log(annual_inc) — nén đuôi phân phối lệch phải
     "loan_to_income",         # loan_amnt / annual_inc
 ]
 
-ONEHOT_FEATURES = (
-    [f"home_{cat}" for cat in HOME_OWNERSHIP_CATS]
-    + [f"purpose_{cat}" for cat in PURPOSE_CATS]
-)
+TARGET_ENCODED_FEATURES = [
+    "home_ownership_encoded",
+    "purpose_cat_encoded",
+    "verification_status_encoded",
+]
 
-FEATURE_NAMES = NUMERIC_FEATURES + ONEHOT_FEATURES
+FEATURE_NAMES = NUMERIC_FEATURES + TARGET_ENCODED_FEATURES + MISSING_INDICATORS + AGE_BINS
 
 
-def encode_features(df: pd.DataFrame) -> pd.DataFrame:
+def tinh_target_encodings(
+    df: pd.DataFrame,
+    target_cols: list[str],
+    target_col: str = "loan_status",
+    m: float = 10.0
+) -> tuple[dict[str, dict[str, float]], float]:
+    """Tính toán bản đồ ánh xạ Target Encoding với Smoothing cho các cột phân loại."""
+    global_mean = float(df[target_col].mean())
+    encodings = {}
+
+    for col in target_cols:
+        col_enc = {}
+        # Tính n_i và S_i
+        stats = df.groupby(col)[target_col].agg(["count", "mean"])
+        for val, row in stats.iterrows():
+            n_i = row["count"]
+            S_i = row["mean"]
+            encoded_val = (n_i * S_i + m * global_mean) / (n_i + m)
+            col_enc[str(val)] = float(encoded_val)
+        encodings[col] = col_enc
+
+    return encodings, global_mean
+
+
+def encode_features(
+    df: pd.DataFrame,
+    target_encodings: dict[str, dict[str, float]] | None = None,
+    global_mean: float | None = None
+) -> pd.DataFrame:
     """Mã hóa và tạo đặc trưng mới từ DataFrame đã làm sạch."""
     df = df.copy()
 
-    # One-hot: nhà ở
-    for cat in HOME_OWNERSHIP_CATS:
-        df[f"home_{cat}"] = (df["home_ownership"] == cat).astype(int)
+    target_cols = ["home_ownership", "purpose_cat", "verification_status"]
 
-    # One-hot: mục đích vay
-    for cat in PURPOSE_CATS:
-        df[f"purpose_{cat}"] = (df["purpose_cat"] == cat).astype(int)
+    if target_encodings is not None and global_mean is not None:
+        # Nếu đã có sẵn mapping (lúc chạy thật hoặc validate)
+        for col in target_cols:
+            mapping = target_encodings.get(col, {})
+            df[f"{col}_encoded"] = df[col].astype(str).map(mapping).fillna(global_mean)
+    else:
+        # Nếu chưa có mapping (đang huấn luyện)
+        if "loan_status" in df.columns:
+            encs, g_mean = tinh_target_encodings(df, target_cols, "loan_status", m=10.0)
+            for col in target_cols:
+                mapping = encs.get(col, {})
+                df[f"{col}_encoded"] = df[col].astype(str).map(mapping).fillna(g_mean)
+        else:
+            # Fallback nếu không có nhãn
+            g_mean = 0.15
+            for col in target_cols:
+                df[f"{col}_encoded"] = g_mean
+
+    # Binning tuổi thành các nhóm (One-hot)
+    df["age_under_25"] = (df["person_age"] < 25).astype(int)
+    df["age_25_to_39"] = ((df["person_age"] >= 25) & (df["person_age"] < 40)).astype(int)
+    df["age_40_to_59"] = ((df["person_age"] >= 40) & (df["person_age"] < 60)).astype(int)
+    df["age_over_60"] = (df["person_age"] >= 60).astype(int)
 
     # Engineered: log thu nhập
     df["log_income"] = np.log1p(df["annual_inc"])

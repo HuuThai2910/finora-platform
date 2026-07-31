@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from app.ml.features import FEATURE_NAMES, NUMERIC_FEATURES, encode_features
+from app.ml.features import FEATURE_NAMES, NUMERIC_FEATURES, COLUMNS_WITH_MISSING, encode_features
 from app.ml.model_registry import _duong_dan_mo_hinh, _tinh_sha256, tai_mo_hinh
 from app.ml.preprocessing import HOME_OWNERSHIP_MAP, PURPOSE_MAP, _parse_emp_length
 from app.services.rule_engine import (
@@ -29,6 +29,7 @@ from app.services.rule_engine import (
     tinh_diem_rui_ro,
     tinh_diem_tong_hop,
     xep_hang,
+    kiem_tra_chot_chan_cung,
 )
 
 # Hai cột này được TÍNH LẠI từ cột gốc trong `encode_features()` sau khi điền thiếu,
@@ -41,7 +42,7 @@ COT_DIEN_MEDIAN = [c for c in NUMERIC_FEATURES if c not in COT_DAN_XUAT]
 
 THU_MUC_MO_HINH_MAC_DINH = Path(__file__).resolve().parent.parent.parent / "models"
 
-PHIEN_BAN_MAC_DINH = "9.0.0"
+PHIEN_BAN_MAC_DINH = "10.0.0"
 
 
 class BoDuDoan:
@@ -52,6 +53,8 @@ class BoDuDoan:
         self.metadata = metadata
         self.feature_names = metadata["feature_names"]
         self.median = metadata["median_dien_thieu"]
+        self.target_encodings = metadata.get("target_encodings")
+        self.global_mean = metadata.get("global_mean")
 
     # ── Nạp gói ───────────────────────────────────────────────────────────────
     @classmethod
@@ -73,6 +76,12 @@ class BoDuDoan:
             raise ValueError(
                 f"Gói v{version} không có 'median_dien_thieu' — đây là gói cũ, "
                 "không tự chứa. Chạy scripts/train_final_model.py để tạo gói mới."
+            )
+
+        if "target_encodings" not in metadata or "global_mean" not in metadata:
+            raise ValueError(
+                f"Gói v{version} không có 'target_encodings' hoặc 'global_mean' — đây là gói cũ, "
+                "không tự chứa Target Encoding. Chạy scripts/train_final_model.py để tạo gói mới."
             )
 
         if metadata["feature_names"] != FEATURE_NAMES:
@@ -100,6 +109,13 @@ class BoDuDoan:
         Tách riêng khỏi `du_doan_pd()` để test khẳng định được **giá trị nào** đã
         thực sự được điền, thay vì chỉ nhìn PD đầu ra rồi đoán.
         """
+        # Chuyển đổi int_rate: nếu là dạng tỷ lệ thập phân (ví dụ: 0.15), chuyển thành phần trăm thô (15.0)
+        int_rate_val = ho_so.get("int_rate")
+        if int_rate_val is not None:
+            int_rate_val = float(int_rate_val)
+            if int_rate_val <= 1.0:
+                int_rate_val = int_rate_val * 100.0
+
         row = {
             "person_age": ho_so.get("person_age"),
             "annual_inc": ho_so.get("annual_inc"),
@@ -109,7 +125,19 @@ class BoDuDoan:
             ),
             "home_ownership": HOME_OWNERSHIP_MAP.get(ho_so.get("home_ownership"), "OTHER"),
             "purpose_cat": PURPOSE_MAP.get(ho_so.get("purpose", "other"), "OTHER"),
+            "verification_status": ho_so.get("verification_status", "Not Verified"),
+            "dti": ho_so.get("dti"),
+            "term_months": ho_so.get("term_months"),
+            "delinq_2yrs": ho_so.get("delinq_2yrs"),
+            "pub_rec": ho_so.get("pub_rec"),
+            "int_rate": int_rate_val,
+            "installment": ho_so.get("installment"),
         }
+
+        # Tạo chỉ báo thiếu trước khi điền median
+        for cot in COLUMNS_WITH_MISSING:
+            val = row.get(cot)
+            row[f"{cot}_missing"] = 1.0 if val is None or (isinstance(val, float) and np.isnan(val)) else 0.0
 
         for cot, gia_tri_median in self.median.items():
             gia_tri = row.get(cot)
@@ -122,7 +150,7 @@ class BoDuDoan:
     def du_doan_pd(self, ho_so: dict) -> float:
         """Xác suất vỡ nợ (PD) của một hồ sơ, trong khoảng (0, 1)."""
         row = self.chuan_bi_dac_trung(ho_so)
-        encoded = encode_features(pd.DataFrame([row]))
+        encoded = encode_features(pd.DataFrame([row]), self.target_encodings, self.global_mean)
         X = encoded[self.feature_names].values.astype(np.float64)
 
         if np.isnan(X).any():
@@ -140,6 +168,8 @@ class BoDuDoan:
         evaluation_score = tinh_diem_tong_hop(pd_probability, risk_score)
         hang = xep_hang(evaluation_score)
 
+        chot_chan_ly_do = kiem_tra_chot_chan_cung(ho_so)
+
         return {
             "pd_probability": round(pd_probability, 4),
             "risk_score": risk_score,
@@ -147,6 +177,7 @@ class BoDuDoan:
             "credit_grade": hang.hang,
             "suggested_limit": hang.han_muc,
             "suggested_rate": hang.lai_suat,
-            "decision": quyet_dinh(evaluation_score),
+            "decision": quyet_dinh(evaluation_score, chot_chan_ly_do),
+            "rejection_reason": chot_chan_ly_do,
             "model_version": self.metadata["version"],
         }

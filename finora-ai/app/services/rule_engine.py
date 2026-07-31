@@ -134,8 +134,64 @@ def xep_hang(evaluation_score: float) -> XepHangTinDung:
     return BANG_XEP_HANG[-1][1]
 
 
-def quyet_dinh(evaluation_score: float) -> str:
+def kiem_tra_chot_chan_cung(features: dict) -> str | None:
+    """Kiểm tra các quy tắc loại trừ thẳng (Knock-out Rules).
+
+    Trả về lý do từ chối (str) nếu vi phạm, ngược lại trả về None.
+    """
+    # 1. Luật trần lãi suất 20%/năm theo Điều 468 Bộ luật Dân sự 2015
+    lai_suat = features.get("int_rate")
+    if lai_suat is not None:
+        val = float(lai_suat)
+        # Hỗ trợ cả định dạng phần trăm (ví dụ: 15.0) hoặc thập phân (0.15)
+        ty_le_lai = val if val <= 1.0 else val / 100.0
+        if ty_le_lai > TRAN_LAI_SUAT_NAM:
+            return "INTEREST_RATE_EXCEEDS_LEGAL_LIMIT"
+        if ty_le_lai <= 0.0:
+            return "INVALID_INTEREST_RATE"
+
+    # 2. Luật trần kỳ hạn 24 tháng theo Nghị định 94/2025/NĐ-CP của Chính phủ cho vay P2P
+    ky_han = features.get("term_months")
+    if ky_han is not None:
+        if ky_han > 24:
+            return "TERM_EXCEEDS_LEGAL_LIMIT"
+
+    # 3. Luật áp lực trả nợ (Installment-to-Income Ratio)
+    # Nếu có đủ số tiền vay, kỳ hạn, lãi suất và thu nhập
+    loan_amnt = features.get("loan_amnt")
+    annual_inc = features.get("annual_inc")
+    if (
+        loan_amnt is not None
+        and annual_inc is not None
+        and lai_suat is not None
+        and ky_han is not None
+        and annual_inc > 0
+    ):
+        val = float(lai_suat)
+        ty_le_lai = val if val <= 1.0 else val / 100.0
+        r_thang = ty_le_lai / 12.0
+        n_thang = int(ky_han)
+
+        # Tính số tiền trả hàng tháng (installment) theo dư nợ giảm dần
+        if r_thang > 0:
+            installment = (loan_amnt * r_thang * ((1 + r_thang) ** n_thang)) / (((1 + r_thang) ** n_thang) - 1)
+        else:
+            installment = loan_amnt / n_thang
+
+        thu_nhap_thang = annual_inc / 12.0
+        ty_le_tra_no = installment / thu_nhap_thang
+
+        # Nếu số tiền trả nợ hàng tháng chiếm trên 50% thu nhập hàng tháng -> Từ chối thẳng
+        if ty_le_tra_no > 0.50:
+            return "DEBT_SERVICE_RATIO_TOO_HIGH"
+
+    return None
+
+
+def quyet_dinh(evaluation_score: float, chot_chan_ly_do: str | None = None) -> str:
     """Quyết định tự động: REJECTED / PENDING_REVIEW / APPROVED."""
+    if chot_chan_ly_do is not None:
+        return "REJECTED"
     if evaluation_score < 10:
         return "REJECTED"
     if evaluation_score >= 90:
