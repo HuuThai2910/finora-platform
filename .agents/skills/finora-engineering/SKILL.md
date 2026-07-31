@@ -8,6 +8,9 @@ description: Áp dụng chuẩn kỹ thuật FINORA khi thiết kế, triển kh
 ## Quy trình bắt buộc
 
 1. Đọc `AGENTS.md`, `.agents/rules/00-rule-map.md` và các rule được map yêu cầu; xác định module, owner và phạm vi thay đổi.
+   - Nếu lập kế hoạch, chọn task/giai đoạn hoặc phối hợp hai owner, đọc `.agents/plans/finora-team-roadmap.md`.
+   - Nếu thêm entity/state/API/event hoặc quyết định ownership, đọc `07-service-boundaries.md`.
+   - Nếu luồng đi qua từ hai service trở lên, đọc cả `08-cross-service-flows.md`.
 2. Đọc đúng tài liệu tham chiếu theo loại thay đổi:
    - Truy vấn JPA/Mongo, endpoint danh sách, batch hoặc cache: `references/performance-data-access.md`.
    - Log, metric, trace, JavaDoc/docstring/TODO: `references/logging-documentation.md`.

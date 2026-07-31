@@ -7,6 +7,7 @@ $agentsFile = Join-Path $repoRoot 'AGENTS.md'
 $claudeFile = Join-Path $repoRoot 'CLAUDE.md'
 $ruleRoot = Join-Path $repoRoot '.agents\rules'
 $skillRoot = Join-Path $repoRoot '.agents\skills\finora-engineering'
+$roadmapFile = Join-Path $repoRoot '.agents\plans\finora-team-roadmap.md'
 
 $requiredFiles = @(
     $agentsFile,
@@ -18,6 +19,9 @@ $requiredFiles = @(
     (Join-Path $ruleRoot '04-conventions-contracts.md'),
     (Join-Path $ruleRoot '05-registry.md'),
     (Join-Path $ruleRoot '06-quality-gates.md'),
+    (Join-Path $ruleRoot '07-service-boundaries.md'),
+    (Join-Path $ruleRoot '08-cross-service-flows.md'),
+    $roadmapFile,
     (Join-Path $skillRoot 'SKILL.md'),
     (Join-Path $skillRoot 'agents\openai.yaml')
 )
@@ -45,6 +49,9 @@ for ($index = 1; $index -lt $agentsLines.Count; $index++) {
 }
 
 $ruleMap = Get-Content -Raw -Encoding utf8 (Join-Path $ruleRoot '00-rule-map.md')
+if ($ruleMap -notmatch [regex]::Escape('finora-team-roadmap.md')) {
+    throw 'Rule map does not reference finora-team-roadmap.md.'
+}
 $ruleFiles = $requiredFiles | Where-Object {
     $_ -like "$ruleRoot*" -and $_ -notlike '*00-rule-map.md'
 }
