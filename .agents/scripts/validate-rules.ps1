@@ -93,4 +93,28 @@ foreach ($markdownFile in $markdownFiles) {
     }
 }
 
+$architecture = Get-Content -Raw -Encoding utf8 (Join-Path $ruleRoot '03-architecture-structure.md')
+foreach ($requiredPackage in @(
+    'controller/',
+    'service/',
+    'domain/',
+    'repository/',
+    'dto/',
+    'mapper/',
+    'integration/',
+    'messaging/',
+    'config/',
+    'exception/'
+)) {
+    if ($architecture -notmatch [regex]::Escape($requiredPackage)) {
+        throw "Layered architecture is missing package: $requiredPackage"
+    }
+}
+if ($architecture -match 'package-by-feature|application/<feature>') {
+    throw 'Legacy package-by-feature rule is still present in architecture rules.'
+}
+if ((Get-Content -Raw -Encoding utf8 $roadmapFile) -match 'package-by-feature') {
+    throw 'Legacy package-by-feature rule is still present in the team roadmap.'
+}
+
 Write-Output 'FINORA rules validation: OK'

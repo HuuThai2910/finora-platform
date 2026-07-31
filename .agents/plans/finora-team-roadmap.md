@@ -40,7 +40,7 @@ Một task chỉ chuyển `READY` khi có đủ:
 
 Một task chỉ `DONE` khi:
 
-- Code đúng ownership, package-by-feature và không sửa ngoài phạm vi.
+- Code đúng ownership và layered architecture; controller, service, repository, domain và integration không vượt trách nhiệm của layer; không sửa ngoài phạm vi.
 - Có migration/constraint/index cần thiết; không dùng `ddl-auto` làm cơ chế triển khai schema.
 - Có authentication/authorization và validation phù hợp.
 - Không N+1, query không giới hạn hoặc REST call trong vòng lặp.
@@ -311,4 +311,3 @@ Thêm dòng mới, không sửa mất lịch sử đã dùng để triển khai.
 - Chỉ đánh `DONE` sau khi có bằng chứng test và điều kiện phase gate liên quan.
 - Thêm/bỏ/đổi owner chức năng phải được cả hai xác nhận và cập nhật ownership/rule nếu boundary đổi.
 - Roadmap mô tả kế hoạch thực thi; nếu xung đột với rule kiến trúc/an toàn thì rule ưu tiên và roadmap phải được sửa.
-
