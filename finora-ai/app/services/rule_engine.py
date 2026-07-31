@@ -117,6 +117,13 @@ def tinh_diem_rui_ro(features: dict) -> int:
     else:
         diem += 5
 
+    # 5. Phạt điểm rủi ro nếu có bất hợp lý nhẹ giữa tuổi và thâm niên làm việc (đi làm khi chưa đủ 18 tuổi)
+    tuoi = features.get("person_age")
+    if tuoi is not None and tham_nien is not None:
+        if 10 <= tuoi - tham_nien < 18:
+            # Trừ thẳng 10 điểm phạt rủi ro do nghi ngờ khai báo không chính thức hoặc gian lận nhẹ
+            diem = max(0, diem - 10)
+
     return diem
 
 
@@ -184,6 +191,20 @@ def kiem_tra_chot_chan_cung(features: dict) -> str | None:
         # Nếu số tiền trả nợ hàng tháng chiếm trên 50% thu nhập hàng tháng -> Từ chối thẳng
         if ty_le_tra_no > 0.50:
             return "DEBT_SERVICE_RATIO_TOO_HIGH"
+
+    # 4. Kiểm tra sự bất hợp lý quá lớn giữa tuổi và kinh nghiệm làm việc (thâm niên)
+    tuoi = features.get("person_age")
+    emp_length_raw = features.get("emp_length")
+
+    # Đọc thâm niên (emp_length_years hoặc từ chuỗi emp_length)
+    tham_nien = features.get("emp_length_years")
+    if tham_nien is None and emp_length_raw is not None:
+        tham_nien = _doc_tham_nien(emp_length_raw)
+
+    if tuoi is not None and tham_nien is not None:
+        # Chặn cứng nếu đi làm trước 10 tuổi (điều này quá vô lý và chắc chắn là hồ sơ ảo)
+        if tuoi - tham_nien < 10:
+            return "AGE_AND_EXPERIENCE_INCONSISTENCY"
 
     return None
 

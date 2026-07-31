@@ -41,7 +41,7 @@
     "age_over_60"
   ],
   "model_class": "XGBClassifier",
-  "saved_at": "2026-07-31T17:45:07.411948+00:00",
+  "saved_at": "2026-07-31T18:24:06.006725+00:00",
   "du_lieu_huan_luyen": {
     "nguon": "data/lc_clean.csv",
     "loc": "issue_year in [2012, 2014]",
