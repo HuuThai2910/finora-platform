@@ -1,0 +1,20 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# === Virtualenv ===
+.venv/
+venv/
+env/
+
+# === Dữ liệu huấn luyện ===
+# lc_clean.csv nặng 128MB — git không hợp với file lớn, commit vào là repo phình
+# vĩnh viễn và không xóa được khỏi lịch sử. Lấy file từ nguồn ngoài rồi đặt vào đây.
+data/
+
+# LƯU Ý: models/ KHÔNG bị bỏ qua. Vì data/ không commit nên không ai clone về mà
+# huấn luyện lại được — gói model (.pkl + .json) phải nằm trong repo thì service
+# mới chạy được. File .json còn là tài liệu về mô hình: đọc và diff được qua git.

@@ -4,6 +4,7 @@ uvicorn[standard]==0.27.0
 pydantic==2.5.3
 
 # AI / Machine Learning
+xgboost==3.3.0
 scikit-learn==1.4.0
 pandas==2.1.4
 numpy==1.26.3
