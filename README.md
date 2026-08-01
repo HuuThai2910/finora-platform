@@ -20,29 +20,38 @@ FINORA là nền tảng cho vay ngang hàng (Peer-to-Peer Lending) được xây
 ## 🚀 Khởi chạy
 
 ### 1. Dựng hạ tầng
-```bash
-cd docker
-docker-compose up -d
+
+Docker Desktop phải đang chạy. Tạo `docker/.env` từ file mẫu, điền secret local rồi chạy smoke test:
+
+```powershell
+Copy-Item docker/.env.example docker/.env
+powershell -ExecutionPolicy Bypass -File docker/smoke-infra.ps1 -Scope Loan -KeepRunning
 ```
 
+Lệnh trên chỉ chạy hạ tầng chung và MySQL riêng của Loan. Mỗi service có database container/user/volume riêng; xem profile, DBeaver và lệnh dừng tại [docker/README.md](docker/README.md).
+
+Các lệnh build Java bên dưới yêu cầu JDK 21 và Maven 3.9 có trong `PATH`; cũng có thể dùng Maven do IntelliJ quản lý.
+
 ### 2. Build toàn bộ Java services
-```bash
-mvn clean install -DskipTests
+```powershell
+mvn clean verify
 ```
 
 ### 3. Chạy từng service
-```bash
+```powershell
 # Terminal 1
-cd finora-loan && mvn spring-boot:run
+$env:LOAN_DB_PASSWORD='<giống docker/.env>'
+mvn -pl finora-loan -am spring-boot:run
 
-# Terminal 2
-cd finora-payment && mvn spring-boot:run
+# Terminal 2 (ví dụ)
+cd finora-payment
+mvn spring-boot:run
 
 # ... tương tự cho các service khác
 ```
 
 ### 4. Chạy AI Service (Python)
-```bash
+```powershell
 cd finora-ai
 pip install -r requirements.txt
 uvicorn main:app --reload --port 8000

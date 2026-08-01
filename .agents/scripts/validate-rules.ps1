@@ -8,6 +8,9 @@ $claudeFile = Join-Path $repoRoot 'CLAUDE.md'
 $ruleRoot = Join-Path $repoRoot '.agents\rules'
 $skillRoot = Join-Path $repoRoot '.agents\skills\finora-engineering'
 $roadmapFile = Join-Path $repoRoot '.agents\plans\finora-team-roadmap.md'
+$dockerTaskFile = Join-Path $repoRoot '.agents\plans\P0-C04-local-docker-infrastructure.md'
+$loanPlanFile = Join-Path $repoRoot 'finora-loan\PLAN.md'
+$loanTaskFile = Join-Path $repoRoot 'finora-loan\plans\LN-001-loan-foundation.md'
 
 $requiredFiles = @(
     $agentsFile,
@@ -22,6 +25,9 @@ $requiredFiles = @(
     (Join-Path $ruleRoot '07-service-boundaries.md'),
     (Join-Path $ruleRoot '08-cross-service-flows.md'),
     $roadmapFile,
+    $dockerTaskFile,
+    $loanPlanFile,
+    $loanTaskFile,
     (Join-Path $skillRoot 'SKILL.md'),
     (Join-Path $skillRoot 'agents\openai.yaml')
 )
@@ -115,6 +121,29 @@ if ($architecture -match 'package-by-feature|application/<feature>') {
 }
 if ((Get-Content -Raw -Encoding utf8 $roadmapFile) -match 'package-by-feature') {
     throw 'Legacy package-by-feature rule is still present in the team roadmap.'
+}
+
+$loanPlan = Get-Content -Raw -Encoding utf8 $loanPlanFile
+$loanTask = Get-Content -Raw -Encoding utf8 $loanTaskFile
+if ($loanPlan -notmatch [regex]::Escape('LN-001-loan-foundation.md')) {
+    throw 'Loan PLAN.md does not reference LN-001 detail.'
+}
+if ((Get-Content -Raw -Encoding utf8 $roadmapFile) -notmatch [regex]::Escape('LN-001-loan-foundation.md')) {
+    throw 'Team roadmap does not reference LN-001 detail.'
+}
+if ($loanTask -notmatch '(?s)^---\r?\ntask_id: LN-001\r?\ntitle: .+?\r?\nowner: Thai\r?\nstatus: (DRAFT|APPROVED|IN_PROGRESS|BLOCKED|READY_FOR_REVIEW|CHANGES_REQUESTED|ACCEPTED)\r?\n') {
+    throw 'LN-001 task metadata is invalid.'
+}
+$loanTaskStatus = [regex]::Match($loanTask, '(?m)^status: ([A-Z_]+)$').Groups[1].Value
+if ($loanTaskStatus -in @('APPROVED', 'IN_PROGRESS', 'READY_FOR_REVIEW', 'CHANGES_REQUESTED', 'ACCEPTED')) {
+    if ($loanTask -notmatch '(?m)^approved_by: Thai$' -or $loanTask -notmatch '(?m)^approved_at: \d{4}-\d{2}-\d{2}') {
+        throw 'LN-001 cannot advance beyond DRAFT without Thai approval metadata.'
+    }
+}
+if ($loanTaskStatus -eq 'ACCEPTED') {
+    if ($loanTask -notmatch '(?m)^accepted_by: Thai$' -or $loanTask -notmatch '(?m)^accepted_at: \d{4}-\d{2}-\d{2}') {
+        throw 'LN-001 cannot be ACCEPTED without Thai acceptance metadata.'
+    }
 }
 
 Write-Output 'FINORA rules validation: OK'

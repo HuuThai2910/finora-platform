@@ -74,12 +74,13 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 |---|---|---|---|---|
 | P0-C01 | Thái + Hải | Chốt REST error/pagination, money/time format, Kafka envelope | Review chung | `BACKLOG` |
 | P0-C02 | Thái + Hải | Chốt JWT claims, role `borrower/investor/admin`, resource authorization | Gateway/User/Loan | `BACKLOG` |
-| P0-A01 | Thái | Chuẩn Flyway/Testcontainers cho Loan và Payment | Hải review pattern | `BACKLOG` |
+| P0-A01 | Thái | Chuẩn MySQL 8.4/Flyway/Testcontainers cho Loan ([LN-001](../../finora-loan/plans/LN-001-loan-foundation.md)); tổng thể xem [Loan Service Design](../../finora-loan/plans/LOAN-SERVICE-DESIGN.md) | Thái accepted; Compose/registry chung chuyển sang P0-C04 để Hải review | `DONE` |
+| P0-A03 | Thái | Áp dụng Flyway/Testcontainers cho Payment sau khi Loan được chấp nhận | Hải review pattern | `BACKLOG` |
 | P0-B01 | Hải | Chuẩn Mongo migration/index test cho Investment; Python Ruff/Pytest | Thái review contract | `BACKLOG` |
 | P0-A02 | Thái | Outbox + idempotent consumer reference implementation phía Java do Thái sở hữu | Hải dùng contract, không sửa module | `BACKLOG` |
 | P0-B02 | Hải | Notification consumer reference, retry/DLT/idempotency | Thái cung cấp event fixture | `BACKLOG` |
 | P0-C03 | Thái + Hải | Trace ID HTTP/Kafka, JSON logging, Actuator/readiness | Chia theo module owner | `BACKLOG` |
-| P0-C04 | Thái + Hải | Docker Compose profile tối thiểu và smoke test hạ tầng | Review chung | `BACKLOG` |
+| P0-C04 | Thái + Hải | Docker Compose profile và database instance riêng từng service ([plan](P0-C04-local-docker-infrastructure.md)) | Thái đã triển khai/test lại; Hải review vùng chung trước merge | `REVIEW` |
 
 **Contract phải chốt:** error envelope, event envelope, correlation headers, idempotency header, role/claim, timestamp và money serialization.
 
@@ -105,11 +106,11 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P1-A01 | Loan | Loan product và điều kiện gói vay | Migration + API admin/read | `BACKLOG` |
-| P1-A02 | Loan | Loan application draft/submit | State transition + authorization | `BACKLOG` |
+| P1-A01 | Loan | Loan product và điều kiện gói vay ([LN-003](../../finora-loan/plans/LN-003-loan-product.md)) | Base/min/max rate, migration + API admin/read | `BACKLOG` |
+| P1-A02 | Loan | Loan application Draft + core submit snapshot/history ([LN-004](../../finora-loan/plans/LN-004-loan-application.md)) | Chờ User ID contract; không gọi AI; state transition + authorization | `BACKLOG` |
 | P1-A03 | Loan | KYC eligibility adapter theo contract | Không truy cập DB User | `BACKLOG` |
-| P1-A04 | Loan | AI credit client với timeout/circuit breaker | Fixture chạy khi AI chưa hoàn tất | `BACKLOG` |
-| P1-A05 | Loan | Lưu immutable scoring snapshot | Model/rule version + reason codes | `BACKLOG` |
+| P1-A04 | Loan | AI credit client với timeout/circuit breaker | Chờ [6 câu hỏi Loan–AI](../../finora-loan/plans/AI-CREDIT-CONTRACT-QUESTIONS-FOR-HAI.md) + fixture `READY` | `BACKLOG` |
+| P1-A05 | Loan | Lưu immutable `CreditScoringAssessment` | Input hash + model/rule version + reason codes | `BACKLOG` |
 | P1-A06 | Loan | State `SUBMITTED → SCORING → PENDING_REVIEW/REJECTED` | Retry/manual failure state | `BACKLOG` |
 
 ### Điểm bắt tay P1
@@ -117,6 +118,7 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 - Hải cung cấp OpenAPI/example JSON cho KYC status và credit result trước khi Thái implement adapter.
 - Thái cung cấp loan feature request/schema và validation cần thiết trước khi Hải khóa model input contract.
 - Hai bên dùng cùng fixture version; không import DTO Java/Python của nhau qua `finora-common`.
+- Trong khi Hải chốt AI, Thái triển khai tuần tự P0-A01/P0 baseline rồi P1-A01/P1-A02; không code P1-A04/P1-A05 theo schema v10 chưa thống nhất.
 
 **Phase gate P1:** người dùng xác thực → KYC → tạo hồ sơ → AI scoring → Loan lưu snapshot → hồ sơ chờ duyệt/từ chối; AI timeout không tạo điểm giả; request/event trùng không tạo hồ sơ hoặc scoring artifact trùng.
 
@@ -304,6 +306,10 @@ Thêm dòng mới, không sửa mất lịch sử đã dùng để triển khai.
 | Ngày | Task/Flow | Quyết định hoặc blocker | Owner quyết định | Ảnh hưởng contract | Trạng thái |
 |---|---|---|---|---|---|
 | YYYY-MM-DD | P?-???/F?? | Mô tả | Thái/Hải/Cả hai | Có/Không + version | Open/Resolved |
+| 2026-08-01 | P0-A01 | Thái nghiệm thu LN-001; chuyển phần Compose/registry chung sang P0-C04 | Thái | Không | Resolved |
+| 2026-08-01 | P0-C04 | Local hybrid đã pass smoke/build/app test; do máy có service chiếm cổng chuẩn nên host dùng MySQL 13306, Mongo 27018, Redis 6380; internal port giữ nguyên | Thái triển khai, Hải review | Có — local port/env contract | Review |
+| 2026-08-01 | P0-C04 | Thái yêu cầu thay mô hình MySQL dùng chung bằng database container/user/volume riêng từng service và scope chỉ chạy storage cần thiết | Thái quyết định, Hải review vùng chung | Có — local profile/storage/credential contract | Open |
+| 2026-08-01 | P0-C04 | Database instance/user/volume riêng và smoke theo scope đã pass; Payment config bỏ root credential; module Hải chưa sửa | Thái triển khai, Hải review | Có — local profile/storage/credential contract | Review |
 
 ## 15. Quy tắc cập nhật roadmap
 

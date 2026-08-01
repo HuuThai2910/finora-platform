@@ -30,6 +30,7 @@ logs/
 
 # === Env ===
 .env
+docker/.env
 *.env.local
 
 # === Docker volumes ===

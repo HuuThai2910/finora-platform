@@ -1,0 +1,10 @@
+.git
+.idea
+.agents
+**/target
+**/.venv
+**/__pycache__
+**/.pytest_cache
+finora-ai
+docker/.env
+*.log

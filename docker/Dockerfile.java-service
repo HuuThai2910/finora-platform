@@ -1,0 +1,35 @@
+FROM maven:3.9.9-eclipse-temurin-21 AS build
+
+ARG SERVICE_MODULE
+WORKDIR /workspace
+
+# Maven phải đọc được toàn bộ reactor POM dù chỉ build một module và dependency của nó.
+COPY pom.xml ./
+COPY finora-common/pom.xml finora-common/pom.xml
+COPY finora-gateway/pom.xml finora-gateway/pom.xml
+COPY finora-loan/pom.xml finora-loan/pom.xml
+COPY finora-payment/pom.xml finora-payment/pom.xml
+COPY finora-blockchain/pom.xml finora-blockchain/pom.xml
+COPY finora-investment/pom.xml finora-investment/pom.xml
+COPY finora-user/pom.xml finora-user/pom.xml
+COPY finora-notification/pom.xml finora-notification/pom.xml
+
+RUN test -n "$SERVICE_MODULE" \
+    && mvn -B -pl "$SERVICE_MODULE" -am dependency:go-offline
+
+COPY finora-common/src finora-common/src
+COPY ${SERVICE_MODULE}/src ${SERVICE_MODULE}/src
+
+# Test chạy ở quality gate trước khi build image; image build không cần Docker-in-Docker cho Testcontainers.
+RUN mvn -B -pl "$SERVICE_MODULE" -am -DskipTests package
+
+FROM eclipse-temurin:21-jre-jammy
+
+ARG SERVICE_MODULE
+WORKDIR /app
+
+RUN useradd --system --uid 10001 --create-home finora
+COPY --from=build --chown=finora:finora /workspace/${SERVICE_MODULE}/target/${SERVICE_MODULE}-*.jar /app/application.jar
+
+USER 10001
+ENTRYPOINT ["java", "-jar", "/app/application.jar"]
