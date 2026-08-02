@@ -23,5 +23,6 @@ Luật tối thiểu luôn áp dụng:
 - Không commit secret, log PII, dùng float/double cho tiền hoặc sửa migration đã merge.
 - Không tự `git commit`, `git push`, merge hoặc thay đổi hệ thống ngoài phạm vi nếu người dùng chưa yêu cầu rõ trong lượt hiện tại.
 - Không báo hoàn thành khi chưa chạy kiểm tra phù hợp; nếu không chạy được phải nói rõ.
+- Khi đổi luồng liên service, đồng bộ `08-cross-service-flows.md`, roadmap và plan service; vùng dùng chung phải được owner còn lại review trước merge.
 
 Khi thay đổi hệ thống rule, cập nhật nguồn chuẩn trong `.agents/rules/`, entrypoint liên quan và skill liên quan trong cùng change; chạy `.agents/scripts/validate-rules.ps1` nếu script này tồn tại.

@@ -225,14 +225,11 @@ services:
       LOAN_DB_URL: jdbc:mysql://loan-mysql:3306/${LOAN_DB_NAME:-finora_loan}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
       LOAN_DB_USERNAME: ${LOAN_DB_USERNAME:-finora_loan}
       LOAN_DB_PASSWORD: "${LOAN_DB_PASSWORD}"
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://host.docker.internal:8000}
+      SPRING_PROFILES_ACTIVE: ${LOAN_ACTIVE_PROFILE:-local-admin}
     ports:
       - "127.0.0.1:${LOAN_HOST_PORT:-8081}:8081"
     depends_on:
       loan-mysql:
-        condition: service_healthy
-      kafka:
         condition: service_healthy
     networks:
       - finora-network
