@@ -7,7 +7,7 @@ FINORA là khóa luận IUH 2026 về nền tảng P2P Lending. Repository hiệ
 - Spring Boot 3.2, Java 21: `finora-gateway`, `finora-loan`, `finora-payment`, `finora-blockchain`, `finora-investment`, `finora-user`, `finora-notification`.
 - Thư viện Java: `finora-common`.
 - FastAPI: `finora-ai` cho credit scoring, eKYC và fraud detection.
-- Hạ tầng định hướng: Keycloak, Kafka, MySQL, MongoDB, Redis và Hyperledger Fabric.
+- Hạ tầng định hướng: PostgreSQL cho Loan/Payment/Blockchain/Fineract, MySQL cho User/Keycloak theo ownership hiện tại, MongoDB, Redis, Kafka và Hyperledger Fabric.
 
 ## CURRENT STATE
 
@@ -23,10 +23,12 @@ FINORA là khóa luận IUH 2026 về nền tảng P2P Lending. Repository hiệ
 - Event publication dùng outbox; consumer idempotent.
 - Giải ngân dùng Saga orchestration do `finora-loan` điều phối.
 - Fabric lưu bằng chứng/hash/audit; database của service vẫn là nguồn state nghiệp vụ.
+- Loan, Payment và Blockchain dùng PostgreSQL 17, ưu tiên Neon Project riêng từng service; PostgreSQL Docker chỉ là offline/test fallback.
+- Apache Fineract 1.15.0 là core lending/servicing dự kiến với PostgreSQL/Neon Project riêng và hai database `fineract_tenants`, `fineract_default`; Loan/Payment chỉ tích hợp qua REST/reliable event và không đọc DB Fineract.
+- Hải tự quyết định database cho các module mình sở hữu; User/Keycloak vẫn dùng MySQL và Investment vẫn dùng MongoDB cho tới khi owner thay đổi.
 
 ## Phạm vi thư mục gốc
 
 Các thư mục gốc mới như `apps/`, `contracts/`, `chaincode/`, `infra/`, `docs/` chỉ được tạo khi task yêu cầu hoặc người dùng chấp thuận. Khi tạo, MUST cập nhật file này, `03-architecture-structure.md`, ownership và registry nếu liên quan.
 
 Gói model AI là hợp đồng deploy. `model_v<n>.json` MUST chứa thứ tự feature, median điền thiếu, siêu tham số, công thức dẫn xuất và metric. MUST NOT hard-code giá trị điền thiếu trong schema hoặc predictor vì gây train/serve skew.
-

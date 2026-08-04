@@ -72,15 +72,17 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 
 | ID | Owner | Công việc | Phối hợp | Trạng thái |
 |---|---|---|---|---|
-| P0-C01 | Thái + Hải | Chốt REST error/pagination, money/time format, Kafka envelope | Review chung | `BACKLOG` |
-| P0-C02 | Thái + Hải | Chốt JWT claims, role `borrower/investor/admin`, resource authorization | Gateway/User/Loan | `BACKLOG` |
-| P0-A01 | Thái | Chuẩn MySQL 8.4/Flyway/Testcontainers cho Loan ([LN-001](../../finora-loan/plans/LN-001-loan-foundation.md)); tổng thể xem [Loan Service Design](../../finora-loan/plans/LOAN-SERVICE-DESIGN.md) | Thái accepted; Compose/registry chung chuyển sang P0-C04 để Hải review | `DONE` |
-| P0-A03 | Thái | Áp dụng Flyway/Testcontainers cho Payment sau khi Loan được chấp nhận | Hải review pattern | `BACKLOG` |
+| P0-C01 | Thái + Hải | Chốt REST error/pagination, money/time format, Kafka envelope; error phần Loan được triển khai trong [LN-002](../../finora-loan/plans/LN-002-security-error-observability.md) | Thái triển khai error baseline; Hải hậu kiểm trước merge | `IN_PROGRESS` |
+| P0-C02 | Thái + Hải | Chốt JWT claims, role `borrower/investor/admin`, resource authorization theo [LN-002](../../finora-loan/plans/LN-002-security-error-observability.md) | Hải/owner Identity cung cấp contract; Loan tạm dùng mock identity | `BACKLOG` |
+| P0-A01 | Thái | Baseline MySQL lịch sử của Loan ([LN-001](../../finora-loan/plans/LN-001-loan-foundation.md)), đã bị LN-001A thay thế | Thái từng accepted; không dùng để triển khai mới | `DONE` |
+| P0-A03 | Thái | Hoàn thiện Flyway/Testcontainers PostgreSQL cho Payment sau foundation P0-A06 | Hải review pattern vùng chung | `BACKLOG` |
+| P0-A06 | Thái | [Chuyển Loan/Payment/Blockchain sang PostgreSQL 17 và Neon Project riêng](P0-A06-postgresql-neon-migration.md); Loan schema theo [LN-001A](../../finora-loan/plans/LN-001A-postgresql-neon-migration.md) | Docker PostgreSQL chỉ offline/test; User/Keycloak của Hải không đổi | `IN_PROGRESS` |
 | P0-B01 | Hải | Chuẩn Mongo migration/index test cho Investment; Python Ruff/Pytest | Thái review contract | `BACKLOG` |
 | P0-A02 | Thái | Outbox + idempotent consumer reference implementation phía Java do Thái sở hữu | Hải dùng contract, không sửa module | `BACKLOG` |
 | P0-B02 | Hải | Notification consumer reference, retry/DLT/idempotency | Thái cung cấp event fixture | `BACKLOG` |
-| P0-C03 | Thái + Hải | Trace ID HTTP/Kafka, JSON logging, Actuator/readiness | Chia theo module owner | `BACKLOG` |
-| P0-C04 | Thái + Hải | Docker Compose profile và database instance riêng từng service ([plan](P0-C04-local-docker-infrastructure.md)) | Thái đã triển khai/test lại; Hải review vùng chung trước merge | `REVIEW` |
+| P0-C03 | Thái + Hải | Trace ID HTTP/Kafka, JSON logging, Actuator/readiness; HTTP baseline Loan ở [LN-002](../../finora-loan/plans/LN-002-security-error-observability.md) | Thái triển khai HTTP Loan; Kafka trace làm khi có flow thật; Hải hậu kiểm | `IN_PROGRESS` |
+| P0-C04 | Thái + Hải | Neon-first cho service Thái; Docker database riêng từng service làm offline/test fallback ([plan](P0-C04-local-docker-infrastructure.md)) | Thái triển khai; Hải review vùng dùng chung trước merge | `IN_PROGRESS` |
+| P0-C05 | Thái + Hải | [Apache Fineract 1.15.0 + PostgreSQL riêng + tenant/bootstrap/health fixture](P0-C05-fineract-local-fixture.md) | Thái triển khai adapter/hạ tầng; Hải review vùng dùng chung trước merge | `IN_PROGRESS` |
 
 **Contract phải chốt:** error envelope, event envelope, correlation headers, idempotency header, role/claim, timestamp và money serialization.
 
@@ -106,19 +108,19 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P1-A01 | Loan | Loan product và điều kiện gói vay ([LN-003](../../finora-loan/plans/LN-003-loan-product.md)) | Base/min/max rate, migration + API admin/read | `BACKLOG` |
-| P1-A02 | Loan | Loan application Draft + core submit snapshot/history ([LN-004](../../finora-loan/plans/LN-004-loan-application.md)) | Chờ User ID contract; không gọi AI; state transition + authorization | `BACKLOG` |
-| P1-A03 | Loan | KYC eligibility adapter theo contract | Không truy cập DB User | `BACKLOG` |
-| P1-A04 | Loan | AI credit client với timeout/circuit breaker | Chờ [6 câu hỏi Loan–AI](../../finora-loan/plans/AI-CREDIT-CONTRACT-QUESTIONS-FOR-HAI.md) + fixture `READY` | `BACKLOG` |
-| P1-A05 | Loan | Lưu immutable `CreditScoringAssessment` | Input hash + model/rule version + reason codes | `BACKLOG` |
-| P1-A06 | Loan | State `SUBMITTED → SCORING → PENDING_REVIEW/REJECTED` | Retry/manual failure state | `BACKLOG` |
+| P1-A01 | Loan | [LN-003: Product fixed rate + repayment method + Fineract mapping](../../finora-loan/plans/LN-003-loan-product.md) | Chỉ Product core-sync thành công mới ACTIVE; V1 được viết lại sau duyệt | `IN_PROGRESS` |
+| P1-A02 | Loan | [LN-004: Direct-submit Application + snapshots](../../finora-loan/plans/LN-004-loan-application.md) | Không backend Draft; không credit history tự khai; V2 được viết lại sau duyệt | `IN_PROGRESS` |
+| P1-A03 | Loan | [LN-005: Borrower profile/KYC provider](../../finora-loan/plans/LN-005-borrower-profile-kyc.md) | Không truy cập DB User; dùng mock provider cho tới khi có fixture | `REVIEW` |
+| P1-A04 | Loan | [LN-006: Fineract Product/Schedule adapter](../../finora-loan/plans/LN-006-fineract-product-schedule-integration.md) | Fixed Product rate làm `int_rate`; installment lấy từ Fineract | `IN_PROGRESS` |
+| P1-A05 | Loan | [LN-007: `BorrowerCreditProfile` + AI v10 assessment](../../finora-loan/plans/LN-007-credit-profile-ai-assessment.md) | Internal proxy source/version + input hash/model version; bỏ qua suggested rate | `REVIEW` |
+| P1-A06 | Loan | [LN-007: scoring orchestration/state](../../finora-loan/plans/LN-007-credit-profile-ai-assessment.md) | Retry/manual failure state; AI không tự quyết định cuối | `REVIEW` |
 
 ### Điểm bắt tay P1
 
 - Hải cung cấp OpenAPI/example JSON cho KYC status và credit result trước khi Thái implement adapter.
-- Thái cung cấp loan feature request/schema và validation cần thiết trước khi Hải khóa model input contract.
+- Thái cung cấp loan feature request/schema và validation; Hải cung cấp JSON/OpenAPI response/error fixture v10 để khóa contract test.
 - Hai bên dùng cùng fixture version; không import DTO Java/Python của nhau qua `finora-common`.
-- Trong khi Hải chốt AI, Thái triển khai tuần tự P0-A01/P0 baseline rồi P1-A01/P1-A02; không code P1-A04/P1-A05 theo schema v10 chưa thống nhất.
+- Hai owner đã chốt model v10, Product fixed rate làm `int_rate`, installment từ Fineract, credit history projection nội bộ và Loan bỏ qua `suggested_rate`; P1-A04/P1-A05 vẫn chưa `READY` cho tới khi Fineract/AI fixture cuối tồn tại.
 
 **Phase gate P1:** người dùng xác thực → KYC → tạo hồ sơ → AI scoring → Loan lưu snapshot → hồ sơ chờ duyệt/từ chối; AI timeout không tạo điểm giả; request/event trùng không tạo hồ sơ hoặc scoring artifact trùng.
 
@@ -130,9 +132,9 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P2-A01 | Loan | Admin review/approve/reject | Optimistic lock + audit | `BACKLOG` |
-| P2-A02 | Loan | Loan listing intent và `ON_MARKET` | Outbox `LoanListed` v1 | `BACKLOG` |
-| P2-A03 | Loan | Funding summary và consume fully-funded | Loan tự đổi `FUNDED` | `BACKLOG` |
+| P2-A01 | Loan | [LN-008: Admin decision + `LoanContract` + signature](../../finora-loan/plans/LN-008-approval-loan-contract.md) | Một văn bản cần ký; fixed Product terms; optimistic lock/audit | `BACKLOG` |
+| P2-A02 | Loan | [LN-009: Signed-Contract listing/outbox](../../finora-loan/plans/LN-009-market-listing-outbox.md) | Chỉ Contract `SIGNED`; outbox `LoanListed` v1 | `BACKLOG` |
+| P2-A03 | Loan | [LN-010: Consume fully-funded](../../finora-loan/plans/LN-010-fully-funded-consumer.md) | Loan tự đổi `FUNDED` | `BACKLOG` |
 
 ### Hải
 
@@ -146,7 +148,7 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 
 **Contract phải chốt:** `LoanListed` v1, listing expiry/cancel, amount/interest/term/grade, `LoanFullyFunded` v1, partition key `loanId`.
 
-**Phase gate P2:** admin duyệt → market projection xuất hiện → nhiều lệnh được match chính xác → tổng vốn không vượt target → `LoanFullyFunded` phát đúng một lần → Loan tự chuyển `FUNDED`.
+**Phase gate P2:** admin approve tạo Contract → borrower xem exact terms và ký → market projection xuất hiện → nhiều lệnh được match chính xác → tổng vốn không vượt target → `LoanFullyFunded` phát đúng một lần → Loan tự chuyển `FUNDED`.
 
 ## 8. P3 — Wallet, hold tiền và commitment
 
@@ -183,9 +185,9 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P4-A01 | Loan | Durable Disbursement Saga state machine | `sagaId`, step, attempt, timeout | `BACKLOG` |
+| P4-A01 | Loan | [LN-011: Fineract booking + Disbursement Saga](../../finora-loan/plans/LN-011-disbursement-fineract-booking-saga.md) | externalId contract, `sagaId`, step, attempt, timeout | `BACKLOG` |
 | P4-A02 | Payment | Capture commitments và disbursement ledger | Financial idempotency | `BACKLOG` |
-| P4-A03 | Loan | Compensation/retry/restart recovery | Không lặp side effect | `BACKLOG` |
+| P4-A03 | Loan | [LN-012: Fineract projection/reconciliation](../../finora-loan/plans/LN-012-fineract-servicing-reconciliation.md) | Không lặp side effect; repair khi tiền đã chuyển nhưng core lỗi | `BACKLOG` |
 | P4-A04 | Blockchain | Fabric adapter submit/query | Hash only, no PII | `BACKLOG` |
 | P4-A05 | Blockchain | Retry/DLT/submission status | Không rollback nghiệp vụ đã commit | `BACKLOG` |
 
@@ -210,11 +212,11 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P5-A01 | Loan | Repayment schedule/installment state | Version và amount due | `BACKLOG` |
+| P5-A01 | Loan | [LN-012: Fineract schedule/balance projection](../../finora-loan/plans/LN-012-fineract-servicing-reconciliation.md) | Fineract là SoR; version/staleness/reconcile rõ | `BACKLOG` |
 | P5-A02 | Payment | Collect/manual payment/auto-debit cơ bản | Provider/idempotency reference | `BACKLOG` |
-| P5-A03 | Payment | Waterfall fee/penalty/interest/principal | Rule version + rounding remainder | `BACKLOG` |
+| P5-A03 | Payment | [LN-013: Ghi repayment vào Fineract](../../finora-loan/plans/LN-013-repayment-schedule-boundary.md) và dùng core breakdown | External transaction idempotency + reconciliation | `BACKLOG` |
 | P5-A04 | Payment | Phân bổ investor wallets | Balanced ledger | `BACKLOG` |
-| P5-A05 | Loan | Consume repayment, overdue/closed transition | Không chạy lại collection | `BACKLOG` |
+| P5-A05 | Loan | [LN-014: Consume overdue/default và cập nhật credit profile](../../finora-loan/plans/LN-014-delinquency-credit-profile.md) | Không chạy lại collection | `BACKLOG` |
 | P5-A06 | Blockchain | Repayment proof | Reconciliation reference | `BACKLOG` |
 
 ### Hải
@@ -310,6 +312,14 @@ Thêm dòng mới, không sửa mất lịch sử đã dùng để triển khai.
 | 2026-08-01 | P0-C04 | Local hybrid đã pass smoke/build/app test; do máy có service chiếm cổng chuẩn nên host dùng MySQL 13306, Mongo 27018, Redis 6380; internal port giữ nguyên | Thái triển khai, Hải review | Có — local port/env contract | Review |
 | 2026-08-01 | P0-C04 | Thái yêu cầu thay mô hình MySQL dùng chung bằng database container/user/volume riêng từng service và scope chỉ chạy storage cần thiết | Thái quyết định, Hải review vùng chung | Có — local profile/storage/credential contract | Open |
 | 2026-08-01 | P0-C04 | Database instance/user/volume riêng và smoke theo scope đã pass; Payment config bỏ root credential; module Hải chưa sửa | Thái triển khai, Hải review | Có — local profile/storage/credential contract | Review |
+| 2026-08-01 | P0-C01/P0-C02/P0-C03 | Tạo LN-002 hợp nhất Keycloak tối thiểu, JWT/role, error envelope và HTTP observability cho Loan; không tạo plan P0 riêng, phần Loan làm song song và vùng chung chờ Hải review trước merge | Thái duyệt LN-002; Hải review contract chung | Có — JWT/role/error/trace contract | Open |
+| 2026-08-01 | P0-C01/P0-C02/P0-C03 | Thái cho phép triển khai trước cả core/common; Hải hậu kiểm contract/vùng chung khi LN-002 sẵn sàng review | Thái | Có — thay đổi thứ tự review, không đổi contract baseline | In progress |
+| 2026-08-02 | P0-C02 | Thái quyết định gỡ JWT/Keycloak thử nghiệm khỏi Loan và dùng mock `userId/role` tập trung để tiếp tục nghiệp vụ; LN-002 trở lại backlog tới khi owner Identity cung cấp contract | Thái | Có — xác thực thật bị hoãn, mock tuyệt đối không dùng production | Resolved |
+| 2026-08-02 | P1-A02–P2-A02/F02–F03 | Quyết định trung gian từng dùng credit tự khai và LoanOffer | Đã bị thiết kế Fineract/LoanContract ở dòng kế tiếp thay thế | Có — không dùng để triển khai | Superseded |
+| 2026-08-02 | P0-C05/P1-A01–P5-A05/F00–F06 | [Thiết kế Loan tổng thể](../../finora-loan/plans/LOAN-SERVICE-DESIGN.md): Fineract 1.15/PostgreSQL riêng; fixed rate; direct-submit; internal credit profile; LoanContract thay LoanOffer; Payment post repayment vào core | Thái duyệt từng LN; Hải review cross-service contract/vùng chung | Có — Fineract/User/AI/Investment/Payment fixture | Draft review |
+| 2026-08-02 | P1-A01/P1-A02 | Hoàn tất Loan Product và Application Draft/submit/cancel/history; 22 test pass trên MySQL 8.4; Product/Application tự chọn actor admin/borrower giả lập trong cùng lần chạy | Thái triển khai; chờ Thái nghiệm thu task | Không đổi contract liên service | Review |
+| 2026-08-02 | P0-C04/P1-A01/P1-A02 | Bỏ dependency Core/Kafka khỏi Loan app container; thêm Postman manual collection 17 request có sẵn URL/body, chọn từng request để Send và hướng dẫn IDE/Docker chỉ chạy MySQL Loan | Thái quyết định local Loan; Hải hậu kiểm Compose trước merge | Có — local Loan hiện không khởi động Core khi chưa có use case | Review |
+| 2026-08-03 | P0-A06/P0-C04 | Thái chuyển Loan, Payment, Blockchain sang PostgreSQL 17; mỗi service một Neon Project có quota/credential riêng; Docker PostgreSQL chỉ làm offline/Testcontainers fallback | Thái quyết định; Hải review file dùng chung, service Hải không đổi | Có — datasource/port/local workflow | In progress |
 
 ## 15. Quy tắc cập nhật roadmap
 

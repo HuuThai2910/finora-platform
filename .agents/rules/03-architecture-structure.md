@@ -5,7 +5,7 @@
 Chi tiết quyền sở hữu, System of Record và state authority được định nghĩa tại `07-service-boundaries.md`; luồng phối hợp được định nghĩa tại `08-cross-service-flows.md`. File này chỉ giữ tóm tắt cấu trúc, không được dùng để ghi đè hai nguồn đó.
 
 - `finora-user`: hồ sơ người dùng, trạng thái eKYC; Keycloak là nguồn xác thực.
-- `finora-loan`: sản phẩm vay, hồ sơ, vòng đời, lịch trả nợ và Saga giải ngân.
+- `finora-loan`: FINORA Product/Application/Contract/lifecycle, bản chiếu lịch trả nợ và Saga giải ngân; Apache Fineract là nguồn chuẩn core account/schedule/balance khi tích hợp.
 - `finora-investment`: market, order, commitment, Note và auto-invest.
 - `finora-payment`: ví, hold/release/transfer, bút toán và phân bổ tiền; không sở hữu vòng đời khoản vay.
 - `finora-blockchain`: adapter Fabric, proof/audit/reconciliation; không là nguồn state nghiệp vụ.

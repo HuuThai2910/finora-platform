@@ -30,13 +30,23 @@ File này là nguồn chuẩn để quyết định một chức năng, entity, 
 
 ## `finora-loan`
 
-**Sở hữu:** loan product, loan application, approval decision, loan state machine, repayment schedule, overdue/NPL, restructuring, early settlement và Disbursement Saga.
+**Sở hữu:** FINORA loan product/catalog, loan application, credit assessment snapshot, approval decision, legal contract, FINORA marketplace/lifecycle state, restructuring/early-settlement orchestration và Disbursement Saga.
 
 **Không sở hữu:** wallet/ledger, investment order/commitment/Note, AI model hoặc Fabric ledger.
 
-**State authority:** chỉ Loan đổi `LoanStatus`. Investment/Payment/Blockchain phát kết quả; Loan kiểm tra current state/version rồi quyết định transition.
+**State authority:** chỉ Loan đổi `FinoraLoanStatus`, Application và Contract state. Investment/Payment/Blockchain phát kết quả; Loan kiểm tra current state/version rồi quyết định transition. Khi tích hợp Apache Fineract, Loan không tự sửa core balance/schedule/arrears mà chỉ gọi API và cập nhật read projection từ response/event có version.
 
 **Invariant:** scoring result dùng để duyệt phải được lưu snapshot gồm model/rule version và reason codes; model thay đổi sau đó không được làm thay đổi quyết định lịch sử.
+
+## Apache Fineract
+
+**Sở hữu:** core loan product projection, core loan account, repayment schedule chính thức, phân bổ borrower repayment vào gốc/lãi/phí/phạt, outstanding balance, arrears, write-off và accounting cấu hình trong core.
+
+**Không sở hữu:** FINORA Application/approval/legal Contract, P2P market/order/commitment/Note, FINORA wallet/ledger, AI decision hoặc notification.
+
+**State authority:** Fineract là nguồn chuẩn của `FineractLoanStatus`, schedule, balance và arrears. FINORA chỉ tích hợp qua REST/reliable event; MUST NOT đọc/ghi database Fineract trực tiếp.
+
+**Invariant:** mỗi mapping dùng external ID/idempotency bền vững; response/event được đối chiếu thứ tự và lưu projection tối thiểu. Sai lệch giữa Fineract và FINORA tạo reconciliation incident, không được sửa DB chéo để làm khớp.
 
 ## `finora-investment`
 
@@ -50,13 +60,13 @@ File này là nguồn chuẩn để quyết định một chức năng, entity, 
 
 ## `finora-payment`
 
-**Sở hữu:** wallet, available/held balance, immutable wallet transaction, hold/release/capture, deposit/withdrawal, disbursement execution, repayment collection/distribution và financial idempotency.
+**Sở hữu:** wallet, available/held balance, immutable wallet transaction, hold/release/capture, deposit/withdrawal, disbursement execution, repayment collection, investor distribution và financial idempotency.
 
 **Không sở hữu:** loan approval/state machine, matching, commitment/Note ownership hoặc quyết định bắt đầu giải ngân.
 
 **State authority:** chỉ Payment đổi wallet/financial transaction state.
 
-**Invariant:** mọi biến động số dư và ledger entry phải commit trong cùng local transaction; tổng debit/credit phải cân bằng; retry không tạo side effect lần hai; số dư không âm trừ khi một sản phẩm được thiết kế và phê duyệt rõ.
+**Invariant:** mọi biến động số dư và ledger entry phải commit trong cùng local transaction; tổng debit/credit phải cân bằng; retry không tạo side effect lần hai; số dư không âm trừ khi một sản phẩm được thiết kế và phê duyệt rõ. Khi dùng Fineract, Payment ghi repayment đã thu thành công vào core bằng external transaction reference; Fineract là nguồn breakdown gốc/lãi/phí/phạt, Payment vẫn là nguồn chuẩn của chuyển tiền và FINORA ledger.
 
 ## `finora-blockchain`
 
@@ -97,7 +107,8 @@ File này là nguồn chuẩn để quyết định một chức năng, entity, 
 | Credential, session, realm role | Keycloak | Service chỉ dùng JWT claims cần thiết |
 | User profile, KYC status | User | Loan giữ `userId`, KYC snapshot/reference cần cho quyết định |
 | Model và prediction kỹ thuật | AI | Loan/User giữ immutable result snapshot đã sử dụng |
-| Loan application, `LoanStatus`, schedule | Loan | Investment market projection; Payment giữ `loanId` reference |
+| Loan application, approval, Contract, `FinoraLoanStatus` | Loan | Investment market projection; Payment giữ `loanId` reference |
+| Core loan account, official schedule, balance, arrears | Apache Fineract | Loan giữ mapping/read projection; Payment giữ core transaction reference/breakdown |
 | Order, commitment, Note ownership | Investment | Payment giữ transaction/reference; Loan giữ funding summary |
 | Wallet, balance, ledger | Payment | Service khác chỉ giữ payment transaction ID và result |
 | Hash/proof/Fabric transaction | Blockchain | Service nguồn giữ Fabric transaction reference |
@@ -108,7 +119,8 @@ File này là nguồn chuẩn để quyết định một chức năng, entity, 
 | Aggregate/state | Service duy nhất được đổi |
 |---|---|
 | User/KYC | User |
-| Loan/application/schedule | Loan |
+| FINORA Application/Contract/Loan lifecycle | Loan |
+| Core loan account/schedule/balance/arrears | Apache Fineract |
 | Investment order/commitment/Note | Investment |
 | Wallet/financial transaction | Payment |
 | Fabric submission/reconciliation | Blockchain |
@@ -116,4 +128,3 @@ File này là nguồn chuẩn để quyết định một chức năng, entity, 
 | Model lifecycle/prediction artifact | AI |
 
 Ví dụ bắt buộc: Payment phát `DisbursementCompleted`; Payment MUST NOT sửa Loan thành `ACTIVE`. Loan consume event idempotently và tự thực hiện transition hợp lệ.
-

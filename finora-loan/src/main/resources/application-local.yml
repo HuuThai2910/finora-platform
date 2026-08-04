@@ -1,0 +1,10 @@
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+finora:
+  borrower-profile:
+    # Mock cố định BORROWER-001/age 30/KYC VERIFIED; production không cấu hình provider này.
+    provider: mock

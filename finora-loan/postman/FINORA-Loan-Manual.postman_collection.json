@@ -1,0 +1,118 @@
+{
+  "info": {
+    "name": "FINORA Loan Manual - LN003 LN006 LN004",
+    "description": "Mở từng request và bấm Send. Collection không tự chạy và không tự sửa biến.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "00 - Health",
+      "request": {"method": "GET", "url": "{{baseUrl}}/actuator/health/readiness"}
+    },
+    {
+      "name": "01 - Admin tạo Product DRAFT",
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {"mode": "raw", "raw": "{\n  \"code\": \"PERSONAL_STANDARD\",\n  \"name\": \"Vay tiêu dùng tiêu chuẩn\",\n  \"description\": \"Lãi suất cố định\",\n  \"minAmount\": 10000000,\n  \"maxAmount\": 100000000,\n  \"minTermMonths\": 6,\n  \"maxTermMonths\": 24,\n  \"annualInterestRate\": 12.5,\n  \"repaymentMethod\": \"ANNUITY\"\n}"},
+        "url": "{{baseUrl}}/api/v1/admin/loan-products"
+      }
+    },
+    {
+      "name": "02 - Admin đồng bộ Product sang Fineract",
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {"mode": "raw", "raw": "{\n  \"version\": {{productVersion}}\n}"},
+        "url": "{{baseUrl}}/api/v1/admin/loan-products/{{productId}}/core-sync"
+      }
+    },
+    {
+      "name": "03 - Admin kích hoạt Product đã sync",
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {"mode": "raw", "raw": "{\n  \"version\": {{productVersion}}\n}"},
+        "url": "{{baseUrl}}/api/v1/admin/loan-products/{{productId}}/activate"
+      }
+    },
+    {
+      "name": "04 - Borrower xem Product ACTIVE",
+      "request": {"method": "GET", "url": "{{baseUrl}}/api/v1/loan-products/{{productId}}"}
+    },
+    {
+      "name": "05 - Borrower xem lịch trả dự kiến",
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {"mode": "raw", "raw": "{\n  \"amount\": 50000000,\n  \"termMonths\": 12,\n  \"expectedDisbursementDate\": \"2026-08-10\"\n}"},
+        "url": "{{baseUrl}}/api/v1/loan-products/{{productId}}/repayment-previews"
+      }
+    },
+    {
+      "name": "06 - Borrower nộp thẳng hồ sơ SUBMITTED",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Idempotency-Key", "value": "{{idempotencyKey}}"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"loanProductId\": {{productId}},\n  \"requestedAmount\": 50000000,\n  \"requestedTermMonths\": 12,\n  \"purposeCode\": \"HOME_IMPROVEMENT\",\n  \"purposeDetail\": \"Sửa mái nhà\",\n  \"declaredMonthlyIncome\": 20000000,\n  \"employmentLengthMonths\": 60,\n  \"educationLevel\": \"UNIVERSITY\",\n  \"homeOwnership\": \"RENT\",\n  \"monthlyDebtObligations\": 3000000,\n  \"expectedDisbursementDate\": \"2026-08-10\",\n  \"pricingDisclosureVersion\": \"RATE_DISCLOSURE_V1\",\n  \"pricingDisclosureAccepted\": true\n}"},
+        "url": "{{baseUrl}}/api/v1/loan-applications"
+      }
+    },
+    {
+      "name": "07 - Gửi lại cùng Idempotency-Key",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Idempotency-Key", "value": "{{idempotencyKey}}"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"loanProductId\": {{productId}},\n  \"requestedAmount\": 50000000,\n  \"requestedTermMonths\": 12,\n  \"purposeCode\": \"HOME_IMPROVEMENT\",\n  \"purposeDetail\": \"Sửa mái nhà\",\n  \"declaredMonthlyIncome\": 20000000,\n  \"employmentLengthMonths\": 60,\n  \"educationLevel\": \"UNIVERSITY\",\n  \"homeOwnership\": \"RENT\",\n  \"monthlyDebtObligations\": 3000000,\n  \"expectedDisbursementDate\": \"2026-08-10\",\n  \"pricingDisclosureVersion\": \"RATE_DISCLOSURE_V1\",\n  \"pricingDisclosureAccepted\": true\n}"},
+        "url": "{{baseUrl}}/api/v1/loan-applications"
+      }
+    },
+    {
+      "name": "08 - Borrower xem chi tiết hồ sơ",
+      "request": {"method": "GET", "url": "{{baseUrl}}/api/v1/loan-applications/{{applicationNumber}}"}
+    },
+    {
+      "name": "09 - Borrower xem danh sách hồ sơ",
+      "request": {"method": "GET", "url": "{{baseUrl}}/api/v1/loan-applications/me?page=0&size=20"}
+    },
+    {
+      "name": "10 - Borrower rút hồ sơ",
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {"mode": "raw", "raw": "{\n  \"version\": {{applicationVersion}},\n  \"reason\": \"Chưa có nhu cầu tiếp tục\"\n}"},
+        "url": "{{baseUrl}}/api/v1/loan-applications/{{applicationNumber}}/withdraw"
+      }
+    },
+    {
+      "name": "11 - Borrower xem lịch sử trạng thái",
+      "request": {"method": "GET", "url": "{{baseUrl}}/api/v1/loan-applications/{{applicationNumber}}/history"}
+    },
+    {
+      "name": "12 - Admin xem danh sách AI assessment",
+      "request": {"method": "GET", "url": "{{baseUrl}}/api/v1/admin/loan-applications/{{applicationNumber}}/assessments?page=0&size=20"}
+    },
+    {
+      "name": "13 - Admin xem chi tiết một AI assessment",
+      "request": {"method": "GET", "url": "{{baseUrl}}/api/v1/admin/loan-applications/{{applicationNumber}}/assessments/{{assessmentId}}"}
+    },
+    {
+      "name": "14 - Admin yêu cầu chấm điểm lại khi assessment lỗi",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Idempotency-Key", "value": "{{scoringRetryIdempotencyKey}}"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"version\": {{applicationVersion}}\n}"},
+        "url": "{{baseUrl}}/api/v1/admin/loan-applications/{{applicationNumber}}/scoring-retry"
+      }
+    }
+  ]
+}

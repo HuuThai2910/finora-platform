@@ -1,0 +1,48 @@
+FROM python:3.12-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# SHAP 0.44.1 chưa có wheel Python 3.12 nên chỉ stage build mới mang compiler.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends build-essential libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY finora-ai/requirements.txt ./requirements.txt
+RUN python -m pip install --upgrade pip \
+    && python -m pip wheel --wheel-dir /wheels --requirement requirements.txt
+
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# Image runtime chỉ giữ OpenMP cho XGBoost; compiler không đi vào container cuối.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /wheels /wheels
+COPY finora-ai/requirements.txt ./requirements.txt
+RUN python -m pip install --no-index --find-links=/wheels --requirement requirements.txt \
+    && rm -rf /wheels
+
+COPY finora-ai/main.py ./main.py
+COPY finora-ai/app ./app
+COPY finora-ai/models/model_v10.0.0.pkl ./models/model_v10.0.0.pkl
+COPY finora-ai/models/model_v10.0.0.json ./models/model_v10.0.0.json
+
+RUN useradd --create-home --uid 10001 finora \
+    && chown -R finora:finora /app
+USER finora
+
+EXPOSE 8000
+
+# Không dùng --reload trong container tích hợp vì model chỉ được nạp một lần và image phải bất biến.
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

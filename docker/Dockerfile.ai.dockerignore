@@ -1,0 +1,9 @@
+*
+!finora-ai/
+!finora-ai/main.py
+!finora-ai/requirements.txt
+!finora-ai/app/
+!finora-ai/app/**
+!finora-ai/models/
+!finora-ai/models/model_v10.0.0.pkl
+!finora-ai/models/model_v10.0.0.json

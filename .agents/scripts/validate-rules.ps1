@@ -131,7 +131,7 @@ if ($loanPlan -notmatch [regex]::Escape('LN-001-loan-foundation.md')) {
 if ((Get-Content -Raw -Encoding utf8 $roadmapFile) -notmatch [regex]::Escape('LN-001-loan-foundation.md')) {
     throw 'Team roadmap does not reference LN-001 detail.'
 }
-if ($loanTask -notmatch '(?s)^---\r?\ntask_id: LN-001\r?\ntitle: .+?\r?\nowner: Thai\r?\nstatus: (DRAFT|APPROVED|IN_PROGRESS|BLOCKED|READY_FOR_REVIEW|CHANGES_REQUESTED|ACCEPTED)\r?\n') {
+if ($loanTask -notmatch '(?s)^---\r?\ntask_id: LN-001\r?\ntitle: .+?\r?\nowner: Thai\r?\nstatus: (DRAFT|APPROVED|IN_PROGRESS|BLOCKED|READY_FOR_REVIEW|CHANGES_REQUESTED|ACCEPTED|SUPERSEDED)\r?\n') {
     throw 'LN-001 task metadata is invalid.'
 }
 $loanTaskStatus = [regex]::Match($loanTask, '(?m)^status: ([A-Z_]+)$').Groups[1].Value
@@ -143,6 +143,13 @@ if ($loanTaskStatus -in @('APPROVED', 'IN_PROGRESS', 'READY_FOR_REVIEW', 'CHANGE
 if ($loanTaskStatus -eq 'ACCEPTED') {
     if ($loanTask -notmatch '(?m)^accepted_by: Thai$' -or $loanTask -notmatch '(?m)^accepted_at: \d{4}-\d{2}-\d{2}') {
         throw 'LN-001 cannot be ACCEPTED without Thai acceptance metadata.'
+    }
+}
+if ($loanTaskStatus -eq 'SUPERSEDED') {
+    if ($loanTask -notmatch '(?m)^accepted_by: Thai$' -or
+        $loanTask -notmatch '(?m)^accepted_at: \d{4}-\d{2}-\d{2}' -or
+        $loanTask -notmatch '(?m)^superseded_by: .+\.md$') {
+        throw 'LN-001 cannot be SUPERSEDED without previous acceptance and replacement metadata.'
     }
 }
 
