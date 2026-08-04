@@ -84,24 +84,27 @@ services:
     networks:
       - finora-network
 
-  # ============ LOAN OWNED DATABASE ============
-  loan-mysql:
+  # ============ LOAN OWNED DATABASE (OFFLINE FALLBACK) ============
+  loan-postgres:
     profiles: ["loan"]
-    image: mysql:8.4
-    container_name: finora-loan-mysql
+    image: postgres:17.5-alpine
+    restart: unless-stopped
+    container_name: finora-loan-postgres
     environment:
-      MYSQL_ROOT_PASSWORD: "${LOAN_MYSQL_ROOT_PASSWORD}"
-      MYSQL_DATABASE: ${LOAN_DB_NAME:-finora_loan}
-      MYSQL_USER: ${LOAN_DB_USERNAME:-finora_loan}
-      MYSQL_PASSWORD: "${LOAN_DB_PASSWORD}"
+      POSTGRES_DB: ${LOAN_DB_NAME:-finora_loan}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "${LOAN_POSTGRES_ADMIN_PASSWORD}"
+      APP_DB_USERNAME: ${LOAN_DB_USERNAME:-finora_loan}
+      APP_DB_PASSWORD: "${LOAN_DB_PASSWORD}"
     ports:
-      - "127.0.0.1:${LOAN_MYSQL_HOST_PORT:-13306}:3306"
+      - "127.0.0.1:${LOAN_POSTGRES_HOST_PORT:-15433}:5432"
     volumes:
-      - loan-mysql-data:/var/lib/mysql
+      - loan-postgres-data:/var/lib/postgresql/data
+      - ./postgresql/init-service-user.sh:/docker-entrypoint-initdb.d/01-create-service-user.sh:ro
     healthcheck:
       test:
         - CMD-SHELL
-        - MYSQL_PWD="$${MYSQL_PASSWORD}" mysql -h 127.0.0.1 -u"$${MYSQL_USER}" -D"$${MYSQL_DATABASE}" -e 'SELECT 1' >/dev/null 2>&1
+        - PGPASSWORD="$${APP_DB_PASSWORD}" psql -h 127.0.0.1 -U "$${APP_DB_USERNAME}" -d "$${POSTGRES_DB}" -c 'SELECT 1' >/dev/null 2>&1
       interval: 10s
       timeout: 5s
       retries: 10
@@ -109,24 +112,124 @@ services:
     networks:
       - finora-network
 
-  # ============ PAYMENT OWNED DATABASE AND CACHE ============
-  payment-mysql:
-    profiles: ["payment"]
-    image: mysql:8.4
-    container_name: finora-payment-mysql
+  # ============ APACHE FINERACT CORE BANKING FIXTURE ============
+  fineract-postgres:
+    profiles: ["fineract"]
+    image: postgres:18.3
+    # Sau lần khởi tạo đầu, container tự chạy lại khi Docker Desktop khởi động.
+    restart: unless-stopped
+    container_name: finora-fineract-postgres
     environment:
-      MYSQL_ROOT_PASSWORD: "${PAYMENT_MYSQL_ROOT_PASSWORD}"
-      MYSQL_DATABASE: ${PAYMENT_DB_NAME:-finora_payment}
-      MYSQL_USER: ${PAYMENT_DB_USERNAME:-finora_payment}
-      MYSQL_PASSWORD: "${PAYMENT_DB_PASSWORD}"
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "${FINERACT_POSTGRES_ADMIN_PASSWORD}"
+      FINERACT_DB_USERNAME: ${FINERACT_DB_USERNAME:-fineract}
+      FINERACT_DB_PASSWORD: "${FINERACT_DB_PASSWORD}"
     ports:
-      - "127.0.0.1:${PAYMENT_MYSQL_HOST_PORT:-13307}:3306"
+      - "127.0.0.1:${FINERACT_POSTGRES_HOST_PORT:-15432}:5432"
     volumes:
-      - payment-mysql-data:/var/lib/mysql
+      # PostgreSQL 18 lưu data theo thư mục major-version bên dưới mount này.
+      - fineract-postgres-data:/var/lib/postgresql
+      - ./postgresql/fineract/init-databases.sh:/docker-entrypoint-initdb.d/01-create-fineract-databases.sh:ro
     healthcheck:
       test:
         - CMD-SHELL
-        - MYSQL_PWD="$${MYSQL_PASSWORD}" mysql -h 127.0.0.1 -u"$${MYSQL_USER}" -D"$${MYSQL_DATABASE}" -e 'SELECT 1' >/dev/null 2>&1
+        - PGPASSWORD="$${FINERACT_DB_PASSWORD}" psql -h 127.0.0.1 -U "$${FINERACT_DB_USERNAME}" -d fineract_tenants -c 'SELECT 1' >/dev/null 2>&1
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    networks:
+      - finora-network
+
+  fineract:
+    profiles: ["fineract"]
+    # Image local được build từ binary Apache 1.15.0 đã pin checksum; không dùng latest.
+    build:
+      context: ./fineract
+      dockerfile: Dockerfile
+    image: finora/fineract:1.15.0
+    # Fineract chỉ tự chạy sau khi PostgreSQL riêng của nó healthy.
+    restart: unless-stopped
+    container_name: finora-fineract
+    depends_on:
+      fineract-postgres:
+        condition: service_healthy
+    environment:
+      FINERACT_HIKARI_DRIVER_SOURCE_CLASS_NAME: org.postgresql.Driver
+      FINERACT_HIKARI_JDBC_URL: jdbc:postgresql://fineract-postgres:5432/fineract_tenants
+      FINERACT_HIKARI_USERNAME: ${FINERACT_DB_USERNAME:-fineract}
+      FINERACT_HIKARI_PASSWORD: "${FINERACT_DB_PASSWORD}"
+      FINERACT_DEFAULT_TENANTDB_HOSTNAME: fineract-postgres
+      FINERACT_DEFAULT_TENANTDB_PORT: 5432
+      FINERACT_DEFAULT_TENANTDB_UID: ${FINERACT_DB_USERNAME:-fineract}
+      FINERACT_DEFAULT_TENANTDB_PWD: "${FINERACT_DB_PASSWORD}"
+      FINERACT_DEFAULT_TENANTDB_CONN_PARAMS: ""
+      FINERACT_DEFAULT_TENANTDB_TIMEZONE: Asia/Ho_Chi_Minh
+      FINERACT_DEFAULT_TENANTDB_IDENTIFIER: default
+      FINERACT_DEFAULT_TENANTDB_NAME: fineract_default
+      FINERACT_DEFAULT_TENANTDB_DESCRIPTION: FINORA Local Tenant
+      FINERACT_DEFAULT_MASTER_PASSWORD: "${FINERACT_DEFAULT_MASTER_PASSWORD:-fineract}"
+      FINERACT_SERVER_SSL_ENABLED: "false"
+      FINERACT_SERVER_PORT: 8443
+      FINERACT_MANAGEMENT_ENDPOINT_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+      FINERACT_NODE_ID: 1
+      SPRING_PROFILES_ACTIVE: test,diagnostics
+    ports:
+      - "127.0.0.1:${FINERACT_HOST_PORT:-18443}:8443"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8443"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 180s
+    networks:
+      - finora-network
+
+  # ============ AI CREDIT SCORING API ============
+  ai:
+    profiles: ["ai"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ai
+    image: finora/ai:10.0.0-local
+    restart: unless-stopped
+    container_name: finora-ai
+    ports:
+      - "127.0.0.1:${AI_HOST_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - finora-network
+
+  # ============ PAYMENT OWNED DATABASE AND CACHE ============
+  payment-postgres:
+    profiles: ["payment"]
+    image: postgres:17.5-alpine
+    container_name: finora-payment-postgres
+    environment:
+      POSTGRES_DB: ${PAYMENT_DB_NAME:-finora_payment}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "${PAYMENT_POSTGRES_ADMIN_PASSWORD}"
+      APP_DB_USERNAME: ${PAYMENT_DB_USERNAME:-finora_payment}
+      APP_DB_PASSWORD: "${PAYMENT_DB_PASSWORD}"
+    ports:
+      - "127.0.0.1:${PAYMENT_POSTGRES_HOST_PORT:-15434}:5432"
+    volumes:
+      - payment-postgres-data:/var/lib/postgresql/data
+      - ./postgresql/init-service-user.sh:/docker-entrypoint-initdb.d/01-create-service-user.sh:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - PGPASSWORD="$${APP_DB_PASSWORD}" psql -h 127.0.0.1 -U "$${APP_DB_USERNAME}" -d "$${POSTGRES_DB}" -c 'SELECT 1' >/dev/null 2>&1
       interval: 10s
       timeout: 5s
       retries: 10
@@ -151,6 +254,33 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    networks:
+      - finora-network
+
+  # ============ BLOCKCHAIN OWNED DATABASE (OFFLINE FALLBACK) ============
+  blockchain-postgres:
+    profiles: ["blockchain"]
+    image: postgres:17.5-alpine
+    container_name: finora-blockchain-postgres
+    environment:
+      POSTGRES_DB: ${BLOCKCHAIN_DB_NAME:-finora_blockchain}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "${BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD}"
+      APP_DB_USERNAME: ${BLOCKCHAIN_DB_USERNAME:-finora_blockchain}
+      APP_DB_PASSWORD: "${BLOCKCHAIN_DB_PASSWORD}"
+    ports:
+      - "127.0.0.1:${BLOCKCHAIN_POSTGRES_HOST_PORT:-15435}:5432"
+    volumes:
+      - blockchain-postgres-data:/var/lib/postgresql/data
+      - ./postgresql/init-service-user.sh:/docker-entrypoint-initdb.d/01-create-service-user.sh:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - PGPASSWORD="$${APP_DB_PASSWORD}" psql -h 127.0.0.1 -U "$${APP_DB_USERNAME}" -d "$${POSTGRES_DB}" -c 'SELECT 1' >/dev/null 2>&1
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     networks:
       - finora-network
 
@@ -222,22 +352,29 @@ services:
     image: finora/loan:local
     container_name: finora-loan
     environment:
-      LOAN_DB_URL: jdbc:mysql://loan-mysql:3306/${LOAN_DB_NAME:-finora_loan}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      LOAN_DB_URL: jdbc:postgresql://loan-postgres:5432/${LOAN_DB_NAME:-finora_loan}
       LOAN_DB_USERNAME: ${LOAN_DB_USERNAME:-finora_loan}
       LOAN_DB_PASSWORD: "${LOAN_DB_PASSWORD}"
-      SPRING_PROFILES_ACTIVE: ${LOAN_ACTIVE_PROFILE:-local-admin}
+      FINERACT_BASE_URL: http://fineract:8443/fineract-provider/api/v1
+      FINERACT_API_USERNAME: ${FINERACT_API_USERNAME:-mifos}
+      FINERACT_API_PASSWORD: "${FINERACT_API_PASSWORD:-password}"
+      FINERACT_PREVIEW_CLIENT_EXTERNAL_ID: ${FINERACT_PREVIEW_CLIENT_EXTERNAL_ID:-FINORA-PREVIEW-CLIENT}
+      AI_SERVICE_URL: http://ai:8000
+      SPRING_PROFILES_ACTIVE: local
     ports:
       - "127.0.0.1:${LOAN_HOST_PORT:-8081}:8081"
     depends_on:
-      loan-mysql:
+      loan-postgres:
         condition: service_healthy
     networks:
       - finora-network
 
 volumes:
   keycloak-mysql-data:
-  loan-mysql-data:
-  payment-mysql-data:
+  loan-postgres-data:
+  fineract-postgres-data:
+  payment-postgres-data:
+  blockchain-postgres-data:
   payment-redis-data:
   user-mysql-data:
   investment-mongo-data:

@@ -26,32 +26,50 @@ Mỗi flow mới hoặc thay đổi MUST xác định trigger, orchestrator, con
 
 **Failure:** AI timeout → KYC giữ `PROCESSING`/`RETRY_PENDING`; retry có giới hạn, sau đó manual review/DLT. MUST NOT tự đánh dấu verified khi AI lỗi.
 
+## F00 — Đồng bộ FINORA Product sang Fineract
+
+**Trigger:** admin yêu cầu kích hoạt Product. **Orchestrator:** Loan.
+
+1. Loan validate fixed rate, amount/term range và repayment method.
+2. Loan tạo durable Fineract command với Product/version và external ID.
+3. Loan đọc template/config hợp lệ của tenant rồi tạo core loan product qua REST.
+4. Loan lưu `fineractProductId`, config/mapping version và sync status.
+5. Chỉ mapping `SYNCED` mới cho Product chuyển `ACTIVE`.
+
+**Idempotency:** unique theo `loanProductId + productVersion + commandType`; retry không tạo hai core products logic.
+
+**Failure:** Fineract lỗi → Product giữ `DRAFT`, sync `FAILED/RETRY_PENDING`; không kích hoạt và không tự tính schedule bằng engine khác.
+
 ## F02 — Tạo hồ sơ và chấm điểm tín dụng
 
 **Trigger:** người vay đã đủ điều kiện gửi hồ sơ. **Orchestrator:** Loan.
 
-1. Loan xác minh identity/KYC theo contract đã thống nhất và tạo application `SUBMITTED`.
-2. Loan chuyển `SCORING`, gọi AI credit bằng immutable feature snapshot.
-3. AI trả PD/score, suggested grade, reason codes, model/rule version.
-4. Loan lưu scoring snapshot, áp policy nghiệp vụ và chuyển `PENDING_REVIEW` hoặc `REJECTED`.
-5. Loan phát `LoanApplicationScored`/`LoanApplicationRejected`; Notification consume nếu cần.
+1. Borrower gọi preview; Loan dùng Fineract `calculateLoanSchedule`, chuẩn hóa schedule để UI hiển thị nhưng chưa tạo Application.
+2. Khi borrower submit với idempotency key, Loan tạo thẳng Application `SUBMITTED` cùng immutable financial/Product/disclosure/Fineract-calculation snapshot; backend không tạo Draft.
+3. Loan xác minh identity/KYC qua provider contract. Local development MAY dùng một mock provider tập trung có source rõ.
+4. Loan chuyển `SCORING`, gọi AI credit v10 bằng immutable feature snapshot; `int_rate` lấy fixed Product rate và `installment` lấy Fineract calculation snapshot.
+5. `delinq_2yrs/pub_rec` lấy từ `BorrowerCreditProfile` projection nội bộ; người vay không tự khai. Proxy `pub_rec` MUST mang source/policy version và MUST NOT được mô tả là CIC/hồ sơ pháp lý thật.
+6. AI trả PD/score, grade, recommendation/reason và model/rule version. Nếu response còn `suggested_rate`, Loan MUST bỏ qua, không lưu vì pricing thuộc Product/Loan.
+7. Loan lưu scoring snapshot, áp policy nghiệp vụ và chuyển `PENDING_REVIEW` hoặc `REJECTED`.
+8. Loan phát `LoanApplicationScored`/`LoanApplicationRejected`; Notification consume nếu cần.
 
 **Idempotency:** `loanApplicationId + scoringAttempt/version`; cùng feature snapshot và model version phải trả cùng artifact reference.
 
 **Failure:** AI lỗi → giữ `SCORING_RETRY_PENDING`, không tạo điểm mặc định. Retry hết hạn → manual review hoặc failure state có audit.
 
-## F03 — Duyệt và đưa khoản vay lên sàn
+## F03 — Duyệt, ký hợp đồng và đưa khoản vay lên sàn
 
-**Trigger:** admin duyệt hồ sơ đang `PENDING_REVIEW`. **Orchestrator:** Loan.
+**Trigger:** admin/Loan policy xử lý hồ sơ đang `PENDING_REVIEW`. **Orchestrator:** Loan.
 
 1. Loan kiểm tra KYC/scoring snapshot, policy và optimistic version.
-2. Loan chuyển `APPROVED`, sau đó tạo listing intent và chuyển `ON_MARKET` theo state machine.
-3. Loan phát `LoanListed` chứa dữ liệu market tối thiểu, không chứa PII.
-4. Investment consume idempotently, tạo market listing projection.
+2. Loan từ chối với reason hoặc tạo một `LoanContract PENDING_SIGNATURE` chứa exact amount/term/fixed Product rate/repayment method/Fineract schedule snapshot/fee/expiry; AI không định giá.
+3. Borrower đọc và ký hoặc từ chối chính LoanContract. Không tạo `LoanOffer` hoặc bước accept riêng. Contract `SIGNED` bất biến nhưng chỉ `EFFECTIVE` sau giải ngân.
+4. Chỉ sau Contract signed, Loan tạo listing intent, chuyển state phù hợp sang `ON_MARKET` và phát `LoanListed` chứa dữ liệu market tối thiểu, không chứa PII.
+5. Investment consume idempotently, tạo market listing projection.
 
-**Idempotency:** admin command dùng key; Investment unique theo `loanId + listingVersion`.
+**Idempotency:** admin/sign command dùng key và optimistic version; một Application tối đa một Contract trong MVP; Investment unique theo `loanId + listingVersion`.
 
-**Failure:** Investment chưa tạo projection → outbox retry/DLT; Loan không publish event mới trùng để “chữa” lỗi. Listing projection phải rebuild được từ event/source API có kiểm soát.
+**Failure:** Contract hết hạn/decline → không listing; sign cạnh tranh chỉ một commit; Investment chưa tạo projection → outbox retry/DLT, Loan không publish event mới trùng để “chữa” lỗi. Listing projection phải rebuild được từ event/source API có kiểm soát.
 
 ## F04 — Đặt vốn và giữ tiền
 
@@ -74,15 +92,17 @@ Mỗi flow mới hoặc thay đổi MUST xác định trigger, orchestrator, con
 
 1. Loan tạo durable `DisbursementSaga`, chuyển `DISBURSING`.
 2. Loan yêu cầu Investment khóa/finalize commitments.
-3. Loan yêu cầu Payment capture held funds và giải ngân cho borrower.
-4. Payment tạo ledger entries, phát `DisbursementCompleted` hoặc `DisbursementFailed`.
-5. Loan yêu cầu/đợi Investment activate Notes theo kết quả tài chính.
-6. Loan phát audit event để Blockchain ghi proof; Blockchain phản hồi/reference bất đồng bộ.
-7. Loan chuyển `ACTIVE` khi các bước bắt buộc hoàn tất; Notification gửi kết quả.
+3. Loan bảo đảm Fineract client mapping, submit core loan bằng `contractNumber` làm external ID và approve core loan idempotently.
+4. Loan yêu cầu Payment capture held funds và giải ngân cho borrower.
+5. Payment tạo ledger entries, phát `DisbursementCompleted` hoặc `DisbursementFailed`.
+6. Sau khi tiền đã chuyển, Loan ghi disbursement vào Fineract; response/event cập nhật core projection và official schedule.
+7. Loan yêu cầu/đợi Investment activate Notes theo kết quả tài chính.
+8. Loan phát audit event để Blockchain ghi proof; Blockchain phản hồi/reference bất đồng bộ.
+9. Loan chuyển `ACTIVE` và Contract `EFFECTIVE` khi các bước bắt buộc hoàn tất; Notification gửi kết quả.
 
 **Correlation:** mọi command/event mang `sagaId`, `loanId`, `step`, `attempt`, `eventId`.
 
-**Failure/compensation:** finalize commitment lỗi → chưa capture tiền; capture/transfer lỗi → Payment tự bảo toàn ledger và Loan ra lệnh release/unfinalize thích hợp; Note activation lỗi sau disbursement → Saga retry/repair, không tự ý đảo giao dịch ngân hàng; Fabric lỗi → retry/DLT/reconciliation và không rollback giải ngân trừ khi policy sau này quy định Fabric là precondition.
+**Failure/compensation:** finalize/core-approve lỗi → chưa capture tiền; capture/transfer lỗi → Payment tự bảo toàn ledger và Loan ra lệnh release/unfinalize thích hợp; tiền đã chuyển nhưng Fineract disburse lỗi → `CORE_DISBURSEMENT_REPAIR_REQUIRED`, retry/reconcile, không đánh ACTIVE giả hoặc tự đảo tiền; Note activation lỗi sau disbursement → Saga retry/repair; Fabric lỗi → retry/DLT/reconciliation và không rollback giải ngân.
 
 **Restart:** Saga state phải durable; restart tiếp tục từ bước cuối đã xác nhận, không chạy lại side effect không idempotent.
 
@@ -90,13 +110,14 @@ Mỗi flow mới hoặc thay đổi MUST xác định trigger, orchestrator, con
 
 **Trigger:** borrower thanh toán hoặc auto-debit đến hạn. **Orchestrator:** Loan cho nghĩa vụ kỳ hạn; Payment cho execution tài chính.
 
-1. Loan cung cấp installment/payment instruction có version và amount breakdown mong đợi.
-2. Payment collect tiền idempotently, áp waterfall đã version hóa: phí → lãi/phạt → gốc theo policy.
-3. Payment lấy ownership snapshot/version từ Investment theo contract phù hợp và phân bổ cho investor wallets.
-4. Payment commit ledger cân bằng, phát `RepaymentDistributed` với breakdown/reference tối thiểu.
-5. Loan consume, cập nhật installment/loan state; Investment cập nhật Note/portfolio projection; Blockchain ghi proof; Notification gửi thông báo.
+1. Loan cung cấp core loan/schedule reference; Fineract là nguồn nghĩa vụ và balance chính thức.
+2. Payment collect tiền idempotently và commit FINORA ledger/provider reference.
+3. Sau thu thành công, Payment ghi repayment vào Fineract bằng external transaction reference; Fineract phân bổ borrower payment vào principal/interest/fee/penalty và trả core transaction/breakdown.
+4. Payment lấy ownership snapshot/version từ Investment và phân bổ investor wallets dựa trên kết quả core hợp lệ cùng policy FINORA.
+5. Payment phát `RepaymentDistributed` với breakdown/reference tối thiểu.
+6. Loan cập nhật servicing projection từ Fineract response/reliable event; Investment cập nhật Note/portfolio; Blockchain ghi proof; Notification gửi thông báo.
 
-**Invariant:** tổng tiền thu = tổng fee + interest/penalty + principal + rounding remainder được ghi rõ; không làm mất tiền do rounding.
+**Invariant:** Payment ledger là nguồn chuyển tiền; Fineract là nguồn allocation/balance. Tổng tiền thu phải đối chiếu với core transaction và tổng phân bổ investor + platform; mismatch tạo reconciliation incident, không thu hoặc ghi repayment lần hai.
 
 **Idempotency:** `repaymentInstructionId` hoặc provider transaction ID unique.
 
@@ -150,4 +171,3 @@ Mỗi flow mới hoặc thay đổi MUST xác định trigger, orchestrator, con
 - Idempotency key, unique constraint và duplicate response rõ.
 - Timeout, retryable/non-retryable error, DLT và compensation rõ.
 - Có test happy path, duplicate, timeout, concurrent request, restart và compensation phù hợp rủi ro.
-

@@ -13,7 +13,9 @@
 
 ## Database
 
-- MySQL table/column `snake_case`, table số nhiều; PK `id BIGINT AUTO_INCREMENT`; FK `<resource>_id`.
+- Database quan hệ dùng table/column `snake_case`, table số nhiều và FK `<resource>_id`.
+- PostgreSQL của Loan/Payment/Blockchain dùng PK `BIGINT GENERATED ... AS IDENTITY`; không dùng `SERIAL`, MySQL `AUTO_INCREMENT`, `UNSIGNED`, native enum hoặc DDL riêng MySQL.
+- MySQL của module Hải tiếp tục dùng convention/dialect MySQL trong phạm vi owner đó; không viết một migration dùng chung cho hai engine.
 - Mọi bảng có `created_at`, `updated_at`; money `DECIMAL(18,2)`.
 - Index `idx_<table>_<columns>`, unique `uq_<table>_<columns>`.
 - Mongo collection/field `snake_case`; document có `schema_version`.
@@ -22,7 +24,7 @@
 
 - Java money: `BigDecimal`, scale 2, `RoundingMode.HALF_UP`, đơn vị VND. MUST NOT dùng float/double ở bất kỳ tầng nào.
 - API/event SHOULD truyền money dạng chuỗi decimal hoặc integer minor unit theo contract thống nhất.
-- DB lưu UTC; API/event ISO-8601 có offset; hiển thị `Asia/Ho_Chi_Minh`.
+- DB lưu UTC; PostgreSQL dùng `TIMESTAMP WITH TIME ZONE` cho `Instant`/thời điểm xuyên hệ thống. API/event dùng ISO-8601 có offset; hiển thị `Asia/Ho_Chi_Minh`.
 - Java dùng `Instant`/`OffsetDateTime`; MUST NOT dùng `java.util.Date` hoặc `LocalDateTime` cho event/audit xuyên hệ thống.
 
 ## REST

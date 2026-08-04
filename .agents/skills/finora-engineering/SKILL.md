@@ -19,6 +19,7 @@ description: Áp dụng chuẩn kỹ thuật FINORA khi thiết kế, triển kh
    - Viết mới hoặc sửa nghiệp vụ: `references/testing-quality.md`.
 3. Tìm implementation tương tự trước khi tạo abstraction hoặc utility mới.
 4. Thiết kế transaction boundary, query plan, idempotency và failure path trước khi code.
+   - Với flow có offer/consent, phải chỉ ra exact terms/version mà actor đã xem, transition accept/reject/expire và downstream side effect chỉ được mở sau consent hợp lệ.
 5. Viết test chứng minh happy path, validation và failure path có rủi ro cao.
 6. Chạy kiểm tra đúng module; báo rõ kiểm tra nào chưa thể chạy.
 7. Khi thay đổi rule/skill, chạy `.agents/scripts/validate-rules.ps1`.

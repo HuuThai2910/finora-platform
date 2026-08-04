@@ -1,6 +1,6 @@
 ﻿[CmdletBinding()]
 param(
-    [ValidateSet('Core', 'Loan', 'Payment', 'User', 'Investment', 'All')]
+    [ValidateSet('Core', 'Loan', 'Payment', 'Blockchain', 'User', 'Investment', 'All')]
     [string]$Scope = 'Loan',
     [string]$EnvFile,
     [int]$TimeoutSeconds = 240,
@@ -25,15 +25,21 @@ $requiredSecrets = @('KEYCLOAK_DB_ROOT_PASSWORD', 'KEYCLOAK_DB_PASSWORD', 'KEYCL
 switch ($Scope) {
     'Loan' {
         $profiles += 'loan'
-        $infraServices += 'loan-mysql'
-        $healthServices += 'loan-mysql'
-        $requiredSecrets += @('LOAN_MYSQL_ROOT_PASSWORD', 'LOAN_DB_PASSWORD')
+        $infraServices += 'loan-postgres'
+        $healthServices += 'loan-postgres'
+        $requiredSecrets += @('LOAN_POSTGRES_ADMIN_PASSWORD', 'LOAN_DB_PASSWORD')
     }
     'Payment' {
         $profiles += 'payment'
-        $infraServices += @('payment-mysql', 'payment-redis')
-        $healthServices += @('payment-mysql', 'payment-redis')
-        $requiredSecrets += @('PAYMENT_MYSQL_ROOT_PASSWORD', 'PAYMENT_DB_PASSWORD', 'PAYMENT_REDIS_PASSWORD')
+        $infraServices += @('payment-postgres', 'payment-redis')
+        $healthServices += @('payment-postgres', 'payment-redis')
+        $requiredSecrets += @('PAYMENT_POSTGRES_ADMIN_PASSWORD', 'PAYMENT_DB_PASSWORD', 'PAYMENT_REDIS_PASSWORD')
+    }
+    'Blockchain' {
+        $profiles += 'blockchain'
+        $infraServices += 'blockchain-postgres'
+        $healthServices += 'blockchain-postgres'
+        $requiredSecrets += @('BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD', 'BLOCKCHAIN_DB_PASSWORD')
     }
     'User' {
         $profiles += 'user'
@@ -48,12 +54,13 @@ switch ($Scope) {
         $requiredSecrets += @('INVESTMENT_MONGO_ROOT_USERNAME', 'INVESTMENT_MONGO_ROOT_PASSWORD', 'INVESTMENT_DB_PASSWORD')
     }
     'All' {
-        $profiles += @('loan', 'payment', 'user', 'investment')
-        $infraServices += @('loan-mysql', 'payment-mysql', 'payment-redis', 'user-mysql', 'investment-mongo')
-        $healthServices += @('loan-mysql', 'payment-mysql', 'payment-redis', 'user-mysql', 'investment-mongo')
+        $profiles += @('loan', 'payment', 'blockchain', 'user', 'investment')
+        $infraServices += @('loan-postgres', 'payment-postgres', 'payment-redis', 'blockchain-postgres', 'user-mysql', 'investment-mongo')
+        $healthServices += @('loan-postgres', 'payment-postgres', 'payment-redis', 'blockchain-postgres', 'user-mysql', 'investment-mongo')
         $requiredSecrets += @(
-            'LOAN_MYSQL_ROOT_PASSWORD', 'LOAN_DB_PASSWORD',
-            'PAYMENT_MYSQL_ROOT_PASSWORD', 'PAYMENT_DB_PASSWORD', 'PAYMENT_REDIS_PASSWORD',
+            'LOAN_POSTGRES_ADMIN_PASSWORD', 'LOAN_DB_PASSWORD',
+            'PAYMENT_POSTGRES_ADMIN_PASSWORD', 'PAYMENT_DB_PASSWORD', 'PAYMENT_REDIS_PASSWORD',
+            'BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD', 'BLOCKCHAIN_DB_PASSWORD',
             'USER_MYSQL_ROOT_PASSWORD', 'USER_DB_PASSWORD',
             'INVESTMENT_MONGO_ROOT_USERNAME', 'INVESTMENT_MONGO_ROOT_PASSWORD', 'INVESTMENT_DB_PASSWORD'
         )
