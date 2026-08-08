@@ -26,6 +26,8 @@ mô hình mạnh hơn nhưng không triển khai được. Khi FINORA kết nố
 import numpy as np
 import pandas as pd
 
+from app.ml.preprocessing import tinh_effective_apr
+
 HOME_OWNERSHIP_CATS = ["RENT", "OWN", "MORTGAGE", "OTHER"]
 PURPOSE_CATS = [
     "DEBT_CONSOLIDATION", "CREDIT_CARD", "HOME_IMPROVEMENT", "OTHER",
@@ -59,18 +61,24 @@ NUMERIC_FEATURES = [
     "term_months",            # Kỳ hạn vay (tháng)
     "delinq_2yrs",            # Số lần trễ hạn trong 2 năm
     "pub_rec",                # Hồ sơ công khai xấu
-    "int_rate",               # Lãi suất khoản vay (%)
+    "int_rate",               # Lãi suất danh nghĩa của gói vay (%)
     "installment",            # Số tiền phải trả hàng tháng
     # Đặc trưng dẫn xuất
     "log_income",             # log(annual_inc) — nén đuôi phân phối lệch phải
     "loan_to_income",         # loan_amnt / annual_inc
+    "effective_apr",          # Chi phí thật — so sánh được giữa 3 phương pháp tính lãi
 ]
 
 TARGET_ENCODED_FEATURES = [
     "home_ownership_encoded",
     "purpose_cat_encoded",
     "verification_status_encoded",
+    "interest_method_encoded",
 ]
+
+# Nguồn sự thật duy nhất cho danh sách cột target-encoded, dùng chung giữa
+# `encode_features()` và `scripts/train_final_model.py`.
+TARGET_COLS = ["home_ownership", "purpose_cat", "verification_status", "interest_method"]
 
 FEATURE_NAMES = NUMERIC_FEATURES + TARGET_ENCODED_FEATURES + MISSING_INDICATORS + AGE_BINS
 
@@ -107,7 +115,7 @@ def encode_features(
     """Mã hóa và tạo đặc trưng mới từ DataFrame đã làm sạch."""
     df = df.copy()
 
-    target_cols = ["home_ownership", "purpose_cat", "verification_status"]
+    target_cols = TARGET_COLS
 
     if target_encodings is not None and global_mean is not None:
         # Nếu đã có sẵn mapping (lúc chạy thật hoặc validate)
@@ -139,5 +147,10 @@ def encode_features(
     # Engineered: khoản vay / thu nhập năm
     df["loan_to_income"] = df["loan_amnt"] / df["annual_inc"].replace(0, np.nan)
     df["loan_to_income"] = df["loan_to_income"].fillna(0).clip(upper=5)
+
+    # Engineered: chi phí thật của dòng tiền, không phụ thuộc cách gọi tên lãi suất
+    df["effective_apr"] = tinh_effective_apr(
+        df["installment"], df["loan_amnt"], df["term_months"]
+    )
 
     return df

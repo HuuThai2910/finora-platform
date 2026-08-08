@@ -182,8 +182,8 @@ def do_mot_fold(train: pd.DataFrame, val: pd.DataFrame, ten: str) -> dict:
     """Đo hiệu năng một fold. Median fit CHỈ trên train — không thì val rò sang train."""
     median = tinh_median(train)
 
-    from app.ml.features import tinh_target_encodings
-    target_cols = ["home_ownership", "purpose_cat", "verification_status"]
+    from app.ml.features import TARGET_COLS, tinh_target_encodings
+    target_cols = TARGET_COLS
     target_encodings, global_mean = tinh_target_encodings(train, target_cols, "loan_status", m=10.0)
 
     X_train, y_train = tao_ma_tran(train, median, target_encodings, global_mean)
@@ -257,8 +257,8 @@ def main() -> None:
     print(f"\n[4/5] Huấn luyện lại trên 100% dữ liệu ({len(d):,} dòng)")
     median_cuoi = tinh_median(d)
 
-    from app.ml.features import tinh_target_encodings
-    target_cols = ["home_ownership", "purpose_cat", "verification_status"]
+    from app.ml.features import TARGET_COLS, tinh_target_encodings
+    target_cols = TARGET_COLS
     encodings_cuoi, global_mean_cuoi = tinh_target_encodings(d, target_cols, "loan_status", m=10.0)
 
     X, y = tao_ma_tran(d, median_cuoi, encodings_cuoi, global_mean_cuoi)

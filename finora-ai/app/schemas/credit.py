@@ -23,6 +23,9 @@ PURPOSE_HOP_LE = Literal[
 
 HOME_OWNERSHIP_HOP_LE = Literal["RENT", "OWN", "MORTGAGE", "OTHER"]
 VERIFICATION_STATUS_HOP_LE = Literal["Verified", "Source Verified", "Not Verified"]
+INTEREST_METHOD_HOP_LE = Literal[
+    "FLAT", "DECLINING_BALANCE", "DECLINING_BALANCE_RECALC"
+]
 
 
 class CreditScoreRequest(BaseModel):
@@ -60,7 +63,21 @@ class CreditScoreRequest(BaseModel):
         default=None, ge=0, description="Số lượng hồ sơ công khai bất lợi (phá sản, tịch thu tài sản...)"
     )
     installment: float | None = Field(
-        default=None, ge=0, description="Số tiền phải trả hàng tháng (VNĐ)"
+        default=None,
+        ge=0,
+        description=(
+            "Số tiền phải trả hàng tháng (VNĐ). Bỏ trống thì hệ thống tự tính từ "
+            "loan_amnt, int_rate, term_months và interest_method."
+        ),
+    )
+    interest_method: INTEREST_METHOD_HOP_LE | None = Field(
+        default="DECLINING_BALANCE",
+        description=(
+            "Phương pháp tính lãi của gói vay. "
+            "FLAT — lãi trên toàn bộ gốc ban đầu suốt kỳ vay, trả nhiều nhất. "
+            "DECLINING_BALANCE — lãi trên dư nợ còn lại. "
+            "DECLINING_BALANCE_RECALC — như declining, có tính lại lịch khi trả trước hạn."
+        ),
     )
 
     model_config = {
