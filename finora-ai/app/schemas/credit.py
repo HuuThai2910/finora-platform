@@ -92,12 +92,9 @@ class CreditScoreResponse(BaseModel):
     evaluation_score: float = Field(
         description="Điểm tổng hợp = (1-PD)x100 x 0,6 + risk_score x 0,4"
     )
-    credit_grade: Literal["A", "B", "C", "D"]
+    credit_grade: Literal["A", "B", "C", "D", "E"]
     suggested_limit: int = Field(
         description="Hạn mức đề xuất (VNĐ). Trần 100 triệu/nền tảng theo Nghị định 94/2025"
-    )
-    suggested_rate: float = Field(
-        description="Lãi suất năm đề xuất. Trần 20%/năm theo Điều 468 Bộ luật Dân sự 2015"
     )
     decision: Literal["APPROVED", "PENDING_REVIEW", "REJECTED"]
     rejection_reason: str | None = Field(default=None, description="Lý do từ chối nếu bị chốt chặn cứng vi phạm")

@@ -53,5 +53,5 @@ def _parse_emp_length(val) -> float:
 
 
 def _parse_issue_year(issue_d: pd.Series) -> pd.Series:
-    """Năm phát hành, suy ra từ `issue_d` (vd "Dec-2015" → 2015)."""
-    return pd.to_datetime(issue_d, format="%b-%Y", errors="coerce").dt.year
+    """Năm phát hành, suy ra từ `issue_d` (vd "Dec-15" → 2015)."""
+    return pd.to_datetime(issue_d, format="%b-%y", errors="coerce").dt.year

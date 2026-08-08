@@ -10,22 +10,11 @@ có kết nối API tới CIC, nên mọi đặc trưng có nguồn từ báo c�
 được khi chạy thật. Xây mô hình trên những cột đó sẽ tạo ra hệ thống chỉ chạy được
 trên dữ liệu LendingClub trong phòng thí nghiệm, không triển khai được.
 
-Mười bốn đặc trưng đã loại vì phụ thuộc CIC/FICO:
-
-| Đặc trưng loại | Dữ liệu không có |
-|---|---|
-| `fico_score`, `fico_bucket` | Điểm tín dụng của cơ quan xếp hạng |
-| `dti` | Cần tổng dư nợ hiện tại từ CIC làm tử số |
-| `credit_hist_years` | Ngày mở quan hệ tín dụng đầu tiên — chỉ CIC lưu |
-| `delinq_2yrs`, `mths_since_last_delinq`, `acc_now_delinq` | Lịch sử trễ hạn |
-| `revol_bal`, `revol_util`, `revol_risk` | Dư nợ và hạn mức thẻ tín dụng |
-| `open_acc`, `tot_cur_bal`, `mort_acc` | Số hợp đồng, tổng dư nợ, tài sản đảm bảo |
-| `inq_last_6mths` | Số lần bị tra cứu tín dụng |
-
-Trước đó bộ đặc trưng còn loại các cột nội sinh (`int_rate`, `installment` — FINORA
-tự quyết lãi suất TỪ điểm nên lấy làm đầu vào là lập luận vòng tròn), cột kỳ hạn
-(Nghị định 94/2025 giới hạn ≤ 24 tháng → hằng số, phương sai 0) và cột không có
-tương đương ở Việt Nam (`pub_rec` — chưa có luật phá sản cá nhân; `total_acc`).
+**Vấn đề còn tồn đọng — `int_rate` và `installment` là cột nội sinh.** Hai cột này
+đang nằm trong `NUMERIC_FEATURES` và được mô hình sử dụng, nhưng FINORA tự quyết lãi
+suất TỪ điểm rủi ro, nên lấy chúng làm đầu vào để tính lại điểm là lập luận vòng tròn.
+Cần xử lý khi huấn luyện lại: hoặc bỏ khỏi bộ đặc trưng, hoặc thay bằng đại lượng bất
+biến theo phương pháp tính lãi (`effective_apr`, tỷ lệ trả nợ trên thu nhập).
 
 **Hạn chế phải nêu trong khóa luận:** lịch sử tín dụng là nhóm tín hiệu mạnh nhất
 trong chấm điểm tín dụng. Bỏ toàn bộ nhóm này làm sức phân biệt của mô hình giảm rõ
@@ -152,14 +141,3 @@ def encode_features(
     df["loan_to_income"] = df["loan_to_income"].fillna(0).clip(upper=5)
 
     return df
-
-
-def get_model_features(df: pd.DataFrame) -> np.ndarray:
-    """Trả về ma trận đặc trưng X sẵn sàng cho mô hình."""
-    encoded = encode_features(df)
-    return encoded[FEATURE_NAMES].values.astype(np.float64)
-
-
-def get_labels(df: pd.DataFrame) -> np.ndarray:
-    """Trả về vector nhãn y (0 = trả đủ, 1 = vỡ nợ)."""
-    return df["loan_status"].values.astype(int)

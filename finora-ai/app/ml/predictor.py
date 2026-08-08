@@ -1,5 +1,5 @@
 """
-Bộ dự đoán dùng gói model tự chứa (`models/model_v9.0.0.pkl` + `.json`).
+Bộ dự đoán dùng gói model tự chứa (`models/model_v<PHIEN_BAN_MAC_DINH>.pkl` + `.json`).
 
 Trường thiếu trong hồ sơ được điền bằng **median lưu trong gói** — đúng giá trị mà
 mô hình đã học lúc huấn luyện — chứ không phải hằng số viết cứng trong code.
@@ -176,7 +176,6 @@ class BoDuDoan:
             "evaluation_score": round(evaluation_score, 2),
             "credit_grade": hang.hang,
             "suggested_limit": hang.han_muc,
-            "suggested_rate": hang.lai_suat,
             "decision": quyet_dinh(evaluation_score, chot_chan_ly_do),
             "rejection_reason": chot_chan_ly_do,
             "model_version": self.metadata["version"],
