@@ -6,7 +6,7 @@
 |---|---|
 | Dev A — Thái | `finora-loan`, `finora-payment`, `finora-blockchain` |
 | Dev B — Hải | `finora-ai`, `finora-investment`, `finora-user`, `finora-notification` |
-| Dùng chung | `finora-common`, `.agents/`, contract dùng chung, cấu hình toàn cục |
+| Dùng chung | `finora-common`, `.agents/`, `docs/`, contract dùng chung, cấu hình toàn cục |
 | Dùng chung có giới hạn | `finora-gateway`: mỗi owner chỉ sửa route của service mình |
 
 ## Luật chống chồng chéo
@@ -32,4 +32,3 @@
 - MUST ghi rõ producer/consumer, version, khả năng tương thích và rollout plan.
 - Nếu chưa có `contracts/`, chỉ tạo khi task cho phép và cập nhật cấu trúc/ownership trong cùng change.
 - Thay đổi port, topic, database, Keycloak client hoặc Fabric identifier MUST cập nhật `05-registry.md` cùng change.
-

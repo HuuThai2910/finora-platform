@@ -1,7 +1,6 @@
 package com.finora.loan.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-
 import java.time.Duration;
 
 @ConfigurationProperties(prefix = "finora.fineract")
@@ -16,7 +15,8 @@ public record FineractProperties(
         String productConfigVersion,
         int maxAttempts,
         Duration retryBackoff,
-        int retryBatchSize
+        int retryBatchSize,
+        Duration processingLease
 ) {
     public FineractProperties {
         baseUrl = requireText(baseUrl, "baseUrl");
@@ -31,6 +31,10 @@ public record FineractProperties(
         maxAttempts = maxAttempts <= 0 ? 3 : maxAttempts;
         retryBackoff = retryBackoff == null ? Duration.ofSeconds(10) : retryBackoff;
         retryBatchSize = retryBatchSize <= 0 ? 10 : Math.min(retryBatchSize, 50);
+        processingLease = processingLease == null ? Duration.ofMinutes(2) : processingLease;
+        if (processingLease.isZero() || processingLease.isNegative()) {
+            throw new IllegalArgumentException("finora.fineract.processingLease phải lớn hơn 0");
+        }
     }
 
     private static String requireText(String value, String field) {

@@ -24,6 +24,7 @@ $requiredFiles = @(
     (Join-Path $ruleRoot '06-quality-gates.md'),
     (Join-Path $ruleRoot '07-service-boundaries.md'),
     (Join-Path $ruleRoot '08-cross-service-flows.md'),
+    (Join-Path $ruleRoot '09-planning-documentation.md'),
     $roadmapFile,
     $dockerTaskFile,
     $loanPlanFile,
@@ -79,6 +80,20 @@ foreach ($reference in $references) {
     if ($skill -notmatch [regex]::Escape($reference.Name)) {
         throw "SKILL.md does not route to reference: $($reference.Name)"
     }
+}
+
+$planningRule = Get-Content -Raw -Encoding utf8 (Join-Path $ruleRoot '09-planning-documentation.md')
+$planningReference = Join-Path $skillRoot 'references\planning-documentation.md'
+if (-not (Test-Path -LiteralPath $planningReference -PathType Leaf)) {
+    throw 'Missing planning-documentation skill reference.'
+}
+foreach ($requiredPlanningTerm in @('ERD', 'cardinality', 'query', 'transaction', 'concurrency', 'snapshot')) {
+    if ($planningRule -notmatch [regex]::Escape($requiredPlanningTerm)) {
+        throw "Planning rule is missing required concept: $requiredPlanningTerm"
+    }
+}
+if ($agentsContent -notmatch [regex]::Escape('09-planning-documentation.md')) {
+    throw 'Agent entrypoints do not route planning tasks to 09-planning-documentation.md.'
 }
 
 $openAiYaml = Get-Content -Raw -Encoding utf8 (Join-Path $skillRoot 'agents\openai.yaml')

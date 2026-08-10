@@ -1,4 +1,4 @@
 interface:
   display_name: "FINORA Engineering"
-  short_description: "Chuẩn kỹ thuật và review code FINORA"
-  default_prompt: "Dùng $finora-engineering để triển khai hoặc review thay đổi FINORA theo đúng chuẩn kỹ thuật dự án."
+  short_description: "Chuẩn lập plan, triển khai và review FINORA"
+  default_prompt: "Dùng $finora-engineering để lập plan, triển khai hoặc review thay đổi FINORA theo đúng chuẩn nghiệp vụ và kỹ thuật dự án."

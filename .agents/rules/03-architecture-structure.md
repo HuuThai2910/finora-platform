@@ -94,6 +94,17 @@ mapper     → repository
 - Khi một layer có quá nhiều file, MAY thêm thư mục con theo nhóm nghiệp vụ bên trong layer, ví dụ `service/repayment/`, nhưng không được đổi toàn bộ kiến trúc nếu chưa có nhu cầu và review chung.
 - Skeleton cũ được di chuyển dần trong task nghiệp vụ đầu tiên liên quan; MUST NOT mở refactor toàn repository chỉ để đổi package.
 
+## Tài liệu dùng chung
+
+```text
+docs/
+└── ui/      # Visual reference dùng chung cho web/mobile; không định nghĩa contract nghiệp vụ
+```
+
+- `docs/ui/` giữ một bản canonical của mockup/prototype đã được duyệt; web/mobile không nhân bản rồi chỉnh lệch nhau.
+- Khi thay visual reference, cập nhật hash/path trong rule frontend và để cả Thái, Hải review vùng dùng chung trước merge.
+- Dữ liệu/status/endpoint trong prototype không được dùng thay Service Design, task plan hoặc code backend hiện hành.
+
 ## Cấu trúc test Java
 
 `src/test/java/com/finora/<service>/` SHOULD phản chiếu package production. Unit test dùng `*Test`; integration/Testcontainers dùng `*IT`. Không gom mọi test không phân loại vào một package chung.

@@ -1,6 +1,6 @@
 ---
 name: finora-engineering
-description: Áp dụng chuẩn kỹ thuật FINORA khi thiết kế, triển khai hoặc review Java Spring Boot, Python FastAPI, REST, Kafka, database và tích hợp tài chính. Dùng cho mọi thay đổi code trong finora-platform, đặc biệt khi liên quan hiệu năng/N+1, logging, comment tiếng Việt, transaction, concurrency, idempotency, security, testing hoặc observability.
+description: Áp dụng chuẩn FINORA khi tạo/review plan, thiết kế hoặc triển khai Java Spring Boot, Python FastAPI, REST, Kafka, database và tích hợp tài chính. Dùng cho mọi thay đổi plan/code trong finora-platform, đặc biệt khi cần giải thích nghiệp vụ dễ hiểu, entity/ERD, query/index, N+1, logging, comment tiếng Việt, transaction, concurrency, idempotency, security, testing hoặc observability.
 ---
 
 # FINORA Engineering
@@ -9,6 +9,7 @@ description: Áp dụng chuẩn kỹ thuật FINORA khi thiết kế, triển kh
 
 1. Đọc `AGENTS.md`, `.agents/rules/00-rule-map.md` và các rule được map yêu cầu; xác định module, owner và phạm vi thay đổi.
    - Nếu lập kế hoạch, chọn task/giai đoạn hoặc phối hợp hai owner, đọc `.agents/plans/finora-team-roadmap.md`.
+   - Nếu tạo, sửa hoặc review Service Design/task plan, đọc `09-planning-documentation.md` và `references/planning-documentation.md`; dùng checklist trước khi xin duyệt.
    - Nếu thêm entity/state/API/event hoặc quyết định ownership, đọc `07-service-boundaries.md`.
    - Nếu luồng đi qua từ hai service trở lên, đọc cả `08-cross-service-flows.md`.
 2. Đọc đúng tài liệu tham chiếu theo loại thay đổi:
@@ -17,6 +18,7 @@ description: Áp dụng chuẩn kỹ thuật FINORA khi thiết kế, triển kh
    - Tiền, số dư, trạng thái, callback, webhook: `references/transaction-concurrency.md`.
    - REST, Kafka, gọi service ngoài, auth hoặc dữ liệu nhạy cảm: `references/integration-security.md`.
    - Viết mới hoặc sửa nghiệp vụ: `references/testing-quality.md`.
+   - Viết/review plan hoặc tài liệu thiết kế: `references/planning-documentation.md`.
 3. Tìm implementation tương tự trước khi tạo abstraction hoặc utility mới.
 4. Thiết kế transaction boundary, query plan, idempotency và failure path trước khi code.
    - Với flow có offer/consent, phải chỉ ra exact terms/version mà actor đã xem, transition accept/reject/expire và downstream side effect chỉ được mở sau consent hợp lệ.

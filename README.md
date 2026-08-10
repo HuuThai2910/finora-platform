@@ -12,8 +12,8 @@ FINORA là nền tảng cho vay ngang hàng (Peer-to-Peer Lending) được xây
 | `finora-loan` | 8081 | Spring Boot + PostgreSQL | Vòng đời khoản vay |
 | `finora-payment` | 8082 | Spring Boot + PostgreSQL + Redis | Ví, Giải ngân Saga |
 | `finora-blockchain` | 8083 | Spring Boot + PostgreSQL + Fabric SDK | Sổ cái phân tán |
-| `finora-investment` | 8084 | Spring Boot + MongoDB | Sàn khớp lệnh P2P |
-| `finora-user` | 8085 | Spring Boot + MySQL | Quản lý User, eKYC |
+| `finora-investment` | 8084 | Spring Boot + PostgreSQL | Sàn khớp lệnh P2P |
+| `finora-user` | 8085 | Spring Boot + PostgreSQL | Quản lý User, eKYC |
 | `finora-notification` | 8086 | Spring Boot + Kafka | Thông báo SMS/Email |
 | `finora-ai` | 8000 | Python FastAPI | AI Credit Scoring, eKYC |
 
@@ -21,7 +21,7 @@ FINORA là nền tảng cho vay ngang hàng (Peer-to-Peer Lending) được xây
 
 ### 1. Chuẩn bị database
 
-Thái dùng một Neon Project riêng cho Loan, Payment, Blockchain và Fineract. Xem hướng dẫn
+Mỗi service có persistence dùng một Neon Project PostgreSQL riêng; Fineract và Keycloak cũng có database riêng. Xem hướng dẫn
 [NEON-POSTGRESQL-SETUP.md](NEON-POSTGRESQL-SETUP.md). Khi dùng Neon, không cần bật container
 PostgreSQL local.
 
@@ -34,9 +34,9 @@ Copy-Item docker/.env.example docker/.env
 powershell -ExecutionPolicy Bypass -File docker/smoke-infra.ps1 -Scope Loan -KeepRunning
 ```
 
-Lệnh trên chạy hạ tầng chung và PostgreSQL riêng của Loan. Mỗi service Thái có database
+Lệnh trên chạy hạ tầng chung và PostgreSQL riêng của Loan. Mỗi service có database
 container/user/volume riêng khi chạy offline; xem profile, DBeaver và lệnh dừng tại
-[docker/README.md](docker/README.md). User/Keycloak của Hải vẫn dùng MySQL cho tới khi Hải quyết định khác.
+[docker/README.md](docker/README.md). Thái và Hải đã thống nhất không dùng MySQL/MongoDB trong runtime active.
 
 Các lệnh build Java bên dưới yêu cầu JDK 21 và Maven 3.9 có trong `PATH`; cũng có thể dùng Maven do IntelliJ quản lý.
 

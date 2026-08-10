@@ -4,7 +4,7 @@
 
 - Unit test domain rule, công thức tiền, state transition và mapper có logic.
 - Slice test controller validation/security và repository query tùy chỉnh.
-- Integration test bằng Testcontainers với đúng engine/version service sở hữu cho transaction, lock, migration, query và consumer quan trọng. Loan/Payment/Blockchain dùng PostgreSQL 17; test không phụ thuộc Neon hoặc mạng công cộng.
+- Integration test bằng Testcontainers với đúng engine/version service sở hữu cho transaction, lock, migration, query và consumer quan trọng. Loan/Payment/Blockchain/User/Investment dùng PostgreSQL 17; test không phụ thuộc Neon hoặc mạng công cộng.
 - Contract test cho REST/event giữa các owner; không mock sai hợp đồng thật.
 - End-to-end chỉ giữ cho vertical slice cốt lõi, không thay thế test tầng thấp.
 

@@ -1,10 +1,11 @@
 package com.finora.loan.controller;
 
-import com.finora.loan.dto.request.ScoringRetryRequest;
-import com.finora.loan.dto.response.CreditAssessmentDetailResponse;
-import com.finora.loan.dto.response.CreditAssessmentSummaryResponse;
-import com.finora.loan.dto.response.PageResponse;
-import com.finora.loan.service.CreditScoringAssessmentService;
+import com.finora.loan.dto.scoring.request.ScoringRetryRequest;
+import com.finora.loan.dto.scoring.response.CreditAssessmentDetailResponse;
+import com.finora.loan.dto.scoring.response.CreditAssessmentSummaryResponse;
+import com.finora.loan.dto.scoring.response.ScoringRetryAcceptedResponse;
+import com.finora.loan.dto.common.PageResponse;
+import com.finora.loan.service.scoring.CreditScoringAssessmentService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -12,6 +13,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -48,11 +50,11 @@ public class AdminCreditScoringController {
     }
 
     @PostMapping("/scoring-retry")
-    public CreditAssessmentDetailResponse retry(
+    public ResponseEntity<ScoringRetryAcceptedResponse> retry(
             @PathVariable String applicationNumber,
             @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 150) String idempotencyKey,
             @Valid @RequestBody ScoringRetryRequest request
     ) {
-        return service.retry(applicationNumber, idempotencyKey, request);
+        return ResponseEntity.accepted().body(service.retry(applicationNumber, idempotencyKey, request));
     }
 }
