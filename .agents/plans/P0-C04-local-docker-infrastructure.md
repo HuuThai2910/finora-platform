@@ -3,7 +3,7 @@ task_id: P0-C04
 title: Neon-first và Docker offline database theo service
 owners: Thai, Hai
 initiated_by: Thai
-status: REVIEW
+status: IN_PROGRESS
 created_at: 2026-08-01
 updated_at: 2026-08-08
 approved_by: Thai, Hai

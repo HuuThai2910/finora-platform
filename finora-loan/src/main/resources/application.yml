@@ -61,6 +61,8 @@ finora:
   loan:
     # Version này được snapshot khi borrower submit để đối chiếu đúng nội dung đã xác nhận.
     pricing-disclosure-version: ${LOAN_PRICING_DISCLOSURE_VERSION:RATE_DISCLOSURE_V1}
+<<<<<<< HEAD
+=======
     interest-rate-unit: PERCENT_PER_YEAR
     rate-notice: "Lãi suất cố định theo năm; lịch trả hiển thị là dự kiến cho tới ngày giải ngân thực tế."
     contract:
@@ -73,6 +75,7 @@ finora:
       expiry-batch-size: ${LOAN_CONTRACT_EXPIRY_BATCH_SIZE:100}
       expiry-worker-enabled: ${LOAN_CONTRACT_EXPIRY_WORKER_ENABLED:true}
       expiry-worker-delay: ${LOAN_CONTRACT_EXPIRY_WORKER_DELAY:60000}
+>>>>>>> e6ce295112f875c85ecbb80899e84296b15ccf3b
   borrower-eligibility:
     minimum-age: ${BORROWER_MINIMUM_AGE:18}
     maximum-age: ${BORROWER_MAXIMUM_AGE:65}
@@ -92,8 +95,13 @@ finora:
   fineract:
     base-url: ${FINERACT_BASE_URL:http://localhost:18443/fineract-provider/api/v1}
     tenant-id: ${FINERACT_TENANT_ID:default}
+<<<<<<< HEAD
+    username: ${FINERACT_API_USERNAME:mifos}
+    password: ${FINERACT_API_PASSWORD:password}
+=======
     username: ${FINERACT_API_USERNAME}
     password: ${FINERACT_API_PASSWORD}
+>>>>>>> e6ce295112f875c85ecbb80899e84296b15ccf3b
     preview-client-external-id: ${FINERACT_PREVIEW_CLIENT_EXTERNAL_ID:FINORA-PREVIEW-CLIENT}
     connect-timeout: ${FINERACT_CONNECT_TIMEOUT:3s}
     read-timeout: ${FINERACT_READ_TIMEOUT:10s}
@@ -101,8 +109,11 @@ finora:
     max-attempts: ${FINERACT_MAX_ATTEMPTS:3}
     retry-backoff: ${FINERACT_RETRY_BACKOFF:30s}
     retry-batch-size: ${FINERACT_RETRY_BATCH_SIZE:20}
+<<<<<<< HEAD
+=======
     # Lease cho phép worker khác tiếp quản command nếu instance dừng giữa lúc gọi Fineract.
     processing-lease: ${FINERACT_PROCESSING_LEASE:2m}
+>>>>>>> e6ce295112f875c85ecbb80899e84296b15ccf3b
 
 resilience4j:
   circuitbreaker:
@@ -123,7 +134,10 @@ resilience4j:
         # Cao hơn RestClient read-timeout để HTTP client tự phân loại timeout trước.
         timeout-duration: ${FINERACT_TIME_LIMITER_TIMEOUT:12s}
         cancel-running-future: true
+<<<<<<< HEAD
+=======
       ai-credit:
         # Cao hơn read-timeout 15 giây để HTTP client phân loại lỗi trước, nhưng vẫn chặn cuộc gọi bị treo.
         timeout-duration: ${AI_TIME_LIMITER_TIMEOUT:17s}
         cancel-running-future: true
+>>>>>>> e6ce295112f875c85ecbb80899e84296b15ccf3b

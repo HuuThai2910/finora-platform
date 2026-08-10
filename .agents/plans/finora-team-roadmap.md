@@ -320,6 +320,8 @@ Thêm dòng mới, không sửa mất lịch sử đã dùng để triển khai.
 | 2026-08-02 | P1-A01/P1-A02 | Hoàn tất Loan Product và Application Draft/submit/cancel/history; 22 test pass trên MySQL 8.4; Product/Application tự chọn actor admin/borrower giả lập trong cùng lần chạy | Thái triển khai; chờ Thái nghiệm thu task | Không đổi contract liên service | Review |
 | 2026-08-02 | P0-C04/P1-A01/P1-A02 | Bỏ dependency Core/Kafka khỏi Loan app container; thêm Postman manual collection 17 request có sẵn URL/body, chọn từng request để Send và hướng dẫn IDE/Docker chỉ chạy MySQL Loan | Thái quyết định local Loan; Hải hậu kiểm Compose trước merge | Có — local Loan hiện không khởi động Core khi chưa có use case | Review |
 | 2026-08-03 | P0-A06/P0-C04 | Thái chuyển Loan, Payment, Blockchain sang PostgreSQL 17; mỗi service một Neon Project có quota/credential riêng; Docker PostgreSQL chỉ làm offline/Testcontainers fallback | Thái quyết định; Hải review file dùng chung, service Hải không đổi | Có — datasource/port/local workflow | In progress |
+<<<<<<< HEAD
+=======
 | 2026-08-08 | P1-A01–P1-A06 | Thái nghiệm thu phần Loan của LN-003 đến LN-007; giữ mock User cho local và AI v10 contract đã chốt | Thái | Có — User/AI fixture thật vẫn là cổng trước môi trường tích hợp | Resolved |
 | 2026-08-08 | P2-A01 | Rà soát LN-008 theo schema/code hiện tại: public number, PostgreSQL `TIMESTAMPTZ`, dùng lại submission schedule, Contract text/hash xác định, idempotency và Contract history; chưa triển khai code | Thái duyệt lại plan; Hải chỉ review nếu contract/vùng chung thay đổi | Không đổi AI/Fineract contract; thêm Loan API/DB local | Open |
 | 2026-08-08 | P2-A01 | Thái duyệt LN-008 và yêu cầu bắt đầu migration/code trong Loan | Thái | Không đổi contract service khác | In progress |
@@ -327,6 +329,7 @@ Thêm dòng mới, không sửa mất lịch sử đã dùng để triển khai.
 | 2026-08-08 | P0-A06/P0-B01/P0-C04 | Thái xác nhận Hải đồng ý chuyển User, Investment và Keycloak sang PostgreSQL; toàn bộ thành phần persistent dùng database/credential/volume riêng, không thêm database cho AI/Notification/Gateway khi chưa có nhu cầu lưu trữ; Maven verify và Docker smoke User/Investment/Keycloak đều pass | Thái + Hải | Có — đổi datasource và local infrastructure, không đổi REST/event contract | Review |
 | 2026-08-09 | Tài liệu mọi service/LN-003–LN-014 | Bổ sung rule 09 và planning skill dùng chung: mỗi plan phải có lớp nghiệp vụ dễ hiểu, ERD/cardinality hiện tại tách khỏi dự kiến, field impact, API→hàm, transaction/concurrency, query/index/N+1 và acceptance evidence | Thái | Không đổi REST/event contract; chuẩn hóa cách viết và review plan | Resolved |
 | 2026-08-09 | WEB-LOAN-001/MOBILE-LOAN-001 | Thái duyệt tích hợp frontend LN-003–LN-008; visual reference chuyển vào `docs/ui`, mobile bỏ gọi AI trực tiếp, web cần thêm admin Product list phân trang | Thái triển khai; Hải review `docs/` dùng chung trước merge | Thêm Loan read API local, không đổi contract AI/Fineract | In progress |
+>>>>>>> e6ce295112f875c85ecbb80899e84296b15ccf3b
 
 ## 15. Quy tắc cập nhật roadmap
 
