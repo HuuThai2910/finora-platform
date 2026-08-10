@@ -15,7 +15,21 @@ suất này.
 import numpy as np
 from xgboost import XGBClassifier
 
+from app.ml.features import FEATURE_NAMES
+
 RANDOM_STATE = 42
+
+# Đặc trưng mà PD buộc phải KHÔNG GIẢM theo — gánh nặng trả nợ nặng hơn thì rủi ro
+# không thể thấp hơn. Không có ràng buộc này, mô hình học ngược dấu: đo trên v10 tự
+# do cho thấy installment tăng 2,67 lần thì PD lại GIẢM 3,9 điểm phần trăm, vì trong
+# dữ liệu huấn luyện installment cao tương quan với kỳ hạn ngắn (nhóm ít vỡ nợ hơn),
+# nên nó bị học thành proxy cho "kỳ hạn ngắn = an toàn" thay vì thành gánh nặng.
+DAC_TRUNG_DON_DIEU_TANG = ["installment", "effective_apr"]
+
+
+def rang_buoc_don_dieu() -> tuple[int, ...]:
+    """Vector ràng buộc đơn điệu, khớp thứ tự cột của `FEATURE_NAMES`."""
+    return tuple(1 if ten in DAC_TRUNG_DON_DIEU_TANG else 0 for ten in FEATURE_NAMES)
 
 # Siêu tham số tìm bằng RandomizedSearchCV 40 vòng, 3-fold CV, scoring roc_auc,
 # chạy trên dữ liệu THẬT (không phải dữ liệu đã SMOTE).
@@ -46,6 +60,7 @@ def fit_xgboost(X: np.ndarray, y: np.ndarray) -> tuple[XGBClassifier, float]:
     model = XGBClassifier(
         **XGB_TUNED_PARAMS,
         scale_pos_weight=scale_pos_weight,
+        monotone_constraints=rang_buoc_don_dieu(),
         eval_metric="auc",
         random_state=RANDOM_STATE,
     )

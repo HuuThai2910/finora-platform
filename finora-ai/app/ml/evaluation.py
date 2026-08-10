@@ -7,11 +7,6 @@ from sklearn.metrics import (
     accuracy_score,
 )
 
-THU_TU_DON_GIAN = ["lr", "rf", "xgb", "ada"]
-NGUONG_RECALL_TOI_THIEU = 0.75
-NGUONG_AUC_GAN = 0.005
-
-
 def compute_ks_statistic(y_true: np.ndarray, y_proba: np.ndarray) -> float:
     """Tính chỉ số Kolmogorov-Smirnov — đo mức phân tách 2 phân phối."""
     pos_proba = np.sort(y_proba[y_true == 1])
@@ -52,30 +47,3 @@ def evaluate_model(model, X_test: np.ndarray, y_test: np.ndarray) -> dict:
         "accuracy_baseline": float(ty_le_lop_da_so),
         "ks_statistic": compute_ks_statistic(y_test, y_proba),
     }
-
-
-def select_champion(results: dict[str, dict]) -> str:
-    """Chọn mô hình champion: AUC cao nhất trong số có Recall >= 0.75.
-    Nếu AUC chênh < 0.5%, ưu tiên mô hình đơn giản hơn."""
-    du_dieu_kien = {
-        ten: chi_so
-        for ten, chi_so in results.items()
-        if chi_so["recall"] >= NGUONG_RECALL_TOI_THIEU
-    }
-
-    if not du_dieu_kien:
-        du_dieu_kien = results
-
-    auc_cao_nhat = max(m["auc_roc"] for m in du_dieu_kien.values())
-
-    gan_nhau = {
-        ten: chi_so
-        for ten, chi_so in du_dieu_kien.items()
-        if auc_cao_nhat - chi_so["auc_roc"] < NGUONG_AUC_GAN
-    }
-
-    for ten in THU_TU_DON_GIAN:
-        if ten in gan_nhau:
-            return ten
-
-    return max(gan_nhau, key=lambda n: gan_nhau[n]["auc_roc"])
