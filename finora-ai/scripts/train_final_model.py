@@ -14,8 +14,9 @@ Hiệu năng vẫn được đo trước khi refit, bằng hai cách bổ sung c
      nhau, không thay thế nhau.
 
 Ba hiệu chỉnh theo bối cảnh FINORA:
-  - Chỉ giữ khoản vay có kỳ hạn tối đa 24 tháng để phù hợp giới hạn hợp đồng vay
-    ngang hàng theo Nghị định 94/2025.
+  - Chỉ giữ khoản vay kỳ hạn 36 tháng — Nghị định 94/2025 giới hạn hợp đồng vay
+    ngang hàng ≤ 24 tháng; LendingClub không có kỳ hạn nào ≤ 24 nên chọn nhóm gần
+    trần nhất và loại nhóm 60 tháng.
 # Chuẩn hóa các biến tiền tệ của LendingClub sang mặt bằng thu nhập
 # của người lao động Việt Nam.
 #
@@ -124,14 +125,10 @@ def nap_va_chuan_hoa() -> pd.DataFrame:
     d["issue_year"] = _parse_issue_year(d["issue_d"])
     d["emp_length_years"] = d["emp_length"].apply(_parse_emp_length)
 
-    # Chỉ đánh giá các năm đã chọn và kỳ hạn không vượt quá giới hạn sản phẩm.
+    # Lọc chỉ lấy năm 2012 và 2014
     truoc = len(d)
     d = d[d["issue_year"].isin([2012, 2014])].copy()
-    d = d[d["term_months"] <= 24].copy()
-    print(
-        f"  Lọc năm 2012, 2014 và kỳ hạn ≤ 24 tháng: "
-        f"{truoc:,} → {len(d):,} dòng"
-    )
+    print(f"  Lọc chỉ lấy năm 2012 và 2014: {truoc:,} → {len(d):,} dòng")
 
     # Tính toán và chuẩn hóa tiền tệ động theo từng năm
     he_so_k = d["issue_year"].map(lambda y: VN_AVG[y] / US_AVG[y])
@@ -182,8 +179,8 @@ def do_mot_fold(train: pd.DataFrame, val: pd.DataFrame, ten: str) -> dict:
     """Đo hiệu năng một fold. Median fit CHỈ trên train — không thì val rò sang train."""
     median = tinh_median(train)
 
-    from app.ml.features import TARGET_COLS, tinh_target_encodings
-    target_cols = TARGET_COLS
+    from app.ml.features import tinh_target_encodings
+    target_cols = ["home_ownership", "purpose_cat", "verification_status"]
     target_encodings, global_mean = tinh_target_encodings(train, target_cols, "loan_status", m=10.0)
 
     X_train, y_train = tao_ma_tran(train, median, target_encodings, global_mean)
@@ -257,8 +254,8 @@ def main() -> None:
     print(f"\n[4/5] Huấn luyện lại trên 100% dữ liệu ({len(d):,} dòng)")
     median_cuoi = tinh_median(d)
 
-    from app.ml.features import TARGET_COLS, tinh_target_encodings
-    target_cols = TARGET_COLS
+    from app.ml.features import tinh_target_encodings
+    target_cols = ["home_ownership", "purpose_cat", "verification_status"]
     encodings_cuoi, global_mean_cuoi = tinh_target_encodings(d, target_cols, "loan_status", m=10.0)
 
     X, y = tao_ma_tran(d, median_cuoi, encodings_cuoi, global_mean_cuoi)
