@@ -23,9 +23,6 @@ PURPOSE_HOP_LE = Literal[
 
 HOME_OWNERSHIP_HOP_LE = Literal["RENT", "OWN", "MORTGAGE", "OTHER"]
 VERIFICATION_STATUS_HOP_LE = Literal["Verified", "Source Verified", "Not Verified"]
-INTEREST_METHOD_HOP_LE = Literal[
-    "FLAT", "DECLINING_BALANCE", "DECLINING_BALANCE_RECALC"
-]
 
 
 class CreditScoreRequest(BaseModel):
@@ -63,21 +60,7 @@ class CreditScoreRequest(BaseModel):
         default=None, ge=0, description="Số lượng hồ sơ công khai bất lợi (phá sản, tịch thu tài sản...)"
     )
     installment: float | None = Field(
-        default=None,
-        ge=0,
-        description=(
-            "Số tiền phải trả hàng tháng (VNĐ). Bỏ trống thì hệ thống tự tính từ "
-            "loan_amnt, int_rate, term_months và interest_method."
-        ),
-    )
-    interest_method: INTEREST_METHOD_HOP_LE | None = Field(
-        default="DECLINING_BALANCE",
-        description=(
-            "Phương pháp tính lãi của gói vay. "
-            "FLAT — lãi trên toàn bộ gốc ban đầu suốt kỳ vay, trả nhiều nhất. "
-            "DECLINING_BALANCE — lãi trên dư nợ còn lại. "
-            "DECLINING_BALANCE_RECALC — như declining, có tính lại lịch khi trả trước hạn."
-        ),
+        default=None, ge=0, description="Số tiền phải trả hàng tháng (VNĐ)"
     )
 
     model_config = {
@@ -109,9 +92,12 @@ class CreditScoreResponse(BaseModel):
     evaluation_score: float = Field(
         description="Điểm tổng hợp = (1-PD)x100 x 0,6 + risk_score x 0,4"
     )
-    credit_grade: Literal["A", "B", "C", "D", "E"]
+    credit_grade: Literal["A", "B", "C", "D"]
     suggested_limit: int = Field(
         description="Hạn mức đề xuất (VNĐ). Trần 100 triệu/nền tảng theo Nghị định 94/2025"
+    )
+    suggested_rate: float = Field(
+        description="Lãi suất năm đề xuất. Trần 20%/năm theo Điều 468 Bộ luật Dân sự 2015"
     )
     decision: Literal["APPROVED", "PENDING_REVIEW", "REJECTED"]
     rejection_reason: str | None = Field(default=None, description="Lý do từ chối nếu bị chốt chặn cứng vi phạm")

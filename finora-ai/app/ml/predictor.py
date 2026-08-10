@@ -1,5 +1,5 @@
 """
-Bộ dự đoán dùng gói model tự chứa (`models/model_v<PHIEN_BAN_MAC_DINH>.pkl` + `.json`).
+Bộ dự đoán dùng gói model tự chứa (`models/model_v9.0.0.pkl` + `.json`).
 
 Trường thiếu trong hồ sơ được điền bằng **median lưu trong gói** — đúng giá trị mà
 mô hình đã học lúc huấn luyện — chứ không phải hằng số viết cứng trong code.
@@ -23,13 +23,7 @@ import pandas as pd
 
 from app.ml.features import FEATURE_NAMES, NUMERIC_FEATURES, COLUMNS_WITH_MISSING, encode_features
 from app.ml.model_registry import _duong_dan_mo_hinh, _tinh_sha256, tai_mo_hinh
-from app.ml.preprocessing import (
-    HOME_OWNERSHIP_MAP,
-    PHUONG_PHAP_MAC_DINH,
-    PURPOSE_MAP,
-    _parse_emp_length,
-    tinh_installment,
-)
+from app.ml.preprocessing import HOME_OWNERSHIP_MAP, PURPOSE_MAP, _parse_emp_length
 from app.services.rule_engine import (
     quyet_dinh,
     tinh_diem_rui_ro,
@@ -38,9 +32,9 @@ from app.services.rule_engine import (
     kiem_tra_chot_chan_cung,
 )
 
-# Ba cột này được TÍNH LẠI từ cột gốc trong `encode_features()` sau khi điền thiếu,
+# Hai cột này được TÍNH LẠI từ cột gốc trong `encode_features()` sau khi điền thiếu,
 # nên không điền median cho chúng — điền rồi cũng bị ghi đè.
-COT_DAN_XUAT = {"log_income", "loan_to_income", "effective_apr"}
+COT_DAN_XUAT = {"log_income", "loan_to_income"}
 
 # 4 cột gốc cần median. Là nguồn sự thật duy nhất cho cả `scripts/train_final_model.py`
 # lẫn `predictor.py`, để danh sách lúc huấn luyện và lúc chấm điểm không thể lệch nhau.
@@ -138,7 +132,6 @@ class BoDuDoan:
             "pub_rec": ho_so.get("pub_rec"),
             "int_rate": int_rate_val,
             "installment": ho_so.get("installment"),
-            "interest_method": ho_so.get("interest_method") or PHUONG_PHAP_MAC_DINH,
         }
 
         # Tạo chỉ báo thiếu trước khi điền median
@@ -151,21 +144,7 @@ class BoDuDoan:
             if gia_tri is None or (isinstance(gia_tri, float) and np.isnan(gia_tri)):
                 row[cot] = gia_tri_median
 
-        # `installment` bỏ trống thì TÍNH từ gói vay thay vì điền median. Median là số
-        # trung bình của cả tập, không dính gì tới khoản vay này — mà installment lại
-        # là chỗ duy nhất phương pháp tính lãi thể hiện ra. Điền median ở đây sẽ xóa
-        # sạch khác biệt giữa FLAT và DECLINING_BALANCE.
-        if self._thieu_installment(ho_so):
-            row["installment"] = float(tinh_installment(
-                row["loan_amnt"], row["int_rate"], row["term_months"], row["interest_method"]
-            ))
-
         return row
-
-    @staticmethod
-    def _thieu_installment(ho_so: dict) -> bool:
-        val = ho_so.get("installment")
-        return val is None or (isinstance(val, float) and np.isnan(val))
 
     # ── Dự đoán ───────────────────────────────────────────────────────────────
     def du_doan_pd(self, ho_so: dict) -> float:
@@ -197,6 +176,7 @@ class BoDuDoan:
             "evaluation_score": round(evaluation_score, 2),
             "credit_grade": hang.hang,
             "suggested_limit": hang.han_muc,
+            "suggested_rate": hang.lai_suat,
             "decision": quyet_dinh(evaluation_score, chot_chan_ly_do),
             "rejection_reason": chot_chan_ly_do,
             "model_version": self.metadata["version"],
