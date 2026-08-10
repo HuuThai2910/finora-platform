@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.loan.config.FineractProperties;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,12 +54,15 @@ public class FineractRequestExecutor {
         headers.setBasicAuth(properties.username(), properties.password());
     }
 
-    /** Mỗi adapter đặt tên operation rõ ràng nhưng dùng cùng quy tắc resilience và logging. */
-    public <T> T execute(String operation, ExternalCall<T> call) {
+    /**
+     * Mỗi adapter khai báo nhóm chức năng và tên thao tác. Nhóm quyết định circuit breaker;
+     * operation chỉ dùng cho log/metric và tuyệt đối không chứa ID hay dữ liệu người dùng.
+     */
+    public <T> T execute(FineractCallGroup group, String operation, ExternalCall<T> call) {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         try {
-            return circuitBreakerFactory.create("fineract").run(
+            return circuitBreakerFactory.create(group.circuitBreakerName()).run(
                     call::execute,
                     throwable -> {
                         throw mapException(throwable);
@@ -73,11 +77,14 @@ public class FineractRequestExecutor {
 
     /** Duyệt cause chain để timeout bị wrapper bọc vẫn được đánh dấu retryable. */
     FineractIntegrationException mapException(Throwable throwable) {
-        Throwable cause = findKnownCause(throwable);
-        if (cause instanceof FineractIntegrationException integrationException) {
+        FineractIntegrationException integrationException = findCause(
+                throwable, FineractIntegrationException.class);
+        if (integrationException != null) {
             return integrationException;
         }
-        if (cause instanceof RestClientResponseException responseException) {
+        RestClientResponseException responseException = findCause(
+                throwable, RestClientResponseException.class);
+        if (responseException != null) {
             HttpStatusCode status = responseException.getStatusCode();
             boolean retryable = status.value() == 429 || status.is5xxServerError();
             return new FineractIntegrationException(
@@ -87,36 +94,56 @@ public class FineractRequestExecutor {
                     responseException
             );
         }
-        if (cause instanceof TimeoutException) {
+        Throwable timeoutCause = findTimeoutCause(throwable);
+        if (timeoutCause != null) {
             return new FineractIntegrationException(
-                    "FINERACT_TIMEOUT", "Apache Fineract không phản hồi trong thời gian cho phép", true, cause);
+                    "FINERACT_TIMEOUT", "Apache Fineract không phản hồi trong thời gian cho phép",
+                    true, timeoutCause);
         }
-        if (cause instanceof CallNotPermittedException) {
+        CallNotPermittedException callNotPermitted = findCause(throwable, CallNotPermittedException.class);
+        if (callNotPermitted != null) {
             return new FineractIntegrationException(
-                    "FINERACT_CIRCUIT_OPEN", "Tạm dừng gọi Apache Fineract vì dependency đang lỗi", true, cause);
+                    "FINERACT_CIRCUIT_OPEN", "Tạm dừng gọi Apache Fineract vì dependency đang lỗi",
+                    true, callNotPermitted);
         }
-        if (cause instanceof ResourceAccessException) {
+        ResourceAccessException resourceAccess = findCause(throwable, ResourceAccessException.class);
+        if (resourceAccess != null) {
             return new FineractIntegrationException(
-                    "FINERACT_UNAVAILABLE", "Không thể kết nối Apache Fineract", true, cause);
+                    "FINERACT_UNAVAILABLE", "Không thể kết nối Apache Fineract", true, resourceAccess);
         }
+        Throwable cause = deepestCause(throwable);
         log.error("Không ánh xạ được lỗi Fineract: exceptionType={}, rootCauseType={}",
                 throwable.getClass().getName(), cause.getClass().getName());
         return new FineractIntegrationException(
                 "FINERACT_UNEXPECTED_ERROR", "Lỗi không xác định khi gọi Apache Fineract", false, cause);
     }
 
-    private Throwable findKnownCause(Throwable throwable) {
+    private Throwable findTimeoutCause(Throwable throwable) {
+        TimeoutException timeLimiterTimeout = findCause(throwable, TimeoutException.class);
+        return timeLimiterTimeout != null
+                ? timeLimiterTimeout
+                : findCause(throwable, SocketTimeoutException.class);
+    }
+
+    private <T extends Throwable> T findCause(Throwable throwable, Class<T> expectedType) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (expectedType.isInstance(current)) {
+                return expectedType.cast(current);
+            }
+            if (current.getCause() == current) {
+                break;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    private Throwable deepestCause(Throwable throwable) {
         Throwable current = throwable;
         Throwable deepest = throwable;
         while (current != null) {
             deepest = current;
-            if (current instanceof FineractIntegrationException
-                    || current instanceof RestClientResponseException
-                    || current instanceof TimeoutException
-                    || current instanceof CallNotPermittedException
-                    || current instanceof ResourceAccessException) {
-                return current;
-            }
             if (current.getCause() == current) {
                 break;
             }

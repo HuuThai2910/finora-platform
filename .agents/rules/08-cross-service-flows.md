@@ -38,7 +38,7 @@ Mỗi flow mới hoặc thay đổi MUST xác định trigger, orchestrator, con
 
 **Idempotency:** unique theo `loanProductId + productVersion + commandType`; retry không tạo hai core products logic.
 
-**Failure:** Fineract lỗi → Product giữ `DRAFT`, sync `FAILED/RETRY_PENDING`; không kích hoạt và không tự tính schedule bằng engine khác.
+**Failure:** Fineract lỗi → Product giữ `DRAFT`, sync `FAILED/RETRY_PENDING`; không kích hoạt và không tự tính schedule bằng engine khác. Functional readiness MUST gọi API có xác thực thay vì chỉ kiểm tra cổng TCP. Product sync và schedule preview MUST dùng circuit breaker độc lập; validation/authentication 4xx MUST NOT làm mở circuit.
 
 ## F02 — Tạo hồ sơ và chấm điểm tín dụng
 
@@ -55,7 +55,7 @@ Mỗi flow mới hoặc thay đổi MUST xác định trigger, orchestrator, con
 
 **Idempotency:** `loanApplicationId + scoringAttempt/version`; cùng feature snapshot và model version phải trả cùng artifact reference.
 
-**Failure:** AI lỗi → giữ `SCORING_RETRY_PENDING`, không tạo điểm mặc định. Retry hết hạn → manual review hoặc failure state có audit.
+**Failure:** Fineract chưa functional-ready → preview trả lỗi phụ thuộc có thể thử lại, không tạo Application; UI giữ lựa chọn đã nhập và hướng dẫn thử lại sau. AI lỗi → giữ `SCORING_RETRY_PENDING`, không tạo điểm mặc định. Retry hết hạn → manual review hoặc failure state có audit.
 
 ## F03 — Duyệt, ký hợp đồng và đưa khoản vay lên sàn
 

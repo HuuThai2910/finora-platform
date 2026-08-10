@@ -5,7 +5,7 @@ owners: Thai, Hai
 initiated_by: Thai
 status: REVIEW
 created_at: 2026-08-01
-updated_at: 2026-08-08
+updated_at: 2026-08-10
 approved_by: Thai, Hai
 approved_at: 2026-08-08
 reviewed_by:
@@ -167,6 +167,8 @@ Port host có thể override trong `docker/.env`; port internal không đổi.
 
 - Thiếu secret Docker: smoke fail trước Compose và nêu đúng biến thiếu.
 - Neon unavailable: readiness DOWN; không tự fallback sang local DB vì có thể tạo split-brain dữ liệu.
+- Fineract mở cổng nhưng API chưa sẵn sàng: healthcheck phải gọi API nghiệp vụ có Basic Auth + tenant và chỉ
+  báo `healthy` khi nhận HTTP 200; không dùng TCP probe để quyết định Loan có thể nhận traffic tích hợp.
 - Đổi credential nhưng giữ volume cũ: init script không chạy lại; đổi role có kiểm soát hoặc recreate volume sau backup.
 - Cổng host bị chiếm: đổi biến port; không dừng process ngoài scope.
 - Docker daemon không chạy: Neon workflow vẫn chạy; Testcontainers được báo chưa kiểm tra.
@@ -198,6 +200,8 @@ Port host có thể override trong `docker/.env`; port internal không đổi.
 - Docker smoke Investment + Keycloak PostgreSQL: pass; health và readiness đạt.
 - Ba volume PostgreSQL chỉ dùng credential smoke đã được xóa sau kiểm thử; old-engine volume và dữ liệu service khác không bị tác động.
 - Rule validation và `git diff --check`: pass; không có lỗi whitespace/rule.
+- Functional readiness Fineract ngày 2026-08-10: recreate giữ nguyên volume, trạng thái chỉ chuyển sang `healthy`
+  sau API có tenant auth trả HTTP 200; smoke VND/Preview Client và Loan repayment preview đều pass.
 - User/Investment chưa có entity nghiệp vụ nên Flyway chưa tạo bảng giả; `V1` phải đi cùng entity đầu tiên.
 - Neon thật chưa được gọi từ quality gate vì credential không lưu trong repository; owner kiểm tra connection riêng theo guide.
 

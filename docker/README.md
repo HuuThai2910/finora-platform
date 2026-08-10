@@ -127,8 +127,10 @@ Image Docker Hub không có tag cho commit phát hành `1.15.0`, nên lần thi�
 image local đã build, không tải lại.
 
 Lần đầu Fineract có thể mất vài phút để migration hai database `fineract_tenants`
-và `fineract_default`. Sau khi cả hai container `healthy`, vẫn phải chạy smoke để chọn `VND` và tạo
-Preview Client; chỉ container healthy chưa đủ để Product FINORA đồng bộ thành công:
+và `fineract_default`. Healthcheck của app container gọi API `/offices` bằng Basic Auth + tenant và chỉ báo
+`healthy` sau HTTP 200; nó đồng thời hoàn tất lần khởi tạo Jersey đầu tiên. Vì vậy không chạy Loan preview khi
+container còn `starting`. Sau khi container `healthy`, vẫn phải chạy smoke một lần trên volume mới để chọn `VND`
+và tạo Preview Client; functional readiness không tự sửa dữ liệu bootstrap:
 
 ```text
 Health: http://localhost:18443/fineract-provider/actuator/health
@@ -220,4 +222,6 @@ Không dùng role `postgres` cho ứng dụng hoặc thao tác hằng ngày.
 - **Neon không kết nối:** kiểm tra JDBC prefix, database/role đúng project và `sslmode=require`.
 - **Scale-to-zero:** request đầu sau thời gian nghỉ có thể chậm; ứng dụng phải kết nối lại, không đổi sang database local âm thầm.
 - **Container lỗi:** chạy `docker compose --env-file docker/.env -f docker/docker-compose.yml --profile <profile> logs --tail 100 <service>`.
+- **Fineract còn `starting`:** chờ functional healthcheck hoàn tất; không bấm preview liên tục. Nếu kéo dài, kiểm tra
+  log Fineract và xác nhận `FINERACT_API_USERNAME/PASSWORD` trong `docker/.env` đúng với tenant local.
 - **Volume engine cũ:** các volume MySQL/MongoDB đã tạo trước đây không còn gắn vào Compose mới và không bị tự động xóa. Chỉ xóa sau khi hai owner xác nhận không còn dữ liệu cần giữ.

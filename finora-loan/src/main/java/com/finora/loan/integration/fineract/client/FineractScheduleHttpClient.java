@@ -33,14 +33,18 @@ public class FineractScheduleHttpClient implements FineractScheduleGateway {
     @Override
     public ScheduleCalculationResult calculateSchedule(ScheduleCalculationRequest request) {
         long resolvedPreviewClientId = resolvePreviewClientId();
-        JsonNode response = requestExecutor.execute("calculate-schedule", () -> restClient.post()
+        JsonNode response = requestExecutor.execute(
+                FineractCallGroup.SCHEDULE,
+                "calculate-schedule",
+                () -> restClient.post()
                 .uri(uriBuilder -> uriBuilder.path("/loans")
                         .queryParam("command", "calculateLoanSchedule")
                         .build())
                 .headers(requestExecutor::authenticate)
                 .body(payloadMapper.toSchedulePayload(request, resolvedPreviewClientId))
                 .retrieve()
-                .body(JsonNode.class));
+                .body(JsonNode.class)
+        );
         return payloadMapper.toScheduleResult(request, resolvedPreviewClientId, response);
     }
 
@@ -51,14 +55,18 @@ public class FineractScheduleHttpClient implements FineractScheduleGateway {
             return cached;
         }
         String externalId = properties.previewClientExternalId();
-        JsonNode response = requestExecutor.execute("find-preview-client", () -> restClient.get()
+        JsonNode response = requestExecutor.execute(
+                FineractCallGroup.SCHEDULE,
+                "find-preview-client",
+                () -> restClient.get()
                 .uri(uriBuilder -> uriBuilder.path("/clients")
                         .queryParam("externalId", externalId)
                         .queryParam("limit", 2)
                         .build())
                 .headers(requestExecutor::authenticate)
                 .retrieve()
-                .body(JsonNode.class));
+                .body(JsonNode.class)
+        );
         long resolved = payloadMapper.findClientIdByExternalId(response, externalId)
                 .orElseThrow(() -> new FineractIntegrationException(
                         "FINERACT_PREVIEW_CLIENT_MISSING",

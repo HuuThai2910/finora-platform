@@ -28,7 +28,8 @@ public class FineractProductHttpClient implements FineractLoanProductGateway {
 
     @Override
     public Optional<FineractProductCreationResult> findProductByExternalId(String externalId) {
-        JsonNode response = requestExecutor.execute("find-product-by-external-id", () -> restClient.get()
+        JsonNode response = requestExecutor.execute(FineractCallGroup.PRODUCT,
+                "find-product-by-external-id", () -> restClient.get()
                 .uri(uriBuilder -> uriBuilder.path("/loanproducts")
                         .queryParam("fields", "id,externalId")
                         .build())
@@ -43,7 +44,10 @@ public class FineractProductHttpClient implements FineractLoanProductGateway {
             FineractProductConfiguration configuration,
             String idempotencyKey
     ) {
-        JsonNode response = requestExecutor.execute("create-product", () -> restClient.post()
+        JsonNode response = requestExecutor.execute(
+                FineractCallGroup.PRODUCT,
+                "create-product",
+                () -> restClient.post()
                 .uri("/loanproducts")
                 .headers(headers -> {
                     requestExecutor.authenticate(headers);
@@ -51,7 +55,8 @@ public class FineractProductHttpClient implements FineractLoanProductGateway {
                 })
                 .body(payloadMapper.toCreateProductPayload(configuration))
                 .retrieve()
-                .body(JsonNode.class));
+                .body(JsonNode.class)
+        );
         String snapshot = payloadMapper.sanitizedProductResponse(response);
         return new FineractProductCreationResult(response.path("resourceId").asLong(), snapshot);
     }

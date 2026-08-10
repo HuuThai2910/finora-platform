@@ -18,6 +18,9 @@ RUN apt-get update \
 
 WORKDIR /opt/fineract
 
+COPY readiness.sh /usr/local/bin/finora-fineract-readiness
+RUN chmod 0555 /usr/local/bin/finora-fineract-readiness
+
 EXPOSE 8443
 
 ENTRYPOINT ["java", "-Dloader.path=libs/", "-jar", "fineract-provider-1.15.0.jar"]

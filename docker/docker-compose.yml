@@ -177,12 +177,17 @@ services:
       FINERACT_MANAGEMENT_ENDPOINT_WEB_EXPOSURE_INCLUDE: health,info,prometheus
       FINERACT_NODE_ID: 1
       SPRING_PROFILES_ACTIVE: test,diagnostics
+      # Chỉ dùng cho functional readiness; script không ghi credential ra log.
+      FINORA_READINESS_API_USERNAME: ${FINERACT_API_USERNAME:-mifos}
+      FINORA_READINESS_API_PASSWORD: "${FINERACT_API_PASSWORD:-password}"
+      FINORA_READINESS_TENANT_ID: ${FINERACT_TENANT_ID:-default}
     ports:
       - "127.0.0.1:${FINERACT_HOST_PORT:-18443}:8443"
     healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 8443"]
+      # Fineract 1.15 khởi tạo Jersey lười ở request API đầu tiên. TCP open chưa có nghĩa là Loan có thể gọi API.
+      test: ["CMD", "/usr/local/bin/finora-fineract-readiness"]
       interval: 15s
-      timeout: 10s
+      timeout: 20s
       retries: 40
       start_period: 180s
     networks:

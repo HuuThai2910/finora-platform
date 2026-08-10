@@ -107,11 +107,25 @@ finora:
 resilience4j:
   circuitbreaker:
     instances:
-      fineract:
+      fineract-product:
         sliding-window-size: 10
         minimum-number-of-calls: 5
         failure-rate-threshold: 50
         wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        # HTTP 4xx là sai credential/request, không phải sự cố tạm thời để mở circuit.
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+      fineract-schedule:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
       ai-credit:
         sliding-window-size: 10
         minimum-number-of-calls: 5
@@ -119,7 +133,11 @@ resilience4j:
         wait-duration-in-open-state: 30s
   timelimiter:
     instances:
-      fineract:
+      fineract-product:
+        # Cao hơn RestClient read-timeout để HTTP client tự phân loại timeout trước.
+        timeout-duration: ${FINERACT_TIME_LIMITER_TIMEOUT:12s}
+        cancel-running-future: true
+      fineract-schedule:
         # Cao hơn RestClient read-timeout để HTTP client tự phân loại timeout trước.
         timeout-duration: ${FINERACT_TIME_LIMITER_TIMEOUT:12s}
         cancel-running-future: true

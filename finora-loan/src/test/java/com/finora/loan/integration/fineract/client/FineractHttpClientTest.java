@@ -1,6 +1,7 @@
 package com.finora.loan.integration.fineract.client;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeoutException;
@@ -8,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.ResourceAccessException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -24,6 +26,17 @@ class FineractHttpClientTest {
         assertThat(result.getCode()).isEqualTo("FINERACT_TIMEOUT");
         assertThat(result.isRetryable()).isTrue();
         assertThat(result.getCause()).isInstanceOf(TimeoutException.class);
+    }
+
+    @Test
+    void shouldMapSocketReadTimeoutInsideResourceAccessExceptionAsTimeout() {
+        FineractIntegrationException result = executor.mapException(
+                new ResourceAccessException("I/O error", new SocketTimeoutException("Read timed out"))
+        );
+
+        assertThat(result.getCode()).isEqualTo("FINERACT_TIMEOUT");
+        assertThat(result.isRetryable()).isTrue();
+        assertThat(result.getCause()).isInstanceOf(SocketTimeoutException.class);
     }
 
     @Test

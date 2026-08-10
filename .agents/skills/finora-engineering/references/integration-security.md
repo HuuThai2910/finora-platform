@@ -6,6 +6,11 @@
 - Validate cú pháp ở DTO và invariant nghiệp vụ ở domain/application service.
 - Response lỗi theo `{code, message, details, traceId}`; không trả stack trace hoặc SQL message.
 - External client có timeout, circuit breaker và retry có jitter chỉ cho lỗi tạm thời/idempotent.
+- Readiness phải kiểm tra đúng tầng mà consumer sử dụng: nếu framework/API có thể khởi tạo sau khi cổng mở thì
+  probe phải gọi một API nhẹ có xác thực; TCP/port check chỉ chứng minh process đang lắng nghe.
+- Circuit breaker tách theo nhóm chức năng có blast radius khác nhau; lỗi validation/auth 4xx không được ghi nhận
+  như lỗi tạm thời để mở circuit. Khi phân loại lỗi phải duyệt cause chain để socket timeout không bị nhầm thành
+  lỗi kết nối chung.
 - Không gọi service khác để join dữ liệu theo từng phần tử; dùng batch endpoint, read model hoặc event.
 - Thay đổi contract phải có version/migration plan và owner liên quan chấp thuận.
 
@@ -27,4 +32,3 @@
 - Upload eKYC kiểm tra MIME thực, kích thước và tên file; lưu ngoài public path.
 - Audit admin gồm actor, action, target, before/after đã lọc PII và timestamp UTC.
 - Dùng deserialization allowlist; validate webhook signature và chống replay.
-
