@@ -4,7 +4,7 @@ spring:
   application:
     name: finora-loan
   datasource:
-    # Mặc định an toàn cho local; chuỗi Neon phải được truyền qua biến môi trường, không commit.
+    # Neon/local đều truyền qua môi trường; repository không giữ host hoặc tài khoản triển khai mặc định.
     url: ${LOAN_DB_URL:jdbc:postgresql://ep-steep-fire-az704hm0-pooler.c-3.ap-southeast-1.aws.neon.tech/finora-loan?sslmode=require&channel_binding=require}
     username: ${LOAN_DB_USERNAME:neondb_owner}
     password: ${LOAN_DB_PASSWORD}
@@ -61,6 +61,18 @@ finora:
   loan:
     # Version này được snapshot khi borrower submit để đối chiếu đúng nội dung đã xác nhận.
     pricing-disclosure-version: ${LOAN_PRICING_DISCLOSURE_VERSION:RATE_DISCLOSURE_V1}
+    interest-rate-unit: PERCENT_PER_YEAR
+    rate-notice: "Lãi suất cố định theo năm; lịch trả hiển thị là dự kiến cho tới ngày giải ngân thực tế."
+    contract:
+      decision-policy-version: ${LOAN_DECISION_POLICY_VERSION:ADMIN_MANUAL_DECISION_V1}
+      terms-version: ${LOAN_TERMS_VERSION:LOAN_TERMS_V1}
+      # V2 thay chuỗi key=value kỹ thuật bằng văn bản tiếng Việt để borrower có thể đọc trước khi ký.
+      document-version: ${LOAN_CONTRACT_DOCUMENT_VERSION:CLICK_WRAP_TEXT_V2}
+      signature-window: ${LOAN_CONTRACT_SIGNATURE_WINDOW:7d}
+      maximum-signature-window: ${LOAN_CONTRACT_MAXIMUM_SIGNATURE_WINDOW:30d}
+      expiry-batch-size: ${LOAN_CONTRACT_EXPIRY_BATCH_SIZE:100}
+      expiry-worker-enabled: ${LOAN_CONTRACT_EXPIRY_WORKER_ENABLED:true}
+      expiry-worker-delay: ${LOAN_CONTRACT_EXPIRY_WORKER_DELAY:60000}
   borrower-eligibility:
     minimum-age: ${BORROWER_MINIMUM_AGE:18}
     maximum-age: ${BORROWER_MAXIMUM_AGE:65}
@@ -80,8 +92,8 @@ finora:
   fineract:
     base-url: ${FINERACT_BASE_URL:http://localhost:18443/fineract-provider/api/v1}
     tenant-id: ${FINERACT_TENANT_ID:default}
-    username: ${FINERACT_API_USERNAME:mifos}
-    password: ${FINERACT_API_PASSWORD:password}
+    username: ${FINERACT_API_USERNAME}
+    password: ${FINERACT_API_PASSWORD}
     preview-client-external-id: ${FINERACT_PREVIEW_CLIENT_EXTERNAL_ID:FINORA-PREVIEW-CLIENT}
     connect-timeout: ${FINERACT_CONNECT_TIMEOUT:3s}
     read-timeout: ${FINERACT_READ_TIMEOUT:10s}
@@ -89,6 +101,8 @@ finora:
     max-attempts: ${FINERACT_MAX_ATTEMPTS:3}
     retry-backoff: ${FINERACT_RETRY_BACKOFF:30s}
     retry-batch-size: ${FINERACT_RETRY_BATCH_SIZE:20}
+    # Lease cho phép worker khác tiếp quản command nếu instance dừng giữa lúc gọi Fineract.
+    processing-lease: ${FINERACT_PROCESSING_LEASE:2m}
 
 resilience4j:
   circuitbreaker:
@@ -108,4 +122,8 @@ resilience4j:
       fineract:
         # Cao hơn RestClient read-timeout để HTTP client tự phân loại timeout trước.
         timeout-duration: ${FINERACT_TIME_LIMITER_TIMEOUT:12s}
+        cancel-running-future: true
+      ai-credit:
+        # Cao hơn read-timeout 15 giây để HTTP client phân loại lỗi trước, nhưng vẫn chặn cuộc gọi bị treo.
+        timeout-duration: ${AI_TIME_LIMITER_TIMEOUT:17s}
         cancel-running-future: true

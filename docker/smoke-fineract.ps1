@@ -73,6 +73,37 @@ function Wait-Healthy {
     throw "$ServiceName không healthy sau $TimeoutSeconds giây."
 }
 
+function Ensure-FineractCurrency {
+    param(
+        [string]$ApiBaseUrl,
+        [hashtable]$Headers,
+        [string]$CurrencyCode
+    )
+
+    $configuration = Invoke-RestMethod -Uri "$ApiBaseUrl/currencies" -Headers $Headers -TimeoutSec 20
+    $selectedCodes = @($configuration.selectedCurrencyOptions | ForEach-Object { $_.code })
+    if ($CurrencyCode -notin $selectedCodes) {
+        $availableCodes = @($configuration.currencyOptions | ForEach-Object { $_.code })
+        if ($CurrencyCode -notin $availableCodes) {
+            throw "Fineract không hỗ trợ currency $CurrencyCode trong tenant hiện tại."
+        }
+
+        # PUT /currencies thay toàn bộ allowlist, nên phải giữ các currency đang dùng rồi mới thêm VND.
+        $updatedCodes = @($selectedCodes + $CurrencyCode | Sort-Object -Unique)
+        $body = @{ currencies = $updatedCodes } | ConvertTo-Json -Depth 3
+        $null = Invoke-RestMethod -Method Put -Uri "$ApiBaseUrl/currencies" -Headers $Headers `
+            -ContentType 'application/json' -Body $body -TimeoutSec 20
+    }
+
+    # Đọc lại từ nguồn chuẩn để smoke không báo thành công chỉ dựa trên response của lệnh PUT.
+    $verified = Invoke-RestMethod -Uri "$ApiBaseUrl/currencies" -Headers $Headers -TimeoutSec 20
+    $selectedCurrency = @($verified.selectedCurrencyOptions | Where-Object { $_.code -eq $CurrencyCode })
+    if ($selectedCurrency.Count -ne 1) {
+        throw "Currency $CurrencyCode chưa được chọn chính xác trong Fineract tenant."
+    }
+    Write-Host "[OK] Fineract currency selected: code=$CurrencyCode, decimalPlaces=$($selectedCurrency[0].decimalPlaces)"
+}
+
 if ($Stop) {
     Stop-Fixture
     Write-Host 'Fineract fixture: STOPPED; volume retained'
@@ -94,13 +125,17 @@ try {
 
     $apiUsername = Get-Setting 'FINERACT_API_USERNAME' 'mifos'
     $apiPassword = Get-Setting 'FINERACT_API_PASSWORD' 'password'
+    $tenantId = Get-Setting 'FINERACT_TENANT_ID' 'default'
     $basicToken = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${apiUsername}:${apiPassword}"))
     $headers = @{
         Authorization = "Basic $basicToken"
-        'Fineract-Platform-TenantId' = 'default'
+        'Fineract-Platform-TenantId' = $tenantId
     }
     $apiBaseUrl = "http://localhost:$hostPort/fineract-provider/api/v1"
     $null = Invoke-RestMethod -Uri "$apiBaseUrl/offices?limit=1" -Headers $headers -TimeoutSec 20
+
+    # Product FINORA dùng VND; volume Fineract mới chỉ bật USD nên phải bootstrap trước khi sync Product.
+    Ensure-FineractCurrency -ApiBaseUrl $apiBaseUrl -Headers $headers -CurrencyCode 'VND'
 
     # calculateLoanSchedule của Fineract 1.15 bắt buộc clientId ngay cả khi chỉ preview.
     # Client kỹ thuật này không đại diện borrower thật và tuyệt đối không dùng để booking khoản vay.
@@ -134,7 +169,7 @@ try {
         $previewClientId = $matches[0].id
         Write-Host "[OK] Fineract preview client exists: id=$previewClientId"
     }
-    Write-Host 'Fineract fixture smoke: OK (health + tenant authentication + preview client)'
+    Write-Host 'Fineract fixture smoke: OK (health + tenant authentication + VND + preview client)'
 } catch {
     if ($started) {
         & docker @composeArgs ps

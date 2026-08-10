@@ -8,17 +8,17 @@ Thay đổi giá trị trong bảng MUST cập nhật cấu hình, tài liệu l
 | `finora-loan` | 8081 | PostgreSQL/Neon Project `finora-loan`, DB `neondb`, default role của project |
 | `finora-payment` | 8082 | PostgreSQL/Neon Project `finora-payment`, DB `neondb`, default role của project; Redis nội bộ 6379 |
 | `finora-blockchain` | 8083 | PostgreSQL/Neon Project `finora-blockchain`, DB `neondb`, default role của project; Fabric channel `finora-channel`, chaincode `finora-ledger`, MSP `Org1MSP` |
-| `finora-investment` | 8084 | MongoDB `finora_investment` |
-| `finora-user` | 8085 | MySQL `finora_user` |
+| `finora-investment` | 8084 | PostgreSQL/Neon Project `finora-investment`, DB `neondb`, default role của project |
+| `finora-user` | 8085 | PostgreSQL/Neon Project `finora-user`, DB `neondb`, default role của project |
 | `finora-notification` | 8086 | Kafka consumer + SMTP; chưa có DB |
 | `finora-ai` | 8000 | FastAPI; chưa có DB |
-| Keycloak | 8180 | OIDC; MySQL `keycloak` riêng, không publish DB port |
+| Keycloak | 8180 | OIDC; PostgreSQL 17 database/credential/volume riêng, không publish DB port |
 | Kafka | 9092 host local; 29092 nội bộ Docker | Zookeeper 2181 |
 | Loan PostgreSQL offline | 15433 host local; 5432 nội bộ | PostgreSQL 17, `loan-postgres`, volume/user riêng |
 | Payment PostgreSQL offline | 15434 host local; 5432 nội bộ | PostgreSQL 17, `payment-postgres`, volume/user riêng |
 | Blockchain PostgreSQL offline | 15435 host local; 5432 nội bộ | PostgreSQL 17, `blockchain-postgres`, volume/user riêng |
-| User MySQL | 13308 host local; 3306 nội bộ | MySQL 8.4, container/volume/user riêng của User |
-| Investment MongoDB | 27018 host local; 27017 nội bộ | MongoDB 7, container/volume/user riêng của Investment |
+| User PostgreSQL offline | 15436 host local; 5432 nội bộ | PostgreSQL 17, `user-postgres`, volume/user riêng |
+| Investment PostgreSQL offline | 15437 host local; 5432 nội bộ | PostgreSQL 17, `investment-postgres`, volume/user riêng |
 | Payment Redis | 6380 host local; 6379 nội bộ | Redis 7, password/volume riêng của Payment |
 | Apache Fineract 1.15.0 | 18443 host local; 8443 nội bộ HTTP | Tenant `default`; API prefix `/fineract-provider/api/v1` |
 | Fineract PostgreSQL | 15432 host local; 5432 nội bộ | PostgreSQL 18.3 riêng; `fineract_tenants`, `fineract_default` |
@@ -39,6 +39,6 @@ Fineract 1.15 dùng PostgreSQL; fixture release 1.15.0 được pin PostgreSQL 1
 
 Port host local có thể override bằng environment để tránh xung đột máy cá nhân; port nội bộ/service contract trong Docker không đổi. Mọi override dùng chung phải được ghi trong `docker/.env` và không commit file này.
 
-Mỗi service MUST chỉ dùng endpoint/database/credential thuộc storage của mình (`loan-postgres`, `payment-postgres`, `blockchain-postgres`, `user-mysql`, `investment-mongo`, `payment-redis`). Không dùng chung Neon Project cho các service của Thái và không lấy connection string project khác. Trong môi trường Neon khóa luận chỉ một owner, Loan/Payment/Blockchain MAY dùng default role do Neon cấp để giảm cấu hình; trước production thật MUST tạo runtime role giới hạn quyền. Docker fallback vẫn MUST dùng runtime role không có superuser.
+Mỗi service MUST chỉ dùng endpoint/database/credential thuộc storage của mình (`loan-postgres`, `payment-postgres`, `blockchain-postgres`, `user-postgres`, `investment-postgres`, `payment-redis`). Không dùng chung Neon Project hoặc lấy connection string project khác. Trong môi trường Neon khóa luận một owner, mỗi service MAY dùng default role do đúng project đó cấp để giảm cấu hình; trước production thật MUST tạo runtime role giới hạn quyền. Docker fallback và Keycloak PostgreSQL vẫn MUST dùng runtime role không có superuser.
 
-Neon Free hiện được tổ chức một project cho mỗi service để quota storage/compute và credential tách biệt. Ba project MAY cùng có database tên `neondb` vì endpoint khác nhau. Connection string/secret chỉ qua environment hoặc secret store; registry không ghi host, tên default role cụ thể hoặc password Neon.
+Neon Free hiện được tổ chức một project cho mỗi service để quota storage/compute và credential tách biệt. Các project MAY cùng có database tên `neondb` vì endpoint khác nhau. Connection string/secret chỉ qua environment hoặc secret store; registry không ghi host, tên default role cụ thể hoặc password Neon.

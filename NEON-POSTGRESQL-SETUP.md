@@ -1,17 +1,20 @@
-# Thiết lập PostgreSQL trên Neon cho các service của Thái
+# Thiết lập PostgreSQL trên Neon cho các service FINORA
 
 ## 1. Kiến trúc được chốt
 
-Mỗi microservice có một Neon Project và connection string riêng. Loan/Payment/Blockchain dùng luôn database và owner role mặc định Neon tạo trong đúng project:
+Mỗi microservice có một Neon Project và connection string riêng. Loan/Payment/Blockchain/User/Investment dùng database và owner role mặc định Neon tạo trong đúng project ở giai đoạn khóa luận:
 
 | Neon Project | Database | Runtime role | Service sử dụng |
 |---|---|---|---|
 | `finora-loan` | `neondb` | Default role hiển thị trong **Connect** | `finora-loan` |
 | `finora-payment` | `neondb` | Default role hiển thị trong **Connect** | `finora-payment` |
 | `finora-blockchain` | `neondb` | Default role hiển thị trong **Connect** | `finora-blockchain` |
+| `finora-user` | `neondb` | Default role hiển thị trong **Connect** | `finora-user` |
+| `finora-investment` | `neondb` | Default role hiển thị trong **Connect** | `finora-investment` |
+| `finora-keycloak` | `neondb` | Default role hiển thị trong **Connect** | Keycloak |
 | `finora-fineract` | `fineract_tenants`, `fineract_default` | Default role hiển thị trong **Connect** | Apache Fineract |
 
-Không tạo một project chứa cả Loan, Payment và Blockchain. Việc cả ba database cùng tên `neondb` không làm chúng dùng chung dữ liệu vì mỗi database nằm trên endpoint/project khác nhau. Theo [bảng giá Neon hiện hành](https://neon.com/pricing), Free plan có 0,5 GB storage và 100 CU-hours mỗi tháng **cho mỗi project**. Giới hạn này có thể thay đổi nên phải kiểm tra lại trang giá trước khi demo/deploy.
+Không tạo một project chứa nhiều service. Việc các database cùng tên `neondb` không làm chúng dùng chung dữ liệu vì mỗi database nằm trên endpoint/project khác nhau. Theo [bảng giá Neon hiện hành](https://neon.com/pricing), quota phụ thuộc gói và có thể thay đổi nên phải kiểm tra lại trước khi demo/deploy.
 
 Fineract luôn nằm trong project riêng. Hai database Fineract dùng chung quota của project `finora-fineract`, nhưng không dùng chung database/schema với Loan.
 
@@ -47,7 +50,7 @@ jdbc:postgresql://<neon-host>/neondb?sslmode=require
 
 Nếu Neon đưa URL bắt đầu bằng `postgresql://`, dùng mẫu Java/JDBC trong hộp Connect hoặc thêm tiền tố `jdbc:` trước URL. Không tự bỏ `sslmode=require`, `channel_binding=require` hoặc tham số bảo mật khác do Neon cung cấp. JDBC được Neon hỗ trợ; xem [Connection errors](https://neon.com/docs/connect/connection-errors).
 
-## 4. Tạo project cho Payment và Blockchain
+## 4. Tạo project cho Payment, Blockchain, User, Investment và Keycloak
 
 Lặp lại đúng quy trình trên cho từng project. Mỗi project dùng `neondb` và default role do chính project đó tạo; không lấy connection string của project này dùng cho project khác:
 
@@ -66,6 +69,32 @@ Project:  finora-blockchain
 Database: neondb
 Role:     Default role trong Connect của finora-blockchain
 ```
+
+### User
+
+```text
+Project:  finora-user
+Database: neondb
+Role:     Default role trong Connect của finora-user
+```
+
+### Investment
+
+```text
+Project:  finora-investment
+Database: neondb
+Role:     Default role trong Connect của finora-investment
+```
+
+### Keycloak
+
+```text
+Project:  finora-keycloak
+Database: neondb
+Role:     Default role trong Connect của finora-keycloak
+```
+
+Keycloak không dùng chung database/credential với User Service dù cùng thuộc luồng định danh. User sở hữu profile/KYC, còn Keycloak sở hữu credential/session/realm.
 
 PostgreSQL của Blockchain chỉ lưu submission state, transaction/block reference, payload hash và reconciliation metadata. Không lưu private key, certificate, tài liệu gốc hoặc PII đầy đủ.
 
@@ -125,6 +154,24 @@ BLOCKCHAIN_DB_URL=jdbc:postgresql://<blockchain-host>/neondb?sslmode=require
 BLOCKCHAIN_DB_USERNAME=<default role từ Connect của finora-blockchain>
 BLOCKCHAIN_DB_PASSWORD=<password Neon>
 ```
+
+### User
+
+```text
+USER_DB_URL=jdbc:postgresql://<user-host>/neondb?sslmode=require
+USER_DB_USERNAME=<default role từ Connect của finora-user>
+USER_DB_PASSWORD=<password Neon>
+```
+
+### Investment
+
+```text
+INVESTMENT_DB_URL=jdbc:postgresql://<investment-host>/neondb?sslmode=require
+INVESTMENT_DB_USERNAME=<default role từ Connect của finora-investment>
+INVESTMENT_DB_PASSWORD=<password Neon>
+```
+
+Keycloak deploy dùng JDBC URL PostgreSQL của project `finora-keycloak` qua secret môi trường tương ứng của nền tảng triển khai; không đặt connection string vào Compose được commit.
 
 Khi các biến trên tồn tại, service kết nối thẳng Neon và không cần khởi động container PostgreSQL local. Flyway chạy bằng chính datasource của từng service.
 
@@ -212,6 +259,12 @@ docker compose --env-file docker/.env -f docker/docker-compose.yml --profile pay
 
 # Blockchain
 docker compose --env-file docker/.env -f docker/docker-compose.yml --profile blockchain up -d blockchain-postgres
+
+# User
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile user up -d user-postgres
+
+# Investment
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile investment up -d investment-postgres
 ```
 
 Ứng dụng sẽ dùng URL mặc định local:
@@ -220,13 +273,15 @@ docker compose --env-file docker/.env -f docker/docker-compose.yml --profile blo
 Loan:       jdbc:postgresql://localhost:15433/finora_loan
 Payment:    jdbc:postgresql://localhost:15434/finora_payment
 Blockchain: jdbc:postgresql://localhost:15435/finora_blockchain
+User:       jdbc:postgresql://localhost:15436/finora_user
+Investment: jdbc:postgresql://localhost:15437/finora_investment
 ```
 
 Docker vẫn cần cho PostgreSQL Testcontainers, Fineract local, Kafka, Redis, Keycloak hoặc Fabric khi các task đó được triển khai.
 
-## 12. Chuyển dữ liệu MySQL cũ
+## 12. Chuyển dữ liệu engine cũ
 
-Các migration Loan V1/V2 chưa merge nên đã được chuyển thẳng sang cú pháp PostgreSQL. Database MySQL local cũ không tự động chuyển sang Neon.
+Database MySQL/MongoDB local cũ không tự động chuyển sang Neon/PostgreSQL. Hiện User và Investment chưa có entity nghiệp vụ, nên không có schema production cần tự động chuyển trong repository.
 
 Trong giai đoạn hiện tại dữ liệu chỉ là dữ liệu test, hướng an toàn là:
 

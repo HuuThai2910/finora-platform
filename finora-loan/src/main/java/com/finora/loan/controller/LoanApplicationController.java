@@ -1,11 +1,11 @@
 package com.finora.loan.controller;
 
-import com.finora.loan.dto.request.CreateLoanApplicationRequest;
-import com.finora.loan.dto.request.WithdrawLoanApplicationRequest;
-import com.finora.loan.dto.response.LoanApplicationHistoryResponse;
-import com.finora.loan.dto.response.LoanApplicationResponse;
-import com.finora.loan.dto.response.PageResponse;
-import com.finora.loan.service.LoanApplicationService;
+import com.finora.loan.dto.application.request.CreateLoanApplicationRequest;
+import com.finora.loan.dto.application.request.WithdrawLoanApplicationRequest;
+import com.finora.loan.dto.application.response.LoanApplicationHistoryResponse;
+import com.finora.loan.dto.application.response.LoanApplicationResponse;
+import com.finora.loan.dto.common.PageResponse;
+import com.finora.loan.service.application.LoanApplicationService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;

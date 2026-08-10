@@ -16,6 +16,22 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @Slf4j
 public class LoanPersistenceExceptionHandler {
 
+    /** Chuyển loại lỗi domain sang HTTP tại đúng adapter web, không kéo Spring vào entity. */
+    @ExceptionHandler(LoanDomainException.class)
+    public ResponseEntity<ApiErrorResponse> domainRule(LoanDomainException exception) {
+        String traceId = TraceContext.currentTraceIdOrCreate();
+        HttpStatus status = switch (exception.getKind()) {
+            case INVALID_INPUT -> HttpStatus.BAD_REQUEST;
+            case CONFLICT -> HttpStatus.CONFLICT;
+            case FORBIDDEN -> HttpStatus.FORBIDDEN;
+        };
+        log.warn("Yêu cầu vi phạm invariant Loan: code={}, status={}, traceId={}",
+                exception.getCode(), status.value(), traceId);
+        return ResponseEntity.status(status)
+                .header(TraceContext.HEADER_NAME, traceId)
+                .body(new ApiErrorResponse(exception.getCode(), exception.getMessage(), null, traceId));
+    }
+
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
     public ResponseEntity<ApiErrorResponse> optimisticLock(ObjectOptimisticLockingFailureException exception) {
         String traceId = TraceContext.currentTraceIdOrCreate();

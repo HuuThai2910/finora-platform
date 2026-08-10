@@ -1,14 +1,27 @@
 spring:
+  config:
+    import: optional:file:.env[.properties]
   application:
     name: finora-user
   datasource:
-    url: jdbc:mysql://localhost:3306/finora_user?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh&allowPublicKeyRetrieval=true
-    username: root
-    password: finora_root_2026
+    url: ${USER_DB_URL:jdbc:postgresql://localhost:15436/finora_user}
+    username: ${USER_DB_USERNAME:finora_user}
+    password: ${USER_DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
   jpa:
+    open-in-view: false
     hibernate:
-      ddl-auto: update
-    show-sql: true
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    clean-disabled: true
 
 server:
   port: 8085

@@ -4,23 +4,23 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.loan.config.AiCreditProperties;
 import com.finora.loan.config.MockCurrentUserProvider;
-import com.finora.loan.domain.AiRecommendation;
-import com.finora.loan.domain.BorrowerKycStatus;
-import com.finora.loan.domain.BorrowerProfileSource;
-import com.finora.loan.domain.IncomeVerificationStatus;
-import com.finora.loan.integration.ai.AiCreditScoreResponse;
-import com.finora.loan.integration.ai.AiCreditScoreRequest;
-import com.finora.loan.integration.ai.AiCreditScoringGateway;
-import com.finora.loan.integration.ai.AiCreditScoringHttpClient;
-import com.finora.loan.integration.fineract.FineractLoanProductGateway;
-import com.finora.loan.integration.fineract.FineractProductCreationResult;
-import com.finora.loan.integration.fineract.FineractScheduleGateway;
-import com.finora.loan.integration.fineract.ScheduleCalculationRequest;
-import com.finora.loan.integration.fineract.ScheduleCalculationResult;
-import com.finora.loan.integration.fineract.SchedulePeriod;
-import com.finora.loan.integration.profile.BorrowerProfileProvider;
-import com.finora.loan.integration.profile.BorrowerProfileResult;
-import com.finora.loan.service.CreditScoringOrchestrator;
+import com.finora.loan.domain.scoring.AiRecommendation;
+import com.finora.loan.domain.scoring.BorrowerKycStatus;
+import com.finora.loan.domain.scoring.BorrowerProfileSource;
+import com.finora.loan.domain.scoring.IncomeVerificationStatus;
+import com.finora.loan.integration.ai.contract.AiCreditScoreResponse;
+import com.finora.loan.integration.ai.contract.AiCreditScoreRequest;
+import com.finora.loan.integration.ai.client.AiCreditScoringGateway;
+import com.finora.loan.integration.ai.client.AiCreditScoringHttpClient;
+import com.finora.loan.integration.fineract.client.FineractLoanProductGateway;
+import com.finora.loan.integration.fineract.contract.FineractProductCreationResult;
+import com.finora.loan.integration.fineract.client.FineractScheduleGateway;
+import com.finora.loan.integration.fineract.contract.ScheduleCalculationRequest;
+import com.finora.loan.integration.fineract.contract.ScheduleCalculationResult;
+import com.finora.loan.integration.fineract.contract.SchedulePeriod;
+import com.finora.loan.integration.profile.provider.BorrowerProfileProvider;
+import com.finora.loan.integration.profile.contract.BorrowerProfileResult;
+import com.finora.loan.service.scoring.CreditScoringOrchestrator;
 import jakarta.persistence.EntityManagerFactory;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
 import org.flywaydb.core.Flyway;
@@ -43,7 +43,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
-
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -60,7 +59,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest(properties = "finora.ai.credit.worker-enabled=false")
+@SpringBootTest(properties = {
+        "finora.ai.credit.worker-enabled=false",
+        "finora.loan.contract.expiry-worker-enabled=false"
+})
 @AutoConfigureMockMvc
 @Testcontainers
 class FinoraLoanApplicationIT {
@@ -96,7 +98,8 @@ class FinoraLoanApplicationIT {
         // Mỗi test phải có dữ liệu độc lập; Spring giữ nguyên context và PostgreSQL
         // giữa các method nên không thể dựa vào thứ tự chạy hoặc ID của test trước.
         jdbcTemplate.execute("""
-                TRUNCATE TABLE credit_scoring_retry_requests, credit_scoring_assessments,
+                TRUNCATE TABLE loan_contract_status_histories, loan_contracts,
+                    credit_scoring_retry_requests, credit_scoring_assessments,
                     borrower_eligibility_checks, borrower_credit_profiles,
                     loan_application_status_histories, schedule_calculation_snapshots,
                     loan_applications, fineract_commands, fineract_product_mappings, loan_products
@@ -131,8 +134,43 @@ class FinoraLoanApplicationIT {
                 """, Long.class);
 
         assertThat(databaseVersion).startsWith("17.");
-        assertThat(businessTables).isEqualTo(10L);
+        assertThat(businessTables).isEqualTo(12L);
         assertThat(flyway.info().pending()).isEmpty();
+    }
+
+    @Test
+    void adminProductListSupportsFiltersAndUsesFixedQueryCount() throws Exception {
+        JsonNode activeProduct = createActiveProduct();
+        JsonNode draftProduct = createDraftProduct();
+
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+        try {
+            mockMvc.perform(get("/api/v1/admin/loan-products")
+                            .queryParam("page", "0")
+                            .queryParam("size", "20"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalElements").value(2))
+                    .andExpect(jsonPath("$.data.length()").value(2));
+            assertThat(statistics.getQueryExecutionCount()).isLessThanOrEqualTo(2L);
+        } finally {
+            statistics.setStatisticsEnabled(false);
+        }
+
+        mockMvc.perform(get("/api/v1/admin/loan-products")
+                        .queryParam("status", "DRAFT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(draftProduct.path("id").asLong()))
+                .andExpect(jsonPath("$.data[0].coreSyncStatus").value("NOT_SYNCED"));
+
+        mockMvc.perform(get("/api/v1/admin/loan-products")
+                        .queryParam("coreSyncStatus", "SYNCED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(activeProduct.path("id").asLong()))
+                .andExpect(jsonPath("$.data[0].status").value("ACTIVE"));
     }
 
     @Test
@@ -251,6 +289,120 @@ class FinoraLoanApplicationIT {
     }
 
     @Test
+    void adminApprovesAndBorrowerSignsExactGeneratedContractIdempotently() throws Exception {
+        JsonNode submitted = submitAndScoreApplication();
+        String applicationNumber = submitted.path("applicationNumber").asText();
+
+        JsonNode review = objectMapper.readTree(mockMvc.perform(
+                        get("/api/v1/admin/loan-applications/{number}/review", applicationNumber))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING_REVIEW"))
+                .andReturn().getResponse().getContentAsString());
+        long applicationVersion = review.path("version").asLong();
+        long assessmentId = review.path("assessment").path("assessmentId").asLong();
+        String approvalKey = "approve-" + UUID.randomUUID();
+        String approvalJson = """
+                {"applicationVersion":%d,"assessmentId":%d,
+                 "decisionReasonCode":"POLICY_APPROVED",
+                 "decisionReasonDetail":"Äiá»ƒm AI vÃ  kháº£ nÄƒng tráº£ ná»£ phÃ¹ há»£p"}
+                """.formatted(applicationVersion, assessmentId);
+
+        JsonNode approved = objectMapper.readTree(mockMvc.perform(
+                        post("/api/v1/admin/loan-applications/{number}/approve", applicationNumber)
+                                .header("Idempotency-Key", approvalKey)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(approvalJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.applicationStatus").value("APPROVED"))
+                .andExpect(jsonPath("$.contractStatus").value("PENDING_SIGNATURE"))
+                .andExpect(jsonPath("$.documentHash").value(org.hamcrest.Matchers.matchesPattern("[0-9a-f]{64}")))
+                .andReturn().getResponse().getContentAsString());
+        String contractNumber = approved.path("contractNumber").asText();
+
+        mockMvc.perform(get("/api/v1/admin/loan-applications")
+                        .queryParam("status", "APPROVED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.data[0].applicationNumber").value(applicationNumber));
+        mockMvc.perform(get("/api/v1/admin/loan-applications")
+                        .queryParam("status", "REJECTED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
+
+        // CÃ¹ng Idempotency-Key vÃ  cÃ¹ng payload khÃ´ng Ä‘Æ°á»£c táº¡o thÃªm há»£p Ä‘á»“ng.
+        mockMvc.perform(post("/api/v1/admin/loan-applications/{number}/approve", applicationNumber)
+                        .header("Idempotency-Key", approvalKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(approvalJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contractNumber").value(contractNumber));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM loan_contracts", Long.class))
+                .isEqualTo(1L);
+
+        JsonNode contract = objectMapper.readTree(mockMvc.perform(
+                        get("/api/v1/loan-contracts/{number}", contractNumber))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING_SIGNATURE"))
+                .andExpect(jsonPath("$.documentContent").isNotEmpty())
+                .andExpect(jsonPath("$.principalAmount").value(50000000.0))
+                .andReturn().getResponse().getContentAsString());
+        String signKey = "sign-" + UUID.randomUUID();
+        String signJson = """
+                {"version":%d,"documentHash":"%s","signatureMethod":"CLICK_WRAP_MVP"}
+                """.formatted(contract.path("version").asLong(), contract.path("documentHash").asText());
+
+        mockMvc.perform(post("/api/v1/loan-contracts/{number}/sign", contractNumber)
+                        .header("Idempotency-Key", signKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(signJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SIGNED"));
+        mockMvc.perform(post("/api/v1/loan-contracts/{number}/sign", contractNumber)
+                        .header("Idempotency-Key", signKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(signJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SIGNED"));
+
+        mockMvc.perform(get("/api/v1/loan-contracts/{number}/history", contractNumber))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(2));
+        mockMvc.perform(get("/api/v1/loan-applications/{number}", applicationNumber))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPROVED"));
+    }
+
+    @Test
+    void adminApplicationListSupportsAllAndUsesBatchAssessmentQueryInsteadOfNPlusOne() throws Exception {
+        JsonNode product = createActiveProduct();
+        for (int i = 0; i < 3; i++) {
+            JsonNode submitted = submitApplication(product, "review-" + UUID.randomUUID());
+            scoringOrchestrator.processApplication(submitted.path("id").asLong());
+        }
+
+        Statistics statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+        try {
+            mockMvc.perform(get("/api/v1/admin/loan-applications")
+                            .queryParam("size", "3"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.totalElements").value(3))
+                    .andExpect(jsonPath("$.data.length()").value(3));
+            assertThat(statistics.getQueryExecutionCount()).isLessThanOrEqualTo(3L);
+        } finally {
+            statistics.setStatisticsEnabled(false);
+        }
+
+        mockMvc.perform(get("/api/v1/admin/loan-applications")
+                        .queryParam("status", "PENDING_REVIEW")
+                        .queryParam("size", "3"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.data.length()").value(3));
+    }
+
+    @Test
     @EnabledIfSystemProperty(named = "finora.live.ai", matches = "true")
     void dockerAiV10ScoresThroughLoanAndPersistsAssessment() throws Exception {
         // Dùng chính HTTP client production để ca live kiểm tra luôn timeout, contract và model version.
@@ -288,17 +440,7 @@ class FinoraLoanApplicationIT {
     }
 
     private JsonNode createActiveProduct() throws Exception {
-        String code = "PERSONAL_" + UUID.randomUUID().toString().replace("-", "").substring(0, 10).toUpperCase();
-        String createdBody = mockMvc.perform(post("/api/v1/admin/loan-products")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"code":"%s","name":"Sản phẩm tiêu chuẩn","description":"Lãi suất cố định",
-                                 "minAmount":10000000,"maxAmount":100000000,"minTermMonths":6,"maxTermMonths":24,
-                                 "annualInterestRate":12.5,"repaymentMethod":"ANNUITY"}
-                                """.formatted(code)))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        JsonNode created = objectMapper.readTree(createdBody);
+        JsonNode created = createDraftProduct();
 
         String syncBody = mockMvc.perform(post("/api/v1/admin/loan-products/{id}/core-sync", created.path("id").asLong())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"version\":0}"))
@@ -314,6 +456,36 @@ class FinoraLoanApplicationIT {
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
                 .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(activeBody);
+    }
+
+    private JsonNode createDraftProduct() throws Exception {
+        String code = "PERSONAL_" + UUID.randomUUID().toString().replace("-", "").substring(0, 10).toUpperCase();
+        String createdBody = mockMvc.perform(post("/api/v1/admin/loan-products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"code":"%s","name":"Sản phẩm tiêu chuẩn","description":"Lãi suất cố định",
+                                 "minAmount":10000000,"maxAmount":100000000,"minTermMonths":6,"maxTermMonths":24,
+                                 "annualInterestRate":12.5,"repaymentMethod":"ANNUITY"}
+                                """.formatted(code)))
+                  .andExpect(status().isCreated())
+                  .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(createdBody);
+    }
+
+    private JsonNode submitAndScoreApplication() throws Exception {
+        JsonNode submitted = submitApplication(createActiveProduct(), "approval-" + UUID.randomUUID());
+        scoringOrchestrator.processApplication(submitted.path("id").asLong());
+        return submitted;
+    }
+
+    private JsonNode submitApplication(JsonNode product, String idempotencyKey) throws Exception {
+        String body = mockMvc.perform(post("/api/v1/loan-applications")
+                        .header("Idempotency-Key", idempotencyKey)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(applicationJson(product.path("id").asLong(), "EDUCATION", null)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body);
     }
 
     private String applicationJson(long productId, String purpose, String detail) {

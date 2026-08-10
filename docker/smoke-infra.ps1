@@ -20,7 +20,7 @@ $coreServices = @('keycloak-db', 'zookeeper', 'kafka', 'keycloak')
 $profiles = @('core')
 $infraServices = @($coreServices)
 $healthServices = @('keycloak-db', 'zookeeper', 'kafka')
-$requiredSecrets = @('KEYCLOAK_DB_ROOT_PASSWORD', 'KEYCLOAK_DB_PASSWORD', 'KEYCLOAK_ADMIN', 'KEYCLOAK_ADMIN_PASSWORD')
+$requiredSecrets = @('KEYCLOAK_POSTGRES_ADMIN_PASSWORD', 'KEYCLOAK_DB_PASSWORD', 'KEYCLOAK_ADMIN', 'KEYCLOAK_ADMIN_PASSWORD')
 
 switch ($Scope) {
     'Loan' {
@@ -43,26 +43,26 @@ switch ($Scope) {
     }
     'User' {
         $profiles += 'user'
-        $infraServices += 'user-mysql'
-        $healthServices += 'user-mysql'
-        $requiredSecrets += @('USER_MYSQL_ROOT_PASSWORD', 'USER_DB_PASSWORD')
+        $infraServices += 'user-postgres'
+        $healthServices += 'user-postgres'
+        $requiredSecrets += @('USER_POSTGRES_ADMIN_PASSWORD', 'USER_DB_PASSWORD')
     }
     'Investment' {
         $profiles += 'investment'
-        $infraServices += 'investment-mongo'
-        $healthServices += 'investment-mongo'
-        $requiredSecrets += @('INVESTMENT_MONGO_ROOT_USERNAME', 'INVESTMENT_MONGO_ROOT_PASSWORD', 'INVESTMENT_DB_PASSWORD')
+        $infraServices += 'investment-postgres'
+        $healthServices += 'investment-postgres'
+        $requiredSecrets += @('INVESTMENT_POSTGRES_ADMIN_PASSWORD', 'INVESTMENT_DB_PASSWORD')
     }
     'All' {
         $profiles += @('loan', 'payment', 'blockchain', 'user', 'investment')
-        $infraServices += @('loan-postgres', 'payment-postgres', 'payment-redis', 'blockchain-postgres', 'user-mysql', 'investment-mongo')
-        $healthServices += @('loan-postgres', 'payment-postgres', 'payment-redis', 'blockchain-postgres', 'user-mysql', 'investment-mongo')
+        $infraServices += @('loan-postgres', 'payment-postgres', 'payment-redis', 'blockchain-postgres', 'user-postgres', 'investment-postgres')
+        $healthServices += @('loan-postgres', 'payment-postgres', 'payment-redis', 'blockchain-postgres', 'user-postgres', 'investment-postgres')
         $requiredSecrets += @(
             'LOAN_POSTGRES_ADMIN_PASSWORD', 'LOAN_DB_PASSWORD',
             'PAYMENT_POSTGRES_ADMIN_PASSWORD', 'PAYMENT_DB_PASSWORD', 'PAYMENT_REDIS_PASSWORD',
             'BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD', 'BLOCKCHAIN_DB_PASSWORD',
-            'USER_MYSQL_ROOT_PASSWORD', 'USER_DB_PASSWORD',
-            'INVESTMENT_MONGO_ROOT_USERNAME', 'INVESTMENT_MONGO_ROOT_PASSWORD', 'INVESTMENT_DB_PASSWORD'
+            'USER_POSTGRES_ADMIN_PASSWORD', 'USER_DB_PASSWORD',
+            'INVESTMENT_POSTGRES_ADMIN_PASSWORD', 'INVESTMENT_DB_PASSWORD'
         )
     }
 }

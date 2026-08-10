@@ -14,11 +14,10 @@
 ## Database
 
 - Database quan hệ dùng table/column `snake_case`, table số nhiều và FK `<resource>_id`.
-- PostgreSQL của Loan/Payment/Blockchain dùng PK `BIGINT GENERATED ... AS IDENTITY`; không dùng `SERIAL`, MySQL `AUTO_INCREMENT`, `UNSIGNED`, native enum hoặc DDL riêng MySQL.
-- MySQL của module Hải tiếp tục dùng convention/dialect MySQL trong phạm vi owner đó; không viết một migration dùng chung cho hai engine.
+- PostgreSQL của Loan/Payment/Blockchain/User/Investment dùng PK `BIGINT GENERATED ... AS IDENTITY`; không dùng `SERIAL`, MySQL `AUTO_INCREMENT`, `UNSIGNED`, native enum hoặc DDL riêng MySQL.
+- Mỗi service có datasource, Flyway history và credential PostgreSQL riêng; migration không được đặt ở module khác hoặc chạy chéo database.
 - Mọi bảng có `created_at`, `updated_at`; money `DECIMAL(18,2)`.
 - Index `idx_<table>_<columns>`, unique `uq_<table>_<columns>`.
-- Mongo collection/field `snake_case`; document có `schema_version`.
 
 ## Tiền và thời gian
 

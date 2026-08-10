@@ -19,6 +19,13 @@
       }
     },
     {
+      "name": "01A - Admin xem danh sách Product",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/v1/admin/loan-products?page=0&size=20"
+      }
+    },
+    {
       "name": "02 - Admin đồng bộ Product sang Fineract",
       "request": {
         "method": "POST",
@@ -110,8 +117,80 @@
           {"key": "Content-Type", "value": "application/json"},
           {"key": "Idempotency-Key", "value": "{{scoringRetryIdempotencyKey}}"}
         ],
-        "body": {"mode": "raw", "raw": "{\n  \"version\": {{applicationVersion}}\n}"},
+        "body": {"mode": "raw", "raw": "{\n  \"version\": {{assessmentVersion}}\n}"},
         "url": "{{baseUrl}}/api/v1/admin/loan-applications/{{applicationNumber}}/scoring-retry"
+      }
+    },
+    {
+      "name": "14A - Admin xem tất cả hồ sơ vay",
+      "request": {"method": "GET", "url": "{{baseUrl}}/api/v1/admin/loan-applications?page=0&size=20"}
+    },
+    {
+      "name": "15 - Admin xem hàng đợi PENDING_REVIEW",
+      "request": {"method": "GET", "url": "{{baseUrl}}/api/v1/admin/loan-applications?status=PENDING_REVIEW&page=0&size=20"}
+    },
+    {
+      "name": "16 - Admin xem đủ bằng chứng để duyệt",
+      "request": {"method": "GET", "url": "{{baseUrl}}/api/v1/admin/loan-applications/{{applicationNumber}}/review"}
+    },
+    {
+      "name": "17A - Admin phê duyệt và tạo Contract",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Idempotency-Key", "value": "{{approvalIdempotencyKey}}"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"applicationVersion\": {{applicationVersion}},\n  \"assessmentId\": {{assessmentId}},\n  \"decisionReasonCode\": \"POLICY_APPROVED\",\n  \"decisionReasonDetail\": \"Đã kiểm tra AI, khả năng trả nợ và chính sách sản phẩm\"\n}"},
+        "url": "{{baseUrl}}/api/v1/admin/loan-applications/{{applicationNumber}}/approve"
+      }
+    },
+    {
+      "name": "17B - Admin từ chối (dùng thay 17A)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Idempotency-Key", "value": "{{rejectionIdempotencyKey}}"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"applicationVersion\": {{applicationVersion}},\n  \"assessmentId\": {{assessmentId}},\n  \"reasonCode\": \"INSUFFICIENT_REPAYMENT_CAPACITY\",\n  \"reasonDetail\": \"Khả năng trả nợ chưa đáp ứng chính sách\"\n}"},
+        "url": "{{baseUrl}}/api/v1/admin/loan-applications/{{applicationNumber}}/reject"
+      }
+    },
+    {
+      "name": "18 - Borrower xem danh sách Contract",
+      "request": {"method": "GET", "url": "{{baseUrl}}/api/v1/loan-contracts/me?page=0&size=20"}
+    },
+    {
+      "name": "19 - Borrower xem nội dung Contract",
+      "request": {"method": "GET", "url": "{{baseUrl}}/api/v1/loan-contracts/{{contractNumber}}"}
+    },
+    {
+      "name": "20 - Borrower xem lịch sử Contract",
+      "request": {"method": "GET", "url": "{{baseUrl}}/api/v1/loan-contracts/{{contractNumber}}/history?page=0&size=20"}
+    },
+    {
+      "name": "21A - Borrower đồng ý và ký MVP",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Idempotency-Key", "value": "{{signIdempotencyKey}}"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"version\": {{contractVersion}},\n  \"documentHash\": \"{{documentHash}}\",\n  \"signatureMethod\": \"CLICK_WRAP_MVP\"\n}"},
+        "url": "{{baseUrl}}/api/v1/loan-contracts/{{contractNumber}}/sign"
+      }
+    },
+    {
+      "name": "21B - Borrower từ chối Contract (dùng thay 21A)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Idempotency-Key", "value": "{{declineIdempotencyKey}}"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"version\": {{contractVersion}},\n  \"reasonCode\": \"TERMS_NOT_ACCEPTED\",\n  \"reasonDetail\": \"Không đồng ý với điều khoản hiện tại\"\n}"},
+        "url": "{{baseUrl}}/api/v1/loan-contracts/{{contractNumber}}/decline"
       }
     }
   ]

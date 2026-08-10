@@ -8,6 +8,8 @@
 - **Roadmap nhóm:** [`../.agents/plans/finora-team-roadmap.md`](../.agents/plans/finora-team-roadmap.md)
 - **Ranh giới service:** [`../.agents/rules/07-service-boundaries.md`](../.agents/rules/07-service-boundaries.md)
 - **Luồng liên service:** [`../.agents/rules/08-cross-service-flows.md`](../.agents/rules/08-cross-service-flows.md)
+- **Chuẩn plan dùng chung:** [`../.agents/rules/09-planning-documentation.md`](../.agents/rules/09-planning-documentation.md)
+- **Khuôn/checklist planning:** [`../.agents/skills/finora-engineering/references/planning-documentation.md`](../.agents/skills/finora-engineering/references/planning-documentation.md)
 - **Câu hỏi contract gửi Hải:** [`plans/AI-CREDIT-CONTRACT-QUESTIONS-FOR-HAI.md`](plans/AI-CREDIT-CONTRACT-QUESTIONS-FOR-HAI.md)
 
 File này **chỉ dùng để điều phối**: task, dependency, trạng thái, thứ tự thực hiện và cổng nghiệm thu. Nghiệp vụ xuyên suốt nằm trong Design; field/API/migration/index/test chi tiết nằm trong file LN tương ứng.
@@ -36,14 +38,14 @@ ACCEPTED --(quyết định mới thay thế)--> SUPERSEDED
 | Task | Nội dung | Phụ thuộc chính | Trạng thái | Đặc tả |
 |---|---|---|---|---|
 | LN-001 | Baseline MySQL lịch sử | Không | `SUPERSEDED` | [LN-001](plans/LN-001-loan-foundation.md) |
-| LN-001A | Chuyển Loan sang PostgreSQL 17/Neon | LN-001; quyết định 2026-08-03 | `IN_PROGRESS` | [LN-001A](plans/LN-001A-postgresql-neon-migration.md) |
+| LN-001A | Chuyển Loan sang PostgreSQL 17/Neon | LN-001; quyết định 2026-08-03 | `ACCEPTED` | [LN-001A](plans/LN-001A-postgresql-neon-migration.md) |
 | LN-002 | JWT/phân quyền thật; error/log/observability baseline | Identity contract do Hải phụ trách | `BACKLOG` | [LN-002](plans/LN-002-security-error-observability.md) |
-| LN-003 | Product fixed rate, repayment method, Fineract mapping | LN-001A được `ACCEPTED`; Thái duyệt LN | `IN_PROGRESS` | [LN-003](plans/LN-003-loan-product.md) |
-| LN-004 | Direct-submit Application và snapshots | LN-003, LN-006 | `IN_PROGRESS` | [LN-004](plans/LN-004-loan-application.md) |
-| LN-005 | Borrower profile/KYC provider | LN-004; User contract hoặc mock provider | `REVIEW` | [LN-005](plans/LN-005-borrower-profile-kyc.md) |
-| LN-006 | Fineract Product/Schedule adapter | LN-003; Fineract fixture | `IN_PROGRESS` | [LN-006](plans/LN-006-fineract-product-schedule-integration.md) |
-| LN-007 | Internal credit profile và AI v10 assessment | LN-004, LN-005, LN-006; AI fixture | `REVIEW` | [LN-007](plans/LN-007-credit-profile-ai-assessment.md) |
-| LN-008 | Admin decision, LoanContract, borrower signature | LN-007; consent policy | `BACKLOG` | [LN-008](plans/LN-008-approval-loan-contract.md) |
+| LN-003 | Product fixed rate, repayment method, Fineract mapping | LN-001A được `ACCEPTED`; Thái duyệt LN | `ACCEPTED` | [LN-003](plans/LN-003-loan-product.md) |
+| LN-004 | Direct-submit Application và snapshots | LN-003, LN-006 | `ACCEPTED` | [LN-004](plans/LN-004-loan-application.md) |
+| LN-005 | Borrower profile/KYC provider | LN-004; User contract hoặc mock provider | `ACCEPTED` | [LN-005](plans/LN-005-borrower-profile-kyc.md) |
+| LN-006 | Fineract Product/Schedule adapter | LN-003; Fineract fixture | `ACCEPTED` | [LN-006](plans/LN-006-fineract-product-schedule-integration.md) |
+| LN-007 | Internal credit profile và AI v10 assessment | LN-004, LN-005, LN-006; AI fixture | `ACCEPTED` | [LN-007](plans/LN-007-credit-profile-ai-assessment.md) |
+| LN-008 | Admin decision, LoanContract, borrower signature | LN-007; consent policy | `READY_FOR_REVIEW` | [LN-008](plans/LN-008-approval-loan-contract.md) |
 | LN-009 | Market listing và funding outbox | Contract `SIGNED`; Investment contract | `BACKLOG` | [LN-009](plans/LN-009-market-listing-outbox.md) |
 | LN-010 | Funding completion consumer | LN-009; Investment contract | `BACKLOG` | [LN-010](plans/LN-010-fully-funded-consumer.md) |
 | LN-011 | Disbursement saga và Fineract loan booking | LN-010; Payment/Fineract contract | `BACKLOG` | [LN-011](plans/LN-011-disbursement-fineract-booking-saga.md) |
@@ -81,6 +83,7 @@ Một LN chỉ được Thái duyệt khi có:
 - field/type/source/use đối với dữ liệu mới;
 - API/event/request/response nếu có;
 - migration, constraint, index và query mà index phục vụ;
+- ERD/cardinality hiện hành theo migration, lý do quan hệ, FK/unique/cascade; entity dự kiến phải nằm ở sơ đồ riêng;
 - transaction boundary, idempotency, timeout, retry/reconcile;
 - cách chống N+1, log/audit và bảo vệ dữ liệu nhạy cảm;
 - file dự kiến thay đổi, test plan và acceptance criteria;
@@ -102,6 +105,7 @@ Chỉ chuyển `READY_FOR_REVIEW` khi LN đã ghi:
 - known limitation và nợ kỹ thuật;
 - hướng dẫn Thái chạy lại bằng IntelliJ/Docker/Postman;
 - contract/roadmap/rule đã đồng bộ nếu có thay đổi liên service.
+- bản đồ API/event/worker → controller/consumer → service/domain → repository/gateway đúng code thực tế, kèm transaction và failure path;
 
 Chỉ Thái đánh `ACCEPTED` sau khi đọc code, chạy thử và nghiệm thu. Khi đó cập nhật đồng thời:
 
@@ -112,15 +116,12 @@ Chỉ Thái đánh `ACCEPTED` sau khi đọc code, chạy thử và nghiệm thu
 
 ## 7. Điểm chặn hiện tại
 
-- LN-003/LN-006/LN-004 đang triển khai theo phê duyệt của Thái; compile, unit test và PostgreSQL Testcontainers `verify` đã pass.
-- Fineract 1.15.0/PostgreSQL 18.3 local đã healthy; live test xác nhận Product được tạo nhưng response
-  đầu tiên bị timeout. Adapter đã có reconciliation exact external ID và test timeout-after-POST;
-  Client preview đã seed idempotent và Fineract đã tính schedule thật thành công; còn restart Loan
-  để nghiệm thu Product recovery + schedule qua endpoint FINORA.
-- Migration schema từ PostgreSQL database sạch đã pass; Neon chỉ migrate khi chạy Loan bằng credential của Thái, không ghi secret vào repository.
-- LN-007 cần Hải xác nhận AI Rule Engine dùng `installment` nhận từ Loan và contract response v10.
-- LN-005 dùng local provider trong giai đoạn hiện tại; User contract thật chưa chặn việc phát triển domain.
-- LN-002 chưa chặn core Loan, nhưng bắt buộc trước demo tích hợp hoặc deploy có người dùng thật.
+- Thái đã nghiệm thu phần Loan của LN-001A và LN-003 đến LN-007 ngày 2026-08-08; kết quả compile, unit test và PostgreSQL Testcontainers `verify` đã pass tại thời điểm bàn giao các LN đó.
+- LN-008 đã triển khai xong migration V5/code/Postman; Maven `verify` trên PostgreSQL 17.5 pass và đang chờ Thái đọc, chạy thử rồi nghiệm thu.
+- Fineract 1.15.0/PostgreSQL 18.3 local đã healthy; adapter đã có reconciliation exact external ID, test timeout-after-POST và schedule preview thật. Đây là known limitation vận hành, không làm LN-008 gọi Fineract lúc approve.
+- LN-007 tiếp tục dùng AI v10 theo contract đã chốt và bỏ qua `suggested_rate`; thay đổi hard rule/contract response từ Hải phải được kiểm tra lại trước môi trường dùng chung.
+- LN-005 dùng local provider trong giai đoạn hiện tại; User contract thật chưa chặn core Loan nhưng phải thay mock trước deploy/demo tích hợp.
+- LN-002 chưa chặn LN-008 local, nhưng bắt buộc trước demo tích hợp hoặc deploy có người dùng thật.
 
 ## 8. Nhật ký quyết định gần nhất
 
@@ -133,3 +134,9 @@ Chỉ Thái đánh `ACCEPTED` sau khi đọc code, chạy thử và nghiệm thu
 | 2026-08-02 | Tài liệu Loan | Design là nguồn tổng thể duy nhất; PLAN chỉ điều phối; LN giữ chi tiết triển khai | Đã áp dụng |
 | 2026-08-03 | LN-001A | Loan/Payment/Blockchain chuyển PostgreSQL 17; mỗi service một Neon Project; Docker là offline/test fallback | `IN_PROGRESS` |
 | 2026-08-03 | Toàn bộ LN hiện có | Mỗi LN bắt buộc có lớp đọc nghiệp vụ trước thiết kế kỹ thuật; dùng `LN-DOCUMENT-STANDARD.md` làm cổng duyệt chung | Đã chuẩn hóa LN-001 đến LN-014 |
+| 2026-08-08 | LN-001A, LN-003–LN-007 | Thái xác nhận các LN đã làm ổn và cho phép chuyển trạng thái hoàn thành | `ACCEPTED` |
+| 2026-08-08 | LN-008 | Rà soát lại theo code hiện tại: public number, PostgreSQL, một submission schedule, deterministic Contract text/hash, idempotency và Contract history | `DRAFT` chờ Thái duyệt lại |
+| 2026-08-08 | LN-008 | Thái duyệt bản rà soát và yêu cầu bắt đầu triển khai | `IN_PROGRESS` |
+| 2026-08-08 | LN-008 | Hoàn tất migration V5, admin decision, Contract/consent/expiry, Postman và `mvn verify`; bàn giao Thái nghiệm thu | `READY_FOR_REVIEW` |
+| 2026-08-09 | Tài liệu Loan | Áp dụng rule 09/planning skill; bổ sung ERD hiện tại–dự kiến, cardinality, field impact và giải thích query/index/transaction/concurrency/worker cho Design và LN-003–LN-014 | Đã cập nhật, không đổi trạng thái task |
+| 2026-08-09 | LN-003 / Frontend | Bổ sung admin Product list phân trang, filter status/core sync và Flyway V6 để web không dùng nhầm catalog borrower | Đã triển khai, chờ Thái nghiệm thu cùng frontend |

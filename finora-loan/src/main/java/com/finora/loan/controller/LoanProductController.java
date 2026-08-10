@@ -1,8 +1,8 @@
 package com.finora.loan.controller;
 
-import com.finora.loan.dto.response.LoanProductCatalogResponse;
-import com.finora.loan.dto.response.PageResponse;
-import com.finora.loan.service.LoanProductService;
+import com.finora.loan.dto.product.response.LoanProductCatalogResponse;
+import com.finora.loan.dto.common.PageResponse;
+import com.finora.loan.service.product.LoanProductService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;

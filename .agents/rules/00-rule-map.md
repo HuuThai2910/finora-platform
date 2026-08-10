@@ -18,7 +18,8 @@
 | Luồng đi qua từ hai service trở lên | thêm `07-service-boundaries.md`, `08-cross-service-flows.md` và skill `finora-engineering` |
 | Port, DB, topic, Keycloak, Fabric, hạ tầng | thêm `05-registry.md` |
 | Review, hoàn thành, chuẩn bị PR | thêm `06-quality-gates.md` |
-| Lập kế hoạch, chọn task/giai đoạn hoặc phối hợp Thái–Hải | thêm `../plans/finora-team-roadmap.md` |
+| Tạo/sửa/review Service Design hoặc task plan | thêm `09-planning-documentation.md`, skill `finora-engineering` và reference planning |
+| Lập kế hoạch, chọn task/giai đoạn hoặc phối hợp Thái–Hải | thêm `09-planning-documentation.md`, `../plans/finora-team-roadmap.md` |
 | Thay đổi rule/skill | đọc toàn bộ file trong `.agents/rules/` và skill liên quan |
 
 ## Danh mục rule
@@ -31,6 +32,7 @@
 - `06-quality-gates.md`: quy trình thực hiện, kiểm thử và điều cấm.
 - `07-service-boundaries.md`: System of Record, state authority và điều từng service được/không được sở hữu.
 - `08-cross-service-flows.md`: orchestration, contract, idempotency, failure và compensation của luồng liên service.
+- `09-planning-documentation.md`: cấu trúc, mức giải thích và cổng duyệt plan dùng chung mọi service.
 
 ## Nguyên tắc nguồn chuẩn
 

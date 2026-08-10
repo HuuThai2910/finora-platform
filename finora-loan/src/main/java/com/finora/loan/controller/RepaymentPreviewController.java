@@ -1,8 +1,8 @@
 package com.finora.loan.controller;
 
-import com.finora.loan.dto.request.RepaymentPreviewRequest;
-import com.finora.loan.dto.response.RepaymentPreviewResponse;
-import com.finora.loan.service.RepaymentPreviewService;
+import com.finora.loan.dto.core.request.RepaymentPreviewRequest;
+import com.finora.loan.dto.core.response.RepaymentPreviewResponse;
+import com.finora.loan.service.core.RepaymentPreviewService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PathVariable;
