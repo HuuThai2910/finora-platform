@@ -1,14 +1,10 @@
 """
-Bộ đặc trưng cho mô hình chấm điểm tín dụng — chỉ dùng dữ liệu FINORA tự thu thập được.
+Bộ đặc trưng cho mô hình chấm điểm tín dụng.
 
-Nguyên tắc chọn đặc trưng: chỉ giữ cột lấy được từ **hai nguồn FINORA thực sự có**:
+Nguồn dữ liệu:
   - Hồ sơ người vay tự khai trên app (thu nhập, thâm niên việc làm, nhà ở, mục đích vay)
   - eKYC/CCCD (tuổi)
-
-**KHÔNG dùng dữ liệu Trung tâm Thông tin Tín dụng (CIC) hay điểm FICO.** FINORA chưa
-có kết nối API tới CIC, nên mọi đặc trưng có nguồn từ báo cáo tín dụng đều không lấy
-được khi chạy thật. Xây mô hình trên những cột đó sẽ tạo ra hệ thống chỉ chạy được
-trên dữ liệu LendingClub trong phòng thí nghiệm, không triển khai được.
+  - Điểm tín dụng CIC qua cic-service (cic_score, 150–750)
 
 **Vấn đề còn tồn đọng — `int_rate` và `installment` là cột nội sinh.** Hai cột này
 đang nằm trong `NUMERIC_FEATURES` và được mô hình sử dụng, nhưng FINORA tự quyết lãi
@@ -44,6 +40,7 @@ COLUMNS_WITH_MISSING = [
     "pub_rec",
     "int_rate",
     "installment",
+    "cic_score",
 ]
 MISSING_INDICATORS = [f"{c}_missing" for c in COLUMNS_WITH_MISSING]
 AGE_BINS = ["age_under_25", "age_25_to_39", "age_40_to_59", "age_over_60"]
@@ -56,13 +53,15 @@ NUMERIC_FEATURES = [
     "annual_inc",             # Tự khai + sao kê lương
     # Conditions — điều kiện khoản vay
     "loan_amnt",              # Form nộp hồ sơ
-    # Các đặc trưng tài chính bổ sung từ CIC/FICO
+    # Các đặc trưng tài chính bổ sung
     "dti",                    # Tỷ lệ nợ/thu nhập
     "term_months",            # Kỳ hạn vay (tháng)
     "delinq_2yrs",            # Số lần trễ hạn trong 2 năm
     "pub_rec",                # Hồ sơ công khai xấu
     "int_rate",               # Lãi suất danh nghĩa của gói vay (%)
     "installment",            # Số tiền phải trả hàng tháng
+    # CIC — lịch sử tín dụng
+    "cic_score",              # Điểm tín dụng CIC (150-750) từ cic-service
     # Đặc trưng dẫn xuất
     "log_income",             # log(annual_inc) — nén đuôi phân phối lệch phải
     "loan_to_income",         # loan_amnt / annual_inc
