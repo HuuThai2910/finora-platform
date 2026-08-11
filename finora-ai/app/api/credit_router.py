@@ -1,22 +1,20 @@
 """
 Router cho API Chấm điểm Tín dụng (Credit Scoring).
 
-Luồng ra quyết định gồm hai nhánh chạy song song rồi hợp lại:
+Luồng ra quyết định:
 
-    Hồ sơ vay
+    Hồ sơ vay + CCCD
+        ├──→ cic-service (HTTP) ──→ cic_score (150-750) hoặc None
+        │
         ├──────────────────────────┬──────────────────────────┐
         ▼                          ▼                          │
     Mô hình XGBoost             Rule Engine 5C                │
-    (21 đặc trưng) → PD         (4 yếu tố) → risk_score       │
+    (có cic_score) → PD         (4 yếu tố) → risk_score       │
         └──────────────────────────┴──────────────────────────┘
                                   ▼
             evaluation_score = (1-PD)x100 x 0,6 + risk_score x 0,4
                                   ▼
-                    credit_grade · decision · hạn mức · lãi suất
-
-Không có tầng cổng chặn CIC: FINORA chưa có kết nối API tới Trung tâm Thông tin Tín
-dụng nên không lấy được nhóm nợ hay điểm tín dụng để loại hồ sơ nợ xấu. Việc chặn
-theo điều kiện pháp lý phải nằm ở tầng nghiệp vụ khác, không phải ở AI Service.
+                    credit_grade · decision · hạn mức
 
 TODO: /explain (SHAP), /backtest.
 """
@@ -26,6 +24,7 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.ml.predictor import BoDuDoan
 from app.schemas.credit import CreditScoreRequest, CreditScoreResponse
+from app.services.cic_client import CicClient
 
 router = APIRouter()
 
@@ -39,6 +38,12 @@ def lay_bo_du_doan() -> BoDuDoan:
     khởi động lại service, hoặc gọi `lay_bo_du_doan.cache_clear()`.
     """
     return BoDuDoan.nap()
+
+
+@lru_cache(maxsize=1)
+def lay_cic_client() -> CicClient:
+    """CicClient singleton — cấu hình qua env CIC_SERVICE_URL."""
+    return CicClient()
 
 
 @router.post("/score", response_model=CreditScoreResponse)
@@ -59,5 +64,14 @@ async def score_credit(ho_so: CreditScoreRequest) -> CreditScoreResponse:
             },
         ) from loi
 
-    ket_qua = bo_du_doan.du_doan(ho_so.model_dump(exclude_none=True))
+    # Tra điểm CIC nếu có CCCD
+    cic_score: int | None = None
+    if ho_so.so_cccd:
+        cic_client = lay_cic_client()
+        cic_score = await cic_client.tra_diem_cic(ho_so.so_cccd)
+
+    ket_qua = bo_du_doan.du_doan(
+        ho_so.model_dump(exclude_none=True),
+        cic_score=cic_score,
+    )
     return CreditScoreResponse(**ket_qua)

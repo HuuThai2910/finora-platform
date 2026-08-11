@@ -10,9 +10,8 @@ phối so với thứ nó đã học — gọi là train/serve skew. Lỗi này 
 vẫn trả về một con số, chỉ là con số sai. Vì vậy median là một phần của gói model,
 không phải chi tiết nội bộ của quá trình huấn luyện.
 
-Không còn cổng chặn CIC: FINORA chưa có kết nối API tới CIC nên không lấy được nhóm
-nợ hay điểm tín dụng để chặn. Việc loại hồ sơ không đủ điều kiện pháp lý vì vậy phải
-nằm ở tầng nghiệp vụ khác, không phải ở đây.
+Điểm CIC được lấy từ cic-service qua HTTP. Khi cic-service không khả dụng,
+cic_score = None → dùng median từ gói model + missing indicator.
 
 Gói được tạo bởi `scripts/train_final_model.py`.
 """
@@ -139,6 +138,7 @@ class BoDuDoan:
             "int_rate": int_rate_val,
             "installment": ho_so.get("installment"),
             "interest_method": ho_so.get("interest_method") or PHUONG_PHAP_MAC_DINH,
+            "cic_score": ho_so.get("cic_score"),
         }
 
         # Tạo chỉ báo thiếu trước khi điền median
@@ -182,8 +182,11 @@ class BoDuDoan:
 
         return float(self.model.predict_proba(X)[0][1])
 
-    def du_doan(self, ho_so: dict) -> dict:
+    def du_doan(self, ho_so: dict, cic_score: int | None = None) -> dict:
         """Chấm điểm đầy đủ: mô hình → rule engine → quyết định."""
+        if cic_score is not None:
+            ho_so = {**ho_so, "cic_score": cic_score}
+
         pd_probability = self.du_doan_pd(ho_so)
         risk_score = tinh_diem_rui_ro(ho_so)
         evaluation_score = tinh_diem_tong_hop(pd_probability, risk_score)
@@ -200,4 +203,5 @@ class BoDuDoan:
             "decision": quyet_dinh(evaluation_score, chot_chan_ly_do),
             "rejection_reason": chot_chan_ly_do,
             "model_version": self.metadata["version"],
+            "cic_score": cic_score,
         }
