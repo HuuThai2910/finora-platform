@@ -6,12 +6,14 @@ trình được với người vay và với kiểm toán mà không cần công
 
 Bốn yếu tố hiện tại đều tính được từ hồ sơ tự khai + eKYC:
 
-| Yếu tố | Nhóm 5C | Nguồn dữ liệu | Thay cho yếu tố cũ |
-|---|---|---|---|
-| Tỷ lệ vay trên thu nhập | Capacity | Form vay + thu nhập tự khai | `dti` (CIC) |
-| Thâm niên việc làm | Character | Hợp đồng lao động | Điểm FICO (CIC) |
-| Tình trạng nhà ở | Capital | Tự khai | (giữ nguyên) |
-| Mức thu nhập năm | Capacity | Sao kê lương | Lịch sử trễ hạn (CIC) |
+| Yếu tố | Nhóm 5C | Nguồn dữ liệu |
+|---|---|---|
+| Tỷ lệ vay trên thu nhập | Capacity | Form vay + thu nhập tự khai |
+| Thâm niên việc làm | Character | Hợp đồng lao động |
+| Tình trạng nhà ở | Capital | Tự khai |
+| Mức thu nhập năm | Capacity | Sao kê lương |
+
+Lưu ý: Điểm CIC (cic_score) được dùng trong mô hình ML, KHÔNG dùng trong rule engine.
 
 Khoảng điểm AI, hạng tín dụng, hạn mức và ngưỡng duyệt được đọc từ
 config/product_config.json — xem app/services/product_config.py.
