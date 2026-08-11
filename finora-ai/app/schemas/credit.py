@@ -80,6 +80,15 @@ class CreditScoreRequest(BaseModel):
         ),
     )
 
+    # ── Tra cứu CIC ──────────────────────────────────────────────────────────
+    so_cccd: str | None = Field(
+        default=None,
+        min_length=12,
+        max_length=12,
+        pattern=r"^\d{12}$",
+        description="Số CCCD 12 chữ số. Có thì tra điểm CIC, không có thì bỏ qua.",
+    )
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -96,6 +105,7 @@ class CreditScoreRequest(BaseModel):
                 "delinq_2yrs": 0,
                 "pub_rec": 0,
                 "installment": 4500000.0,
+                "so_cccd": "012345678901",
             }
         }
     }
@@ -116,3 +126,7 @@ class CreditScoreResponse(BaseModel):
     decision: Literal["APPROVED", "PENDING_REVIEW", "REJECTED"]
     rejection_reason: str | None = Field(default=None, description="Lý do từ chối nếu bị chốt chặn cứng vi phạm")
     model_version: str
+    cic_score: int | None = Field(
+        default=None,
+        description="Điểm tín dụng CIC (150-750). None nếu không tra được hoặc không có CCCD.",
+    )
