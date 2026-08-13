@@ -1,20 +1,10 @@
 """
-Bộ đặc trưng cho mô hình chấm điểm tín dụng — chỉ dùng dữ liệu FINORA tự thu thập được.
+Bộ đặc trưng cho mô hình chấm điểm tín dụng.
 
-Nguyên tắc chọn đặc trưng: chỉ giữ cột lấy được từ **hai nguồn FINORA thực sự có**:
+Nguồn dữ liệu:
   - Hồ sơ người vay tự khai trên app (thu nhập, thâm niên việc làm, nhà ở, mục đích vay)
   - eKYC/CCCD (tuổi)
-
-**KHÔNG dùng dữ liệu Trung tâm Thông tin Tín dụng (CIC) hay điểm FICO.** FINORA chưa
-có kết nối API tới CIC, nên mọi đặc trưng có nguồn từ báo cáo tín dụng đều không lấy
-được khi chạy thật. Xây mô hình trên những cột đó sẽ tạo ra hệ thống chỉ chạy được
-trên dữ liệu LendingClub trong phòng thí nghiệm, không triển khai được.
-
-**Vấn đề còn tồn đọng — `int_rate` và `installment` là cột nội sinh.** Hai cột này
-đang nằm trong `NUMERIC_FEATURES` và được mô hình sử dụng, nhưng FINORA tự quyết lãi
-suất TỪ điểm rủi ro, nên lấy chúng làm đầu vào để tính lại điểm là lập luận vòng tròn.
-Cần xử lý khi huấn luyện lại: hoặc bỏ khỏi bộ đặc trưng, hoặc thay bằng đại lượng bất
-biến theo phương pháp tính lãi (`effective_apr`, tỷ lệ trả nợ trên thu nhập).
+  - Điểm tín dụng CIC qua cic-service (cic_score, 150–750)
 
 **Hạn chế phải nêu trong khóa luận:** lịch sử tín dụng là nhóm tín hiệu mạnh nhất
 trong chấm điểm tín dụng. Bỏ toàn bộ nhóm này làm sức phân biệt của mô hình giảm rõ
@@ -25,8 +15,6 @@ mô hình mạnh hơn nhưng không triển khai được. Khi FINORA kết nố
 """
 import numpy as np
 import pandas as pd
-
-from app.ml.preprocessing import tinh_effective_apr
 
 HOME_OWNERSHIP_CATS = ["RENT", "OWN", "MORTGAGE", "OTHER"]
 PURPOSE_CATS = [
@@ -40,10 +28,8 @@ COLUMNS_WITH_MISSING = [
     "person_age",
     "emp_length_years",
     "dti",
-    "delinq_2yrs",
-    "pub_rec",
-    "int_rate",
     "installment",
+    "cic_score",
 ]
 MISSING_INDICATORS = [f"{c}_missing" for c in COLUMNS_WITH_MISSING]
 AGE_BINS = ["age_under_25", "age_25_to_39", "age_40_to_59", "age_over_60"]
@@ -56,17 +42,14 @@ NUMERIC_FEATURES = [
     "annual_inc",             # Tự khai + sao kê lương
     # Conditions — điều kiện khoản vay
     "loan_amnt",              # Form nộp hồ sơ
-    # Các đặc trưng tài chính bổ sung từ CIC/FICO
+    # Các đặc trưng tài chính bổ sung
     "dti",                    # Tỷ lệ nợ/thu nhập
-    "term_months",            # Kỳ hạn vay (tháng)
-    "delinq_2yrs",            # Số lần trễ hạn trong 2 năm
-    "pub_rec",                # Hồ sơ công khai xấu
-    "int_rate",               # Lãi suất danh nghĩa của gói vay (%)
-    "installment",            # Số tiền phải trả hàng tháng
+    "installment",            # Số tiền phải trả hàng tháng (Fineract tính sẵn)
+    # CIC — lịch sử tín dụng
+    "cic_score",              # Điểm tín dụng CIC (150-750) từ cic-service
     # Đặc trưng dẫn xuất
     "log_income",             # log(annual_inc) — nén đuôi phân phối lệch phải
     "loan_to_income",         # loan_amnt / annual_inc
-    "effective_apr",          # Chi phí thật — so sánh được giữa 3 phương pháp tính lãi
 ]
 
 TARGET_ENCODED_FEATURES = [
@@ -147,10 +130,5 @@ def encode_features(
     # Engineered: khoản vay / thu nhập năm
     df["loan_to_income"] = df["loan_amnt"] / df["annual_inc"].replace(0, np.nan)
     df["loan_to_income"] = df["loan_to_income"].fillna(0).clip(upper=5)
-
-    # Engineered: chi phí thật của dòng tiền, không phụ thuộc cách gọi tên lãi suất
-    df["effective_apr"] = tinh_effective_apr(
-        df["installment"], df["loan_amnt"], df["term_months"]
-    )
 
     return df

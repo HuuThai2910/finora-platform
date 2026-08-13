@@ -5,8 +5,8 @@ Các hàm ở đây được dùng ở CẢ HAI nơi — lúc huấn luyện (`s
 và lúc chấm điểm hồ sơ thật (`app/ml/predictor.py`). Đây là điều bắt buộc: nếu hai
 bên tự chuẩn hóa theo cách riêng thì cùng một hồ sơ sẽ cho hai kết quả khác nhau.
 
-Module không còn hàm dựng cột từ báo cáo tín dụng (`fico_score`, `credit_hist_years`,
-`revol_util`...) vì FINORA không có kết nối API tới CIC — xem `app/ml/features.py`.
+Điểm CIC (cic_score) đi thẳng vào pipeline ML mà không cần chuẩn hóa ở đây —
+giá trị 150–750 từ cic-service đã ở đúng thang cần dùng.
 """
 import numpy as np
 import pandas as pd

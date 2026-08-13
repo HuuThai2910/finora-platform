@@ -21,3 +21,6 @@ confluent-kafka==2.3.0
 # Utilities
 python-dotenv==1.0.0
 python-multipart==0.0.6
+
+# HTTP client (gọi cic-service)
+httpx==0.28.1

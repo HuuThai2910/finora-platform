@@ -80,7 +80,7 @@ finora:
   ai:
     credit:
       base-url: ${AI_SERVICE_URL:http://localhost:8000}
-      model-version: ${AI_CREDIT_MODEL_VERSION:10.0.0}
+      model-version: ${AI_CREDIT_MODEL_VERSION:13.0.0}
       connect-timeout: ${AI_CONNECT_TIMEOUT:3s}
       read-timeout: ${AI_READ_TIMEOUT:15s}
       max-attempts: ${AI_MAX_ATTEMPTS:3}

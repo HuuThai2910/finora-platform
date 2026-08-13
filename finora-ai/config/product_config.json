@@ -2,7 +2,7 @@
   "grades": [
     {
       "grade": "A",
-      "min_score": 95,
+      "min_score": 94,
       "max_score": 100,
       "limit": 100000000
     },
@@ -32,8 +32,8 @@
     }
   ],
   "approval_thresholds": {
-    "auto_approve": 90,
-    "auto_reject": 40
+    "auto_approve": 80,
+    "auto_reject": 60
   },
   "model_weights": {
     "pd_weight": 0.6,

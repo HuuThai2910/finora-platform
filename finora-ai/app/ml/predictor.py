@@ -10,9 +10,8 @@ phối so với thứ nó đã học — gọi là train/serve skew. Lỗi này 
 vẫn trả về một con số, chỉ là con số sai. Vì vậy median là một phần của gói model,
 không phải chi tiết nội bộ của quá trình huấn luyện.
 
-Không còn cổng chặn CIC: FINORA chưa có kết nối API tới CIC nên không lấy được nhóm
-nợ hay điểm tín dụng để chặn. Việc loại hồ sơ không đủ điều kiện pháp lý vì vậy phải
-nằm ở tầng nghiệp vụ khác, không phải ở đây.
+Điểm CIC được lấy từ cic-service qua HTTP. Khi cic-service không khả dụng,
+cic_score = None → dùng median từ gói model + missing indicator.
 
 Gói được tạo bởi `scripts/train_final_model.py`.
 """
@@ -25,10 +24,8 @@ from app.ml.features import FEATURE_NAMES, NUMERIC_FEATURES, COLUMNS_WITH_MISSIN
 from app.ml.model_registry import _duong_dan_mo_hinh, _tinh_sha256, tai_mo_hinh
 from app.ml.preprocessing import (
     HOME_OWNERSHIP_MAP,
-    PHUONG_PHAP_MAC_DINH,
     PURPOSE_MAP,
     _parse_emp_length,
-    tinh_installment,
 )
 from app.services.rule_engine import (
     quyet_dinh,
@@ -40,7 +37,7 @@ from app.services.rule_engine import (
 
 # Ba cột này được TÍNH LẠI từ cột gốc trong `encode_features()` sau khi điền thiếu,
 # nên không điền median cho chúng — điền rồi cũng bị ghi đè.
-COT_DAN_XUAT = {"log_income", "loan_to_income", "effective_apr"}
+COT_DAN_XUAT = {"log_income", "loan_to_income"}
 
 # 4 cột gốc cần median. Là nguồn sự thật duy nhất cho cả `scripts/train_final_model.py`
 # lẫn `predictor.py`, để danh sách lúc huấn luyện và lúc chấm điểm không thể lệch nhau.
@@ -48,7 +45,7 @@ COT_DIEN_MEDIAN = [c for c in NUMERIC_FEATURES if c not in COT_DAN_XUAT]
 
 THU_MUC_MO_HINH_MAC_DINH = Path(__file__).resolve().parent.parent.parent / "models"
 
-PHIEN_BAN_MAC_DINH = "10.0.0"
+PHIEN_BAN_MAC_DINH = "13.0.0"
 
 
 class BoDuDoan:
@@ -115,13 +112,6 @@ class BoDuDoan:
         Tách riêng khỏi `du_doan_pd()` để test khẳng định được **giá trị nào** đã
         thực sự được điền, thay vì chỉ nhìn PD đầu ra rồi đoán.
         """
-        # Chuyển đổi int_rate: nếu là dạng tỷ lệ thập phân (ví dụ: 0.15), chuyển thành phần trăm thô (15.0)
-        int_rate_val = ho_so.get("int_rate")
-        if int_rate_val is not None:
-            int_rate_val = float(int_rate_val)
-            if int_rate_val <= 1.0:
-                int_rate_val = int_rate_val * 100.0
-
         row = {
             "person_age": ho_so.get("person_age"),
             "annual_inc": ho_so.get("annual_inc"),
@@ -133,12 +123,9 @@ class BoDuDoan:
             "purpose_cat": PURPOSE_MAP.get(ho_so.get("purpose", "other"), "OTHER"),
             "verification_status": ho_so.get("verification_status", "Not Verified"),
             "dti": ho_so.get("dti"),
-            "term_months": ho_so.get("term_months"),
-            "delinq_2yrs": ho_so.get("delinq_2yrs"),
-            "pub_rec": ho_so.get("pub_rec"),
-            "int_rate": int_rate_val,
             "installment": ho_so.get("installment"),
-            "interest_method": ho_so.get("interest_method") or PHUONG_PHAP_MAC_DINH,
+            "interest_method": ho_so.get("interest_method", "DECLINING_BALANCE"),
+            "cic_score": ho_so.get("cic_score"),
         }
 
         # Tạo chỉ báo thiếu trước khi điền median
@@ -151,21 +138,7 @@ class BoDuDoan:
             if gia_tri is None or (isinstance(gia_tri, float) and np.isnan(gia_tri)):
                 row[cot] = gia_tri_median
 
-        # `installment` bỏ trống thì TÍNH từ gói vay thay vì điền median. Median là số
-        # trung bình của cả tập, không dính gì tới khoản vay này — mà installment lại
-        # là chỗ duy nhất phương pháp tính lãi thể hiện ra. Điền median ở đây sẽ xóa
-        # sạch khác biệt giữa FLAT và DECLINING_BALANCE.
-        if self._thieu_installment(ho_so):
-            row["installment"] = float(tinh_installment(
-                row["loan_amnt"], row["int_rate"], row["term_months"], row["interest_method"]
-            ))
-
         return row
-
-    @staticmethod
-    def _thieu_installment(ho_so: dict) -> bool:
-        val = ho_so.get("installment")
-        return val is None or (isinstance(val, float) and np.isnan(val))
 
     # ── Dự đoán ───────────────────────────────────────────────────────────────
     def du_doan_pd(self, ho_so: dict) -> float:
@@ -182,8 +155,11 @@ class BoDuDoan:
 
         return float(self.model.predict_proba(X)[0][1])
 
-    def du_doan(self, ho_so: dict) -> dict:
+    def du_doan(self, ho_so: dict, cic_score: int | None = None) -> dict:
         """Chấm điểm đầy đủ: mô hình → rule engine → quyết định."""
+        if cic_score is not None:
+            ho_so = {**ho_so, "cic_score": cic_score}
+
         pd_probability = self.du_doan_pd(ho_so)
         risk_score = tinh_diem_rui_ro(ho_so)
         evaluation_score = tinh_diem_tong_hop(pd_probability, risk_score)

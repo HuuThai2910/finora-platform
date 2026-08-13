@@ -44,23 +44,11 @@ class CreditScoreRequest(BaseModel):
     emp_length: str | None = Field(
         default=None, description='Thâm niên việc làm. Vd "10+ years", "5 years", "< 1 year"'
     )
-    int_rate: float | None = Field(
-        default=None, ge=0, description="Lãi suất năm của gói vay (ví dụ: 0.12 đại diện cho 12% hoặc 12.0)"
-    )
-    term_months: int | None = Field(
-        default=None, ge=1, description="Kỳ hạn vay mong muốn (tháng)"
-    )
     verification_status: VERIFICATION_STATUS_HOP_LE | None = Field(
         default=None, description="Trạng thái xác thực thu nhập"
     )
     dti: float | None = Field(
         default=None, ge=0, description="Tỷ lệ nợ trên thu nhập (%)"
-    )
-    delinq_2yrs: int | None = Field(
-        default=None, ge=0, description="Số lần trễ hạn thanh toán trên 30 ngày trong 2 năm qua"
-    )
-    pub_rec: int | None = Field(
-        default=None, ge=0, description="Số lượng hồ sơ công khai bất lợi (phá sản, tịch thu tài sản...)"
     )
     installment: float | None = Field(
         default=None,
@@ -80,6 +68,15 @@ class CreditScoreRequest(BaseModel):
         ),
     )
 
+    # ── Tra cứu CIC ──────────────────────────────────────────────────────────
+    so_cccd: str | None = Field(
+        default=None,
+        min_length=12,
+        max_length=12,
+        pattern=r"^\d{12}$",
+        description="Số CCCD 12 chữ số. Có thì tra điểm CIC, không có thì bỏ qua.",
+    )
+
     model_config = {
         "json_schema_extra": {
             "example": {
@@ -89,13 +86,10 @@ class CreditScoreRequest(BaseModel):
                 "loan_amnt": 50_000_000,
                 "home_ownership": "MORTGAGE",
                 "purpose": "debt_consolidation",
-                "int_rate": 0.15,
-                "term_months": 12,
                 "verification_status": "Verified",
                 "dti": 15.5,
-                "delinq_2yrs": 0,
-                "pub_rec": 0,
                 "installment": 4500000.0,
+                "so_cccd": "012345678901",
             }
         }
     }
