@@ -1,0 +1,335 @@
+{
+  "version": "12.0.0",
+  "sha256": "fa78bdb0bc7f4f1855caf0db025dc4688ce1b7ee63ccc3270b370d78290bc07c",
+  "metrics": {
+    "auc_roc": 0.651347130258638,
+    "gini": 0.302694260517276,
+    "ks_statistic": 0.22009457774140184,
+    "recall": 0.3687654044364777,
+    "precision": 0.22967428619274888,
+    "f1": 0.2830558613098514,
+    "accuracy": 0.7435812265485637,
+    "accuracy_baseline": 0.8627360521621456,
+    "chenh_so_voi_baseline": -0.11915482561358182
+  },
+  "feature_names": [
+    "person_age",
+    "emp_length_years",
+    "annual_inc",
+    "loan_amnt",
+    "dti",
+    "term_months",
+    "int_rate",
+    "installment",
+    "cic_score",
+    "log_income",
+    "loan_to_income",
+    "effective_apr",
+    "home_ownership_encoded",
+    "purpose_cat_encoded",
+    "verification_status_encoded",
+    "interest_method_encoded",
+    "person_age_missing",
+    "emp_length_years_missing",
+    "dti_missing",
+    "int_rate_missing",
+    "installment_missing",
+    "cic_score_missing",
+    "age_under_25",
+    "age_25_to_39",
+    "age_40_to_59",
+    "age_over_60"
+  ],
+  "model_class": "XGBClassifier",
+  "saved_at": "2026-08-11T06:54:09.223895+00:00",
+  "du_lieu_huan_luyen": {
+    "nguon": "data/lc_clean.csv",
+    "loc": "issue_year in [2012, 2014]",
+    "n_dong": 215937,
+    "khoang_nam": [
+      2012,
+      2014
+    ],
+    "ty_le_vo_no": 0.1433705201054011,
+    "don_vi_tien": "VND",
+    "he_so_chuan_hoa": {
+      "2012": 802.8933092224231,
+      "2014": 937.8590078328982
+    }
+  },
+  "sieu_tham_so": {
+    "n_estimators": 700,
+    "max_depth": 5,
+    "learning_rate": 0.03,
+    "subsample": 0.7,
+    "colsample_bytree": 0.7,
+    "min_child_weight": 1,
+    "gamma": 0,
+    "reg_alpha": 1,
+    "reg_lambda": 1,
+    "scale_pos_weight": 5.974934590910559,
+    "eval_metric": "auc",
+    "random_state": 42
+  },
+  "median_dien_thieu": {
+    "person_age": 42.0,
+    "emp_length_years": 6.0,
+    "annual_inc": 56202531.645569615,
+    "loan_amnt": 9378590.078328982,
+    "dti": 16.91,
+    "term_months": 12.0,
+    "int_rate": 12.85,
+    "installment": 847121.1488250653,
+    "cic_score": 578.6339473253182
+  },
+  "target_encodings": {
+    "home_ownership": {
+      "MORTGAGE": 0.12147580250586035,
+      "OTHER": 0.17609803233387888,
+      "OWN": 0.14949452840727587,
+      "RENT": 0.16560442336377057
+    },
+    "purpose_cat": {
+      "CAR": 0.11225121763537455,
+      "CREDIT_CARD": 0.11796797831007537,
+      "DEBT_CONSOLIDATION": 0.15099475263405882,
+      "HOME_IMPROVEMENT": 0.12681673115497788,
+      "MAJOR_PURCHASE": 0.13067959257892298,
+      "MEDICAL": 0.1692806753271501,
+      "MOVING": 0.1993733496764293,
+      "OTHER": 0.15908729622697187,
+      "SMALL_BUSINESS": 0.23585192169873684,
+      "VACATION": 0.15957273093802257
+    },
+    "verification_status": {
+      "Not Verified": 0.11891715977669076,
+      "Source Verified": 0.14747484941107017,
+      "Verified": 0.1690224294166688
+    },
+    "interest_method": {
+      "DECLINING_BALANCE": 0.14384686330131977,
+      "DECLINING_BALANCE_RECALC": 0.14728822810850833,
+      "FLAT": 0.14199041006400934
+    }
+  },
+  "global_mean": 0.1433705201054011,
+  "cong_thuc_dan_xuat": {
+    "log_income": "log1p(annual_inc)",
+    "loan_to_income": "clip(loan_amnt / annual_inc, 0, 5)"
+  },
+  "nguon_du_lieu": "Hồ sơ người vay tự khai + eKYC/CCCD + điểm CIC (150–750) từ cic-service. cic_score trong dữ liệu huấn luyện được tổng hợp từ fico_score bằng ánh xạ tuyến tính + nhiễu Gaussian, ~15% NaN.",
+  "muc_phan_loai": {
+    "home_ownership": [
+      "RENT",
+      "OWN",
+      "MORTGAGE",
+      "OTHER"
+    ],
+    "purpose": [
+      "DEBT_CONSOLIDATION",
+      "CREDIT_CARD",
+      "HOME_IMPROVEMENT",
+      "OTHER",
+      "MAJOR_PURCHASE",
+      "MEDICAL",
+      "CAR",
+      "SMALL_BUSINESS",
+      "MOVING",
+      "VACATION",
+      "EDUCATION"
+    ],
+    "verification_status": [
+      "Verified",
+      "Source Verified",
+      "Not Verified"
+    ]
+  },
+  "nguong_bao_cao": 0.5,
+  "ghi_chu_nguong": "Ngưỡng 0,5 CHỈ dùng để tính recall/precision/f1/accuracy khi báo cáo. Đường ra quyết định không cắt ngưỡng — tinh_diem_tong_hop() nhận PD liên tục.",
+  "chi_so": {
+    "out_of_time": {
+      "mo_ta": "Train các năm trước, validate năm kế tiếp — đo đúng tình huống triển khai thật",
+      "folds": [
+        {
+          "auc_roc": 0.651347130258638,
+          "gini": 0.302694260517276,
+          "f1": 0.2830558613098514,
+          "recall": 0.3687654044364777,
+          "precision": 0.22967428619274888,
+          "accuracy": 0.7435812265485637,
+          "accuracy_baseline": 0.8627360521621456,
+          "ks_statistic": 0.22009457774140184,
+          "chenh_so_voi_baseline": -0.11915482561358182,
+          "ten": "2012 -> 2014",
+          "n_train": 53367,
+          "n_val": 162570,
+          "scale_pos_weight": 5.173877834335956
+        }
+      ],
+      "trung_binh": {
+        "auc_roc": {
+          "mean": 0.651347130258638,
+          "std": 0.0
+        },
+        "gini": {
+          "mean": 0.302694260517276,
+          "std": 0.0
+        },
+        "ks_statistic": {
+          "mean": 0.22009457774140184,
+          "std": 0.0
+        },
+        "recall": {
+          "mean": 0.3687654044364777,
+          "std": 0.0
+        },
+        "precision": {
+          "mean": 0.22967428619274888,
+          "std": 0.0
+        },
+        "f1": {
+          "mean": 0.2830558613098514,
+          "std": 0.0
+        },
+        "accuracy": {
+          "mean": 0.7435812265485637,
+          "std": 0.0
+        },
+        "accuracy_baseline": {
+          "mean": 0.8627360521621456,
+          "std": 0.0
+        },
+        "chenh_so_voi_baseline": {
+          "mean": -0.11915482561358182,
+          "std": 0.0
+        }
+      }
+    },
+    "kfold_ngau_nhien": {
+      "mo_ta": "StratifiedKFold 5 fold trộn đều mọi năm. Số CAO HƠN out_of_time vì không kiểm tra khả năng tổng quát theo thời gian — hai cách đo hai thứ khác nhau, không thay thế nhau.",
+      "n_folds": 5,
+      "folds": [
+        {
+          "auc_roc": 0.6736518350122633,
+          "gini": 0.34730367002452667,
+          "f1": 0.32196597971867846,
+          "recall": 0.6358204134366925,
+          "precision": 0.21556066579062638,
+          "accuracy": 0.6160507548393073,
+          "accuracy_baseline": 0.8566268407891081,
+          "ks_statistic": 0.25326569979071695,
+          "chenh_so_voi_baseline": -0.24057608594980084,
+          "ten": "fold 1/5",
+          "n_train": 172749,
+          "n_val": 43188,
+          "scale_pos_weight": 5.974966689546574
+        },
+        {
+          "auc_roc": 0.6720218640334887,
+          "gini": 0.34404372806697747,
+          "f1": 0.3204194581998252,
+          "recall": 0.6217700258397932,
+          "precision": 0.21581927238073884,
+          "accuracy": 0.621862554413263,
+          "accuracy_baseline": 0.8566268407891081,
+          "ks_statistic": 0.24796898219040653,
+          "chenh_so_voi_baseline": -0.23476428637584512,
+          "ten": "fold 2/5",
+          "n_train": 172749,
+          "n_val": 43188,
+          "scale_pos_weight": 5.974966689546574
+        },
+        {
+          "auc_roc": 0.6771119661222464,
+          "gini": 0.3542239322444929,
+          "f1": 0.32577491158726857,
+          "recall": 0.6322674418604651,
+          "precision": 0.2194137757103626,
+          "accuracy": 0.6247713432282863,
+          "accuracy_baseline": 0.8566235209669577,
+          "ks_statistic": 0.25697364910336024,
+          "chenh_so_voi_baseline": -0.2318521777386714,
+          "ten": "fold 3/5",
+          "n_train": 172750,
+          "n_val": 43187,
+          "scale_pos_weight": 5.975007065853757
+        },
+        {
+          "auc_roc": 0.678767342066967,
+          "gini": 0.35753468413393397,
+          "f1": 0.3260154579838842,
+          "recall": 0.6403423772609819,
+          "precision": 0.2186741672181778,
+          "accuracy": 0.6203950262810568,
+          "accuracy_baseline": 0.8566235209669577,
+          "ks_statistic": 0.2606117943866288,
+          "chenh_so_voi_baseline": -0.2362284946859009,
+          "ten": "fold 4/5",
+          "n_train": 172750,
+          "n_val": 43187,
+          "scale_pos_weight": 5.975007065853757
+        },
+        {
+          "auc_roc": 0.6814522518894724,
+          "gini": 0.3629045037789449,
+          "f1": 0.3285188097504449,
+          "recall": 0.6410919076078178,
+          "precision": 0.22084353438682394,
+          "accuracy": 0.6243082409058281,
+          "accuracy_baseline": 0.8566466760830805,
+          "ks_statistic": 0.26460472556686004,
+          "chenh_so_voi_baseline": -0.2323384351772524,
+          "ten": "fold 5/5",
+          "n_train": 172750,
+          "n_val": 43187,
+          "scale_pos_weight": 5.974725452196383
+        }
+      ],
+      "trung_binh": {
+        "auc_roc": {
+          "mean": 0.6766010518248876,
+          "std": 0.0034104201950951474
+        },
+        "gini": {
+          "mean": 0.35320210364977517,
+          "std": 0.006820840390190295
+        },
+        "ks_statistic": {
+          "mean": 0.2566849702075945,
+          "std": 0.005759959477080068
+        },
+        "recall": {
+          "mean": 0.6342584332011502,
+          "std": 0.0070153388369749315
+        },
+        "precision": {
+          "mean": 0.2180622830973459,
+          "std": 0.0020603630466343057
+        },
+        "f1": {
+          "mean": 0.32453892344802027,
+          "std": 0.00293725549660341
+        },
+        "accuracy": {
+          "mean": 0.6214775839335483,
+          "std": 0.003150621416346628
+        },
+        "accuracy_baseline": {
+          "mean": 0.8566294799190425,
+          "std": 8.7253228151396e-06
+        },
+        "chenh_so_voi_baseline": {
+          "mean": -0.23515189598549413,
+          "std": 0.0031475337954666237
+        }
+      }
+    },
+    "tham_chieu_giai_doan_truoc": {
+      "mo_ta": "Mô hình v7.0.0 (35 đặc trưng, CÓ dữ liệu CIC/FICO) đo trên tập 2015. Là mốc so sánh để lượng hóa mức mất mát khi bỏ nhóm đặc trưng tín dụng.",
+      "so_dac_trung": 35,
+      "auc_roc": 0.6729593262106933,
+      "recall": 0.6413396947470863,
+      "ks_statistic": 0.2503210094965231
+    }
+  }
+}

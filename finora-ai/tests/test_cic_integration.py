@@ -18,15 +18,12 @@ class TestChuanBiDacTrungVoiCic:
             "home_ownership": "MORTGAGE",
             "person_age": 30,
             "emp_length": "5 years",
-            "int_rate": 0.15,
-            "term_months": 12,
             "dti": 15.5,
         }
 
     def test_cic_score_duoc_giu_khi_co(self, ho_so_co_ban):
         """Khi truyền cic_score, giá trị được giữ nguyên trong feature dict."""
         ho_so_co_ban["cic_score"] = 580
-        # Chỉ test chuan_bi_dac_trung nếu có model. Nếu không có, skip.
         try:
             bo = BoDuDoan.nap()
         except (FileNotFoundError, ValueError):
@@ -43,16 +40,15 @@ class TestChuanBiDacTrungVoiCic:
             pytest.skip("Model chưa được train với cic_score")
         row = bo.chuan_bi_dac_trung(ho_so_co_ban)
         assert row["cic_score_missing"] == 1.0
-        # cic_score phải được điền bằng median, không phải None
         assert row["cic_score"] is not None
         assert not (isinstance(row["cic_score"], float) and np.isnan(row["cic_score"]))
 
 
 class TestDuDoanVoiCic:
-    """du_doan() trả cic_score trong kết quả."""
+    """du_doan() nhận cic_score nội bộ, không trả ra response."""
 
-    def test_ket_qua_co_cic_score(self):
-        """Kết quả dict có key cic_score."""
+    def test_du_doan_voi_cic_khong_loi(self):
+        """du_doan() với cic_score chạy bình thường."""
         try:
             bo = BoDuDoan.nap()
         except (FileNotFoundError, ValueError):
@@ -64,30 +60,11 @@ class TestDuDoanVoiCic:
             "home_ownership": "MORTGAGE",
         }
         ket_qua = bo.du_doan(ho_so, cic_score=580)
-        assert "cic_score" in ket_qua
-        assert ket_qua["cic_score"] == 580
+        assert "pd_probability" in ket_qua
+        assert "cic_score" not in ket_qua
 
-    def test_ket_qua_cic_score_none(self):
-        """Khi không tra được CIC, cic_score trong kết quả = None."""
-        try:
-            bo = BoDuDoan.nap()
-        except (FileNotFoundError, ValueError):
-            pytest.skip("Model chưa được train với cic_score")
-        ho_so = {
-            "annual_inc": 300_000_000,
-            "loan_amnt": 50_000_000,
-            "purpose": "debt_consolidation",
-            "home_ownership": "MORTGAGE",
-        }
-        ket_qua = bo.du_doan(ho_so, cic_score=None)
-        assert ket_qua["cic_score"] is None
-
-
-class TestDuDoanKhongTruyenCic:
-    """du_doan() vẫn hoạt động bình thường khi không truyền cic_score (tương thích ngược)."""
-
-    def test_khong_truyen_cic_score_khong_loi(self):
-        """Gọi du_doan() không có cic_score (mặc định None) không raise lỗi TypeError."""
+    def test_du_doan_khong_cic_khong_loi(self):
+        """du_doan() không có cic_score vẫn chạy bình thường."""
         try:
             bo = BoDuDoan.nap()
         except (FileNotFoundError, ValueError):
@@ -99,15 +76,15 @@ class TestDuDoanKhongTruyenCic:
             "home_ownership": "MORTGAGE",
         }
         ket_qua = bo.du_doan(ho_so)
-        assert ket_qua["cic_score"] is None
+        assert "pd_probability" in ket_qua
+        assert "cic_score" not in ket_qua
 
 
 class TestRouterGoiCicClient:
-    """score_credit() gọi CicClient khi có so_cccd, và bỏ qua khi không có."""
+    """score_credit() gọi CicClient khi có so_cccd, bỏ qua khi không có."""
 
     @pytest.fixture
     def app_client(self, monkeypatch):
-        """TestClient dùng app thật, nhưng có model giả để không phụ thuộc model v11."""
         import main
         from app.api import credit_router
 
@@ -127,15 +104,12 @@ class TestRouterGoiCicClient:
                     "decision": "APPROVED",
                     "rejection_reason": None,
                     "model_version": "test",
-                    "cic_score": cic_score,
                 }
 
         monkeypatch.setattr(credit_router, "lay_bo_du_doan", lambda: BoDuDoanGia())
 
         client = TestClient(main.app)
         yield client
-        # monkeypatch tự phục hồi lay_bo_du_doan sau test; chỉ cần dọn cache của
-        # lay_cic_client vì nó không bị monkeypatch thay thế.
         credit_router.lay_cic_client.cache_clear()
 
     def _ho_so_co_ban(self, **extra):
@@ -149,7 +123,7 @@ class TestRouterGoiCicClient:
         return ho_so
 
     def test_khong_co_so_cccd_khong_goi_cic(self, app_client, monkeypatch):
-        """Không có so_cccd → không gọi CicClient, cic_score trong response là None."""
+        """Không có so_cccd → không gọi CicClient."""
         goi_duoc = {"count": 0}
 
         async def tra_diem_gia(self, so_cccd):
@@ -162,12 +136,14 @@ class TestRouterGoiCicClient:
         response = app_client.post("/api/v1/ai/credit/score", json=self._ho_so_co_ban())
         assert response.status_code == 200
         assert goi_duoc["count"] == 0
-        assert response.json()["cic_score"] is None
+        assert "cic_score" not in response.json()
 
-    def test_co_so_cccd_goi_cic_va_tra_ve_diem(self, app_client, monkeypatch):
-        """Có so_cccd → gọi CicClient.tra_diem_cic, kết quả đi vào response.cic_score."""
+    def test_co_so_cccd_goi_cic(self, app_client, monkeypatch):
+        """Có so_cccd → gọi CicClient.tra_diem_cic."""
+        goi_duoc = {"count": 0}
 
         async def tra_diem_gia(self, so_cccd):
+            goi_duoc["count"] += 1
             assert so_cccd == "012345678901"
             return 580
 
@@ -179,10 +155,10 @@ class TestRouterGoiCicClient:
             json=self._ho_so_co_ban(so_cccd="012345678901"),
         )
         assert response.status_code == 200
-        assert response.json()["cic_score"] == 580
+        assert goi_duoc["count"] == 1
 
     def test_cic_service_tra_ve_none_khong_chan_luong(self, app_client, monkeypatch):
-        """CicClient trả None (fail-open) → scoring vẫn chạy tiếp, cic_score=None."""
+        """CicClient trả None (fail-open) → scoring vẫn chạy tiếp."""
 
         async def tra_diem_gia(self, so_cccd):
             return None
@@ -195,4 +171,3 @@ class TestRouterGoiCicClient:
             json=self._ho_so_co_ban(so_cccd="012345678901"),
         )
         assert response.status_code == 200
-        assert response.json()["cic_score"] is None

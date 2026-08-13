@@ -1,4 +1,4 @@
-"""Test schema thay đổi: so_cccd trong request, cic_score trong response."""
+"""Test schema thay đổi: so_cccd trong request."""
 
 from app.schemas.credit import CreditScoreRequest, CreditScoreResponse
 
@@ -28,10 +28,10 @@ class TestCreditScoreRequestSoCccd:
         assert req.so_cccd == "012345678901"
 
 
-class TestCreditScoreResponseCicScore:
-    """cic_score là optional trong response."""
+class TestCreditScoreResponseKhongCoCic:
+    """Response không chứa cic_score — CIC chỉ dùng nội bộ trong model."""
 
-    def test_response_co_cic_score(self):
+    def test_response_khong_co_field_cic_score(self):
         res = CreditScoreResponse(
             pd_probability=0.12,
             risk_score=65,
@@ -40,20 +40,6 @@ class TestCreditScoreResponseCicScore:
             suggested_limit=80_000_000,
             decision="APPROVED",
             rejection_reason=None,
-            model_version="11.0.0",
-            cic_score=580,
+            model_version="13.0.0",
         )
-        assert res.cic_score == 580
-
-    def test_response_khong_co_cic_score(self):
-        res = CreditScoreResponse(
-            pd_probability=0.12,
-            risk_score=65,
-            evaluation_score=72.5,
-            credit_grade="B",
-            suggested_limit=80_000_000,
-            decision="APPROVED",
-            rejection_reason=None,
-            model_version="10.0.0",
-        )
-        assert res.cic_score is None
+        assert not hasattr(res, "cic_score")

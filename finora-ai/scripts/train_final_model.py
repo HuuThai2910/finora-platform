@@ -27,10 +27,10 @@ Ba hiệu chỉnh theo bối cảnh FINORA:
 #     Average Earnings US 2018
 #
 # nhằm bảo toàn vị trí thu nhập tương đối giữa hai quốc gia.
-  - **Bộ đặc trưng chỉ gồm dữ liệu FINORA tự thu thập được** (21 cột): hồ sơ tự khai
-    + eKYC. Toàn bộ 14 cột có nguồn từ CIC/FICO đã bị loại vì chưa có kết nối API —
-    xem `app/ml/features.py`. Mô hình vì vậy yếu hơn đáng kể so với bản dùng lịch sử
-    tín dụng, nhưng đổi lại là chạy được bằng dữ liệu thật.
+  - **Bộ đặc trưng gồm dữ liệu FINORA tự thu thập + điểm CIC**: hồ sơ tự khai + eKYC
+    + cic_score (150–750) từ cic-service. Trong dữ liệu huấn luyện, cic_score được tổng
+    hợp từ fico_score của LendingClub bằng ánh xạ tuyến tính + nhiễu Gaussian, ~15% đặt
+    NaN để mô hình học cách xử lý khi CIC không khả dụng. Xem `app/ml/features.py`.
 
 Đầu ra là một **gói tự chứa**: ngoài model còn có median điền thiếu, siêu tham số,
 công thức đặc trưng dẫn xuất và chỉ số từng fold — đủ để chấm một hồ sơ mới mà
@@ -63,7 +63,7 @@ from app.ml.preprocessing import PURPOSE_MAP, _parse_emp_length, _parse_issue_ye
 from app.ml.training import RANDOM_STATE, XGB_TUNED_PARAMS, fit_xgboost
 
 # ── Cấu hình ──────────────────────────────────────────────────────────────────
-PHIEN_BAN = "10.0.0"
+PHIEN_BAN = "13.0.0"
 # Hệ số quy đổi thu nhập và khoản vay theo năm
 VN_AVG = {
     2012: 44_400_000,
@@ -140,6 +140,29 @@ def nap_va_chuan_hoa() -> pd.DataFrame:
 
     d["purpose_cat"] = d["purpose"].map(PURPOSE_MAP).fillna("OTHER")
     print(f"  Quy đổi VND động theo từng năm cho {len(COT_TIEN_TE)} cột tiền tệ")
+
+    # ── Tổng hợp cic_score từ fico_score ──────────────────────────────────────
+    # LendingClub không có điểm CIC Việt Nam. Ánh xạ tuyến tính fico_score
+    # (300–850, range 550) sang thang CIC (150–750, range 600), cộng nhiễu
+    # Gaussian N(0, 30) để tránh tương quan hoàn hảo, rồi clip về [150, 750].
+    # ~15% hàng đặt NaN — mô phỏng trường hợp CIC không khả dụng (timeout,
+    # người vay chưa có hồ sơ tín dụng) để mô hình học cả missing indicator.
+    rng = np.random.default_rng(RANDOM_STATE)
+    fico = d["fico_score"].values.astype(float)
+    cic_raw = 150.0 + (fico - 300.0) * (600.0 / 550.0)
+    cic_noisy = cic_raw + rng.normal(0, 30, size=len(cic_raw))
+    cic_clipped = np.clip(cic_noisy, 150, 750)
+
+    # Đặt ~15% thành NaN để huấn luyện missing indicator
+    mask_missing = rng.random(len(cic_clipped)) < 0.15
+    cic_clipped[mask_missing] = np.nan
+
+    d["cic_score"] = cic_clipped
+    n_missing = mask_missing.sum()
+    print(
+        f"  Tổng hợp cic_score từ fico_score: "
+        f"{len(d) - n_missing:,} giá trị hợp lệ, {n_missing:,} NaN ({n_missing / len(d) * 100:.1f}%)"
+    )
     print(f"  Tỷ lệ vỡ nợ: {d['loan_status'].mean() * 100:.2f}%")
 
     return d.reset_index(drop=True)
@@ -299,8 +322,9 @@ def main() -> None:
             "loan_to_income": "clip(loan_amnt / annual_inc, 0, 5)",
         },
         "nguon_du_lieu": (
-            "Chỉ hồ sơ người vay tự khai + eKYC/CCCD. KHÔNG dùng CIC hay FICO — "
-            "FINORA chưa có kết nối API tới Trung tâm Thông tin Tín dụng."
+            "Hồ sơ người vay tự khai + eKYC/CCCD + điểm CIC (150–750) từ cic-service. "
+            "cic_score trong dữ liệu huấn luyện được tổng hợp từ fico_score "
+            "bằng ánh xạ tuyến tính + nhiễu Gaussian, ~15% NaN."
         ),
         "muc_phan_loai": {
             "home_ownership": HOME_OWNERSHIP_CATS,
@@ -356,17 +380,16 @@ def main() -> None:
 
     fold_cuoi = oot[-1]
     auc_cu = CHI_SO_THAM_CHIEU["auc_roc"]
-    mat_mat = auc_cu - fold_cuoi["auc_roc"]
+    chenh_lech = fold_cuoi["auc_roc"] - auc_cu
     gini_cu, gini_moi = 2 * auc_cu - 1, 2 * fold_cuoi["auc_roc"] - 1
 
-    print(f"\n  CÁI GIÁ CỦA VIỆC BỎ ĐẶC TRƯNG CIC/FICO (fold '{fold_cuoi['ten']}'):")
-    print(f"    {len(FEATURE_NAMES)} đặc trưng (không CIC) : AUC {fold_cuoi['auc_roc']:.4f} · Gini {gini_moi:.4f}")
-    print(f"    {CHI_SO_THAM_CHIEU['so_dac_trung']} đặc trưng (có CIC)    : AUC {auc_cu:.4f} · Gini {gini_cu:.4f}")
-    print(f"    → Mất {mat_mat:.4f} AUC ({mat_mat / (auc_cu - 0.5) * 100:.1f}% sức phân biệt so với đoán ngẫu nhiên)")
+    print(f"\n  SO SÁNH VỚI MÔ HÌNH THAM CHIẾU (fold '{fold_cuoi['ten']}'):")
+    print(f"    v{PHIEN_BAN}: {len(FEATURE_NAMES)} đặc trưng (có CIC tổng hợp) : AUC {fold_cuoi['auc_roc']:.4f} · Gini {gini_moi:.4f}")
+    print(f"    v7.0.0: {CHI_SO_THAM_CHIEU['so_dac_trung']} đặc trưng (có CIC/FICO gốc)  : AUC {auc_cu:.4f} · Gini {gini_cu:.4f}")
+    print(f"    → Chênh lệch {chenh_lech:+.4f} AUC")
     print()
-    print("    Đây là kết quả KỲ VỌNG, không phải lỗi: lịch sử tín dụng là nhóm tín hiệu")
-    print("    mạnh nhất trong chấm điểm tín dụng. Đánh đổi có chủ ý — mô hình yếu hơn")
-    print("    nhưng chạy được bằng dữ liệu FINORA thật sự thu thập được.")
+    print("    CIC tổng hợp từ FICO + nhiễu, không phải nguồn thật. Khi triển khai")
+    print("    với điểm CIC thật từ cic-service, sức phân biệt có thể khác.")
     print("=" * 78)
 
 
