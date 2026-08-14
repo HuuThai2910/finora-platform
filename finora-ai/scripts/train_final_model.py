@@ -59,11 +59,15 @@ from app.ml.features import (
 )
 from app.ml.model_registry import luu_mo_hinh
 from app.ml.predictor import COT_DIEN_MEDIAN
-from app.ml.preprocessing import PURPOSE_MAP, _parse_emp_length, _parse_issue_year
+from app.ml.features import CIC_RAW_FEATURES
+from app.ml.preprocessing import (
+    PURPOSE_MAP, _parse_emp_length, _parse_issue_year,
+    map_nhom_no, tinh_so_thang_quan_he,
+)
 from app.ml.training import RANDOM_STATE, XGB_TUNED_PARAMS, fit_xgboost
 
 # ── Cấu hình ──────────────────────────────────────────────────────────────────
-PHIEN_BAN = "13.0.0"
+PHIEN_BAN = "14.0.0"
 # Hệ số quy đổi thu nhập và khoản vay theo năm
 VN_AVG = {
     2012: 44_400_000,
@@ -79,7 +83,7 @@ US_AVG = {
 # Đường ra quyết định KHÔNG dùng ngưỡng này — `tinh_diem_tong_hop()` nhận PD liên tục.
 NGUONG_BAO_CAO = 0.5
 
-COT_TIEN_TE = ["annual_inc", "loan_amnt", "installment"]
+COT_TIEN_TE = ["annual_inc", "loan_amnt", "installment", "tot_cur_bal", "revol_bal"]
 
 # Fold out-of-time: huấn luyện trên năm 2012, kiểm thử trên năm 2014
 FOLD_OUT_OF_TIME = [
@@ -141,27 +145,38 @@ def nap_va_chuan_hoa() -> pd.DataFrame:
     d["purpose_cat"] = d["purpose"].map(PURPOSE_MAP).fillna("OTHER")
     print(f"  Quy đổi VND động theo từng năm cho {len(COT_TIEN_TE)} cột tiền tệ")
 
+    # ── Tạo 9 CIC features từ LendingClub ────────────────────────────────────
+    # Ánh xạ cột LC → tên feature CIC, để mô hình v14 học cùng schema
+    # với dữ liệu CIC thật sẽ nhận lúc triển khai.
+    d["so_lan_tre_han"] = d["delinq_2yrs"]
+    d["thang_tu_tre_gan_nhat"] = d["mths_since_last_delinq"].fillna(-1).astype(int)
+    d["tong_du_no"] = d["tot_cur_bal"]      # đã VND-scaled
+    d["du_no_the_tin_dung"] = d["revol_bal"]  # đã VND-scaled
+    d["ty_le_su_dung_the"] = d["revol_util"]
+    d["so_lan_tra_cuu"] = d["inq_last_6mths"]
+    d["so_hop_dong_dang_co"] = d["open_acc"]
+    d["so_thang_quan_he"] = tinh_so_thang_quan_he(d["earliest_cr_line"], d["issue_d"])
+    d["nhom_no_cao_nhat"] = map_nhom_no(d["pub_rec"], d["acc_now_delinq"])
+    print(f"  Tạo 9 CIC features từ cột LendingClub")
+
     # ── Tổng hợp cic_score từ fico_score ──────────────────────────────────────
-    # LendingClub không có điểm CIC Việt Nam. Ánh xạ tuyến tính fico_score
-    # (300–850, range 550) sang thang CIC (150–750, range 600), cộng nhiễu
-    # Gaussian N(0, 30) để tránh tương quan hoàn hảo, rồi clip về [150, 750].
-    # ~15% hàng đặt NaN — mô phỏng trường hợp CIC không khả dụng (timeout,
-    # người vay chưa có hồ sơ tín dụng) để mô hình học cả missing indicator.
     rng = np.random.default_rng(RANDOM_STATE)
     fico = d["fico_score"].values.astype(float)
     cic_raw = 150.0 + (fico - 300.0) * (600.0 / 550.0)
     cic_noisy = cic_raw + rng.normal(0, 30, size=len(cic_raw))
     cic_clipped = np.clip(cic_noisy, 150, 750)
-
-    # Đặt ~15% thành NaN để huấn luyện missing indicator
-    mask_missing = rng.random(len(cic_clipped)) < 0.15
-    cic_clipped[mask_missing] = np.nan
-
     d["cic_score"] = cic_clipped
-    n_missing = mask_missing.sum()
+
+    # ~15% NaN — cùng mask cho cic_score VÀ 9 CIC raw features, mô phỏng CIC timeout
+    mask_cic_fail = rng.random(len(d)) < 0.15
+    cic_cols = ["cic_score"] + list(CIC_RAW_FEATURES)
+    for col in cic_cols:
+        d.loc[mask_cic_fail, col] = np.nan
+
+    n_missing = mask_cic_fail.sum()
     print(
-        f"  Tổng hợp cic_score từ fico_score: "
-        f"{len(d) - n_missing:,} giá trị hợp lệ, {n_missing:,} NaN ({n_missing / len(d) * 100:.1f}%)"
+        f"  Tổng hợp cic_score từ fico_score + đặt NaN đồng bộ cho {len(cic_cols)} CIC features: "
+        f"{len(d) - n_missing:,} hợp lệ, {n_missing:,} NaN ({n_missing / len(d) * 100:.1f}%)"
     )
     print(f"  Tỷ lệ vỡ nợ: {d['loan_status'].mean() * 100:.2f}%")
 
@@ -320,11 +335,15 @@ def main() -> None:
         "cong_thuc_dan_xuat": {
             "log_income": "log1p(annual_inc)",
             "loan_to_income": "clip(loan_amnt / annual_inc, 0, 5)",
+            "effective_apr": "tinh_effective_apr(installment, loan_amnt, term_months)",
+            "log_du_no": "log1p(tong_du_no)",
+            "ty_le_du_no_thu_nhap": "clip(tong_du_no / annual_inc, 0, 10)",
         },
         "nguon_du_lieu": (
-            "Hồ sơ người vay tự khai + eKYC/CCCD + điểm CIC (150–750) từ cic-service. "
-            "cic_score trong dữ liệu huấn luyện được tổng hợp từ fico_score "
-            "bằng ánh xạ tuyến tính + nhiễu Gaussian, ~15% NaN."
+            "Hồ sơ người vay tự khai + eKYC/CCCD + CIC (điểm 150–750 + 9 trường thô) "
+            "từ cic-service. Trong dữ liệu huấn luyện, CIC features ánh xạ từ LendingClub "
+            "(delinq_2yrs→so_lan_tre_han, tot_cur_bal→tong_du_no, v.v.), cic_score tổng hợp "
+            "từ fico_score bằng ánh xạ tuyến tính + nhiễu Gaussian, ~15% NaN đồng bộ."
         ),
         "muc_phan_loai": {
             "home_ownership": HOME_OWNERSHIP_CATS,
