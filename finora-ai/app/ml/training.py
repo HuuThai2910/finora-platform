@@ -24,7 +24,15 @@ RANDOM_STATE = 42
 # do cho thấy installment tăng 2,67 lần thì PD lại GIẢM 3,9 điểm phần trăm, vì trong
 # dữ liệu huấn luyện installment cao tương quan với kỳ hạn ngắn (nhóm ít vỡ nợ hơn),
 # nên nó bị học thành proxy cho "kỳ hạn ngắn = an toàn" thay vì thành gánh nặng.
-DAC_TRUNG_DON_DIEU_TANG = ["installment", "effective_apr"]
+DAC_TRUNG_DON_DIEU_TANG = [
+    "installment",            # Gánh nặng trả nợ hàng tháng
+    "effective_apr",          # Lãi suất thực — chi phí vay cao hơn → rủi ro cao hơn
+    "dti",                    # Tỷ lệ nợ/thu nhập
+    "so_lan_tre_han",         # Số lần trễ hạn — trễ nhiều → rủi ro cao hơn
+    "tong_du_no",             # Tổng dư nợ hiện tại
+    "du_no_the_tin_dung",     # Dư nợ thẻ tín dụng
+    "nhom_no_cao_nhat",       # Nhóm nợ cao nhất (1-5)
+]
 
 
 def rang_buoc_don_dieu() -> tuple[int, ...]:

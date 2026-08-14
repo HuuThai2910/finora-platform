@@ -1,20 +1,20 @@
 """
-Bộ đặc trưng cho mô hình chấm điểm tín dụng.
+Bộ đặc trưng cho mô hình chấm điểm tín dụng v14.
 
 Nguồn dữ liệu:
-  - Hồ sơ người vay tự khai trên app (thu nhập, thâm niên việc làm, nhà ở, mục đích vay)
+  - Hồ sơ người vay tự khai trên app (thu nhập, thâm niên, nhà ở, mục đích)
   - eKYC/CCCD (tuổi)
-  - Điểm tín dụng CIC qua cic-service (cic_score, 150–750)
+  - CIC qua cic-service: điểm CIC (150–750) + 9 trường tín dụng thô
+  - Fineract: lãi suất, kỳ hạn từ sản phẩm vay
 
-**Hạn chế phải nêu trong khóa luận:** lịch sử tín dụng là nhóm tín hiệu mạnh nhất
-trong chấm điểm tín dụng. Bỏ toàn bộ nhóm này làm sức phân biệt của mô hình giảm rõ
-rệt — xem chỉ số thực đo trong `models/model_v<n>.json`. Đây là đánh đổi có chủ ý:
-một mô hình yếu hơn nhưng **chạy được bằng dữ liệu FINORA thật sự có**, thay vì một
-mô hình mạnh hơn nhưng không triển khai được. Khi FINORA kết nối được CIC (Quyết định
-2970/QĐ-NHNN quy định nghĩa vụ này), cần huấn luyện lại với nhóm đặc trưng tín dụng.
+So với v13 (22 features): thêm 9 CIC raw, 3 Fineract (int_rate, term_months,
+effective_apr), 2 derived (log_du_no, ty_le_du_no_thu_nhap), 11 missing indicators
+mới → tổng 47.
 """
 import numpy as np
 import pandas as pd
+
+from app.ml.preprocessing import tinh_effective_apr
 
 HOME_OWNERSHIP_CATS = ["RENT", "OWN", "MORTGAGE", "OTHER"]
 PURPOSE_CATS = [
@@ -24,12 +24,36 @@ PURPOSE_CATS = [
 ]
 VERIFICATION_CATS = ["Verified", "Source Verified", "Not Verified"]
 
+# ── 9 trường tín dụng thô từ CIC ────────────────────────────────────────────
+CIC_RAW_FEATURES = [
+    "so_lan_tre_han",           # Số lần trễ hạn 24 tháng gần nhất
+    "thang_tu_tre_gan_nhat",    # Số tháng từ lần trễ gần nhất (-1 = chưa từng)
+    "tong_du_no",               # Tổng dư nợ (VND)
+    "du_no_the_tin_dung",       # Dư nợ thẻ tín dụng (VND)
+    "ty_le_su_dung_the",        # Tỷ lệ sử dụng thẻ (%)
+    "so_lan_tra_cuu",           # Số lần tra cứu 6 tháng gần nhất
+    "so_hop_dong_dang_co",      # Số hợp đồng đang có
+    "so_thang_quan_he",         # Số tháng quan hệ tín dụng
+    "nhom_no_cao_nhat",         # Nhóm nợ cao nhất (1-5)
+]
+
+# ── 2 trường từ Fineract (khôi phục từ v10) ─────────────────────────────────
+FINERACT_FEATURES = [
+    "int_rate",                 # Lãi suất danh nghĩa (%/năm)
+    "term_months",              # Kỳ hạn vay (tháng)
+]
+
 COLUMNS_WITH_MISSING = [
+    # Hồ sơ tự khai + CIC score (5 cũ)
     "person_age",
     "emp_length_years",
     "dti",
     "installment",
     "cic_score",
+    # CIC raw — tất cả 9 đều NaN khi CIC fail
+    *CIC_RAW_FEATURES,
+    # Fineract — optional trong request
+    *FINERACT_FEATURES,
 ]
 MISSING_INDICATORS = [f"{c}_missing" for c in COLUMNS_WITH_MISSING]
 AGE_BINS = ["age_under_25", "age_25_to_39", "age_40_to_59", "age_over_60"]
@@ -42,14 +66,20 @@ NUMERIC_FEATURES = [
     "annual_inc",             # Tự khai + sao kê lương
     # Conditions — điều kiện khoản vay
     "loan_amnt",              # Form nộp hồ sơ
-    # Các đặc trưng tài chính bổ sung
     "dti",                    # Tỷ lệ nợ/thu nhập
-    "installment",            # Số tiền phải trả hàng tháng (Fineract tính sẵn)
-    # CIC — lịch sử tín dụng
-    "cic_score",              # Điểm tín dụng CIC (150-750) từ cic-service
+    "installment",            # Số tiền phải trả hàng tháng
+    # CIC — điểm tổng hợp
+    "cic_score",              # Điểm tín dụng CIC (150-750)
+    # CIC — dữ liệu thô
+    *CIC_RAW_FEATURES,
+    # Fineract — thông tin sản phẩm vay
+    *FINERACT_FEATURES,
     # Đặc trưng dẫn xuất
-    "log_income",             # log(annual_inc) — nén đuôi phân phối lệch phải
-    "loan_to_income",         # loan_amnt / annual_inc
+    "log_income",             # log1p(annual_inc)
+    "loan_to_income",         # clip(loan_amnt / annual_inc, 0, 5)
+    "effective_apr",          # Lãi suất thực (%/năm) — bisection IRR
+    "log_du_no",              # log1p(tong_du_no)
+    "ty_le_du_no_thu_nhap",   # clip(tong_du_no / annual_inc, 0, 10)
 ]
 
 TARGET_ENCODED_FEATURES = [
@@ -95,7 +125,13 @@ def encode_features(
     target_encodings: dict[str, dict[str, float]] | None = None,
     global_mean: float | None = None
 ) -> pd.DataFrame:
-    """Mã hóa và tạo đặc trưng mới từ DataFrame đã làm sạch."""
+    """Mã hóa và tạo đặc trưng mới từ DataFrame đã làm sạch.
+
+    Tính thêm 3 đặc trưng dẫn xuất so với v13: effective_apr, log_du_no,
+    ty_le_du_no_thu_nhap. Các đặc trưng dẫn xuất PHẢI tính SAU khi điền
+    median — nếu tính trước thì giá trị thiếu sẽ truyền lên cột dẫn xuất
+    mà không bị chặn.
+    """
     df = df.copy()
 
     target_cols = TARGET_COLS
@@ -124,11 +160,23 @@ def encode_features(
     df["age_40_to_59"] = ((df["person_age"] >= 40) & (df["person_age"] < 60)).astype(int)
     df["age_over_60"] = (df["person_age"] >= 60).astype(int)
 
-    # Engineered: log thu nhập
+    # Dẫn xuất: log thu nhập
     df["log_income"] = np.log1p(df["annual_inc"])
 
-    # Engineered: khoản vay / thu nhập năm
+    # Dẫn xuất: khoản vay / thu nhập năm
     df["loan_to_income"] = df["loan_amnt"] / df["annual_inc"].replace(0, np.nan)
     df["loan_to_income"] = df["loan_to_income"].fillna(0).clip(upper=5)
+
+    # Dẫn xuất: lãi suất thực (MỚI v14)
+    df["effective_apr"] = tinh_effective_apr(
+        df["installment"], df["loan_amnt"], df["term_months"]
+    )
+
+    # Dẫn xuất: log dư nợ (MỚI v14)
+    df["log_du_no"] = np.log1p(df["tong_du_no"])
+
+    # Dẫn xuất: tỷ lệ dư nợ / thu nhập (MỚI v14)
+    df["ty_le_du_no_thu_nhap"] = df["tong_du_no"] / df["annual_inc"].replace(0, np.nan)
+    df["ty_le_du_no_thu_nhap"] = df["ty_le_du_no_thu_nhap"].fillna(0).clip(upper=10)
 
     return df

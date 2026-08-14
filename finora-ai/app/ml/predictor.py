@@ -37,7 +37,7 @@ from app.services.rule_engine import (
 
 # Ba cột này được TÍNH LẠI từ cột gốc trong `encode_features()` sau khi điền thiếu,
 # nên không điền median cho chúng — điền rồi cũng bị ghi đè.
-COT_DAN_XUAT = {"log_income", "loan_to_income"}
+COT_DAN_XUAT = {"log_income", "loan_to_income", "effective_apr", "log_du_no", "ty_le_du_no_thu_nhap"}
 
 # 4 cột gốc cần median. Là nguồn sự thật duy nhất cho cả `scripts/train_final_model.py`
 # lẫn `predictor.py`, để danh sách lúc huấn luyện và lúc chấm điểm không thể lệch nhau.
