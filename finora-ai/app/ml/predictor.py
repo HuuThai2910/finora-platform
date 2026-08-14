@@ -45,7 +45,7 @@ COT_DIEN_MEDIAN = [c for c in NUMERIC_FEATURES if c not in COT_DAN_XUAT]
 
 THU_MUC_MO_HINH_MAC_DINH = Path(__file__).resolve().parent.parent.parent / "models"
 
-PHIEN_BAN_MAC_DINH = "13.0.0"
+PHIEN_BAN_MAC_DINH = "14.0.0"
 
 
 class BoDuDoan:
@@ -126,6 +126,19 @@ class BoDuDoan:
             "installment": ho_so.get("installment"),
             "interest_method": ho_so.get("interest_method", "DECLINING_BALANCE"),
             "cic_score": ho_so.get("cic_score"),
+            # CIC raw data (9 fields) — từ cic_data dict hoặc None khi CIC fail
+            "so_lan_tre_han": ho_so.get("so_lan_tre_han"),
+            "thang_tu_tre_gan_nhat": ho_so.get("thang_tu_tre_gan_nhat"),
+            "tong_du_no": ho_so.get("tong_du_no"),
+            "du_no_the_tin_dung": ho_so.get("du_no_the_tin_dung"),
+            "ty_le_su_dung_the": ho_so.get("ty_le_su_dung_the"),
+            "so_lan_tra_cuu": ho_so.get("so_lan_tra_cuu"),
+            "so_hop_dong_dang_co": ho_so.get("so_hop_dong_dang_co"),
+            "so_thang_quan_he": ho_so.get("so_thang_quan_he"),
+            "nhom_no_cao_nhat": ho_so.get("nhom_no_cao_nhat"),
+            # Fineract — thông tin sản phẩm vay
+            "int_rate": ho_so.get("int_rate"),
+            "term_months": ho_so.get("term_months"),
         }
 
         # Tạo chỉ báo thiếu trước khi điền median
@@ -155,10 +168,10 @@ class BoDuDoan:
 
         return float(self.model.predict_proba(X)[0][1])
 
-    def du_doan(self, ho_so: dict, cic_score: int | None = None) -> dict:
+    def du_doan(self, ho_so: dict, cic_data: dict | None = None) -> dict:
         """Chấm điểm đầy đủ: mô hình → rule engine → quyết định."""
-        if cic_score is not None:
-            ho_so = {**ho_so, "cic_score": cic_score}
+        if cic_data is not None:
+            ho_so = {**ho_so, **cic_data}
 
         pd_probability = self.du_doan_pd(ho_so)
         risk_score = tinh_diem_rui_ro(ho_so)
