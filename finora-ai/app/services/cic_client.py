@@ -1,13 +1,11 @@
 """
-HTTP client gọi cic-service để lấy điểm tín dụng CIC.
+HTTP client gọi cic-service để lấy điểm tín dụng CIC + dữ liệu thô.
 
-Thiết kế fail-open: khi cic-service không khả dụng (timeout, lỗi mạng, 5xx,
-payload thiếu field), trả None thay vì raise — pipeline scoring tiếp tục với
-missing indicator (`cic_score_missing`) thay vì chặn luồng chấm điểm.
+Thiết kế fail-open: khi cic-service không khả dụng, trả None — pipeline scoring
+tiếp tục với missing indicators thay vì chặn luồng.
 
-Không retry: mỗi lần gọi CIC thêm latency vào luồng scoring vốn đã async;
-một lần timeout `CIC_TIMEOUT_SECONDS` (mặc định 3 giây) là đủ chấp nhận cho
-use case này (xem docs/superpowers/plans/2026-08-11-cic-score-integration.md).
+v14: gọi `?chiTiet=true` và parse cả `hoSo` (10 trường tín dụng thô) thay vì
+chỉ `diemCic`. Trả dict thay vì int.
 """
 
 import logging
@@ -30,7 +28,7 @@ def _che_cccd(so_cccd: str) -> str:
 
 
 class CicClient:
-    """Client gọi cic-service (port 8082) lấy điểm tín dụng theo số CCCD."""
+    """Client gọi cic-service (port 8082) lấy điểm + dữ liệu tín dụng theo CCCD."""
 
     def __init__(
         self,
@@ -40,18 +38,14 @@ class CicClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
-    async def tra_diem_cic(self, so_cccd: str) -> int | None:
-        """Tra điểm CIC theo số CCCD.
-
-        Args:
-            so_cccd: Số CCCD 12 chữ số của người vay.
+    async def tra_diem_cic(self, so_cccd: str) -> dict | None:
+        """Tra điểm CIC và dữ liệu tín dụng thô theo số CCCD.
 
         Returns:
-            `diemCic` (int, 150-750) nếu cic-service trả 200 hợp lệ.
-            None nếu timeout, lỗi mạng, HTTP status khác 200, hoặc payload
-            không có field `diemCic` — không bao giờ raise ra ngoài.
+            Dict với 11 keys (cic_score + 9 CIC raw + ty_le_su_dung_the tính từ
+            duNoTheTinDung/hanMucThe) nếu thành công. None nếu fail-open.
         """
-        url = f"{self.base_url}/api/v1/diem-tin-dung/{so_cccd}"
+        url = f"{self.base_url}/api/v1/diem-tin-dung/{so_cccd}?chiTiet=true"
         cccd_che = _che_cccd(so_cccd)
         bat_dau = time.monotonic()
         try:
@@ -62,29 +56,44 @@ class CicClient:
             if response.status_code != 200:
                 logger.warning(
                     "cic-service tra_diem_cic cccd=%s status=%d latency_ms=%.0f result=non_200",
-                    cccd_che,
-                    response.status_code,
-                    do_tre_ms,
+                    cccd_che, response.status_code, do_tre_ms,
                 )
                 return None
 
-            diem = response.json()["diemCic"]
-            logger.info(
-                "cic-service tra_diem_cic cccd=%s status=200 latency_ms=%.0f result=success",
-                cccd_che,
-                do_tre_ms,
+            data = response.json()
+            ho_so = data.get("hoSo") or {}
+
+            han_muc = ho_so.get("hanMucThe")
+            du_no_the = ho_so.get("duNoTheTinDung")
+            ty_le_su_dung = (
+                du_no_the / han_muc * 100
+                if han_muc and han_muc > 0 and du_no_the is not None
+                else None
             )
-            return diem
+
+            logger.info(
+                "cic-service tra_diem_cic cccd=%s status=200 latency_ms=%.0f "
+                "result=success ho_so_fields=%d",
+                cccd_che, do_tre_ms, len(ho_so),
+            )
+            return {
+                "cic_score": data["diemCic"],
+                "so_lan_tre_han": ho_so.get("soLanTreHan24Thang"),
+                "thang_tu_tre_gan_nhat": ho_so.get("soThangTuLanTreGanNhat"),
+                "tong_du_no": ho_so.get("tongDuNo"),
+                "du_no_the_tin_dung": ho_so.get("duNoTheTinDung"),
+                "ty_le_su_dung_the": ty_le_su_dung,
+                "so_lan_tra_cuu": ho_so.get("soLanTraCuu6Thang"),
+                "so_hop_dong_dang_co": ho_so.get("soHopDongDangCo"),
+                "so_thang_quan_he": ho_so.get("soThangQuanHe"),
+                "nhom_no_cao_nhat": ho_so.get("nhomNoCaoNhat"),
+            }
 
         except (httpx.HTTPError, ValueError, KeyError) as loi:
-            # httpx.HTTPError: timeout/lỗi mạng/lỗi kết nối; ValueError: JSON không hợp lệ;
-            # KeyError: payload thiếu field diemCic. Đây là các lỗi fail-open đã lường trước.
             do_tre_ms = (time.monotonic() - bat_dau) * 1000
             logger.warning(
-                "cic-service tra_diem_cic cccd=%s latency_ms=%.0f result=error error_class=%s: %s",
-                cccd_che,
-                do_tre_ms,
-                type(loi).__name__,
-                loi,
+                "cic-service tra_diem_cic cccd=%s latency_ms=%.0f result=error "
+                "error_class=%s: %s",
+                cccd_che, do_tre_ms, type(loi).__name__, loi,
             )
             return None
