@@ -67,17 +67,16 @@ from app.ml.preprocessing import (
 from app.ml.training import RANDOM_STATE, XGB_TUNED_PARAMS, fit_xgboost
 
 # ── Cấu hình ──────────────────────────────────────────────────────────────────
-PHIEN_BAN = "14.0.0"
-# Hệ số quy đổi thu nhập và khoản vay theo năm
-VN_AVG = {
-    2012: 44_400_000,
-    2014: 53_880_000,
-}
+PHIEN_BAN = "15.0.0"
 
-US_AVG = {
-    2012: 55_300,
-    2014: 57_450,
-}
+# Hệ số quy đổi thống nhất — trung bình của 2012 và 2014:
+#   VN_AVG = (44_400_000 + 53_880_000) / 2 = 49_140_000
+#   US_AVG = (55_300 + 57_450) / 2          = 56_375
+#   k = 49_140_000 / 56_375 ≈ 871.6
+HE_SO_K = 49_140_000 / 56_375
+
+# Chỉ lấy từ 2009 trở đi — bỏ 2007-2008 (ít dữ liệu, khủng hoảng tài chính).
+NAM_BAT_DAU = 2009
 
 # Ngưỡng cắt PD để tính Recall/Precision/F1/Accuracy khi BÁO CÁO.
 # Đường ra quyết định KHÔNG dùng ngưỡng này — `tinh_diem_tong_hop()` nhận PD liên tục.
@@ -85,9 +84,12 @@ NGUONG_BAO_CAO = 0.5
 
 COT_TIEN_TE = ["annual_inc", "loan_amnt", "installment", "tot_cur_bal", "revol_bal"]
 
-# Fold out-of-time: huấn luyện trên năm 2012, kiểm thử trên năm 2014
+# Out-of-time: train trên các năm trước, validate năm kế tiếp.
+# Nhiều fold hơn v14 (chỉ có 1 fold 2012→2014).
 FOLD_OUT_OF_TIME = [
-    ("2012 -> 2014", 2012, 2014),
+    ("2009-2012 -> 2013", 2012, 2013),
+    ("2009-2013 -> 2014", 2013, 2014),
+    ("2009-2014 -> 2015", 2014, 2015),
 ]
 
 SO_FOLD_NGAU_NHIEN = 5
@@ -119,7 +121,7 @@ THU_MUC_MO_HINH = THU_MUC_GOC / "models"
 
 # ── Nạp và chuẩn hóa ──────────────────────────────────────────────────────────
 def nap_va_chuan_hoa() -> pd.DataFrame:
-    """Nạp lc_clean.csv, tính lại cột dẫn xuất, lọc năm 2012 và 2014, chuẩn hóa VND theo năm."""
+    """Nạp lc_clean.csv, tính lại cột dẫn xuất, lọc năm ≥ 2009, chuẩn hóa VND thống nhất."""
     d = pd.read_csv(DATA_FILE, low_memory=False)
     print(f"  Nạp {len(d):,} dòng × {len(d.columns)} cột")
 
@@ -128,19 +130,18 @@ def nap_va_chuan_hoa() -> pd.DataFrame:
     d["issue_year"] = _parse_issue_year(d["issue_d"])
     d["emp_length_years"] = d["emp_length"].apply(_parse_emp_length)
 
-    # Chỉ đánh giá các năm đã chọn và kỳ hạn không vượt quá giới hạn sản phẩm.
+    # Lọc năm ≥ 2009 (bỏ 2007-2008) và kỳ hạn ≤ 24 tháng (NĐ 94/2025).
     truoc = len(d)
-    d = d[d["issue_year"].isin([2012, 2014])].copy()
+    d = d[d["issue_year"] >= NAM_BAT_DAU].copy()
     d = d[d["term_months"] <= 24].copy()
     print(
-        f"  Lọc năm 2012, 2014 và kỳ hạn ≤ 24 tháng: "
+        f"  Lọc năm ≥ {NAM_BAT_DAU} và kỳ hạn ≤ 24 tháng: "
         f"{truoc:,} → {len(d):,} dòng"
     )
 
-    # Tính toán và chuẩn hóa tiền tệ động theo từng năm
-    he_so_k = d["issue_year"].map(lambda y: VN_AVG[y] / US_AVG[y])
+    # Chuẩn hóa tiền tệ — hệ số k thống nhất cho mọi năm
     for col in COT_TIEN_TE:
-        d[col] = d[col] * he_so_k
+        d[col] = d[col] * HE_SO_K
 
     d["purpose_cat"] = d["purpose"].map(PURPOSE_MAP).fillna("OTHER")
     print(f"  Quy đổi VND động theo từng năm cho {len(COT_TIEN_TE)} cột tiền tệ")
@@ -248,8 +249,12 @@ def do_mot_fold(train: pd.DataFrame, val: pd.DataFrame, ten: str) -> dict:
 
 def do_out_of_time(d: pd.DataFrame) -> list[dict]:
     return [
-        do_mot_fold(d[d.issue_year <= nam_train], d[d.issue_year == nam_val], ten)
-        for ten, nam_train, nam_val in FOLD_OUT_OF_TIME
+        do_mot_fold(
+            d[d.issue_year <= nam_cuoi_train],
+            d[d.issue_year == nam_val],
+            ten,
+        )
+        for ten, nam_cuoi_train, nam_val in FOLD_OUT_OF_TIME
     ]
 
 
@@ -313,15 +318,12 @@ def main() -> None:
     thong_so_bo_sung = {
         "du_lieu_huan_luyen": {
             "nguon": "data/lc_clean.csv",
-            "loc": "issue_year in [2012, 2014]",
+            "loc": f"issue_year >= {NAM_BAT_DAU}",
             "n_dong": int(len(d)),
             "khoang_nam": [int(d.issue_year.min()), int(d.issue_year.max())],
             "ty_le_vo_no": float(d["loan_status"].mean()),
             "don_vi_tien": "VND",
-            "he_so_chuan_hoa": {
-                "2012": VN_AVG[2012] / US_AVG[2012],
-                "2014": VN_AVG[2014] / US_AVG[2014],
-            },
+            "he_so_chuan_hoa": HE_SO_K,
         },
         "sieu_tham_so": {
             **XGB_TUNED_PARAMS,

@@ -45,7 +45,7 @@ COT_DIEN_MEDIAN = [c for c in NUMERIC_FEATURES if c not in COT_DAN_XUAT]
 
 THU_MUC_MO_HINH_MAC_DINH = Path(__file__).resolve().parent.parent.parent / "models"
 
-PHIEN_BAN_MAC_DINH = "14.0.0"
+PHIEN_BAN_MAC_DINH = "15.0.0"
 
 
 class BoDuDoan:
