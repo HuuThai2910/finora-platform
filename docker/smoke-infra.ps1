@@ -16,10 +16,10 @@ if ([string]::IsNullOrWhiteSpace($EnvFile)) {
 }
 
 $composeFile = Join-Path $PSScriptRoot 'docker-compose.yml'
-$coreServices = @('keycloak-db', 'zookeeper', 'kafka', 'keycloak')
+$coreServices = @('keycloak-db', 'keycloak')
 $profiles = @('core')
 $infraServices = @($coreServices)
-$healthServices = @('keycloak-db', 'zookeeper', 'kafka')
+$healthServices = @('keycloak-db')
 $requiredSecrets = @('KEYCLOAK_POSTGRES_ADMIN_PASSWORD', 'KEYCLOAK_DB_PASSWORD', 'KEYCLOAK_ADMIN', 'KEYCLOAK_ADMIN_PASSWORD')
 
 switch ($Scope) {
@@ -43,8 +43,8 @@ switch ($Scope) {
     }
     'User' {
         $profiles += 'user'
-        $infraServices += 'user-postgres'
-        $healthServices += 'user-postgres'
+        $infraServices += @('user-postgres', 'user-redis')
+        $healthServices += @('user-postgres', 'user-redis')
         $requiredSecrets += @('USER_POSTGRES_ADMIN_PASSWORD', 'USER_DB_PASSWORD')
     }
     'Investment' {

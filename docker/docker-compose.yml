@@ -24,47 +24,6 @@ services:
     networks:
       - finora-network
 
-  zookeeper:
-    profiles: ["core"]
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: finora-zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-    healthcheck:
-      test: ["CMD-SHELL", "cub zk-ready localhost:2181 3"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 20s
-    networks:
-      - finora-network
-
-  kafka:
-    profiles: ["core"]
-    image: confluentinc/cp-kafka:7.5.0
-    container_name: finora-kafka
-    depends_on:
-      zookeeper:
-        condition: service_healthy
-    ports:
-      - "127.0.0.1:${KAFKA_HOST_PORT:-9092}:9092"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:${KAFKA_HOST_PORT:-9092}
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-    healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 10s
-      retries: 12
-      start_period: 30s
-    networks:
-      - finora-network
-
   keycloak:
     profiles: ["core"]
     image: quay.io/keycloak/keycloak:23.0
@@ -291,7 +250,27 @@ services:
     networks:
       - finora-network
 
-  # ============ USER OWNED DATABASE ============
+  # ============ USER OWNED DATABASE & CACHE ============
+  user-redis:
+    profiles: ["user"]
+    image: redis:7-alpine
+    container_name: finora-user-redis
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${USER_REDIS_PASSWORD:-}"]
+    environment:
+      USER_REDIS_PASSWORD: "${USER_REDIS_PASSWORD:-}"
+    ports:
+      - "127.0.0.1:${USER_REDIS_HOST_PORT:-6381}:6379"
+    volumes:
+      - user-redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - finora-network
+
   user-postgres:
     profiles: ["user"]
     image: postgres:17.5-alpine
@@ -380,6 +359,7 @@ volumes:
   payment-postgres-data:
   blockchain-postgres-data:
   payment-redis-data:
+  user-redis-data:
   user-postgres-data:
   investment-postgres-data:
 
