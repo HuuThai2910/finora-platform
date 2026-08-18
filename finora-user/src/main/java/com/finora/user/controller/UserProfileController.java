@@ -2,7 +2,9 @@ package com.finora.user.controller;
 
 import com.finora.common.dto.BaseResponse;
 import com.finora.user.dto.request.CccdDataRequest;
+import com.finora.user.dto.request.EkycVerifyRequest;
 import com.finora.user.dto.request.UpdateProfileRequest;
+import com.finora.user.dto.response.EkycResultResponse;
 import com.finora.user.dto.response.UserProfileResponse;
 import com.finora.user.security.SecurityUtils;
 import com.finora.user.service.UserProfileService;
@@ -74,5 +76,21 @@ public class UserProfileController {
 
         UUID keycloakUserId = SecurityUtils.getCurrentKeycloakUserId();
         return BaseResponse.success(userProfileService.submitCccdData(keycloakUserId, request));
+    }
+
+    // ── eKYC — Xác minh khuôn mặt ──────────────────────────────────
+
+    /**
+     * Xác minh eKYC: gửi ảnh selfie + ảnh CCCD để kiểm tra liveness và so khớp khuôn mặt.
+     * Kết quả cập nhật trạng thái eKYC trên hồ sơ người dùng.
+     */
+    @PostMapping("/profile/ekyc-verify")
+    @PreAuthorize("hasAuthority('user:cccd:scan')")
+    public BaseResponse<EkycResultResponse> verifyEkyc(
+            @Valid @RequestBody EkycVerifyRequest request) {
+
+        UUID keycloakUserId = SecurityUtils.getCurrentKeycloakUserId();
+        EkycResultResponse result = userProfileService.verifyEkyc(keycloakUserId, request);
+        return BaseResponse.success(result);
     }
 }
