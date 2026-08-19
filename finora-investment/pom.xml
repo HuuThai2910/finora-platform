@@ -36,6 +36,14 @@
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
         </dependency>
+<dependency>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>jakarta.validation-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
         <!-- Integration test phải dùng đúng PostgreSQL 17, không dùng H2 hoặc Neon qua mạng. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
