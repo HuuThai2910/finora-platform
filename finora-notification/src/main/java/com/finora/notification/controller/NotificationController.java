@@ -25,19 +25,19 @@ public class NotificationController {
 
     @PostMapping("/welcome-email")
     public ResponseEntity<Void> sendWelcomeEmail(@RequestBody WelcomeEmailRequest request) {
-        emailService.sendWelcomeEmail(request.email(), request.fullName());
+        emailService.sendWelcomeEmail(request.getEmail(), request.getFullName());
         return ResponseEntity.ok().build();
     }
 
     @PostMapping("/otp-email")
     public ResponseEntity<Void> sendOtpEmail(@RequestBody OtpEmailRequest request) {
-        emailService.sendPasswordResetOtp(request.email(), request.otp());
+        emailService.sendPasswordResetOtp(request.getEmail(), request.getOtp());
         return ResponseEntity.ok().build();
     }
 
     @PostMapping("/suspicious-activity-alert")
     public ResponseEntity<Void> sendSuspiciousActivityAlert(@RequestBody SuspiciousActivityAlertRequest request) {
-        emailService.sendSuspiciousActivityAlert(request.email(), request.ipAddress(), request.reason());
+        emailService.sendSuspiciousActivityAlert(request.getEmail(), request.getIpAddress(), request.getReason());
         return ResponseEntity.ok().build();
     }
 }
