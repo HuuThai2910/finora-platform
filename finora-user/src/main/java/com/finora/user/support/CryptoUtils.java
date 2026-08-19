@@ -1,4 +1,4 @@
-package com.finora.user.util;
+package com.finora.user.support;
 
 import javax.crypto.Cipher;
 import javax.crypto.Mac;

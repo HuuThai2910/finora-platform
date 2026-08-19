@@ -1,4 +1,4 @@
-package com.finora.user.util;
+package com.finora.user.support;
 
 /**
  * Tiện ích che dấu PII trong log — đảm bảo không lộ thông tin cá nhân khi ghi log debug/audit.

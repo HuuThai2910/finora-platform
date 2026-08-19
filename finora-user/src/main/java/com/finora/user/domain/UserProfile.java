@@ -1,6 +1,6 @@
 package com.finora.user.domain;
 
-import com.finora.user.util.CryptoConverter;
+import com.finora.user.support.CryptoConverter;
 import jakarta.persistence.*;
 import lombok.*;
 

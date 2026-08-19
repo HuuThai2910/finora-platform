@@ -1,5 +1,8 @@
-package com.finora.user.client;
+package com.finora.user.integration.notification.client;
 
+import com.finora.user.integration.notification.contract.OtpEmailRequest;
+import com.finora.user.integration.notification.contract.SuspiciousActivityAlertRequest;
+import com.finora.user.integration.notification.contract.WelcomeEmailRequest;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -24,15 +27,4 @@ public interface NotificationClient {
 
     @PostMapping("/api/internal/notifications/suspicious-activity-alert")
     void sendSuspiciousActivityAlert(@RequestBody SuspiciousActivityAlertRequest request);
-
-    // ── Request DTOs ────────────────────────────────────────────────
-
-    record WelcomeEmailRequest(String email, String fullName) {
-    }
-
-    record OtpEmailRequest(String email, String otp) {
-    }
-
-    record SuspiciousActivityAlertRequest(String email, String ipAddress, String reason) {
-    }
 }

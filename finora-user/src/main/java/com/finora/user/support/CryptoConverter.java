@@ -1,4 +1,4 @@
-package com.finora.user.util;
+package com.finora.user.support;
 
 import com.finora.user.config.CryptoProperties;
 import jakarta.persistence.AttributeConverter;
