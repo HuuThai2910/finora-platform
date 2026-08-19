@@ -16,35 +16,18 @@ if ([string]::IsNullOrWhiteSpace($EnvFile)) {
 }
 
 $composeFile = Join-Path $PSScriptRoot 'docker-compose.yml'
-$coreServices = @('keycloak-db', 'keycloak')
+$coreServices = @('keycloak-db', 'zookeeper', 'kafka', 'keycloak')
 $profiles = @('core')
 $infraServices = @($coreServices)
-$healthServices = @('keycloak-db')
+$healthServices = @('keycloak-db', 'zookeeper', 'kafka')
 $requiredSecrets = @('KEYCLOAK_POSTGRES_ADMIN_PASSWORD', 'KEYCLOAK_DB_PASSWORD', 'KEYCLOAK_ADMIN', 'KEYCLOAK_ADMIN_PASSWORD')
 
 switch ($Scope) {
-    'Loan' {
-        $profiles += 'loan'
-        $infraServices += 'loan-postgres'
-        $healthServices += 'loan-postgres'
-        $requiredSecrets += @('LOAN_POSTGRES_ADMIN_PASSWORD', 'LOAN_DB_PASSWORD')
-    }
-    'Payment' {
-        $profiles += 'payment'
-        $infraServices += @('payment-postgres', 'payment-redis')
-        $healthServices += @('payment-postgres', 'payment-redis')
-        $requiredSecrets += @('PAYMENT_POSTGRES_ADMIN_PASSWORD', 'PAYMENT_DB_PASSWORD', 'PAYMENT_REDIS_PASSWORD')
-    }
-    'Blockchain' {
-        $profiles += 'blockchain'
-        $infraServices += 'blockchain-postgres'
-        $healthServices += 'blockchain-postgres'
-        $requiredSecrets += @('BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD', 'BLOCKCHAIN_DB_PASSWORD')
     }
     'User' {
         $profiles += 'user'
-        $infraServices += @('user-postgres', 'user-redis')
-        $healthServices += @('user-postgres', 'user-redis')
+        $infraServices += 'user-postgres'
+        $healthServices += 'user-postgres'
         $requiredSecrets += @('USER_POSTGRES_ADMIN_PASSWORD', 'USER_DB_PASSWORD')
     }
     'Investment' {
