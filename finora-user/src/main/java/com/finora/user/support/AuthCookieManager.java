@@ -35,8 +35,8 @@ public class AuthCookieManager {
                                  String accessToken, String refreshToken) {
         ResponseCookie accessCookie = ResponseCookie.from(COOKIE_ACCESS_TOKEN, accessToken)
                 .httpOnly(true)
-                .secure(cookieProperties.secure())
-                .domain(cookieProperties.domain())
+                .secure(cookieProperties.isSecure())
+                .domain(cookieProperties.getDomain())
                 .path("/")
                 .maxAge(Duration.ofSeconds(ACCESS_TOKEN_MAX_AGE_SECONDS))
                 .sameSite("Lax")
@@ -44,8 +44,8 @@ public class AuthCookieManager {
 
         ResponseCookie refreshCookie = ResponseCookie.from(COOKIE_REFRESH_TOKEN, refreshToken)
                 .httpOnly(true)
-                .secure(cookieProperties.secure())
-                .domain(cookieProperties.domain())
+                .secure(cookieProperties.isSecure())
+                .domain(cookieProperties.getDomain())
                 .path("/api/v1/auth")
                 .maxAge(Duration.ofSeconds(REFRESH_TOKEN_MAX_AGE_SECONDS))
                 .sameSite("Lax")
@@ -61,8 +61,8 @@ public class AuthCookieManager {
     public void clearTokenCookies(HttpServletResponse response) {
         ResponseCookie clearAccess = ResponseCookie.from(COOKIE_ACCESS_TOKEN, "")
                 .httpOnly(true)
-                .secure(cookieProperties.secure())
-                .domain(cookieProperties.domain())
+                .secure(cookieProperties.isSecure())
+                .domain(cookieProperties.getDomain())
                 .path("/")
                 .maxAge(0)
                 .sameSite("Lax")
@@ -70,8 +70,8 @@ public class AuthCookieManager {
 
         ResponseCookie clearRefresh = ResponseCookie.from(COOKIE_REFRESH_TOKEN, "")
                 .httpOnly(true)
-                .secure(cookieProperties.secure())
-                .domain(cookieProperties.domain())
+                .secure(cookieProperties.isSecure())
+                .domain(cookieProperties.getDomain())
                 .path("/api/v1/auth")
                 .maxAge(0)
                 .sameSite("Lax")

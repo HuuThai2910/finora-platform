@@ -46,16 +46,16 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
 
     private Keycloak getKeycloakInstance() {
         return KeycloakBuilder.builder()
-                .serverUrl(properties.serverUrl())
-                .realm(properties.realm())
+                .serverUrl(properties.getServerUrl())
+                .realm(properties.getRealm())
                 .grantType(OAuth2Constants.CLIENT_CREDENTIALS)
-                .clientId(properties.clientId())
-                .clientSecret(properties.clientSecret())
+                .clientId(properties.getClientId())
+                .clientSecret(properties.getClientSecret())
                 .build();
     }
 
     private RealmResource getRealmResource() {
-        return getKeycloakInstance().realm(properties.realm());
+        return getKeycloakInstance().realm(properties.getRealm());
     }
 
     // ── Quản lý người dùng ──────────────────────────────────────────
@@ -112,13 +112,13 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
 
     @Override
     public AccessTokenResponse getUserToken(String email, String password) {
-        String tokenUrl = properties.serverUrl() + "/realms/" + properties.realm()
+        String tokenUrl = properties.getServerUrl() + "/realms/" + properties.getRealm()
                 + "/protocol/openid-connect/token";
 
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
         params.add("grant_type", OAuth2Constants.PASSWORD);
-        params.add("client_id", properties.clientId());
-        params.add("client_secret", properties.clientSecret());
+        params.add("client_id", properties.getClientId());
+        params.add("client_secret", properties.getClientSecret());
         params.add("username", email);
         params.add("password", password);
 
@@ -149,13 +149,13 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
 
     @Override
     public AccessTokenResponse refreshToken(String refreshToken) {
-        String tokenUrl = properties.serverUrl() + "/realms/" + properties.realm()
+        String tokenUrl = properties.getServerUrl() + "/realms/" + properties.getRealm()
                 + "/protocol/openid-connect/token";
 
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
         params.add("grant_type", OAuth2Constants.REFRESH_TOKEN);
-        params.add("client_id", properties.clientId());
-        params.add("client_secret", properties.clientSecret());
+        params.add("client_id", properties.getClientId());
+        params.add("client_secret", properties.getClientSecret());
         params.add("refresh_token", refreshToken);
 
         HttpHeaders headers = new HttpHeaders();
@@ -256,12 +256,12 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
 
     @Override
     public void revokeRefreshToken(String refreshToken) {
-        String revokeUrl = properties.serverUrl() + "/realms/" + properties.realm()
+        String revokeUrl = properties.getServerUrl() + "/realms/" + properties.getRealm()
                 + "/protocol/openid-connect/revoke";
 
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
-        params.add("client_id", properties.clientId());
-        params.add("client_secret", properties.clientSecret());
+        params.add("client_id", properties.getClientId());
+        params.add("client_secret", properties.getClientSecret());
         params.add("token", refreshToken);
         params.add("token_type_hint", "refresh_token");
 

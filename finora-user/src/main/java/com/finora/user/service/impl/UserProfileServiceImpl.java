@@ -60,8 +60,8 @@ public class UserProfileServiceImpl implements UserProfileService {
 
         userProfileMapper.updateFromRequest(request, profile);
 
-        if (request.phone() != null) {
-            String phoneHash = CryptoUtils.hmacSha256(request.phone(), cryptoProperties.hmacSecret());
+        if (request.getPhone() != null) {
+            String phoneHash = CryptoUtils.hmacSha256(request.getPhone(), cryptoProperties.getHmacSecret());
 
             if (userProfileRepository.existsByPhoneHash(phoneHash)
                     && !phoneHash.equals(profile.getPhoneHash())) {
@@ -70,7 +70,7 @@ public class UserProfileServiceImpl implements UserProfileService {
             }
 
             profile.setPhoneHash(phoneHash);
-            profile.setPhoneEncrypted(request.phone());
+            profile.setPhoneEncrypted(request.getPhone());
         }
 
         updateProfileCompleteness(profile);
@@ -89,7 +89,7 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Transactional
     public UserProfileResponse submitCccdData(UUID keycloakUserId, CccdDataRequest request) {
         String idNumberHash = CryptoUtils.hmacSha256(
-                request.idNumber(), cryptoProperties.hmacSecret());
+                request.getIdNumber(), cryptoProperties.getHmacSecret());
 
         if (userProfileRepository.existsByIdNumberHash(idNumberHash)) {
             UserProfile existing = userProfileRepository.findByKeycloakUserId(keycloakUserId)
@@ -102,20 +102,20 @@ public class UserProfileServiceImpl implements UserProfileService {
 
         UserProfile profile = findByKeycloakUserIdOrThrow(keycloakUserId);
 
-        profile.setFullName(request.fullName());
-        profile.setDateOfBirth(request.dateOfBirth());
-        profile.setGender(request.gender());
-        profile.setPlaceOfOrigin(request.placeOfOrigin());
-        profile.setAddress(request.address());
+        profile.setFullName(request.getFullName());
+        profile.setDateOfBirth(request.getDateOfBirth());
+        profile.setGender(request.getGender());
+        profile.setPlaceOfOrigin(request.getPlaceOfOrigin());
+        profile.setAddress(request.getAddress());
         profile.setIdNumberHash(idNumberHash);
-        profile.setIdNumberEncrypted(request.idNumber());
+        profile.setIdNumberEncrypted(request.getIdNumber());
 
         updateProfileCompleteness(profile);
 
         profile = userProfileRepository.save(profile);
 
         log.info("Đã cập nhật CCCD cho userId={}, idNumber={}",
-                profile.getId(), PiiMasker.maskIdNumber(request.idNumber()));
+                profile.getId(), PiiMasker.maskIdNumber(request.getIdNumber()));
 
         return userProfileMapper.toResponse(profile);
     }

@@ -52,10 +52,10 @@ public class AuthController {
         }
 
         // Web — đặt token vào cookie, không trả trong body
-        cookieManager.addTokenCookies(httpResponse, authResponse.accessToken(), authResponse.refreshToken());
+        cookieManager.addTokenCookies(httpResponse, authResponse.getAccessToken(), authResponse.getRefreshToken());
         return ResponseEntity.ok(new AuthResponse(
-                authResponse.userId(), authResponse.email(), authResponse.fullName(),
-                authResponse.roles(), null, null));
+                authResponse.getUserId(), authResponse.getEmail(), authResponse.getFullName(),
+                authResponse.getRoles(), null, null));
     }
 
     @PostMapping("/register")
@@ -70,7 +70,7 @@ public class AuthController {
             HttpServletResponse httpResponse) {
 
         String refreshToken = HttpRequestUtils.extractRefreshToken(
-                body != null ? body.refreshToken() : null, httpRequest);
+                body != null ? body.getRefreshToken() : null, httpRequest);
 
         if (refreshToken == null || refreshToken.isBlank()) {
             throw new BusinessException(HttpStatus.UNAUTHORIZED,
@@ -96,7 +96,7 @@ public class AuthController {
             HttpServletResponse httpResponse) {
 
         String refreshToken = HttpRequestUtils.extractRefreshToken(
-                body != null ? body.refreshToken() : null, httpRequest);
+                body != null ? body.getRefreshToken() : null, httpRequest);
 
         authService.logout(refreshToken);
         cookieManager.clearTokenCookies(httpResponse);
@@ -108,7 +108,7 @@ public class AuthController {
             @Valid @RequestBody ForgotPasswordRequest request,
             HttpServletRequest httpRequest) {
 
-        authService.forgotPassword(request.email(), HttpRequestUtils.extractIpAddress(httpRequest));
+        authService.forgotPassword(request.getEmail(), HttpRequestUtils.extractIpAddress(httpRequest));
         return ResponseEntity.ok().build();
     }
 

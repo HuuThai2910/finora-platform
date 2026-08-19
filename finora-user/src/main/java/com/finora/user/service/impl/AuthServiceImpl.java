@@ -48,22 +48,22 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public AuthResponse register(RegisterRequest request) {
         // Kiểm tra email đã tồn tại trong DB chưa
-        if (userProfileRepository.existsByEmail(request.email())) {
+        if (userProfileRepository.existsByEmail(request.getEmail())) {
             throw new BusinessException(HttpStatus.CONFLICT, "Email đã được sử dụng");
         }
 
-        UserRole role = request.role() != null ? request.role() : UserRole.BORROWER;
+        UserRole role = request.getRole() != null ? request.getRole() : UserRole.BORROWER;
 
         // Tạo user trên Keycloak trước — nếu thất bại thì không có orphan trong DB
         String keycloakUserId = keycloakAdminService.createUser(
-                request.email(), request.password(), request.fullName(), role);
+                request.getEmail(), request.getPassword(), request.getFullName(), role);
 
         try {
             // Lưu hồ sơ vào DB
             UserProfile profile = UserProfile.builder()
                     .keycloakUserId(UUID.fromString(keycloakUserId))
-                    .email(request.email())
-                    .fullName(request.fullName())
+                    .email(request.getEmail())
+                    .fullName(request.getFullName())
                     .role(role)
                     .build();
 
@@ -74,7 +74,7 @@ public class AuthServiceImpl implements AuthService {
                     profile.getId(), profile.getEmail(), profile.getFullName());
 
             log.info("Đăng ký thành công: userId={}, email={}",
-                    profile.getId(), PiiMasker.maskEmail(request.email()));
+                    profile.getId(), PiiMasker.maskEmail(request.getEmail()));
 
             return new AuthResponse(
                     profile.getId(),
@@ -86,7 +86,7 @@ public class AuthServiceImpl implements AuthService {
         } catch (Exception e) {
             // Rollback Keycloak user nếu lưu DB thất bại — best-effort
             log.error("Lưu DB thất bại sau khi tạo Keycloak user — rollback: email={}",
-                    PiiMasker.maskEmail(request.email()), e);
+                    PiiMasker.maskEmail(request.getEmail()), e);
             keycloakAdminService.deleteUser(keycloakUserId);
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR,
                     "Không thể hoàn tất đăng ký, vui lòng thử lại sau");
@@ -97,7 +97,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse login(LoginRequest request, String ipAddress, String userAgent) {
-        String email = request.email();
+        String email = request.getEmail();
 
         // Kiểm tra tài khoản có đang bị khóa tạm không
         if (rateLimitService.isLoginBlocked(email)) {
@@ -107,7 +107,7 @@ public class AuthServiceImpl implements AuthService {
 
         AccessTokenResponse tokenResponse;
         try {
-            tokenResponse = keycloakAdminService.getUserToken(email, request.password());
+            tokenResponse = keycloakAdminService.getUserToken(email, request.getPassword());
         } catch (BusinessException e) {
             if (e.getStatus() == HttpStatus.UNAUTHORIZED) {
                 // Sai mật khẩu — ghi nhận thất bại
@@ -202,21 +202,21 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public void resetPassword(ResetPasswordRequest request) {
         // Tìm hồ sơ theo email
-        UserProfile profile = userProfileRepository.findByEmail(request.email())
+        UserProfile profile = userProfileRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new BusinessException(HttpStatus.BAD_REQUEST,
                         "Mã không hợp lệ hoặc đã hết hạn"));
 
         // Xác minh OTP
-        if (!rateLimitService.verifyOtp(profile.getId(), request.otp())) {
+        if (!rateLimitService.verifyOtp(profile.getId(), request.getOtp())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST,
                     "Mã không hợp lệ hoặc đã hết hạn");
         }
 
         // Đổi mật khẩu trên Keycloak
         keycloakAdminService.resetPassword(
-                profile.getKeycloakUserId().toString(), request.newPassword());
+                profile.getKeycloakUserId().toString(), request.getNewPassword());
 
         log.info("Đã đặt lại mật khẩu cho userId={}, email={}",
-                profile.getId(), PiiMasker.maskEmail(request.email()));
+                profile.getId(), PiiMasker.maskEmail(request.getEmail()));
     }
 }

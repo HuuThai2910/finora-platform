@@ -1,6 +1,10 @@
 package com.finora.user.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.util.List;
 
@@ -10,19 +14,22 @@ import java.util.List;
  * {@code accessToken} và {@code refreshToken} chỉ có giá trị cho mobile client.
  * Web client nhận token qua HTTP-only Cookie.
  */
-public record AuthResponse(
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class AuthResponse {
 
-        Long userId,
-        String email,
-        String fullName,
-        List<String> roles,
+    private Long userId;
+    private String email;
+    private String fullName;
+    private List<String> roles;
 
-        /** Access token JWT — chỉ trả cho mobile client */
-        @JsonInclude(JsonInclude.Include.NON_NULL)
-        String accessToken,
+    /** Access token JWT — chỉ trả cho mobile client */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String accessToken;
 
-        /** Refresh token — chỉ trả cho mobile client */
-        @JsonInclude(JsonInclude.Include.NON_NULL)
-        String refreshToken
-) {
+    /** Refresh token — chỉ trả cho mobile client */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String refreshToken;
 }
