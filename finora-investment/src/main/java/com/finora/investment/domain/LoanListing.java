@@ -48,6 +48,16 @@ public class LoanListing {
     @Builder.Default
     private ListingStatus status = ListingStatus.OPEN;
 
+    // ── Funding progress ──
+
+    @Column(name = "funded_amount", nullable = false)
+    @Builder.Default
+    private BigDecimal fundedAmount = BigDecimal.ZERO;
+
+    @Column(name = "investor_count", nullable = false)
+    @Builder.Default
+    private Integer investorCount = 0;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();
@@ -57,6 +67,24 @@ public class LoanListing {
     private Instant updatedAt = Instant.now();
 
     // ── Domain methods ──
+
+    /** Cập nhật funding progress. */
+    public void addFunding(BigDecimal amount) {
+        this.fundedAmount = this.fundedAmount.add(amount);
+        this.investorCount = this.investorCount + 1;
+    }
+
+    /** Tỷ lệ gọi vốn (%). */
+    public BigDecimal getFundedPercentage() {
+        if (this.amount.compareTo(BigDecimal.ZERO) == 0) return BigDecimal.ZERO;
+        return this.fundedAmount
+                .multiply(new BigDecimal("100"))
+                .divide(this.amount, 2, java.math.RoundingMode.HALF_UP);
+    }
+
+    public boolean isFullyFunded() {
+        return this.fundedAmount.compareTo(this.amount) >= 0;
+    }
 
     /** Trừ remaining khi có lệnh khớp. */
     public void deductAmount(BigDecimal matchedAmount) {
