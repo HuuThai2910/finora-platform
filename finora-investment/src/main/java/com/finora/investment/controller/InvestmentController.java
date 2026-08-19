@@ -2,6 +2,7 @@ package com.finora.investment.controller;
 
 import com.finora.common.dto.BaseResponse;
 import com.finora.common.dto.PageResponse;
+import com.finora.investment.dto.request.AutoInvestRequest;
 import com.finora.investment.dto.request.CreateListingRequest;
 import com.finora.investment.dto.request.CreateOrderRequest;
 import com.finora.investment.dto.response.*;
@@ -26,6 +27,7 @@ public class InvestmentController {
     private final FundingService fundingService;
     private final NoteService noteService;
     private final PortfolioService portfolioService;
+    private final AutoInvestService autoInvestService;
 
     // ── Listings ──
 
@@ -35,6 +37,8 @@ public class InvestmentController {
         var listing = listingService.create(req);
         var matches = matchingEngine.matchListing(listing);
         fundingService.processMatches(matches);
+        // Trigger auto-invest cho listing mới
+        autoInvestService.onNewListing(listing);
         return BaseResponse.created(ListingResponse.from(listing));
     }
 
@@ -139,5 +143,30 @@ public class InvestmentController {
     @GetMapping("/listings/{id}/funding")
     public BaseResponse<FundingResponse> getFunding(@PathVariable Long id) {
         return BaseResponse.success(FundingResponse.from(listingService.findById(id)));
+    }
+
+    // ── Auto-Invest ──
+
+    @PostMapping("/auto-invest")
+    @ResponseStatus(HttpStatus.CREATED)
+    public BaseResponse<AutoInvestResponse> createAutoInvest(@Valid @RequestBody AutoInvestRequest req) {
+        return BaseResponse.created(AutoInvestResponse.from(autoInvestService.createOrUpdate(req)));
+    }
+
+    @GetMapping("/auto-invest")
+    public BaseResponse<AutoInvestResponse> getAutoInvest(@RequestParam Long investorId) {
+        return BaseResponse.success(AutoInvestResponse.from(autoInvestService.findByInvestor(investorId)));
+    }
+
+    @PutMapping("/auto-invest/toggle")
+    public BaseResponse<Void> toggleAutoInvest(@RequestParam Long investorId) {
+        autoInvestService.toggle(investorId);
+        return BaseResponse.success("Auto-Invest toggled", null);
+    }
+
+    @DeleteMapping("/auto-invest")
+    public BaseResponse<Void> deleteAutoInvest(@RequestParam Long investorId) {
+        autoInvestService.delete(investorId);
+        return BaseResponse.success("Auto-Invest config đã xoá", null);
     }
 }
