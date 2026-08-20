@@ -1,0 +1,92 @@
+{
+  "version": "1.0.0",
+  "sha256": "0f709382c3b8820158a754964302c7642ee61c294a1b68435464ae3ffcfe5267",
+  "metrics": {
+    "nguong_quyet_dinh": 0.9693411789936046,
+    "auc_roc": 0.9980833950101636,
+    "gini": 0.9961667900203273,
+    "auc_pr": 0.917554756683089,
+    "auc_pr_baseline": 0.007706731534975312,
+    "ks_statistic": 0.9575149378512404,
+    "precision": 0.9417127071823205,
+    "recall": 0.8006106153123532,
+    "f1": 0.8654480832698654,
+    "accuracy": 0.9980814618536699,
+    "accuracy_baseline": 0.9922932684650246,
+    "chenh_so_voi_baseline": 0.005788193388645224,
+    "ty_le_gian_lan": 0.007706731534975312
+  },
+  "feature_names": [
+    "loai_giao_dich_encoded",
+    "so_tien",
+    "log_so_tien",
+    "so_du_truoc_gui",
+    "log_so_du_truoc_gui",
+    "so_du_truoc_nhan",
+    "log_so_du_truoc_nhan",
+    "dest_so_du_bang_0",
+    "gio_trong_ngay",
+    "la_gio_dem",
+    "ngay_trong_thang",
+    "dest_so_lan_nhan_truoc_do",
+    "dest_tong_tien_nhan_truoc_do",
+    "dest_so_nguoi_gui_khac_nhau_truoc_do"
+  ],
+  "model_class": "XGBClassifier",
+  "saved_at": "2026-08-20T10:54:28.722204+00:00",
+  "bai_toan": "phat_hien_gian_lan_giao_dich_vi",
+  "median_dien_thieu": {
+    "dest_so_lan_nhan_truoc_do": 5.0,
+    "dest_tong_tien_nhan_truoc_do": 953623.6,
+    "dest_so_nguoi_gui_khac_nhau_truoc_do": 5.0
+  },
+  "he_so_quy_doi_tien": 1.0,
+  "ghi_chu_don_vi_tien": "PaySim không công bố đơn vị tiền tệ của nhật ký gốc, nên các cột tiền được giữ NGUYÊN THANG của PaySim và hệ số quy đổi đặt bằng 1,0. Khác với mô hình tín dụng — nơi LendingClub là USD nên quy đổi sang VND bằng hệ số thu nhập trung bình có căn cứ — ở đây không có mốc nào để neo, và bịa ra một hệ số sẽ tệ hơn là để ngỏ. HỆ QUẢ: predictor nhận số tiền trên thang PaySim, không phải VND. Trước khi chạy thật với dữ liệu ví FINORA, MUST hiệu chỉnh lại hệ số này (hoặc huấn luyện lại trên dữ liệu thật); bỏ qua bước đó sẽ gây train/serve skew mà service không hề báo lỗi.",
+  "sieu_tham_so": {
+    "n_estimators": 400,
+    "max_depth": 6,
+    "learning_rate": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "min_child_weight": 1,
+    "gamma": 0,
+    "reg_alpha": 0,
+    "reg_lambda": 1,
+    "scale_pos_weight": 534.7933022234422
+  },
+  "du_lieu_huan_luyen": {
+    "nguon": "data/paysim.csv",
+    "loc": "type ∈ ['TRANSFER', 'CASH_OUT']",
+    "n_dong": 2770409,
+    "n_train": 1951895,
+    "n_hieu_chinh": 266010,
+    "n_validate": 552504,
+    "ty_le_gian_lan": 0.002964544224336551,
+    "chia_tap": "theo thời gian (step), không xáo trộn"
+  },
+  "doi_chung_ro_ri": {
+    "mo_ta": "PaySim chứa đẳng thức rò rỉ amount == oldbalanceOrg, đúng với 97,82% giao dịch gian lận và 0,00% giao dịch bình thường. Bộ 'day_du' thêm 4 cột phái sinh từ đẳng thức này. Chênh lệch giữa hai bộ chính là phần hiệu năng đến từ artifact của trình mô phỏng chứ không từ hành vi gian lận.",
+    "dac_trung_bi_loai": [
+      "rut_can_tai_khoan",
+      "ty_le_tren_so_du",
+      "so_du_sau_gui",
+      "so_du_sau_nhan"
+    ],
+    "chi_so_day_du": {
+      "nguong_quyet_dinh": 0.003184920459630561,
+      "auc_roc": 0.9999999383147452,
+      "gini": 0.9999998766294904,
+      "auc_pr": 0.9999918886969968,
+      "auc_pr_baseline": 0.007706731534975312,
+      "ks_statistic": 0.9999781120154091,
+      "precision": 0.993235362724516,
+      "recall": 1.0,
+      "f1": 0.9966062024575776,
+      "accuracy": 0.9999475116922231,
+      "accuracy_baseline": 0.9922932684650246,
+      "chenh_so_voi_baseline": 0.007654243227198432,
+      "ty_le_gian_lan": 0.007706731534975312
+    }
+  },
+  "ghi_chu_nguong": "Ngưỡng chọn bằng tối đa hóa F1 trên tập hiệu chỉnh (tách khỏi validate). Payment áp policy trên score; finora-ai không tự khóa tài khoản hay chặn giao dịch."
+}

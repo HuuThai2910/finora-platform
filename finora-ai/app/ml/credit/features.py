@@ -14,7 +14,7 @@ mới → tổng 47.
 import numpy as np
 import pandas as pd
 
-from app.ml.preprocessing import tinh_effective_apr
+from app.ml.credit.preprocessing import tinh_effective_apr
 
 HOME_OWNERSHIP_CATS = ["RENT", "OWN", "MORTGAGE", "OTHER"]
 PURPOSE_CATS = [
@@ -90,7 +90,7 @@ TARGET_ENCODED_FEATURES = [
 ]
 
 # Nguồn sự thật duy nhất cho danh sách cột target-encoded, dùng chung giữa
-# `encode_features()` và `scripts/train_final_model.py`.
+# `encode_features()` và `scripts/train_credit_model.py`.
 TARGET_COLS = ["home_ownership", "purpose_cat", "verification_status", "interest_method"]
 
 FEATURE_NAMES = NUMERIC_FEATURES + TARGET_ENCODED_FEATURES + MISSING_INDICATORS + AGE_BINS

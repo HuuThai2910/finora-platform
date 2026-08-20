@@ -23,9 +23,9 @@ from functools import lru_cache
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.ml.predictor import BoDuDoan
+from app.ml.credit.predictor import BoDuDoan
 from app.schemas.credit import CreditScoreRequest, CreditScoreResponse
-from app.services.cic_client import CicClient
+from app.services.credit.cic_client import CicClient
 
 router = APIRouter()
 

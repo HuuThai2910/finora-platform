@@ -1,8 +1,8 @@
 """
 Chuẩn hóa dữ liệu thô về schema chung.
 
-Các hàm ở đây được dùng ở CẢ HAI nơi — lúc huấn luyện (`scripts/train_final_model.py`)
-và lúc chấm điểm hồ sơ thật (`app/ml/predictor.py`). Đây là điều bắt buộc: nếu hai
+Các hàm ở đây được dùng ở CẢ HAI nơi — lúc huấn luyện (`scripts/train_credit_model.py`)
+và lúc chấm điểm hồ sơ thật (`app/ml/credit/predictor.py`). Đây là điều bắt buộc: nếu hai
 bên tự chuẩn hóa theo cách riêng thì cùng một hồ sơ sẽ cho hai kết quả khác nhau.
 
 Điểm CIC (cic_score) đi thẳng vào pipeline ML mà không cần chuẩn hóa ở đây —

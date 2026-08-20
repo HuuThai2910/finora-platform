@@ -1,6 +1,7 @@
 """Test schema thay đổi: so_cccd + int_rate/term_months trong request."""
 
 import pytest
+
 from app.schemas.credit import CreditScoreRequest, CreditScoreResponse
 
 

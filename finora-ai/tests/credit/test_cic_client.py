@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from app.services.cic_client import CicClient
+from app.services.credit.cic_client import CicClient
 
 CIC_URL = "http://localhost:8082/api/v1/diem-tin-dung/012345678901?chiTiet=true"
 

@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.ml.preprocessing import map_nhom_no, tinh_so_thang_quan_he
+from app.ml.credit.preprocessing import map_nhom_no, tinh_so_thang_quan_he
 
 
 class TestMapNhomNo:

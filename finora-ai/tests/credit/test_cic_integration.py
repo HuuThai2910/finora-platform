@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from app.ml.predictor import BoDuDoan
+from app.ml.credit.predictor import BoDuDoan
 
 
 class TestChuanBiDacTrungV14:
@@ -178,7 +178,7 @@ class TestRouterV14:
         async def tra_diem_gia(self, so_cccd):
             return cic_dict
 
-        from app.services.cic_client import CicClient
+        from app.services.credit.cic_client import CicClient
         monkeypatch.setattr(CicClient, "tra_diem_cic", tra_diem_gia)
 
         response = client.post(
@@ -193,7 +193,7 @@ class TestRouterV14:
         async def tra_diem_gia(self, so_cccd):
             return None
 
-        from app.services.cic_client import CicClient
+        from app.services.credit.cic_client import CicClient
         monkeypatch.setattr(CicClient, "tra_diem_cic", tra_diem_gia)
 
         response = client.post(

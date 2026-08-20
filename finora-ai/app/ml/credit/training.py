@@ -15,7 +15,7 @@ suất này.
 import numpy as np
 from xgboost import XGBClassifier
 
-from app.ml.features import FEATURE_NAMES
+from app.ml.credit.features import FEATURE_NAMES
 
 RANDOM_STATE = 42
 

@@ -1,6 +1,7 @@
 """Test bộ đặc trưng v14 — 47 features bao gồm CIC raw + Fineract."""
 
-from app.ml.features import (
+from app.ml.credit.features import (
+    AGE_BINS,
     CIC_RAW_FEATURES,
     COLUMNS_WITH_MISSING,
     FEATURE_NAMES,
@@ -8,7 +9,6 @@ from app.ml.features import (
     MISSING_INDICATORS,
     NUMERIC_FEATURES,
     TARGET_ENCODED_FEATURES,
-    AGE_BINS,
 )
 
 
@@ -54,7 +54,8 @@ class TestEncodeFeatures:
     def test_encode_tao_effective_apr(self):
         """encode_features() tính effective_apr từ installment/loan_amnt/term_months."""
         import pandas as pd
-        from app.ml.features import encode_features
+
+        from app.ml.credit.features import encode_features
 
         df = pd.DataFrame([{
             "person_age": 30, "emp_length_years": 5, "annual_inc": 300_000_000,

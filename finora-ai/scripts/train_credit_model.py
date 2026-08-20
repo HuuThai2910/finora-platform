@@ -30,7 +30,7 @@ Ba hiệu chỉnh theo bối cảnh FINORA:
   - **Bộ đặc trưng gồm dữ liệu FINORA tự thu thập + điểm CIC**: hồ sơ tự khai + eKYC
     + cic_score (150–750) từ cic-service. Trong dữ liệu huấn luyện, cic_score được tổng
     hợp từ fico_score của LendingClub bằng ánh xạ tuyến tính + nhiễu Gaussian, ~15% đặt
-    NaN để mô hình học cách xử lý khi CIC không khả dụng. Xem `app/ml/features.py`.
+    NaN để mô hình học cách xử lý khi CIC không khả dụng. Xem `app/ml/credit/features.py`.
 
 Đầu ra là một **gói tự chứa**: ngoài model còn có median điền thiếu, siêu tham số,
 công thức đặc trưng dẫn xuất và chỉ số từng fold — đủ để chấm một hồ sơ mới mà
@@ -38,7 +38,7 @@ không cần đọc lại file này.
 
 Cách dùng:
     cd finora-ai
-    python scripts/train_final_model.py
+    python scripts/train_credit_model.py
 """
 import sys
 from pathlib import Path
@@ -49,22 +49,25 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold
 
-from app.ml.evaluation import evaluate_model
-from app.ml.features import (
+from app.ml.credit.features import (
+    CIC_RAW_FEATURES,
+    COLUMNS_WITH_MISSING,
     FEATURE_NAMES,
     HOME_OWNERSHIP_CATS,
     PURPOSE_CATS,
-    COLUMNS_WITH_MISSING,
     encode_features,
 )
-from app.ml.model_registry import luu_mo_hinh
-from app.ml.predictor import COT_DIEN_MEDIAN
-from app.ml.features import CIC_RAW_FEATURES
-from app.ml.preprocessing import (
-    PURPOSE_MAP, _parse_emp_length, _parse_issue_year,
-    map_nhom_no, tinh_so_thang_quan_he,
+from app.ml.credit.predictor import COT_DIEN_MEDIAN
+from app.ml.credit.preprocessing import (
+    PURPOSE_MAP,
+    _parse_emp_length,
+    _parse_issue_year,
+    map_nhom_no,
+    tinh_so_thang_quan_he,
 )
-from app.ml.training import RANDOM_STATE, XGB_TUNED_PARAMS, fit_xgboost
+from app.ml.credit.training import RANDOM_STATE, XGB_TUNED_PARAMS, fit_xgboost
+from app.ml.shared.evaluation import evaluate_model
+from app.ml.shared.model_registry import luu_mo_hinh
 
 # ── Cấu hình ──────────────────────────────────────────────────────────────────
 PHIEN_BAN = "15.0.0"
@@ -116,7 +119,7 @@ KHOA_CHI_SO = [
 
 THU_MUC_GOC = Path(__file__).resolve().parent.parent
 DATA_FILE = THU_MUC_GOC / "data" / "lc_clean.csv"
-THU_MUC_MO_HINH = THU_MUC_GOC / "models"
+THU_MUC_MO_HINH = THU_MUC_GOC / "models" / "credit"
 
 
 # ── Nạp và chuẩn hóa ──────────────────────────────────────────────────────────
@@ -221,7 +224,7 @@ def do_mot_fold(train: pd.DataFrame, val: pd.DataFrame, ten: str) -> dict:
     """Đo hiệu năng một fold. Median fit CHỈ trên train — không thì val rò sang train."""
     median = tinh_median(train)
 
-    from app.ml.features import TARGET_COLS, tinh_target_encodings
+    from app.ml.credit.features import TARGET_COLS, tinh_target_encodings
     target_cols = TARGET_COLS
     target_encodings, global_mean = tinh_target_encodings(train, target_cols, "loan_status", m=10.0)
 
@@ -300,7 +303,7 @@ def main() -> None:
     print(f"\n[4/5] Huấn luyện lại trên 100% dữ liệu ({len(d):,} dòng)")
     median_cuoi = tinh_median(d)
 
-    from app.ml.features import TARGET_COLS, tinh_target_encodings
+    from app.ml.credit.features import TARGET_COLS, tinh_target_encodings
     target_cols = TARGET_COLS
     encodings_cuoi, global_mean_cuoi = tinh_target_encodings(d, target_cols, "loan_status", m=10.0)
 
