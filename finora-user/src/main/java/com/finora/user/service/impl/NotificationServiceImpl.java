@@ -48,6 +48,18 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
+    public void sendRegistrationOtp(String email, String otp) {
+        try {
+            notificationClient.sendOtpEmail(new OtpEmailRequest(email, otp));
+            log.info("Đã gửi OTP đăng ký: email={}, otp={}",
+                    PiiMasker.maskEmail(email), PiiMasker.maskOtp(otp));
+        } catch (Exception e) {
+            log.error("Lỗi gửi OTP đăng ký: email={}, lỗi={}",
+                    PiiMasker.maskEmail(email), e.getMessage());
+        }
+    }
+
+    @Override
     public void sendSuspiciousActivityAlert(Long userId, String email,
                                              String ipAddress, String userAgent,
                                              String reason) {

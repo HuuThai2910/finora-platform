@@ -50,8 +50,11 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/register",
+                                "/api/v1/auth/register/resend-otp",
+                                "/api/v1/auth/verify-registration",
                                 "/api/v1/auth/refresh",
                                 "/api/v1/auth/forgot-password",
+                                "/api/v1/auth/verify-reset-otp",
                                 "/api/v1/auth/reset-password"
                         ).permitAll()
                         // Swagger UI và OpenAPI docs

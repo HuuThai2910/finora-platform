@@ -18,17 +18,76 @@
     "realm": [
       {
         "name": "ROLE_BORROWER",
-        "description": "Nguoi vay - vai tro mac dinh khi dang ky"
+        "description": "Nguoi vay - vai tro mac dinh khi dang ky",
+        "composite": true,
+        "composites": {
+          "client": {
+            "finora-user-client": [
+              "user:profile:read",
+              "user:profile:write",
+              "user:cccd:scan"
+            ]
+          }
+        }
       },
       {
         "name": "ROLE_INVESTOR",
-        "description": "Nha dau tu"
+        "description": "Nha dau tu",
+        "composite": true,
+        "composites": {
+          "client": {
+            "finora-user-client": [
+              "user:profile:read",
+              "user:profile:write",
+              "user:cccd:scan"
+            ]
+          }
+        }
       },
       {
         "name": "ROLE_ADMIN",
-        "description": "Quan tri he thong FINORA"
+        "description": "Quan tri he thong FINORA",
+        "composite": true,
+        "composites": {
+          "client": {
+            "finora-user-client": [
+              "user:profile:read",
+              "user:admin:read_all",
+              "user:admin:lock",
+              "user:admin:assign_role"
+            ]
+          }
+        }
       }
-    ]
+    ],
+    "client": {
+      "finora-user-client": [
+        {
+          "name": "user:profile:read",
+          "description": "Xem ho so ca nhan cua chinh minh"
+        },
+        {
+          "name": "user:profile:write",
+          "description": "Cap nhat ho so ca nhan cua chinh minh"
+        },
+        {
+          "name": "user:cccd:scan",
+          "description": "Nhap va xac minh thong tin CCCD"
+        },
+        {
+          "name": "user:admin:read_all",
+          "description": "Xem danh sach toan bo nguoi dung"
+        },
+        {
+          "name": "user:admin:lock",
+          "description": "Khoa hoac mo khoa tai khoan nguoi dung"
+        },
+        {
+          "name": "user:admin:assign_role",
+          "description": "Gan hoac doi vai tro nguoi dung"
+        }
+      ]
+    }
   },
 
   "clients": [

@@ -5,8 +5,12 @@ import com.finora.user.dto.request.ForgotPasswordRequest;
 import com.finora.user.dto.request.LoginRequest;
 import com.finora.user.dto.request.RefreshTokenRequest;
 import com.finora.user.dto.request.RegisterRequest;
+import com.finora.user.dto.request.ResendRegistrationOtpRequest;
 import com.finora.user.dto.request.ResetPasswordRequest;
+import com.finora.user.dto.request.VerifyRegistrationRequest;
+import com.finora.user.dto.request.VerifyResetOtpRequest;
 import com.finora.user.dto.response.AuthResponse;
+import com.finora.user.dto.response.RegistrationChallengeResponse;
 import com.finora.user.service.AuthService;
 import com.finora.user.support.AuthCookieManager;
 import com.finora.user.support.HttpRequestUtils;
@@ -21,6 +25,9 @@ import org.springframework.web.bind.annotation.*;
 
 /**
  * Controller xác thực — đăng ký, đăng nhập, làm mới token, quên/đặt lại mật khẩu.
+ * <p>
+ * Đăng ký gồm hai bước: {@code /register} gửi OTP qua email, {@code /verify-registration}
+ * xác thực mã rồi mới tạo tài khoản và trả token. Đăng nhập không dùng OTP.
  * <p>
  * Hỗ trợ dual-mode:
  * <ul>
@@ -47,20 +54,36 @@ public class AuthController {
                 HttpRequestUtils.extractIpAddress(httpRequest),
                 HttpRequestUtils.extractUserAgent(httpRequest));
 
-        if (HttpRequestUtils.isMobileClient(httpRequest)) {
-            return ResponseEntity.ok(authResponse);
-        }
-
-        // Web — đặt token vào cookie, không trả trong body
-        cookieManager.addTokenCookies(httpResponse, authResponse.getAccessToken(), authResponse.getRefreshToken());
-        return ResponseEntity.ok(new AuthResponse(
-                authResponse.getUserId(), authResponse.getEmail(), authResponse.getFullName(),
-                authResponse.getRoles(), null, null));
+        return respondWithTokens(authResponse, HttpStatus.OK, httpRequest, httpResponse);
     }
 
+    /**
+     * Bước 1 của đăng ký — chỉ gửi OTP, chưa tạo tài khoản.
+     * Trả 202 để client hiểu yêu cầu mới được tiếp nhận chứ chưa hoàn tất.
+     */
     @PostMapping("/register")
-    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(request));
+    public ResponseEntity<RegistrationChallengeResponse> register(
+            @Valid @RequestBody RegisterRequest request) {
+
+        return ResponseEntity.accepted().body(authService.register(request));
+    }
+
+    @PostMapping("/register/resend-otp")
+    public ResponseEntity<RegistrationChallengeResponse> resendRegistrationOtp(
+            @Valid @RequestBody ResendRegistrationOtpRequest request) {
+
+        return ResponseEntity.ok(authService.resendRegistrationOtp(request.getEmail()));
+    }
+
+    /** Bước 2 của đăng ký — xác thực OTP, tạo tài khoản và đăng nhập luôn. */
+    @PostMapping("/verify-registration")
+    public ResponseEntity<AuthResponse> verifyRegistration(
+            @Valid @RequestBody VerifyRegistrationRequest request,
+            HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse) {
+
+        AuthResponse authResponse = authService.verifyRegistration(request);
+        return respondWithTokens(authResponse, HttpStatus.CREATED, httpRequest, httpResponse);
     }
 
     @PostMapping("/refresh")
@@ -112,9 +135,40 @@ public class AuthController {
         return ResponseEntity.ok().build();
     }
 
+    /**
+     * Kiểm tra OTP đặt lại mật khẩu trước khi cho nhập mật khẩu mới — mã sai được
+     * chặn ngay tại màn nhập mã thay vì tới bước cuối. Không tiêu huỷ mã:
+     * {@code /reset-password} vẫn xác thực lại chính mã đó khi chốt.
+     */
+    @PostMapping("/verify-reset-otp")
+    public ResponseEntity<Void> verifyResetOtp(@Valid @RequestBody VerifyResetOtpRequest request) {
+        authService.verifyResetOtp(request.getEmail(), request.getOtp());
+        return ResponseEntity.ok().build();
+    }
+
     @PostMapping("/reset-password")
     public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
         authService.resetPassword(request);
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * Trả token theo đúng loại client: mobile nhận trong body, web nhận qua cookie
+     * và body được lược bỏ token để trình duyệt không đọc được bằng JavaScript.
+     */
+    private ResponseEntity<AuthResponse> respondWithTokens(
+            AuthResponse authResponse,
+            HttpStatus successStatus,
+            HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse) {
+
+        if (HttpRequestUtils.isMobileClient(httpRequest)) {
+            return ResponseEntity.status(successStatus).body(authResponse);
+        }
+
+        cookieManager.addTokenCookies(httpResponse, authResponse.getAccessToken(), authResponse.getRefreshToken());
+        return ResponseEntity.status(successStatus).body(new AuthResponse(
+                authResponse.getUserId(), authResponse.getEmail(), authResponse.getFullName(),
+                authResponse.getRoles(), null, null));
     }
 }

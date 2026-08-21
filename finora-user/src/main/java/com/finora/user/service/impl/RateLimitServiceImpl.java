@@ -13,6 +13,10 @@ import java.time.Duration;
  * Triển khai dịch vụ giới hạn tốc độ và lưu trữ OTP — sử dụng Redis với TTL.
  * <p>
  * Bảo vệ chống brute-force đăng nhập và dò OTP 6 chữ số.
+ * <p>
+ * OTP đặt lại mật khẩu khoá theo {@code userId} (tài khoản đã tồn tại), còn OTP đăng ký
+ * khoá theo email vì lúc đó tài khoản chưa được tạo. Hai không gian khoá tách biệt để
+ * mã của luồng này không dùng được cho luồng kia.
  */
 @Service
 @Slf4j
@@ -41,6 +45,8 @@ public class RateLimitServiceImpl implements RateLimitService {
     private static final String KEY_LOGIN_FAIL = "login_fail:";
     private static final String KEY_RESET_OTP = "reset_otp:";
     private static final String KEY_OTP_ATTEMPT = "otp_attempt:";
+    private static final String KEY_REGISTRATION_OTP = "reg_otp:";
+    private static final String KEY_REGISTRATION_OTP_ATTEMPT = "reg_otp_attempt:";
     private static final String KEY_OTP_RATE = "otp_rate:";
 
     private final StringRedisTemplate redisTemplate;
@@ -79,41 +85,40 @@ public class RateLimitServiceImpl implements RateLimitService {
 
     @Override
     public void storeOtp(Long userId, String otp) {
-        redisTemplate.opsForValue().set(
-                KEY_RESET_OTP + userId, otp,
-                Duration.ofMinutes(OTP_TTL_MINUTES));
+        storeOtp(KEY_RESET_OTP + userId, otp);
     }
 
     @Override
     public boolean verifyOtp(Long userId, String otp) {
-        String otpKey = KEY_RESET_OTP + userId;
-        String attemptKey = KEY_OTP_ATTEMPT + userId;
+        return matchOtp(KEY_RESET_OTP + userId, KEY_OTP_ATTEMPT + userId, otp,
+                String.valueOf(userId), true);
+    }
 
-        Long attempts = redisTemplate.opsForValue().increment(attemptKey);
-        if (attempts != null && attempts == 1) {
-            redisTemplate.expire(attemptKey, Duration.ofMinutes(OTP_TTL_MINUTES));
-        }
+    @Override
+    public boolean checkOtp(Long userId, String otp) {
+        return matchOtp(KEY_RESET_OTP + userId, KEY_OTP_ATTEMPT + userId, otp,
+                String.valueOf(userId), false);
+    }
 
-        if (attempts != null && attempts > MAX_OTP_ATTEMPTS) {
-            redisTemplate.delete(otpKey);
-            redisTemplate.delete(attemptKey);
-            log.warn("Vượt ngưỡng thử OTP ({} lần) cho userId={} — đã xóa OTP",
-                    attempts, userId);
-            return false;
-        }
+    @Override
+    public void storeRegistrationOtp(String email, String otp) {
+        storeOtp(KEY_REGISTRATION_OTP + email, otp);
+    }
 
-        String storedOtp = redisTemplate.opsForValue().get(otpKey);
-        if (storedOtp == null) {
-            return false;
-        }
+    @Override
+    public boolean verifyRegistrationOtp(String email, String otp) {
+        return matchOtp(
+                KEY_REGISTRATION_OTP + email,
+                KEY_REGISTRATION_OTP_ATTEMPT + email,
+                otp,
+                PiiMasker.maskEmail(email),
+                true);
+    }
 
-        if (storedOtp.equals(otp)) {
-            redisTemplate.delete(otpKey);
-            redisTemplate.delete(attemptKey);
-            return true;
-        }
-
-        return false;
+    @Override
+    public void clearRegistrationOtp(String email) {
+        redisTemplate.delete(KEY_REGISTRATION_OTP + email);
+        redisTemplate.delete(KEY_REGISTRATION_OTP_ATTEMPT + email);
     }
 
     @Override
@@ -131,5 +136,55 @@ public class RateLimitServiceImpl implements RateLimitService {
         }
 
         return true;
+    }
+
+    @Override
+    public long otpTtlSeconds() {
+        return Duration.ofMinutes(OTP_TTL_MINUTES).toSeconds();
+    }
+
+    // ── Phần dùng chung cho mọi loại OTP ────────────────────────────
+
+    private void storeOtp(String otpKey, String otp) {
+        redisTemplate.opsForValue().set(otpKey, otp, Duration.ofMinutes(OTP_TTL_MINUTES));
+    }
+
+    /**
+     * Đếm số lần thử trước khi so mã, nên mã đúng ở lần thử thứ 6 trở đi vẫn bị từ chối.
+     * Vượt ngưỡng thì xoá luôn OTP để kẻ tấn công không thể tiếp tục dò sau khi TTL đếm ngược.
+     *
+     * @param subjectForLog định danh đã che PII, chỉ dùng để ghi log
+     * @param consumeOnMatch {@code true} thì xoá OTP khi khớp (dùng cho bước chốt);
+     *                       {@code false} chỉ kiểm tra, giữ mã lại cho bước sau nhưng
+     *                       vẫn tính một lần thử để không mở đường dò mã
+     */
+    private boolean matchOtp(
+            String otpKey, String attemptKey, String otp, String subjectForLog, boolean consumeOnMatch) {
+        Long attempts = redisTemplate.opsForValue().increment(attemptKey);
+        if (attempts != null && attempts == 1) {
+            redisTemplate.expire(attemptKey, Duration.ofMinutes(OTP_TTL_MINUTES));
+        }
+
+        if (attempts != null && attempts > MAX_OTP_ATTEMPTS) {
+            redisTemplate.delete(otpKey);
+            redisTemplate.delete(attemptKey);
+            log.warn("Vượt ngưỡng thử OTP ({} lần) cho {} — đã xóa OTP", attempts, subjectForLog);
+            return false;
+        }
+
+        String storedOtp = redisTemplate.opsForValue().get(otpKey);
+        if (storedOtp == null) {
+            return false;
+        }
+
+        if (storedOtp.equals(otp)) {
+            if (consumeOnMatch) {
+                redisTemplate.delete(otpKey);
+                redisTemplate.delete(attemptKey);
+            }
+            return true;
+        }
+
+        return false;
     }
 }

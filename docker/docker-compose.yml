@@ -35,7 +35,10 @@ services:
     restart: unless-stopped
     container_name: finora-keycloak
     # --import-realm nap realm finora o lan khoi tao dau tien: 3 realm role ROLE_*
-    # va confidential client finora-user-client. Realm da ton tai thi Keycloak bo qua.
+    # (composite, keo theo cac client role quyen chi tiet user:profile:*, user:cccd:*,
+    # user:admin:*) va confidential client finora-user-client.
+    # Realm da ton tai thi Keycloak BO QUA import: doi realm-finora.json xong phai xoa
+    # realm cu (hoac DB Keycloak) roi khoi dong lai, neu khong quyen moi khong duoc nap.
     command: ["start-dev", "--import-realm"]
     depends_on:
       keycloak-realm-init:
