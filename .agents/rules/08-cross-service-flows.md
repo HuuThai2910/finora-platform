@@ -24,10 +24,12 @@ Mỗi flow mới hoặc thay đổi MUST xác định trigger, orchestrator, con
 
 **CURRENT STATE (2026-08-22):** đã triển khai xác minh trên `UserProfile`, chưa có KYC application entity và chưa phát event; Notification chưa nhận kết quả eKYC. Luồng đã **bỏ xác minh khuôn mặt/liveness** theo quyết định thiết kế — bằng chứng định danh là ảnh giấy tờ hai mặt:
 
-1. Client gửi `POST /api/v1/users/profile/ekyc-verify` gồm ảnh mặt trước và mặt sau CCCD (`cccdFrontBase64`, `cccdBackBase64`).
-2. User chạy tuần tự và dừng ở bước đầu tiên trượt: rate limit → `POST /api/v1/ai/ekyc/ocr` trên ảnh mặt trước → đối chiếu HMAC số CCCD với `idNumberHash`. Hồ sơ chưa có số CCCD thì lấy số từ OCR điền vào sau khi kiểm tra số đó chưa thuộc tài khoản khác (`ID_TAKEN`).
-3. Ảnh mặt sau không OCR (model chỉ đọc mặt trước) — nộp kèm làm bằng chứng cầm thẻ đầy đủ, phục vụ đối soát tay khi có nghi vấn.
-4. User áp policy: đạt → `VERIFIED` (`documentVerified = true`); các trường hợp còn lại giữ nguyên trạng thái và trả `resultCode` (`OCR_FAILED`/`ID_MISMATCH`/`ID_TAKEN`/`RATE_LIMITED`/`AI_UNAVAILABLE`) để người dùng chụp lại.
+eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng nhập) và chạy hai bước — quét ra bản nháp, người dùng xác nhận mới lưu:
+
+1. **Quét:** client gửi `POST /api/v1/users/profile/ekyc-verify` gồm ảnh mặt trước và mặt sau CCCD. User chạy tuần tự và dừng ở bước đầu tiên trượt: rate limit → `POST /api/v1/ai/ekyc/ocr` trên ảnh mặt trước → đối chiếu HMAC số CCCD (`ID_MISMATCH` với hồ sơ có số cũ, `ID_TAKEN` nếu số thuộc tài khoản khác). Đạt thì cất kết quả OCR vào **bản nháp Redis (TTL 10 phút)** và trả `DRAFT_READY` kèm bản nháp — **hồ sơ chưa được ghi**.
+2. Ảnh mặt sau không OCR (model chỉ đọc mặt trước) — nộp kèm làm bằng chứng cầm thẻ đầy đủ, phục vụ đối soát tay khi có nghi vấn.
+3. **Xác nhận:** người dùng soát bản nháp trên client; sai thì quét lại, đúng thì gọi `POST /api/v1/users/profile/ekyc-confirm` (không mang dữ liệu — bản nháp đọc từ Redis để client không sửa được thông tin OCR). User kiểm tra trùng lần cuối, ghi bản nháp vào hồ sơ, chuyển `VERIFIED` (`documentVerified = true`), xoá nháp. Nháp hết hạn trả `DRAFT_EXPIRED`.
+4. Các trường hợp trượt giữ nguyên trạng thái hồ sơ và trả `resultCode` (`OCR_FAILED`/`ID_MISMATCH`/`ID_TAKEN`/`RATE_LIMITED`/`AI_UNAVAILABLE`/`DRAFT_EXPIRED`) để client hướng dẫn chụp lại.
 
 **State authority:** AI không giữ trạng thái; rate limit nằm ở User (Redis). Số CCCD là điều kiện đối chiếu duy nhất; họ tên và ngày sinh chỉ sinh cảnh báo `ocrWarnings`. Phần face-match/liveness phía AI đã xoá hẳn (2026-08-22); AI chỉ còn `/ocr` cho eKYC — engine duy nhất là Gemini vision, bắt buộc cấu hình `GEMINI_API_KEY` (thiếu key endpoint trả lỗi và User hiển thị AI_UNAVAILABLE).
 

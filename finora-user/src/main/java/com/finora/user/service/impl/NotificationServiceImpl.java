@@ -10,6 +10,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.Locale;
+
 /**
  * Triển khai dịch vụ gửi thông báo — gọi finora-notification qua Feign (best-effort).
  * <p>
@@ -38,11 +40,16 @@ public class NotificationServiceImpl implements NotificationService {
         }
     }
 
-    /** Tên gọi = chữ cuối của họ tên Việt Nam; chưa có tên thì trả chuỗi rỗng. */
+    /**
+     * Tên gọi = chữ cuối của họ tên Việt Nam, viết hoa chữ đầu ("HẢI" → "Hải");
+     * chưa có tên thì trả chuỗi rỗng.
+     */
     private static String givenName(String fullName) {
         if (fullName == null || fullName.isBlank()) return "";
         String[] words = fullName.trim().split("\\s+");
-        return words[words.length - 1];
+        String word = words[words.length - 1];
+        return word.substring(0, 1).toUpperCase(Locale.ROOT)
+                + word.substring(1).toLowerCase(Locale.ROOT);
     }
 
     @Override

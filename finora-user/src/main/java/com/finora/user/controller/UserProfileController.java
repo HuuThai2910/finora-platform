@@ -42,10 +42,10 @@ public class UserProfileController {
     // ── eKYC — Xác minh giấy tờ ────────────────────────────────────
 
     /**
-     * Xác minh eKYC: gửi ảnh hai mặt CCCD.
+     * Bước quét eKYC: gửi ảnh hai mặt CCCD, nhận về bản nháp thông tin OCR.
      * <p>
-     * Luồng: OCR ảnh mặt trước → đối chiếu (hoặc điền) số CCCD của hồ sơ; ảnh
-     * mặt sau nộp kèm làm bằng chứng. Kết quả cập nhật trạng thái eKYC trên hồ sơ.
+     * Hồ sơ CHƯA được lưu ở bước này — bản nháp nằm trên server chờ người dùng
+     * soát rồi xác nhận qua {@code ekyc-confirm}; sai thông tin thì quét lại.
      */
     @PostMapping("/profile/ekyc-verify")
     @PreAuthorize("hasAuthority('user:cccd:scan')")
@@ -55,5 +55,17 @@ public class UserProfileController {
         UUID keycloakUserId = SecurityUtils.getCurrentKeycloakUserId();
         EkycResultResponse result = ekycVerificationService.verify(keycloakUserId, request);
         return BaseResponse.success(result);
+    }
+
+    /**
+     * Bước xác nhận eKYC: người dùng đồng ý với bản nháp thì hồ sơ mới được lưu
+     * và chuyển VERIFIED. Không nhận dữ liệu từ client — bản nháp đọc từ server
+     * để người dùng không sửa được thông tin đã OCR.
+     */
+    @PostMapping("/profile/ekyc-confirm")
+    @PreAuthorize("hasAuthority('user:cccd:scan')")
+    public BaseResponse<EkycResultResponse> confirmEkyc() {
+        UUID keycloakUserId = SecurityUtils.getCurrentKeycloakUserId();
+        return BaseResponse.success(ekycVerificationService.confirm(keycloakUserId));
     }
 }

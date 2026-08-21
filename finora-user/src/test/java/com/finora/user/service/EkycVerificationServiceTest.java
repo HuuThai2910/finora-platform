@@ -8,6 +8,7 @@ import com.finora.user.domain.Gender;
 import com.finora.user.domain.UserProfile;
 import com.finora.user.dto.request.EkycVerifyRequest;
 import com.finora.user.dto.response.EkycResultResponse;
+import com.finora.user.dto.response.EkycResultResponse.EkycDraft;
 import com.finora.user.repository.UserProfileRepository;
 import com.finora.user.support.CryptoUtils;
 import com.finora.user.util.CccdMatcher;
@@ -23,11 +24,12 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** Kiểm tra luồng xác minh eKYC bằng ảnh hai mặt CCCD (không còn face/liveness). */
+/** Kiểm tra luồng eKYC hai bước: quét ra bản nháp → xác nhận mới lưu. */
 @ExtendWith(MockitoExtension.class)
 class EkycVerificationServiceTest {
 
@@ -40,6 +42,10 @@ class EkycVerificationServiceTest {
     private static final EkycVerifyRequest REQUEST =
             new EkycVerifyRequest("front-base64", "back-base64");
 
+    private static final EkycDraft DRAFT = new EkycDraft(
+            ID_NUMBER, "NGUYEN HUYNH NGOC HAI", "24/08/2004", "Nam",
+            "Phường 2, Gò Công, Tiền Giang", "202 A, Đường 12, KP5, Gò Công, Tiền Giang");
+
     @Mock
     private UserProfileRepository userProfileRepository;
 
@@ -48,6 +54,9 @@ class EkycVerificationServiceTest {
 
     @Mock
     private EkycRateLimitService rateLimitService;
+
+    @Mock
+    private EkycDraftStore draftStore;
 
     private EkycVerificationService service;
     private UserProfile profile;
@@ -59,115 +68,39 @@ class EkycVerificationServiceTest {
         cryptoProperties.setAesSecret("test-aes-secret-32-characters!!");
 
         service = new EkycVerificationService(
-                userProfileRepository, aiEkycClient, rateLimitService, cryptoProperties);
+                userProfileRepository, aiEkycClient, rateLimitService, draftStore, cryptoProperties);
 
+        // Đăng ký không thu họ tên — hồ sơ khởi đầu trống thông tin định danh
         profile = UserProfile.builder()
                 .id(7L)
                 .keycloakUserId(USER_ID)
                 .email("nguoidung@example.com")
-                .fullName("Nguyễn Văn A")
-                .dateOfBirth(DOB)
-                .idNumberHash(CryptoUtils.hmacSha256(ID_NUMBER, HMAC_SECRET))
                 .ekycStatus(EkycStatus.PENDING)
                 .build();
     }
 
-    // ── Happy path ──────────────────────────────────────────────────
+    // ── Bước quét ───────────────────────────────────────────────────
 
     @Test
-    void ocrKhopSoCccdThiHoSoDuocXacMinh() {
+    void quetThanhCongThiTraBanNhapVaChuaLuuHoSo() {
         givenProfileFound();
         givenSlotAcquired();
-        givenOcrReturns(ocrResult(true, ID_NUMBER, "NGUYEN VAN A", "01/01/2000"));
+        when(userProfileRepository.existsByIdNumberHash(hash(ID_NUMBER))).thenReturn(false);
+        givenOcrReturns(ocrResult(true, ID_NUMBER, "NGUYEN HUYNH NGOC HAI", "24/08/2004"));
 
         EkycResultResponse result = service.verify(USER_ID, REQUEST);
 
-        assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
-        assertThat(result.status()).isEqualTo(EkycStatus.VERIFIED);
-        assertThat(result.ocrWarnings()).isEmpty();
-        assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.VERIFIED);
-        assertThat(profile.isDocumentVerified()).isTrue();
-        assertThat(profile.getEkycCompletedAt()).isNotNull();
-        verify(userProfileRepository).save(profile);
+        assertThat(result.resultCode()).isEqualTo(EkycResultCode.DRAFT_READY);
+        assertThat(result.draft().idNumber()).isEqualTo(ID_NUMBER);
+        assertThat(result.draft().fullName()).isEqualTo("NGUYEN HUYNH NGOC HAI");
+        verify(draftStore).save(eq(USER_ID), any(EkycDraft.class));
+        // Hồ sơ tuyệt đối chưa được ghi ở bước quét
+        verify(userProfileRepository, never()).save(any());
+        assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.PENDING);
     }
 
     @Test
-    void hoSoChuaCoSoCccdThiLaySoTuOcrDienVao() {
-        profile.setIdNumberHash(null);
-        profile.setDateOfBirth(null);
-        givenProfileFound();
-        givenSlotAcquired();
-        when(userProfileRepository.existsByIdNumberHash(
-                CryptoUtils.hmacSha256(ID_NUMBER, HMAC_SECRET))).thenReturn(false);
-        givenOcrReturns(new AiEkycClient.OcrResult(
-                true, ID_NUMBER, "NGUYEN VAN A", "01/01/2000", "Nam", "Nam Định",
-                "25 Nguyễn Trãi, Thanh Xuân, Hà Nội", 0.95));
-
-        EkycResultResponse result = service.verify(USER_ID, REQUEST);
-
-        assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
-        assertThat(profile.getIdNumberHash())
-                .isEqualTo(CryptoUtils.hmacSha256(ID_NUMBER, HMAC_SECRET));
-        assertThat(profile.getIdNumberEncrypted()).isEqualTo(ID_NUMBER);
-        assertThat(profile.getDateOfBirth()).isEqualTo(DOB);
-        assertThat(profile.getGender()).isEqualTo(Gender.MALE);
-        assertThat(profile.getPlaceOfOrigin()).isEqualTo("Nam Định");
-        assertThat(profile.getAddress()).isEqualTo("25 Nguyễn Trãi, Thanh Xuân, Hà Nội");
-        verify(userProfileRepository).save(profile);
-    }
-
-    @Test
-    void dangKyKhongThuHoTenThiLayTenTuOcrDienVao() {
-        // Luồng chính: đăng ký để trống họ tên, tên chỉ có sau khi quét CCCD
-        profile.setFullName(null);
-        givenProfileFound();
-        givenSlotAcquired();
-        givenOcrReturns(ocrResult(true, ID_NUMBER, "NGUYEN HUYNH NGOC HAI", "01/01/2000"));
-
-        EkycResultResponse result = service.verify(USER_ID, REQUEST);
-
-        assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
-        assertThat(profile.getFullName()).isEqualTo("NGUYEN HUYNH NGOC HAI");
-        // Không có tên đã khai để so — không được sinh cảnh báo lệch tên
-        assertThat(result.ocrWarnings()).isEmpty();
-    }
-
-    @Test
-    void hoSoDaKhaiCccdVanDuocDienTruongMemConThieu() {
-        // Hồ sơ có sẵn số CCCD (đã khai) nhưng thiếu giới tính/quê quán/địa chỉ
-        givenProfileFound();
-        givenSlotAcquired();
-        givenOcrReturns(new AiEkycClient.OcrResult(
-                true, ID_NUMBER, "NGUYEN VAN A", "01/01/2000", "Nữ", "Hà Nội",
-                "12 Lý Thường Kiệt, Hoàn Kiếm, Hà Nội", 0.95));
-
-        EkycResultResponse result = service.verify(USER_ID, REQUEST);
-
-        assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
-        assertThat(profile.getGender()).isEqualTo(Gender.FEMALE);
-        assertThat(profile.getPlaceOfOrigin()).isEqualTo("Hà Nội");
-        assertThat(profile.getAddress()).isEqualTo("12 Lý Thường Kiệt, Hoàn Kiếm, Hà Nội");
-        // Ngày sinh đã khai từ trước — không bị OCR ghi đè
-        assertThat(profile.getDateOfBirth()).isEqualTo(DOB);
-    }
-
-    @Test
-    void tenHoacNgaySinhLechThiVanXacMinhNhungKemCanhBao() {
-        givenProfileFound();
-        givenSlotAcquired();
-        givenOcrReturns(ocrResult(true, ID_NUMBER, "TRAN VAN B", "02/02/1999"));
-
-        EkycResultResponse result = service.verify(USER_ID, REQUEST);
-
-        assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
-        assertThat(result.ocrWarnings()).containsExactlyInAnyOrder(
-                CccdMatcher.WARNING_FULL_NAME_MISMATCH, CccdMatcher.WARNING_DOB_MISMATCH);
-    }
-
-    // ── Các nhánh từ chối ───────────────────────────────────────────
-
-    @Test
-    void ocrKhongDocDuocThiTraOcrFailed() {
+    void ocrKhongDocDuocThiTraOcrFailedVaKhongTaoNhap() {
         givenProfileFound();
         givenSlotAcquired();
         givenOcrReturns(ocrResult(false, null, null, null));
@@ -175,36 +108,32 @@ class EkycVerificationServiceTest {
         EkycResultResponse result = service.verify(USER_ID, REQUEST);
 
         assertThat(result.resultCode()).isEqualTo(EkycResultCode.OCR_FAILED);
-        assertThat(result.status()).isEqualTo(EkycStatus.PENDING);
-        verify(userProfileRepository, never()).save(any());
-    }
-
-    @Test
-    void soCccdTrenAnhKhacHoSoThiTraIdMismatch() {
-        givenProfileFound();
-        givenSlotAcquired();
-        givenOcrReturns(ocrResult(true, OTHER_ID, "NGUYEN VAN A", "01/01/2000"));
-
-        EkycResultResponse result = service.verify(USER_ID, REQUEST);
-
-        assertThat(result.resultCode()).isEqualTo(EkycResultCode.ID_MISMATCH);
-        verify(userProfileRepository, never()).save(any());
+        verify(draftStore, never()).save(any(), any());
     }
 
     @Test
     void soCccdDaThuocTaiKhoanKhacThiTraIdTaken() {
-        profile.setIdNumberHash(null);
         givenProfileFound();
         givenSlotAcquired();
-        when(userProfileRepository.existsByIdNumberHash(
-                CryptoUtils.hmacSha256(ID_NUMBER, HMAC_SECRET))).thenReturn(true);
-        givenOcrReturns(ocrResult(true, ID_NUMBER, "NGUYEN VAN A", "01/01/2000"));
+        when(userProfileRepository.existsByIdNumberHash(hash(ID_NUMBER))).thenReturn(true);
+        givenOcrReturns(ocrResult(true, ID_NUMBER, "NGUYEN HUYNH NGOC HAI", "24/08/2004"));
 
         EkycResultResponse result = service.verify(USER_ID, REQUEST);
 
         assertThat(result.resultCode()).isEqualTo(EkycResultCode.ID_TAKEN);
-        assertThat(profile.getIdNumberHash()).isNull();
-        verify(userProfileRepository, never()).save(any());
+        verify(draftStore, never()).save(any(), any());
+    }
+
+    @Test
+    void hoSoCoSoCccdCuKhacAnhThiTraIdMismatch() {
+        profile.setIdNumberHash(hash(OTHER_ID));
+        givenProfileFound();
+        givenSlotAcquired();
+        givenOcrReturns(ocrResult(true, ID_NUMBER, "NGUYEN HUYNH NGOC HAI", "24/08/2004"));
+
+        EkycResultResponse result = service.verify(USER_ID, REQUEST);
+
+        assertThat(result.resultCode()).isEqualTo(EkycResultCode.ID_MISMATCH);
     }
 
     @Test
@@ -219,19 +148,7 @@ class EkycVerificationServiceTest {
     }
 
     @Test
-    void hoSoDaXacMinhThiTraVerifiedNgayKhongGoiAi() {
-        profile.setEkycStatus(EkycStatus.VERIFIED);
-        givenProfileFound();
-
-        EkycResultResponse result = service.verify(USER_ID, REQUEST);
-
-        assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
-        verify(aiEkycClient, never()).ocr(any());
-        verify(rateLimitService, never()).tryAcquireVerifySlot(any());
-    }
-
-    @Test
-    void aiLoiThiTraAiUnavailableVaGiuNguyenHoSo() {
+    void aiLoiThiTraAiUnavailable() {
         givenProfileFound();
         givenSlotAcquired();
         when(aiEkycClient.ocr(any())).thenThrow(new RuntimeException("connection refused"));
@@ -239,11 +156,114 @@ class EkycVerificationServiceTest {
         EkycResultResponse result = service.verify(USER_ID, REQUEST);
 
         assertThat(result.resultCode()).isEqualTo(EkycResultCode.AI_UNAVAILABLE);
-        assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.PENDING);
+    }
+
+    @Test
+    void hoSoDaXacMinhThiKhongQuetLai() {
+        profile.setEkycStatus(EkycStatus.VERIFIED);
+        givenProfileFound();
+
+        EkycResultResponse result = service.verify(USER_ID, REQUEST);
+
+        assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
+        verify(aiEkycClient, never()).ocr(any());
+    }
+
+    // ── Bước xác nhận ───────────────────────────────────────────────
+
+    @Test
+    void xacNhanThiLuuBanNhapVaoHoSoVaChuyenVerified() {
+        givenProfileFound();
+        when(draftStore.find(USER_ID)).thenReturn(Optional.of(DRAFT));
+        when(userProfileRepository.existsByIdNumberHash(hash(ID_NUMBER))).thenReturn(false);
+
+        EkycResultResponse result = service.confirm(USER_ID);
+
+        assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
+        assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.VERIFIED);
+        assertThat(profile.isDocumentVerified()).isTrue();
+        assertThat(profile.getIdNumberHash()).isEqualTo(hash(ID_NUMBER));
+        assertThat(profile.getIdNumberEncrypted()).isEqualTo(ID_NUMBER);
+        assertThat(profile.getFullName()).isEqualTo("NGUYEN HUYNH NGOC HAI");
+        assertThat(profile.getDateOfBirth()).isEqualTo(LocalDate.of(2004, 8, 24));
+        assertThat(profile.getGender()).isEqualTo(Gender.MALE);
+        assertThat(profile.getPlaceOfOrigin()).isEqualTo("Phường 2, Gò Công, Tiền Giang");
+        assertThat(profile.getAddress()).startsWith("202 A");
+        verify(userProfileRepository).save(profile);
+        verify(draftStore).remove(USER_ID);
+    }
+
+    @Test
+    void banNhapHetHanThiTraDraftExpiredVaKhongLuu() {
+        givenProfileFound();
+        when(draftStore.find(USER_ID)).thenReturn(Optional.empty());
+
+        EkycResultResponse result = service.confirm(USER_ID);
+
+        assertThat(result.resultCode()).isEqualTo(EkycResultCode.DRAFT_EXPIRED);
         verify(userProfileRepository, never()).save(any());
     }
 
+    @Test
+    void xacNhanKhongGhiDeDuLieuDaCoTrongHoSo() {
+        // Hồ sơ đã có ngày sinh khai từ trước — bản nháp không được ghi đè
+        profile.setDateOfBirth(DOB);
+        givenProfileFound();
+        when(draftStore.find(USER_ID)).thenReturn(Optional.of(DRAFT));
+        when(userProfileRepository.existsByIdNumberHash(hash(ID_NUMBER))).thenReturn(false);
+
+        service.confirm(USER_ID);
+
+        assertThat(profile.getDateOfBirth()).isEqualTo(DOB);
+    }
+
+    @Test
+    void soCccdBiChiemTrongLucSoatThiTuChoiVaXoaNhap() {
+        givenProfileFound();
+        when(draftStore.find(USER_ID)).thenReturn(Optional.of(DRAFT));
+        when(userProfileRepository.existsByIdNumberHash(hash(ID_NUMBER))).thenReturn(true);
+
+        EkycResultResponse result = service.confirm(USER_ID);
+
+        assertThat(result.resultCode()).isEqualTo(EkycResultCode.ID_TAKEN);
+        verify(userProfileRepository, never()).save(any());
+        verify(draftStore).remove(USER_ID);
+    }
+
+    @Test
+    void xacNhanLanHaiKhiDaVerifiedThiTraVerifiedNgay() {
+        profile.setEkycStatus(EkycStatus.VERIFIED);
+        givenProfileFound();
+
+        EkycResultResponse result = service.confirm(USER_ID);
+
+        assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
+        verify(draftStore, never()).find(any());
+    }
+
+    // ── Cảnh báo trường mềm ────────────────────────────────────────
+
+    @Test
+    void tenDaKhaiLechVoiOcrThiCanhBaoNgayTuBuocQuet() {
+        profile.setFullName("Trần Văn Khác");
+        profile.setDateOfBirth(DOB);
+        givenProfileFound();
+        givenSlotAcquired();
+        when(userProfileRepository.existsByIdNumberHash(hash(ID_NUMBER))).thenReturn(false);
+        givenOcrReturns(ocrResult(true, ID_NUMBER, "NGUYEN HUYNH NGOC HAI", "24/08/2004"));
+
+        EkycResultResponse result = service.verify(USER_ID, REQUEST);
+
+        assertThat(result.resultCode()).isEqualTo(EkycResultCode.DRAFT_READY);
+        assertThat(result.ocrWarnings()).contains(
+                CccdMatcher.WARNING_FULL_NAME_MISMATCH, CccdMatcher.WARNING_DOB_MISMATCH);
+    }
+
     // ── Helper ──────────────────────────────────────────────────────
+
+    private static String hash(String idNumber) {
+        return CryptoUtils.hmacSha256(idNumber, HMAC_SECRET);
+    }
 
     private void givenProfileFound() {
         when(userProfileRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(profile));
@@ -259,6 +279,8 @@ class EkycVerificationServiceTest {
 
     private static AiEkycClient.OcrResult ocrResult(
             boolean success, String idNumber, String fullName, String dob) {
-        return new AiEkycClient.OcrResult(success, idNumber, fullName, dob, null, null, null, 0.9);
+        return new AiEkycClient.OcrResult(
+                success, idNumber, fullName, dob, "Nam",
+                "Phường 2, Gò Công, Tiền Giang", "202 A, Đường 12, KP5, Gò Công, Tiền Giang", 0.9);
     }
 }
