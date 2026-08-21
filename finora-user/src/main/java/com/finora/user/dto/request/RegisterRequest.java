@@ -32,7 +32,10 @@ public class RegisterRequest {
     @Size(min = 8, max = 64)
     private String password;
 
-    @NotBlank
+    /**
+     * Họ tên — tuỳ chọn. Luồng hiện tại không thu họ tên lúc đăng ký: hồ sơ
+     * để trống và tên được điền từ OCR CCCD khi người dùng quét eKYC.
+     */
     @Size(max = 255)
     private String fullName;
 

@@ -1,19 +1,14 @@
+"""Kiểm tra schema OCR eKYC."""
+
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.ekyc import (
-    FaceMatchRequest,
-    FaceMatchResponse,
-    LivenessRequest,
-    LivenessResponse,
-    OcrRequest,
-    OcrResponse,
-)
+from app.schemas.ekyc import OcrRequest, OcrResponse
 
 
 def test_ocr_request_valid():
-    req = OcrRequest(image_base64="aGVsbG8=")
-    assert req.image_base64 == "aGVsbG8="
+    request = OcrRequest(image_base64="abc123")
+    assert request.image_base64 == "abc123"
 
 
 def test_ocr_request_empty_rejected():
@@ -22,42 +17,21 @@ def test_ocr_request_empty_rejected():
 
 
 def test_ocr_response_success():
-    resp = OcrResponse(
+    response = OcrResponse(
         success=True,
         id_number="079204001234",
-        full_name="NGUYEN VAN A",
+        full_name="NGUYỄN VĂN A",
         date_of_birth="01/01/2000",
         gender="Nam",
-        place_of_origin="TP Ho Chi Minh",
+        place_of_origin="TP Hồ Chí Minh",
+        address="1 Lê Lợi, Quận 1",
         confidence=0.92,
     )
-    assert resp.success is True
-    assert resp.id_number == "079204001234"
+    assert response.success is True
+    assert response.address == "1 Lê Lợi, Quận 1"
 
 
 def test_ocr_response_failure():
-    resp = OcrResponse(success=False, confidence=0.1)
-    assert resp.success is False
-    assert resp.id_number is None
-
-
-def test_face_match_request_valid():
-    req = FaceMatchRequest(selfie_base64="abc=", cccd_image_base64="def=")
-    assert req.selfie_base64 == "abc="
-
-
-def test_face_match_response():
-    resp = FaceMatchResponse(match=True, similarity=0.87, threshold=0.6)
-    assert resp.match is True
-    assert resp.similarity == 0.87
-
-
-def test_liveness_request_valid():
-    req = LivenessRequest(image_base64="xyz=")
-    assert req.image_base64 == "xyz="
-
-
-def test_liveness_response():
-    resp = LivenessResponse(is_live=True, confidence=0.95, method="lbp_texture")
-    assert resp.is_live is True
-    assert resp.method == "lbp_texture"
+    response = OcrResponse(success=False, confidence=0.0)
+    assert response.id_number is None
+    assert response.address is None

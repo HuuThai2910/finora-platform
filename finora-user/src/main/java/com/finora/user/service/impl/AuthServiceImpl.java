@@ -88,10 +88,16 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(HttpStatus.TOO_MANY_REQUESTS, MSG_OTP_RATE_LIMITED);
         }
 
+        // Họ tên không thu lúc đăng ký — chuẩn hoá chuỗi rỗng về null để hồ sơ
+        // thể hiện đúng "chưa có tên"; tên thật được điền từ OCR CCCD khi eKYC.
+        String fullName = request.getFullName() != null && !request.getFullName().isBlank()
+                ? request.getFullName().trim()
+                : null;
+
         pendingRegistrationStore.save(new PendingRegistration(
                 email,
                 request.getPassword(),
-                request.getFullName(),
+                fullName,
                 phone,
                 request.getRole() != null ? request.getRole() : UserRole.BORROWER));
 

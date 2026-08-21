@@ -8,7 +8,7 @@ xgboost==3.3.0
 scikit-learn==1.4.0
 pandas==2.1.4
 numpy==1.26.3
-# Pin scipy: bản mới chỉ chạy với numpy 2.x, cài kèm mediapipe sẽ kéo lên
+# Pin scipy đi cùng numpy đã pin — bản mới hơn kéo numpy 2.x
 # và làm xgboost nổ ở scipy.sparse (np.long không còn trong numpy 1.26).
 scipy==1.13.1
 shap==0.44.1
@@ -18,12 +18,10 @@ joblib==1.3.2
 opencv-python-headless==4.9.0.80
 Pillow==10.2.0
 
-# eKYC — OCR & Face Recognition
+# eKYC — OCR giấy tờ (đã bỏ face match/liveness khỏi luồng định danh)
 easyocr==1.7.1
-deepface==0.0.93
-
-# eKYC — Active liveness (FaceMesh landmark: EAR nháy mắt, yaw quay đầu)
-mediapipe==0.10.14
+# Đọc CCCD bằng Gemini vision khi có GEMINI_API_KEY; EasyOCR là dự phòng offline.
+google-genai==2.19.0
 
 # Kafka Consumer
 confluent-kafka==2.3.0

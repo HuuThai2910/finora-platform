@@ -136,11 +136,17 @@ public class EkycVerificationService {
     }
 
     /**
-     * Điền các trường mềm còn trống từ OCR: ngày sinh, giới tính, quê quán,
-     * nơi thường trú. Chỉ điền chỗ trống — không bao giờ ghi đè dữ liệu người
-     * dùng đã khai, vì dữ liệu khai tay là thứ họ đã xác nhận.
+     * Điền các trường mềm còn trống từ OCR: họ tên, ngày sinh, giới tính,
+     * quê quán, nơi thường trú. Chỉ điền chỗ trống — không bao giờ ghi đè dữ
+     * liệu người dùng đã khai, vì dữ liệu khai tay là thứ họ đã xác nhận.
+     * <p>
+     * Họ tên là đường điền chính: đăng ký không thu họ tên nữa, hồ sơ chỉ có
+     * tên sau khi quét CCCD.
      */
     private void fillMissingSoftFields(UserProfile profile, AiEkycClient.OcrResult ocr) {
+        if (isBlank(profile.getFullName()) && !isBlank(ocr.full_name())) {
+            profile.setFullName(ocr.full_name());
+        }
         if (profile.getDateOfBirth() == null && ocr.date_of_birth() != null) {
             CccdMatcher.parseDate(ocr.date_of_birth()).ifPresent(profile::setDateOfBirth);
         }

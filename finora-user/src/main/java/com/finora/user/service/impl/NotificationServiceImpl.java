@@ -26,13 +26,23 @@ public class NotificationServiceImpl implements NotificationService {
     @Override
     public void sendWelcomeEmail(Long userId, String email, String fullName) {
         try {
-            notificationClient.sendWelcomeEmail(new WelcomeEmailRequest(email, fullName));
+            // Chào bằng tên gọi (chữ cuối của họ tên). Đăng ký không thu họ tên
+            // nên có thể chưa có — khi đó gửi rỗng để template chào không tên,
+            // tuyệt đối không thay bằng địa chỉ email.
+            notificationClient.sendWelcomeEmail(new WelcomeEmailRequest(email, givenName(fullName)));
             log.info("Đã gửi welcome email: userId={}, email={}",
                     userId, PiiMasker.maskEmail(email));
         } catch (Exception e) {
             log.error("Lỗi gửi welcome email: userId={}, email={}, lỗi={}",
                     userId, PiiMasker.maskEmail(email), e.getMessage());
         }
+    }
+
+    /** Tên gọi = chữ cuối của họ tên Việt Nam; chưa có tên thì trả chuỗi rỗng. */
+    private static String givenName(String fullName) {
+        if (fullName == null || fullName.isBlank()) return "";
+        String[] words = fullName.trim().split("\\s+");
+        return words[words.length - 1];
     }
 
     @Override

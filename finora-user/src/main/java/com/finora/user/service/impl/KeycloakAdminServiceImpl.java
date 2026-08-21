@@ -67,7 +67,8 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
         UserRepresentation user = new UserRepresentation();
         user.setEmail(email);
         user.setUsername(email);
-        user.setFirstName(fullName);
+        // Đăng ký không thu họ tên — tên chỉ có sau khi quét eKYC, nên có thể null
+        user.setFirstName(fullName != null ? fullName : "");
         user.setLastName("");
         user.setEnabled(true);
         user.setEmailVerified(true);

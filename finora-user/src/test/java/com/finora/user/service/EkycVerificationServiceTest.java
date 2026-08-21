@@ -117,6 +117,22 @@ class EkycVerificationServiceTest {
     }
 
     @Test
+    void dangKyKhongThuHoTenThiLayTenTuOcrDienVao() {
+        // Luồng chính: đăng ký để trống họ tên, tên chỉ có sau khi quét CCCD
+        profile.setFullName(null);
+        givenProfileFound();
+        givenSlotAcquired();
+        givenOcrReturns(ocrResult(true, ID_NUMBER, "NGUYEN HUYNH NGOC HAI", "01/01/2000"));
+
+        EkycResultResponse result = service.verify(USER_ID, REQUEST);
+
+        assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
+        assertThat(profile.getFullName()).isEqualTo("NGUYEN HUYNH NGOC HAI");
+        // Không có tên đã khai để so — không được sinh cảnh báo lệch tên
+        assertThat(result.ocrWarnings()).isEmpty();
+    }
+
+    @Test
     void hoSoDaKhaiCccdVanDuocDienTruongMemConThieu() {
         // Hồ sơ có sẵn số CCCD (đã khai) nhưng thiếu giới tính/quê quán/địa chỉ
         givenProfileFound();
