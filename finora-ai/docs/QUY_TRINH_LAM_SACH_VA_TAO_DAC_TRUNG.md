@@ -140,7 +140,7 @@ Do đó, **XGBoost** kết hợp với bộ dữ liệu phi truyền thống là
 
 ## 11. Bước huấn luyện model v10.0.0 (Cập nhật mới)
 
-Giai đoạn huấn luyện hiện tại được thực hiện trong [scripts/train_final_model.py](../scripts/train_final_model.py).
+Giai đoạn huấn luyện hiện tại được thực hiện trong [scripts/train_credit_model.py](../scripts/train_credit_model.py).
 
 Quy trình làm sạch và chuẩn bị dữ liệu trong RAM được cải tiến như sau:
 
@@ -186,7 +186,7 @@ Dưới đây là danh sách và ý nghĩa của **15 đặc trưng đầu vào 
 
 ## 13. Bộ đặc trưng cuối cùng đưa vào mô hình (28 đặc trưng)
 
-Phần tạo đặc trưng nằm trong [app/ml/features.py](../app/ml/features.py). Bộ đặc trưng bao gồm:
+Phần tạo đặc trưng nằm trong [app/ml/credit/features.py](../app/ml/credit/features.py). Bộ đặc trưng bao gồm:
 
 * **13 đặc trưng số học thô:** `person_age`, `emp_length_years`, `annual_inc`, `loan_amnt`, `dti`, `term_months`, `delinq_2yrs`, `pub_rec`, `int_rate`, `installment`, `fico_score`, `log_income`, `loan_to_income`.
 * **3 đặc trưng mã hóa Target Encoding:** `home_ownership_encoded`, `purpose_cat_encoded`, `verification_status_encoded`.
@@ -197,7 +197,7 @@ Tổng cộng mô hình học máy sử dụng **28 đặc trưng**.
 
 ## 14. Bộ quy tắc chốt chặn cứng & Phạt điểm rủi ro (Rule Engine)
 
-Hệ thống ra quyết định tín dụng được thiết kế dạng lai (Hybrid System) tích hợp chốt chặn cứng tại [app/services/rule_engine.py](../app/services/rule_engine.py):
+Hệ thống ra quyết định tín dụng được thiết kế dạng lai (Hybrid System) tích hợp chốt chặn cứng tại [app/services/credit/rule_engine.py](../app/services/credit/rule_engine.py):
 
 ### 14.1 Các quy tắc chặn cứng (Knock-out Rules - REJECTED)
 * **Trần lãi suất pháp luật:** Lãi suất năm `int_rate` vượt quá 20% (Bộ luật Dân sự 2015).
@@ -261,9 +261,9 @@ graph TD
 
 ## 17. File lien quan
 
-- [app/ml/features.py](../app/ml/features.py)
-- [app/ml/preprocessing.py](../app/ml/preprocessing.py)
-- [app/ml/predictor.py](../app/ml/predictor.py)
-- [app/services/rule_engine.py](../app/services/rule_engine.py)
-- [scripts/train_final_model.py](../scripts/train_final_model.py)
+- [app/ml/credit/features.py](../app/ml/credit/features.py)
+- [app/ml/credit/preprocessing.py](../app/ml/credit/preprocessing.py)
+- [app/ml/credit/predictor.py](../app/ml/credit/predictor.py)
+- [app/services/credit/rule_engine.py](../app/services/credit/rule_engine.py)
+- [scripts/train_credit_model.py](../scripts/train_credit_model.py)
 - [app/schemas/credit.py](../app/schemas/credit.py)

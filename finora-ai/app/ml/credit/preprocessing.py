@@ -1,8 +1,8 @@
 """
 Chuẩn hóa dữ liệu thô về schema chung.
 
-Các hàm ở đây được dùng ở CẢ HAI nơi — lúc huấn luyện (`scripts/train_final_model.py`)
-và lúc chấm điểm hồ sơ thật (`app/ml/predictor.py`). Đây là điều bắt buộc: nếu hai
+Các hàm ở đây được dùng ở CẢ HAI nơi — lúc huấn luyện (`scripts/train_credit_model.py`)
+và lúc chấm điểm hồ sơ thật (`app/ml/credit/predictor.py`). Đây là điều bắt buộc: nếu hai
 bên tự chuẩn hóa theo cách riêng thì cùng một hồ sơ sẽ cho hai kết quả khác nhau.
 
 Điểm CIC (cic_score) đi thẳng vào pipeline ML mà không cần chuẩn hóa ở đây —
@@ -99,3 +99,28 @@ def _parse_emp_length(val) -> float:
 def _parse_issue_year(issue_d: pd.Series) -> pd.Series:
     """Năm phát hành, suy ra từ `issue_d` (vd "Dec-15" → 2015)."""
     return pd.to_datetime(issue_d, format="%b-%y", errors="coerce").dt.year
+
+
+def map_nhom_no(pub_rec: pd.Series, acc_now_delinq: pd.Series) -> pd.Series:
+    """Ánh xạ gần đúng nhóm nợ CIC từ LendingClub.
+
+    LendingClub không có khái niệm "nhóm nợ CIC". Proxy:
+    - acc_now_delinq > 0 → nhóm 4 (đang nợ xấu)
+    - pub_rec > 0        → nhóm 3 (có tiền sử nợ xấu/phá sản)
+    - còn lại            → nhóm 1 (bình thường)
+    """
+    return pd.Series(
+        np.where(acc_now_delinq > 0, 4, np.where(pub_rec > 0, 3, 1)),
+        index=pub_rec.index,
+    )
+
+
+def tinh_so_thang_quan_he(earliest_cr_line: pd.Series, issue_d: pd.Series) -> pd.Series:
+    """Số tháng từ ngày mở quan hệ tín dụng đầu tiên đến ngày phát hành khoản vay.
+
+    Trả NaN khi earliest_cr_line thiếu (người vay chưa có lịch sử tín dụng).
+    """
+    ecl = pd.to_datetime(earliest_cr_line, format="%b-%y", errors="coerce")
+    iss = pd.to_datetime(issue_d, format="%b-%y", errors="coerce")
+    months = (iss.dt.year - ecl.dt.year) * 12 + (iss.dt.month - ecl.dt.month)
+    return months.where(ecl.notna())

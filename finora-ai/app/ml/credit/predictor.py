@@ -1,5 +1,5 @@
 """
-Bộ dự đoán dùng gói model tự chứa (`models/model_v<PHIEN_BAN_MAC_DINH>.pkl` + `.json`).
+Bộ dự đoán dùng gói model tự chứa (`models/credit/model_v<PHIEN_BAN_MAC_DINH>.pkl` + `.json`).
 
 Trường thiếu trong hồ sơ được điền bằng **median lưu trong gói** — đúng giá trị mà
 mô hình đã học lúc huấn luyện — chứ không phải hằng số viết cứng trong code.
@@ -13,39 +13,44 @@ không phải chi tiết nội bộ của quá trình huấn luyện.
 Điểm CIC được lấy từ cic-service qua HTTP. Khi cic-service không khả dụng,
 cic_score = None → dùng median từ gói model + missing indicator.
 
-Gói được tạo bởi `scripts/train_final_model.py`.
+Gói được tạo bởi `scripts/train_credit_model.py`.
 """
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from app.ml.features import FEATURE_NAMES, NUMERIC_FEATURES, COLUMNS_WITH_MISSING, encode_features
-from app.ml.model_registry import _duong_dan_mo_hinh, _tinh_sha256, tai_mo_hinh
-from app.ml.preprocessing import (
+from app.ml.credit.features import (
+    COLUMNS_WITH_MISSING,
+    FEATURE_NAMES,
+    NUMERIC_FEATURES,
+    encode_features,
+)
+from app.ml.credit.preprocessing import (
     HOME_OWNERSHIP_MAP,
     PURPOSE_MAP,
     _parse_emp_length,
 )
-from app.services.rule_engine import (
+from app.ml.shared.model_registry import _duong_dan_mo_hinh, _tinh_sha256, tai_mo_hinh
+from app.services.credit.rule_engine import (
+    kiem_tra_chot_chan_cung,
     quyet_dinh,
     tinh_diem_rui_ro,
     tinh_diem_tong_hop,
     xep_hang,
-    kiem_tra_chot_chan_cung,
 )
 
 # Ba cột này được TÍNH LẠI từ cột gốc trong `encode_features()` sau khi điền thiếu,
 # nên không điền median cho chúng — điền rồi cũng bị ghi đè.
-COT_DAN_XUAT = {"log_income", "loan_to_income"}
+COT_DAN_XUAT = {"log_income", "loan_to_income", "effective_apr", "log_du_no", "ty_le_du_no_thu_nhap"}
 
-# 4 cột gốc cần median. Là nguồn sự thật duy nhất cho cả `scripts/train_final_model.py`
+# 4 cột gốc cần median. Là nguồn sự thật duy nhất cho cả `scripts/train_credit_model.py`
 # lẫn `predictor.py`, để danh sách lúc huấn luyện và lúc chấm điểm không thể lệch nhau.
 COT_DIEN_MEDIAN = [c for c in NUMERIC_FEATURES if c not in COT_DAN_XUAT]
 
-THU_MUC_MO_HINH_MAC_DINH = Path(__file__).resolve().parent.parent.parent / "models"
+THU_MUC_MO_HINH_MAC_DINH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "credit"
 
-PHIEN_BAN_MAC_DINH = "13.0.0"
+PHIEN_BAN_MAC_DINH = "15.0.0"
 
 
 class BoDuDoan:
@@ -78,13 +83,13 @@ class BoDuDoan:
         if "median_dien_thieu" not in metadata:
             raise ValueError(
                 f"Gói v{version} không có 'median_dien_thieu' — đây là gói cũ, "
-                "không tự chứa. Chạy scripts/train_final_model.py để tạo gói mới."
+                "không tự chứa. Chạy scripts/train_credit_model.py để tạo gói mới."
             )
 
         if "target_encodings" not in metadata or "global_mean" not in metadata:
             raise ValueError(
                 f"Gói v{version} không có 'target_encodings' hoặc 'global_mean' — đây là gói cũ, "
-                "không tự chứa Target Encoding. Chạy scripts/train_final_model.py để tạo gói mới."
+                "không tự chứa Target Encoding. Chạy scripts/train_credit_model.py để tạo gói mới."
             )
 
         if metadata["feature_names"] != FEATURE_NAMES:
@@ -126,6 +131,19 @@ class BoDuDoan:
             "installment": ho_so.get("installment"),
             "interest_method": ho_so.get("interest_method", "DECLINING_BALANCE"),
             "cic_score": ho_so.get("cic_score"),
+            # CIC raw data (9 fields) — từ cic_data dict hoặc None khi CIC fail
+            "so_lan_tre_han": ho_so.get("so_lan_tre_han"),
+            "thang_tu_tre_gan_nhat": ho_so.get("thang_tu_tre_gan_nhat"),
+            "tong_du_no": ho_so.get("tong_du_no"),
+            "du_no_the_tin_dung": ho_so.get("du_no_the_tin_dung"),
+            "ty_le_su_dung_the": ho_so.get("ty_le_su_dung_the"),
+            "so_lan_tra_cuu": ho_so.get("so_lan_tra_cuu"),
+            "so_hop_dong_dang_co": ho_so.get("so_hop_dong_dang_co"),
+            "so_thang_quan_he": ho_so.get("so_thang_quan_he"),
+            "nhom_no_cao_nhat": ho_so.get("nhom_no_cao_nhat"),
+            # Fineract — thông tin sản phẩm vay
+            "int_rate": ho_so.get("int_rate"),
+            "term_months": ho_so.get("term_months"),
         }
 
         # Tạo chỉ báo thiếu trước khi điền median
@@ -155,10 +173,10 @@ class BoDuDoan:
 
         return float(self.model.predict_proba(X)[0][1])
 
-    def du_doan(self, ho_so: dict, cic_score: int | None = None) -> dict:
+    def du_doan(self, ho_so: dict, cic_data: dict | None = None) -> dict:
         """Chấm điểm đầy đủ: mô hình → rule engine → quyết định."""
-        if cic_score is not None:
-            ho_so = {**ho_so, "cic_score": cic_score}
+        if cic_data is not None:
+            ho_so = {**ho_so, **cic_data}
 
         pd_probability = self.du_doan_pd(ho_so)
         risk_score = tinh_diem_rui_ro(ho_so)

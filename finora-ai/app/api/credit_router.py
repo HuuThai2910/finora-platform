@@ -3,13 +3,14 @@ Router cho API Chấm điểm Tín dụng (Credit Scoring).
 
 Luồng ra quyết định:
 
-    Hồ sơ vay + CCCD
-        ├──→ cic-service (HTTP) ──→ cic_score (150-750) hoặc None
+    Hồ sơ vay (app/Fineract) + CCCD
+        ├──→ cic-service (HTTP, ?chiTiet=true)
+        │       ──→ cic_data dict (diemCic + 9 trường thô) hoặc None
         │
         ├──────────────────────────┬──────────────────────────┐
         ▼                          ▼                          │
-    Mô hình XGBoost             Rule Engine 5C                │
-    (có cic_score) → PD         (4 yếu tố) → risk_score       │
+    Mô hình XGBoost v14          Rule Engine 5C                │
+    (47 features, có CIC)→ PD    (4 yếu tố) → risk_score      │
         └──────────────────────────┴──────────────────────────┘
                                   ▼
             evaluation_score = (1-PD)x100 x 0,6 + risk_score x 0,4
@@ -22,9 +23,9 @@ from functools import lru_cache
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.ml.predictor import BoDuDoan
+from app.ml.credit.predictor import BoDuDoan
 from app.schemas.credit import CreditScoreRequest, CreditScoreResponse
-from app.services.cic_client import CicClient
+from app.services.credit.cic_client import CicClient
 
 router = APIRouter()
 
@@ -64,14 +65,14 @@ async def score_credit(ho_so: CreditScoreRequest) -> CreditScoreResponse:
             },
         ) from loi
 
-    # Tra điểm CIC nếu có CCCD
-    cic_score: int | None = None
+    # Tra dữ liệu CIC nếu có CCCD
+    cic_data: dict | None = None
     if ho_so.so_cccd:
         cic_client = lay_cic_client()
-        cic_score = await cic_client.tra_diem_cic(ho_so.so_cccd)
+        cic_data = await cic_client.tra_diem_cic(ho_so.so_cccd)
 
     ket_qua = bo_du_doan.du_doan(
         ho_so.model_dump(exclude_none=True),
-        cic_score=cic_score,
+        cic_data=cic_data,
     )
     return CreditScoreResponse(**ket_qua)

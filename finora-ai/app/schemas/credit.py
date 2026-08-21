@@ -1,16 +1,16 @@
 """
 Schema Pydantic cho API chấm điểm tín dụng.
 
-Chỉ nhận dữ liệu FINORA thực sự thu thập được: hồ sơ tự khai trên app + eKYC/CCCD.
-Không có trường nào từ CIC hay FICO — FINORA chưa có kết nối API tới CIC, nên nhận
-những trường đó vào là hứa hẹn một khả năng không tồn tại.
+Nhận dữ liệu FINORA thu thập được: hồ sơ tự khai trên app + eKYC/CCCD.
+CIC data (điểm + dữ liệu thô) được lấy tự động qua cic-service khi có so_cccd —
+không cần truyền vào request.
+
+Trường int_rate và term_months là thông tin sản phẩm vay từ Fineract, optional vì
+không phải mọi luồng đều có sẵn lúc scoring.
 
 Nguyên tắc quan trọng về trường tùy chọn: mặc định là `None`, KHÔNG phải một con số.
-Nếu đặt mặc định là số (ví dụ `person_age: int = 30`), bộ dự đoán sẽ không bao giờ
-nhìn thấy giá trị thiếu và median trong gói model trở nên vô dụng — người vay bỏ
-trống sẽ được chấm bằng một con số bịa ra ở tầng schema thay vì giá trị mà mô hình
-thực sự đã học. Để `None` thì `BoDuDoan.chuan_bi_dac_trung()` mới điền được từ
-`median_dien_thieu`.
+Nếu đặt mặc định là số, bộ dự đoán sẽ không bao giờ nhìn thấy giá trị thiếu và
+median trong gói model trở nên vô dụng.
 """
 from typing import Literal
 
@@ -58,6 +58,14 @@ class CreditScoreRequest(BaseModel):
             "loan_amnt, int_rate, term_months và interest_method."
         ),
     )
+    int_rate: float | None = Field(
+        default=None, ge=0, le=100,
+        description="Lãi suất danh nghĩa (%/năm) từ sản phẩm Fineract",
+    )
+    term_months: int | None = Field(
+        default=None, ge=1, le=24,
+        description="Kỳ hạn vay (tháng). Tối đa 24 theo NĐ 94/2025",
+    )
     interest_method: INTEREST_METHOD_HOP_LE | None = Field(
         default="DECLINING_BALANCE",
         description=(
@@ -89,6 +97,8 @@ class CreditScoreRequest(BaseModel):
                 "verification_status": "Verified",
                 "dti": 15.5,
                 "installment": 4500000.0,
+                "int_rate": 12.0,
+                "term_months": 12,
                 "so_cccd": "012345678901",
             }
         }

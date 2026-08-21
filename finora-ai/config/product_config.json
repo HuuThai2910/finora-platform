@@ -2,42 +2,42 @@
   "grades": [
     {
       "grade": "A",
-      "min_score": 94,
+      "min_score": 84,
       "max_score": 100,
       "limit": 100000000
     },
     {
       "grade": "B",
-      "min_score": 65,
-      "max_score": 94,
+      "min_score": 70,
+      "max_score": 84,
       "limit": 80000000
     },
     {
       "grade": "C",
-      "min_score": 50,
-      "max_score": 64,
+      "min_score": 53,
+      "max_score": 70,
       "limit": 40000000
     },
     {
       "grade": "D",
-      "min_score": 35,
-      "max_score": 49,
+      "min_score": 40,
+      "max_score": 53,
       "limit": 20000000
     },
     {
       "grade": "E",
       "min_score": 0,
-      "max_score": 34,
+      "max_score": 40,
       "limit": 0
     }
   ],
   "approval_thresholds": {
-    "auto_approve": 80,
-    "auto_reject": 60
+    "auto_approve": 75,
+    "auto_reject": 70
   },
   "model_weights": {
-    "pd_weight": 0.6,
-    "risk_weight": 0.4
+    "pd_weight": 0.85,
+    "risk_weight": 0.15
   },
   "legal_limits": {
     "max_platform_limit": 100000000,
