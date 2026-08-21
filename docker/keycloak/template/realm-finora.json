@@ -1,0 +1,86 @@
+{
+  "realm": "finora",
+  "displayName": "FINORA",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "verifyEmail": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": false,
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+
+  "roles": {
+    "realm": [
+      {
+        "name": "ROLE_BORROWER",
+        "description": "Nguoi vay - vai tro mac dinh khi dang ky"
+      },
+      {
+        "name": "ROLE_INVESTOR",
+        "description": "Nha dau tu"
+      },
+      {
+        "name": "ROLE_ADMIN",
+        "description": "Quan tri he thong FINORA"
+      }
+    ]
+  },
+
+  "clients": [
+    {
+      "clientId": "finora-user-client",
+      "name": "FINORA User Service",
+      "description": "Confidential client cua finora-user: password grant cho dang nhap + service account cho Admin REST API",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "__KEYCLOAK_CLIENT_SECRET__",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true,
+      "attributes": {
+        "use.refresh.tokens": "true",
+        "client_credentials.use_refresh_token": "false"
+      },
+      "defaultClientScopes": [
+        "acr",
+        "email",
+        "profile",
+        "roles",
+        "web-origins"
+      ],
+      "optionalClientScopes": [
+        "address",
+        "microprofile-jwt",
+        "offline_access",
+        "phone"
+      ]
+    }
+  ],
+
+  "users": [
+    {
+      "username": "service-account-finora-user-client",
+      "enabled": true,
+      "serviceAccountClientId": "finora-user-client",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users",
+          "query-users",
+          "query-groups",
+          "view-realm"
+        ]
+      }
+    }
+  ]
+}

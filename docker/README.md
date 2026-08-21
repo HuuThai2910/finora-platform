@@ -21,11 +21,12 @@ Docker Compose giữ PostgreSQL riêng từng service để làm việc khi mấ
 | `payment` | `finora-payment-postgres` | `15434` | `payment-postgres-data` |
 | `payment` | `finora-payment-redis` | `6380` | `payment-redis-data` |
 | `blockchain` | `finora-blockchain-postgres` | `15435` | `blockchain-postgres-data` |
-| `user` | `finora-user-postgres` | `15436` | `user-postgres-data` |
+| `user` | `finora-user-redis` | `6381` | `user-redis-data` |
 | `investment` | `finora-investment-postgres` | `15437` | `investment-postgres-data` |
-| `core` | `finora-keycloak-postgres` | không publish | `keycloak-postgres-data` |
+| `core` | `finora-keycloak` | `8180` | `keycloak-import` (file realm đã render) |
+| `mail` | `finora-mailpit` | `8025` UI, `1025` SMTP | không lưu trữ lâu dài (tối đa 500 thư) |
 
-Thái và Hải đã thống nhất dùng PostgreSQL riêng cho User, Investment và Keycloak. Kafka, Zookeeper và Keycloak thuộc profile `core`.
+Keycloak và PostgreSQL của `finora-user` KHÔNG còn chạy trong Docker: cả hai dùng PostgreSQL cài trực tiếp trên máy host. Xem mục 4.1.
 
 ## 2. Chuẩn bị Docker offline một lần
 
@@ -39,9 +40,6 @@ Nếu `docker/.env` được tạo từ bản MySQL/MongoDB cũ, đổi tên bi�
 
 | Biến cũ | Biến PostgreSQL mới | Giá trị port local |
 |---|---|---:|
-| `KEYCLOAK_DB_ROOT_PASSWORD` | `KEYCLOAK_POSTGRES_ADMIN_PASSWORD` | không publish |
-| `USER_MYSQL_ROOT_PASSWORD` | `USER_POSTGRES_ADMIN_PASSWORD` | — |
-| `USER_MYSQL_HOST_PORT` | `USER_POSTGRES_HOST_PORT` | `15436` |
 | `INVESTMENT_MONGO_ROOT_PASSWORD` | `INVESTMENT_POSTGRES_ADMIN_PASSWORD` | — |
 | `INVESTMENT_MONGO_HOST_PORT` | `INVESTMENT_POSTGRES_HOST_PORT` | `15437` |
 
@@ -162,13 +160,183 @@ Datasource local tương ứng:
 ```text
 Payment:    jdbc:postgresql://localhost:15434/finora_payment
 Blockchain: jdbc:postgresql://localhost:15435/finora_blockchain
-User:       jdbc:postgresql://localhost:15436/finora_user
 Investment: jdbc:postgresql://localhost:15437/finora_investment
 ```
 
 Smoke script luôn thêm profile `core` để kiểm tra Kafka/Keycloak. Nếu chỉ cần database Loan hằng ngày, dùng lệnh `docker compose ... loan-postgres` ở mục 3 để không bật core.
 
 Không có `-KeepRunning`, script sẽ dừng và xóa container của đúng scope sau smoke nhưng giữ volume. `-Stop` dùng để dừng scope đã chọn.
+
+## 4.1. Đăng nhập / đăng ký / quên mật khẩu (finora-user)
+
+Luồng auth cần 4 thành phần. Chỉ 2 thành phần đầu chạy trong Docker:
+
+| Thành phần | Chạy ở đâu | Ghi chú |
+|---|---|---|
+| Keycloak `8180` | Docker, profile `core` | Realm `finora`, client `finora-user-client` |
+| Redis `6381` | Docker, profile `user` | OTP quên mật khẩu (TTL 5 phút) + rate limit đăng nhập |
+| PostgreSQL `5432` | **Máy host** | Database `finora_user`; Flyway tự migrate khi app khởi động |
+| `finora-user` `8085`, `finora-notification` `8086` | IntelliJ / `java -jar` | Đọc cấu hình từ `finora-user/.env` |
+
+### Bước 1 — Chuẩn bị PostgreSQL trên máy
+
+```powershell
+# Hai database này phải tồn tại trước khi bật Docker
+psql -h localhost -U postgres -c "CREATE DATABASE finora_user;"
+psql -h localhost -U postgres -c "CREATE DATABASE keycloak;"
+```
+
+Keycloak trong container kết nối host qua `host.docker.internal`. Docker Desktop NAT
+kết nối này về loopback nên `pg_hba.conf` mặc định (chỉ cho `127.0.0.1`) vẫn chấp nhận
+— không cần sửa `pg_hba.conf` hay mở firewall.
+
+### Bước 2 — Điền secret
+
+Trong `docker/.env`:
+
+```properties
+KEYCLOAK_ADMIN=admin
+KEYCLOAK_ADMIN_PASSWORD=<mật khẩu admin console>
+KEYCLOAK_DB_HOST=host.docker.internal
+KEYCLOAK_DB_PORT=5432
+KEYCLOAK_DB_NAME=keycloak
+KEYCLOAK_DB_USERNAME=postgres
+KEYCLOAK_DB_PASSWORD=<mật khẩu postgres trên máy>
+KEYCLOAK_CLIENT_SECRET=<chuỗi ngẫu nhiên>
+USER_REDIS_HOST_PORT=6381
+USER_REDIS_PASSWORD=
+```
+
+Sau đó `Copy-Item finora-user/.env.example finora-user/.env` và điền tiếp. Giá trị
+`KEYCLOAK_CLIENT_SECRET` ở hai file **bắt buộc giống nhau**: `docker/.env` nạp secret
+vào realm Keycloak, `finora-user/.env` để service tự xác thực với realm đó.
+
+### Bước 3 — Bật hạ tầng
+
+```powershell
+powershell -ExecutionPolicy Bypass -File docker/smoke-infra.ps1 -Scope User -KeepRunning
+```
+
+Container `finora-keycloak-realm-init` chạy một lần: nó đọc
+`docker/keycloak/template/realm-finora.json`, thay `__KEYCLOAK_CLIENT_SECRET__` bằng giá trị
+trong `docker/.env`, rồi ghi kết quả vào volume `keycloak-import`. Keycloak khởi động với
+`--import-realm` và nạp file đó. Nhờ vậy secret không nằm trong file commit lên Git.
+
+Realm import tạo sẵn:
+
+- realm `finora`, `sslRequired=none` (local chạy HTTP);
+- 3 realm role `ROLE_BORROWER`, `ROLE_INVESTOR`, `ROLE_ADMIN` — khớp `UserRole` của service;
+- confidential client `finora-user-client`: bật *direct access grant* (đăng nhập bằng
+  password grant) và *service account* với quyền `manage-users`, `view-users`, `query-users`,
+  `query-groups`, `view-realm` để tạo user / gán role / đổi mật khẩu qua Admin REST API.
+
+`--import-realm` dùng chiến lược IGNORE_EXISTING: realm đã tồn tại thì Keycloak bỏ qua file
+import. Muốn nạp lại realm sau khi sửa template, phải xoá realm cũ:
+
+```powershell
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile core --profile user down
+psql -h localhost -U postgres -c "DROP DATABASE keycloak;"
+psql -h localhost -U postgres -c "CREATE DATABASE keycloak;"
+```
+
+### Bước 4 — Chạy service
+
+Chạy `FinoraNotificationApplication` (8086) rồi `FinoraUserApplication` (8085) trong IntelliJ,
+working directory đặt ở thư mục module để `spring.config.import` đọc được `.env`.
+
+Cấu hình SMTP cho notification: `Copy-Item finora-notification/.env.example finora-notification/.env`
+rồi chọn một trong hai chế độ ở mục 4.2.
+
+Không chạy notification thì đăng ký và quên mật khẩu **vẫn thành công** vì gọi best-effort — chỉ là
+không có email gửi đi; khi đó đọc OTP trực tiếp trong Redis:
+
+```powershell
+docker exec finora-user-redis redis-cli KEYS "reset_otp:*"
+docker exec finora-user-redis redis-cli GET "reset_otp:<userId>"
+```
+
+### Endpoint
+
+```text
+POST http://localhost:8085/api/v1/auth/register          {email, password, fullName, role}
+POST http://localhost:8085/api/v1/auth/login             {email, password}
+POST http://localhost:8085/api/v1/auth/forgot-password   {email}
+POST http://localhost:8085/api/v1/auth/reset-password    {email, otp, newPassword}
+```
+
+Web client nhận token qua HttpOnly cookie; mobile gửi header `X-Client-Type: mobile` để nhận
+token trong response body. Keycloak admin console: `http://localhost:8180` (realm `master`).
+
+## 4.2. Gửi email OTP / welcome (finora-notification)
+
+Code gửi mail đã đầy đủ (`EmailServiceImpl` + template HTML); chỉ cần cấu hình SMTP trong
+`finora-notification/.env`. Có hai chế độ, chọn một.
+
+### Chế độ A — Mailpit: test không cần tài khoản thật
+
+Mailpit là mail server chạy local, bắt mọi email service gửi đi và hiển thị ở web UI.
+Nó **không** chuyển thư ra Internet, nên dùng địa chỉ giả (`abc@finora.test`) vẫn đọc được thư.
+
+```powershell
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile mail up -d mailpit
+```
+
+Trong `finora-notification/.env`:
+
+```properties
+MAIL_HOST=localhost
+MAIL_PORT=1025
+MAIL_SMTP_AUTH=false
+MAIL_SMTP_STARTTLS=false
+MAIL_USERNAME=finora.noreply@finora.local
+MAIL_PASSWORD=
+```
+
+Đọc thư tại `http://localhost:8025`. Xoá sạch hộp thư:
+`curl -X DELETE http://localhost:8025/api/v1/messages`.
+
+### Chế độ B — Gmail SMTP: gửi vào hộp thư thật
+
+Gmail chặn đăng nhập SMTP bằng mật khẩu tài khoản, bắt buộc dùng **App Password**:
+
+1. Bật xác minh 2 bước: <https://myaccount.google.com/signinoptions/twosv>
+2. Tạo App Password: <https://myaccount.google.com/apppasswords>
+3. Google trả về 16 ký tự dạng `abcd efgh ijkl mnop` — **xoá hết khoảng trắng** khi dán vào `.env`
+
+```properties
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_SMTP_AUTH=true
+MAIL_SMTP_STARTTLS=true
+MAIL_USERNAME=<địa chỉ Gmail dùng để gửi>
+MAIL_PASSWORD=<App Password 16 ký tự, đã xoá khoảng trắng>
+```
+
+`MAIL_USERNAME` vừa dùng đăng nhập SMTP vừa là địa chỉ hiển thị ở mục From.
+Không thấy mục App Password nghĩa là tài khoản chưa bật xác minh 2 bước, hoặc là tài khoản
+Google Workspace bị admin chặn.
+
+Gmail giới hạn khoảng 500 thư/ngày cho tài khoản thường. Thư đầu tiên thường rơi vào Spam
+vì domain gửi không có SPF/DKIM khớp — kiểm tra Spam trước khi kết luận là lỗi cấu hình.
+
+### Kiểm tra nhanh không cần chạy finora-user
+
+```powershell
+curl.exe -X POST http://localhost:8086/api/internal/notifications/otp-email `
+  -H "Content-Type: application/json" `
+  -d '{\"email\":\"dia-chi-cua-ban@gmail.com\",\"otp\":\"123456\"}'
+```
+
+Endpoint luôn trả `200` kể cả khi gửi lỗi (best-effort để không chặn luồng nghiệp vụ).
+Vì vậy **phải đọc log của `finora-notification`** để biết kết quả thật:
+
+```text
+Đã gửi email thành công: subject='...', to='di***@gmail.com'     -> OK
+Lỗi gửi email: ... lỗi=Authentication failed                      -> sai MAIL_PASSWORD
+Lỗi gửi email: ... lỗi=Couldn't connect to host                   -> sai MAIL_HOST/MAIL_PORT hoặc chưa bật Mailpit
+```
+
+Địa chỉ email trong log được mask theo rule không log PII.
 
 ## 5. Chạy Loan application bằng container
 
