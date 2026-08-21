@@ -1,7 +1,9 @@
-"""Kiểm tra EkycService — chọn engine OCR và fallback."""
+"""Kiểm tra EkycService — OCR qua Gemini, thiếu key là lỗi hạ tầng."""
 
 import base64
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from app.services.ekyc.service import EkycService
 
@@ -21,45 +23,27 @@ def _image_base64() -> str:
     return base64.b64encode(b"anh-gia-lap").decode()
 
 
-def _service() -> EkycService:
-    # Không dựng engine thật trong test: EasyOCR nặng, Gemini cần key.
-    with patch("app.services.ekyc.service.OcrExtractor"), patch(
+def test_ocr_di_qua_gemini():
+    with patch(
+        "app.services.ekyc.service.gemini_extractor.build_from_env"
+    ) as mock_build:
+        engine = MagicMock()
+        engine.extract.return_value = OCR_OK
+        mock_build.return_value = engine
+
+        result = EkycService().ocr(_image_base64())
+
+    assert result["id_number"] == "079204001234"
+    engine.extract.assert_called_once()
+
+
+def test_thieu_key_thi_no_loi_ha_tang():
+    """Thiếu key phải nổ RuntimeError để finora-user trả AI_UNAVAILABLE,
+    không được giả dạng OCR thất bại rồi bắt người dùng chụp lại vô ích."""
+    with patch(
         "app.services.ekyc.service.gemini_extractor.build_from_env", return_value=None
     ):
-        return EkycService()
+        service = EkycService()
 
-
-def test_khong_co_gemini_thi_dung_easyocr():
-    service = _service()
-    service._ocr = MagicMock()
-    service._ocr.extract.return_value = OCR_OK
-
-    result = service.ocr(_image_base64())
-
-    assert result["id_number"] == "079204001234"
-    service._ocr.extract.assert_called_once()
-
-
-def test_co_gemini_thi_uu_tien_gemini():
-    service = _service()
-    service._gemini_ocr = MagicMock()
-    service._gemini_ocr.extract.return_value = OCR_OK
-    service._ocr = MagicMock()
-
-    result = service.ocr(_image_base64())
-
-    assert result["success"] is True
-    service._ocr.extract.assert_not_called()
-
-
-def test_gemini_loi_thi_roi_ve_easyocr():
-    service = _service()
-    service._gemini_ocr = MagicMock()
-    service._gemini_ocr.extract.side_effect = RuntimeError("mat mang")
-    service._ocr = MagicMock()
-    service._ocr.extract.return_value = OCR_OK
-
-    result = service.ocr(_image_base64())
-
-    assert result["id_number"] == "079204001234"
-    service._ocr.extract.assert_called_once()
+    with pytest.raises(RuntimeError):
+        service.ocr(_image_base64())

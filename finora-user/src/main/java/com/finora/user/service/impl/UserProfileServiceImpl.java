@@ -3,17 +3,13 @@ package com.finora.user.service.impl;
 import com.finora.common.dto.PageResponse;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.user.config.CryptoProperties;
 import com.finora.user.domain.UserProfile;
 import com.finora.user.domain.UserRole;
-import com.finora.user.dto.request.CccdDataRequest;
-import com.finora.user.dto.request.UpdateProfileRequest;
 import com.finora.user.dto.response.UserProfileResponse;
 import com.finora.user.mapper.UserProfileMapper;
 import com.finora.user.repository.UserProfileRepository;
 import com.finora.user.service.KeycloakAdminService;
 import com.finora.user.service.UserProfileService;
-import com.finora.user.support.CryptoUtils;
 import com.finora.user.support.PiiMasker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,7 +38,6 @@ public class UserProfileServiceImpl implements UserProfileService {
 
     private final UserProfileRepository userProfileRepository;
     private final UserProfileMapper userProfileMapper;
-    private final CryptoProperties cryptoProperties;
     private final KeycloakAdminService keycloakAdminService;
 
     // ── Hồ sơ cá nhân ──────────────────────────────────────────────
@@ -50,73 +45,6 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Override
     public UserProfileResponse getMyProfile(UUID keycloakUserId) {
         UserProfile profile = findByKeycloakUserIdOrThrow(keycloakUserId);
-        return userProfileMapper.toResponse(profile);
-    }
-
-    @Override
-    @Transactional
-    public UserProfileResponse updateMyProfile(UUID keycloakUserId, UpdateProfileRequest request) {
-        UserProfile profile = findByKeycloakUserIdOrThrow(keycloakUserId);
-
-        userProfileMapper.updateFromRequest(request, profile);
-
-        if (request.getPhone() != null) {
-            String phoneHash = CryptoUtils.hmacSha256(request.getPhone(), cryptoProperties.getHmacSecret());
-
-            if (userProfileRepository.existsByPhoneHash(phoneHash)
-                    && !phoneHash.equals(profile.getPhoneHash())) {
-                throw new BusinessException(HttpStatus.CONFLICT,
-                        "Số điện thoại này đã được đăng ký trong hệ thống");
-            }
-
-            profile.setPhoneHash(phoneHash);
-            profile.setPhoneEncrypted(request.getPhone());
-        }
-
-        updateProfileCompleteness(profile);
-
-        profile = userProfileRepository.save(profile);
-
-        log.info("Đã cập nhật hồ sơ: userId={}, email={}",
-                profile.getId(), PiiMasker.maskEmail(profile.getEmail()));
-
-        return userProfileMapper.toResponse(profile);
-    }
-
-    // ── eKYC — CCCD ─────────────────────────────────────────────────
-
-    @Override
-    @Transactional
-    public UserProfileResponse submitCccdData(UUID keycloakUserId, CccdDataRequest request) {
-        String idNumberHash = CryptoUtils.hmacSha256(
-                request.getIdNumber(), cryptoProperties.getHmacSecret());
-
-        if (userProfileRepository.existsByIdNumberHash(idNumberHash)) {
-            UserProfile existing = userProfileRepository.findByKeycloakUserId(keycloakUserId)
-                    .orElse(null);
-            if (existing == null || !idNumberHash.equals(existing.getIdNumberHash())) {
-                throw new BusinessException(HttpStatus.CONFLICT,
-                        "Số CCCD này đã được đăng ký trong hệ thống");
-            }
-        }
-
-        UserProfile profile = findByKeycloakUserIdOrThrow(keycloakUserId);
-
-        profile.setFullName(request.getFullName());
-        profile.setDateOfBirth(request.getDateOfBirth());
-        profile.setGender(request.getGender());
-        profile.setPlaceOfOrigin(request.getPlaceOfOrigin());
-        profile.setAddress(request.getAddress());
-        profile.setIdNumberHash(idNumberHash);
-        profile.setIdNumberEncrypted(request.getIdNumber());
-
-        updateProfileCompleteness(profile);
-
-        profile = userProfileRepository.save(profile);
-
-        log.info("Đã cập nhật CCCD cho userId={}, idNumber={}",
-                profile.getId(), PiiMasker.maskIdNumber(request.getIdNumber()));
-
         return userProfileMapper.toResponse(profile);
     }
 
@@ -194,13 +122,6 @@ public class UserProfileServiceImpl implements UserProfileService {
     }
 
     // ── Helper ──────────────────────────────────────────────────────
-
-    private void updateProfileCompleteness(UserProfile profile) {
-        boolean isComplete = profile.getFullName() != null && !profile.getFullName().isBlank()
-                && profile.getIdNumberHash() != null && !profile.getIdNumberHash().isBlank()
-                && profile.getPhoneHash() != null && !profile.getPhoneHash().isBlank();
-        profile.setProfileCompleted(isComplete);
-    }
 
     private UserProfile findByKeycloakUserIdOrThrow(UUID keycloakUserId) {
         return userProfileRepository.findByKeycloakUserId(keycloakUserId)

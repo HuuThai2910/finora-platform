@@ -104,7 +104,8 @@ public class EkycVerificationService {
         }
 
         if (profile.getIdNumberHash() != null && !profile.getIdNumberHash().isBlank()) {
-            // Hồ sơ đã khai số CCCD — ảnh phải khớp đúng số đó.
+            // Hồ sơ đã có số CCCD (dữ liệu cũ từ luồng khai tay trước đây —
+            // luồng đó đã bỏ) — ảnh phải khớp đúng số đó.
             if (!ocrIdHash.equals(profile.getIdNumberHash())) {
                 log.warn("Số CCCD trên ảnh khác hồ sơ: userId={}", profile.getId());
                 return reject(profile, EkycResultCode.ID_MISMATCH,
@@ -173,10 +174,7 @@ public class EkycVerificationService {
         return value == null || value.isBlank();
     }
 
-    /**
-     * Cùng luật với {@code UserProfileServiceImpl}: hồ sơ đủ khi có họ tên,
-     * số CCCD và số điện thoại.
-     */
+    /** Hồ sơ đủ khi có họ tên, số CCCD và số điện thoại. */
     private void updateProfileCompleteness(UserProfile profile) {
         boolean isComplete = profile.getFullName() != null && !profile.getFullName().isBlank()
                 && profile.getIdNumberHash() != null && !profile.getIdNumberHash().isBlank()

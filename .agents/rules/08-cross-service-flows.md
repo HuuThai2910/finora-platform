@@ -29,7 +29,7 @@ Mỗi flow mới hoặc thay đổi MUST xác định trigger, orchestrator, con
 3. Ảnh mặt sau không OCR (model chỉ đọc mặt trước) — nộp kèm làm bằng chứng cầm thẻ đầy đủ, phục vụ đối soát tay khi có nghi vấn.
 4. User áp policy: đạt → `VERIFIED` (`documentVerified = true`); các trường hợp còn lại giữ nguyên trạng thái và trả `resultCode` (`OCR_FAILED`/`ID_MISMATCH`/`ID_TAKEN`/`RATE_LIMITED`/`AI_UNAVAILABLE`) để người dùng chụp lại.
 
-**State authority:** AI không giữ trạng thái; rate limit nằm ở User (Redis). Số CCCD là điều kiện đối chiếu duy nhất; họ tên và ngày sinh chỉ sinh cảnh báo `ocrWarnings`. Phần face-match/liveness phía AI đã xoá hẳn (2026-08-22); AI chỉ còn `/ocr` cho eKYC — engine chính là Gemini vision khi có `GEMINI_API_KEY`, EasyOCR dự phòng offline.
+**State authority:** AI không giữ trạng thái; rate limit nằm ở User (Redis). Số CCCD là điều kiện đối chiếu duy nhất; họ tên và ngày sinh chỉ sinh cảnh báo `ocrWarnings`. Phần face-match/liveness phía AI đã xoá hẳn (2026-08-22); AI chỉ còn `/ocr` cho eKYC — engine duy nhất là Gemini vision, bắt buộc cấu hình `GEMINI_API_KEY` (thiếu key endpoint trả lỗi và User hiển thị AI_UNAVAILABLE).
 
 **Chống lạm dụng:** rate limit 1 request/10 giây cho mỗi người dùng; mỗi CCCD chỉ gắn với một tài khoản toàn hệ thống.
 

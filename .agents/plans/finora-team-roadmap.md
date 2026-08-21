@@ -98,7 +98,7 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 |---|---|---|---|---|
 | P1-B01 | User | Đồng bộ Keycloak identity và user profile | User API + authorization + migration | `BACKLOG` |
 | P1-B02 | User | KYC application/state machine, document metadata | Không lưu/log ảnh nhạy cảm sai chỗ | `BACKLOG` |
-| P1-B03 | AI | eKYC technical API: OCR contract (đã thu hẹp 2026-08-22: bỏ face/liveness; engine Gemini 2.5 Flash, EasyOCR dự phòng offline) | Model/provider version + reason | `DONE` — OCR chạy trong luồng eKYC hai mặt CCCD |
+| P1-B03 | AI | eKYC technical API: OCR contract (đã thu hẹp 2026-08-22: bỏ face/liveness; engine duy nhất Gemini 2.5 Flash, bắt buộc GEMINI_API_KEY) | Model/provider version + reason | `DONE` — OCR chạy trong luồng eKYC hai mặt CCCD |
 | P1-B04 | User | Orchestrate eKYC và manual review | Event KYC version 1 | `BACKLOG` |
 | P1-B05 | AI | Credit preprocessing/model registry/predictor | Model package chống train/serve skew | `BACKLOG` |
 | P1-B06 | AI | Credit scoring + reason codes/XAI cơ bản | Contract fixture cho Loan | `BACKLOG` |

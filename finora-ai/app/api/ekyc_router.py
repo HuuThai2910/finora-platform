@@ -21,10 +21,10 @@ def get_ekyc_service() -> EkycService:
 
 @router.post("/ocr", response_model=OcrResponse)
 async def ocr_cccd(request: OcrRequest):
-    """Trích xuất thông tin từ ảnh CCCD.
+    """Trích xuất thông tin từ ảnh CCCD bằng Gemini vision.
 
-    Engine chính là Gemini vision (khi cấu hình ``GEMINI_API_KEY``); EasyOCR
-    là dự phòng offline.
+    Bắt buộc cấu hình ``GEMINI_API_KEY`` — thiếu key endpoint trả lỗi để
+    ``finora-user`` hiển thị AI_UNAVAILABLE.
     """
     service = get_ekyc_service()
     result = service.ocr(request.image_base64)

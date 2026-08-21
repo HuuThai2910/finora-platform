@@ -11,24 +11,10 @@ numpy==1.26.3
 # Pin scipy đi cùng numpy đã pin — bản mới hơn kéo numpy 2.x
 # và làm xgboost nổ ở scipy.sparse (np.long không còn trong numpy 1.26).
 scipy==1.13.1
-shap==0.44.1
 joblib==1.3.2
 
-# Computer Vision (eKYC, Forgery Detection)
-opencv-python-headless==4.9.0.80
-Pillow==10.2.0
-
-# eKYC — OCR giấy tờ (đã bỏ face match/liveness khỏi luồng định danh)
-easyocr==1.7.1
-# Đọc CCCD bằng Gemini vision khi có GEMINI_API_KEY; EasyOCR là dự phòng offline.
+# eKYC — OCR CCCD bằng Gemini vision, BẮT BUỘC có GEMINI_API_KEY (xem .env.example)
 google-genai==2.19.0
-
-# Kafka Consumer
-confluent-kafka==2.3.0
-
-# Utilities
-python-dotenv==1.0.0
-python-multipart==0.0.6
 
 # HTTP client (gọi cic-service)
 httpx==0.28.1

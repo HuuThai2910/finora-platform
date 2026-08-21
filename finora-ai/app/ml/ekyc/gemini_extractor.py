@@ -15,7 +15,7 @@ from pydantic import BaseModel
 try:
     from google import genai
     from google.genai import types as genai_types
-except ImportError:  # SDK chưa cài — service sẽ tự rơi về EasyOCR
+except ImportError:  # SDK chưa cài — build_from_env trả None và service báo lỗi hạ tầng
     genai = None  # type: ignore[assignment]
     genai_types = None  # type: ignore[assignment]
 
@@ -54,17 +54,18 @@ class OcrFields(BaseModel):
 def build_from_env():
     """Tạo extractor nếu có key trong env; thiếu key/SDK thì trả ``None``.
 
-    Trả ``None`` thay vì ném lỗi để service rơi về EasyOCR — chạy offline
-    không có key vẫn phải hoạt động.
+    Trả ``None`` thay vì ném lỗi để service vẫn khởi động được (credit/fraud
+    không phụ thuộc); ``EkycService`` chịu trách nhiệm báo lỗi hạ tầng khi
+    endpoint OCR bị gọi mà chưa có engine.
     """
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not api_key:
         return None
     if genai is None:
-        logger.warning("Có GEMINI_API_KEY nhưng chưa cài google-genai — dùng EasyOCR.")
+        logger.warning("Có GEMINI_API_KEY nhưng chưa cài google-genai — OCR eKYC sẽ lỗi.")
         return None
     model = os.getenv("GEMINI_OCR_MODEL", DEFAULT_MODEL)
-    logger.info("OCR CCCD dùng Gemini (%s), EasyOCR làm dự phòng.", model)
+    logger.info("OCR CCCD dùng Gemini (%s).", model)
     return GeminiOcrExtractor(genai.Client(api_key=api_key), model)
 
 
