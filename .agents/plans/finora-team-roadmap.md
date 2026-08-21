@@ -98,7 +98,7 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 |---|---|---|---|---|
 | P1-B01 | User | Đồng bộ Keycloak identity và user profile | User API + authorization + migration | `BACKLOG` |
 | P1-B02 | User | KYC application/state machine, document metadata | Không lưu/log ảnh nhạy cảm sai chỗ | `BACKLOG` |
-| P1-B03 | AI | eKYC technical API: OCR/face/liveness/forgery contract | Model/provider version + reason | `BACKLOG` |
+| P1-B03 | AI | eKYC technical API: OCR contract (đã thu hẹp 2026-08-22: bỏ face/liveness; engine Gemini 2.5 Flash, EasyOCR dự phòng offline) | Model/provider version + reason | `DONE` — OCR chạy trong luồng eKYC hai mặt CCCD |
 | P1-B04 | User | Orchestrate eKYC và manual review | Event KYC version 1 | `BACKLOG` |
 | P1-B05 | AI | Credit preprocessing/model registry/predictor | Model package chống train/serve skew | `BACKLOG` |
 | P1-B06 | AI | Credit scoring + reason codes/XAI cơ bản | Contract fixture cho Loan | `BACKLOG` |
@@ -274,7 +274,7 @@ Các task có thể chạy song song theo ownership, nhưng mỗi task vẫn ph�
 | P7-B05 | AI | Fraud detection | Payment behavior contract | `BACKLOG` |
 | P7-B06 | AI | Document forgery | P1 eKYC | `BACKLOG` |
 | P7-B07 | AI/Loan contract | Early warning | P5 behavior snapshot | `BACKLOG` |
-| P7-B08 | User/AI | NFC CCCD PoC | — | `DROPPED` — bỏ khỏi phạm vi 2026-08-21: Passive Authentication cần chứng thư CSCA của Bộ Công an (không công bố), nên đọc chip không chứng minh được thẻ thật; giá trị còn lại không bù được chi phí native module NFC cho cả Android/iOS. Thay bằng OCR + active liveness + face match. |
+| P7-B08 | User/AI | NFC CCCD PoC | — | `DROPPED` — bỏ khỏi phạm vi 2026-08-21: Passive Authentication cần chứng thư CSCA của Bộ Công an (không công bố), nên đọc chip không chứng minh được thẻ thật; giá trị còn lại không bù được chi phí native module NFC cho cả Android/iOS. Thay bằng OCR ảnh hai mặt CCCD. |
 | P7-B09 | Notification | Đa kênh email/SMS/push | Provider adapter | `BACKLOG` |
 | P7-B10 | User | Admin user/RBAC nâng cao | P0 security | `BACKLOG` |
 

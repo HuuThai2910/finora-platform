@@ -26,7 +26,7 @@ File này là nguồn chuẩn để quyết định một chức năng, entity, 
 
 **Không sở hữu:** password/session/token, loan application, wallet balance, credit decision cuối cùng.
 
-**State authority:** chỉ User chuyển trạng thái KYC. AI trả OCR/face/liveness/forgery result; User áp policy để quyết định `VERIFIED`, `REJECTED` hoặc `MANUAL_REVIEW`.
+**State authority:** chỉ User chuyển trạng thái KYC. AI trả OCR result (face/liveness đã bỏ khỏi luồng eKYC 2026-08-22); User áp policy để quyết định `VERIFIED`, `REJECTED` hoặc `MANUAL_REVIEW`.
 
 ## `finora-loan`
 
@@ -86,7 +86,7 @@ File này là nguồn chuẩn để quyết định một chức năng, entity, 
 
 ## `finora-ai`
 
-**Sở hữu:** model package/version, feature preprocessing, prediction, explanation/reason codes, OCR/face/liveness/forgery/fraud technical result và model evaluation.
+**Sở hữu:** model package/version, feature preprocessing, prediction, explanation/reason codes, OCR (eKYC) và fraud technical result, model evaluation. Face/liveness đã bỏ khỏi eKYC 2026-08-22.
 
 **Không sở hữu:** KYC status cuối cùng, loan approval/state, wallet/transaction hoặc hành động khóa tài khoản.
 
