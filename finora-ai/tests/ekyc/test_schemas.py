@@ -1,9 +1,13 @@
 import pytest
 from pydantic import ValidationError
+
 from app.schemas.ekyc import (
-    OcrRequest, OcrResponse,
-    FaceMatchRequest, FaceMatchResponse,
-    LivenessRequest, LivenessResponse,
+    FaceMatchRequest,
+    FaceMatchResponse,
+    LivenessRequest,
+    LivenessResponse,
+    OcrRequest,
+    OcrResponse,
 )
 
 

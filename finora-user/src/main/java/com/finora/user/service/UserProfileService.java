@@ -3,15 +3,11 @@ package com.finora.user.service;
 import com.finora.common.dto.PageResponse;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.user.client.AiEkycClient;
 import com.finora.user.config.CryptoProperties;
-import com.finora.user.domain.EkycStatus;
 import com.finora.user.domain.UserProfile;
 import com.finora.user.domain.UserRole;
 import com.finora.user.dto.request.CccdDataRequest;
-import com.finora.user.dto.request.EkycVerifyRequest;
 import com.finora.user.dto.request.UpdateProfileRequest;
-import com.finora.user.dto.response.EkycResultResponse;
 import com.finora.user.dto.response.UserProfileResponse;
 import com.finora.user.mapper.UserProfileMapper;
 import com.finora.user.repository.UserProfileRepository;
@@ -46,7 +42,6 @@ public class UserProfileService {
     private final UserProfileMapper userProfileMapper;
     private final CryptoProperties cryptoProperties;
     private final KeycloakAdminService keycloakAdminService;
-    private final AiEkycClient aiEkycClient;
 
     // ── Hồ sơ cá nhân ──────────────────────────────────────────────
 
@@ -206,72 +201,6 @@ public class UserProfileService {
 
         log.info("Admin đã gán role {} cho userId={}, email={}",
                 newRole, userId, PiiMasker.maskEmail(profile.getEmail()));
-    }
-
-    // ── eKYC — Xác minh khuôn mặt ────────────────────────────────────
-
-    /**
-     * Xác minh eKYC: kiểm tra liveness → so khớp khuôn mặt → cập nhật trạng thái.
-     * <p>
-     * Luồng:
-     * <ol>
-     *   <li>Gọi AI service kiểm tra liveness (ảnh thật vs ảnh màn hình)</li>
-     *   <li>Gọi AI service so khớp khuôn mặt selfie với ảnh CCCD</li>
-     *   <li>Cập nhật UserProfile với kết quả eKYC</li>
-     * </ol>
-     * Nếu không kết nối được AI service, chuyển sang xét duyệt thủ công.
-     */
-    @Transactional
-    public EkycResultResponse verifyEkyc(UUID keycloakUserId, EkycVerifyRequest request) {
-        UserProfile profile = findByKeycloakUserIdOrThrow(keycloakUserId);
-
-        try {
-            // 1. Kiểm tra liveness
-            var livenessResult = aiEkycClient.liveness(
-                new AiEkycClient.LivenessInput(request.selfieBase64())
-            );
-
-            if (!livenessResult.is_live()) {
-                profile.markEkycFailed();
-                userProfileRepository.save(profile);
-                return new EkycResultResponse(
-                    EkycStatus.FAILED, false, 0.0, false,
-                    "Ảnh không phải chụp trực tiếp (liveness check failed)"
-                );
-            }
-
-            // 2. So khớp khuôn mặt
-            var faceResult = aiEkycClient.faceMatch(
-                new AiEkycClient.FaceMatchInput(request.selfieBase64(), request.cccdImageBase64())
-            );
-
-            if (!faceResult.match()) {
-                profile.markEkycFailed();
-                userProfileRepository.save(profile);
-                return new EkycResultResponse(
-                    EkycStatus.FAILED, false, faceResult.similarity(), true,
-                    "Khuôn mặt không khớp với ảnh trên CCCD"
-                );
-            }
-
-            // 3. Thành công
-            profile.markEkycVerified(faceResult.similarity());
-            userProfileRepository.save(profile);
-
-            return new EkycResultResponse(
-                EkycStatus.VERIFIED, true, faceResult.similarity(), true,
-                "Xác minh eKYC thành công"
-            );
-
-        } catch (Exception e) {
-            log.error("Lỗi khi gọi AI eKYC service", e);
-            profile.markEkycManualReview();
-            userProfileRepository.save(profile);
-            return new EkycResultResponse(
-                EkycStatus.MANUAL_REVIEW, false, 0.0, false,
-                "Không thể kết nối dịch vụ AI, chuyển sang xét duyệt thủ công"
-            );
-        }
     }
 
     // ── Helper ──────────────────────────────────────────────────────

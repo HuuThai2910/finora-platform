@@ -22,9 +22,20 @@ Mỗi flow mới hoặc thay đổi MUST xác định trigger, orchestrator, con
 5. User phát `KycVerified`, `KycRejected` hoặc `KycManualReviewRequired`.
 6. Notification gửi kết quả theo event.
 
-**Idempotency:** `kycApplicationId + analysisType + modelVersion`.
+**CURRENT STATE (2026-08-21):** đã triển khai xác minh trên `UserProfile`, chưa có KYC application entity và chưa phát event; Notification chưa nhận kết quả eKYC.
 
-**Failure:** AI timeout → KYC giữ `PROCESSING`/`RETRY_PENDING`; retry có giới hạn, sau đó manual review/DLT. MUST NOT tự đánh dấu verified khi AI lỗi.
+1. User cấp thử thách active liveness: `POST /api/v1/users/profile/liveness-challenge` sinh `sessionId` và chuỗi hành động ngẫu nhiên (`blink`/`turn_left`/`turn_right`), lưu Redis TTL 60 giây.
+2. Client gửi `POST /api/v1/users/profile/ekyc-verify` gồm `sessionId`, các frame và ảnh CCCD.
+3. User chạy tuần tự và dừng ở bước đầu tiên trượt: tiêu thụ phiên (dùng một lần) → `POST /api/v1/ai/ekyc/ocr` → đối chiếu HMAC số CCCD với `idNumberHash` → `POST /api/v1/ai/ekyc/liveness-active` với đúng chuỗi hành động của phiên → `POST /api/v1/ai/ekyc/face-match` trên `best_frame_index` do AI chỉ ra.
+4. User áp policy: đạt hết → `VERIFIED`; sai khuôn mặt liên tiếp đủ ngưỡng → `MANUAL_REVIEW`; các trường hợp còn lại giữ nguyên trạng thái và trả `resultCode` để người dùng chụp lại.
+
+**State authority:** AI không giữ trạng thái phiên; chuỗi hành động và bộ đếm nằm ở User (Redis). Số CCCD là điều kiện chặn duy nhất; họ tên và ngày sinh chỉ sinh cảnh báo `ocrWarnings`.
+
+**Chống replay:** `sessionId` dùng một lần và chuỗi hành động ngẫu nhiên theo phiên — video quay sẵn không biết trước thứ tự động tác. Rate limit 1 request/10 giây cho mỗi người dùng.
+
+**Idempotency:** `kycApplicationId + analysisType + modelVersion`. Hiện tại vai trò này do `sessionId` dùng một lần đảm nhiệm.
+
+**Failure:** AI timeout → KYC giữ `PROCESSING`/`RETRY_PENDING`; retry có giới hạn, sau đó manual review/DLT. MUST NOT tự đánh dấu verified khi AI lỗi. Hiện tại AI lỗi trả `AI_UNAVAILABLE` và giữ nguyên trạng thái hồ sơ.
 
 ## F00 — Đồng bộ FINORA Product sang Fineract
 

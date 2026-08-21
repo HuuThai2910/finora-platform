@@ -5,8 +5,10 @@ import com.finora.user.dto.request.CccdDataRequest;
 import com.finora.user.dto.request.EkycVerifyRequest;
 import com.finora.user.dto.request.UpdateProfileRequest;
 import com.finora.user.dto.response.EkycResultResponse;
+import com.finora.user.dto.response.LivenessChallengeResponse;
 import com.finora.user.dto.response.UserProfileResponse;
 import com.finora.user.security.SecurityUtils;
+import com.finora.user.service.EkycVerificationService;
 import com.finora.user.service.UserProfileService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +29,7 @@ import java.util.UUID;
 public class UserProfileController {
 
     private final UserProfileService userProfileService;
+    private final EkycVerificationService ekycVerificationService;
 
     // ── Hồ sơ cá nhân ──────────────────────────────────────────────
 
@@ -81,8 +84,23 @@ public class UserProfileController {
     // ── eKYC — Xác minh khuôn mặt ──────────────────────────────────
 
     /**
-     * Xác minh eKYC: gửi ảnh selfie + ảnh CCCD để kiểm tra liveness và so khớp khuôn mặt.
-     * Kết quả cập nhật trạng thái eKYC trên hồ sơ người dùng.
+     * Cấp thử thách active liveness cho phiên xác minh sắp tới.
+     * <p>
+     * Chuỗi hành động do server sinh ngẫu nhiên và chỉ dùng được một lần, nên
+     * video quay sẵn không qua được bước xác minh phía sau.
+     */
+    @PostMapping("/profile/liveness-challenge")
+    @PreAuthorize("hasAuthority('user:cccd:scan')")
+    public BaseResponse<LivenessChallengeResponse> createLivenessChallenge() {
+        UUID keycloakUserId = SecurityUtils.getCurrentKeycloakUserId();
+        return BaseResponse.success(ekycVerificationService.createLivenessChallenge(keycloakUserId));
+    }
+
+    /**
+     * Xác minh eKYC: gửi ảnh CCCD và chuỗi frame quay theo thử thách của phiên.
+     * <p>
+     * Luồng: OCR ảnh CCCD → đối chiếu số CCCD với hồ sơ → active liveness →
+     * so khớp khuôn mặt. Kết quả cập nhật trạng thái eKYC trên hồ sơ người dùng.
      */
     @PostMapping("/profile/ekyc-verify")
     @PreAuthorize("hasAuthority('user:cccd:scan')")
@@ -90,7 +108,7 @@ public class UserProfileController {
             @Valid @RequestBody EkycVerifyRequest request) {
 
         UUID keycloakUserId = SecurityUtils.getCurrentKeycloakUserId();
-        EkycResultResponse result = userProfileService.verifyEkyc(keycloakUserId, request);
+        EkycResultResponse result = ekycVerificationService.verify(keycloakUserId, request);
         return BaseResponse.success(result);
     }
 }

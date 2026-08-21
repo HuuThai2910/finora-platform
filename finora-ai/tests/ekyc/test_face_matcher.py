@@ -1,7 +1,9 @@
-import pytest
+from unittest.mock import patch
+
 import numpy as np
-from unittest.mock import patch, MagicMock
-from app.ml.face_matcher import FaceMatcher
+import pytest
+
+from app.ml.ekyc.face_matcher import FaceMatcher
 
 
 @pytest.fixture
@@ -17,7 +19,7 @@ def _make_dummy_image_bytes() -> bytes:
     return buf.tobytes()
 
 
-@patch("app.ml.face_matcher.DeepFace")
+@patch("app.ml.ekyc.face_matcher.DeepFace")
 def test_face_match_success(mock_deepface, matcher):
     mock_deepface.verify.return_value = {
         "verified": True,
@@ -36,7 +38,7 @@ def test_face_match_success(mock_deepface, matcher):
     assert "threshold" in result
 
 
-@patch("app.ml.face_matcher.DeepFace")
+@patch("app.ml.ekyc.face_matcher.DeepFace")
 def test_face_no_match(mock_deepface, matcher):
     mock_deepface.verify.return_value = {
         "verified": False,
@@ -54,7 +56,7 @@ def test_face_no_match(mock_deepface, matcher):
     assert result["similarity"] < 0.5
 
 
-@patch("app.ml.face_matcher.DeepFace")
+@patch("app.ml.ekyc.face_matcher.DeepFace")
 def test_face_match_error_returns_fail(mock_deepface, matcher):
     mock_deepface.verify.side_effect = ValueError("Face not detected")
 

@@ -3,14 +3,19 @@
 import logging
 from functools import lru_cache
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 
 from app.schemas.ekyc import (
-    OcrRequest, OcrResponse,
-    FaceMatchRequest, FaceMatchResponse,
-    LivenessRequest, LivenessResponse,
+    ActiveLivenessRequest,
+    ActiveLivenessResponse,
+    FaceMatchRequest,
+    FaceMatchResponse,
+    LivenessRequest,
+    LivenessResponse,
+    OcrRequest,
+    OcrResponse,
 )
-from app.services.ekyc_service import EkycService
+from app.services.ekyc.service import EkycService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -54,3 +59,22 @@ async def check_liveness(request: LivenessRequest):
     service = get_ekyc_service()
     result = service.liveness(request.image_base64)
     return LivenessResponse(**result)
+
+
+@router.post("/liveness-active", response_model=ActiveLivenessResponse)
+async def check_active_liveness(request: ActiveLivenessRequest):
+    """Kiểm tra người dùng thực hiện đúng chuỗi hành động của phiên challenge.
+
+    Luồng: nhiều frame base64 → MediaPipe FaceMesh (EAR + yaw) → khớp đúng
+    hành động và đúng thứ tự → lớp phụ LBP trên frame tốt nhất → live/fake.
+
+    Chuỗi hành động do ``finora-user`` sinh ngẫu nhiên cho từng phiên; service
+    này không giữ trạng thái phiên, chỉ kiểm chứng bằng chứng kỹ thuật.
+    """
+    service = get_ekyc_service()
+    try:
+        result = service.active_liveness(request.frames, request.expected_actions)
+    except ValueError as e:
+        # Hành động không hỗ trợ là lỗi hợp đồng phía gọi, không phải lỗi hệ thống
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return ActiveLivenessResponse(**result)
