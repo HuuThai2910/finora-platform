@@ -38,6 +38,16 @@ spring:
       port: ${USER_REDIS_PORT:6381}
       password: ${USER_REDIS_PASSWORD:}
 
+  # Feign — một lần xác minh eKYC chạy OCR, FaceMesh và nhận dạng khuôn mặt,
+  # có thể mất vài chục giây nên read-timeout mặc định là không đủ.
+  cloud:
+    openfeign:
+      client:
+        config:
+          ai-ekyc-service:
+            connect-timeout: 3000
+            read-timeout: 60000
+
 server:
   port: 8085
 
@@ -54,6 +64,9 @@ keycloak:
 finora:
   notification:
     url: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
+  # AI service — OCR CCCD, active liveness và so khớp khuôn mặt
+  ai:
+    url: ${AI_SERVICE_URL:http://localhost:8000}
   crypto:
     hmac-secret: ${FINORA_HMAC_SECRET:change-me-in-production-hmac-secret-key-32chars}
     aes-secret: ${FINORA_AES_SECRET:change-me-prod-aes-256-key-32ch!}

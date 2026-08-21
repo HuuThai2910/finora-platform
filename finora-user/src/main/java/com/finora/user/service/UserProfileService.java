@@ -1,23 +1,20 @@
 package com.finora.user.service;
 
 import com.finora.common.dto.PageResponse;
-import com.finora.user.dto.request.CccdDataRequest;
-import com.finora.user.dto.request.UpdateProfileRequest;
 import com.finora.user.dto.response.UserProfileResponse;
 import org.springframework.data.domain.Pageable;
 
 import java.util.UUID;
 
 /**
- * Interface dịch vụ quản lý hồ sơ người dùng — xem, cập nhật, eKYC và quản trị.
+ * Interface dịch vụ quản lý hồ sơ người dùng — xem hồ sơ và quản trị.
+ * <p>
+ * Không còn API cập nhật/khai CCCD tay: mọi thông tin định danh (họ tên, số
+ * CCCD, ngày sinh...) được điền từ OCR khi quét eKYC.
  */
 public interface UserProfileService {
 
     UserProfileResponse getMyProfile(UUID keycloakUserId);
-
-    UserProfileResponse updateMyProfile(UUID keycloakUserId, UpdateProfileRequest request);
-
-    UserProfileResponse submitCccdData(UUID keycloakUserId, CccdDataRequest request);
 
     PageResponse<UserProfileResponse> getAllUsers(Pageable pageable);
 

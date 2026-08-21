@@ -1,20 +1,17 @@
 package com.finora.user.mapper;
 
 import com.finora.user.domain.UserProfile;
-import com.finora.user.dto.request.UpdateProfileRequest;
 import com.finora.user.dto.response.UserProfileResponse;
-import org.mapstruct.*;
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
 
 /**
- * MapStruct mapper chuyển đổi giữa entity {@link UserProfile} và DTO.
+ * MapStruct mapper chuyển đổi entity {@link UserProfile} sang DTO.
  * <p>
  * CryptoConverter tự động giải mã khi JPA đọc, nên {@code idNumberEncrypted}
  * và {@code phoneEncrypted} trong entity đã là plaintext tại thời điểm mapping.
  */
-@Mapper(
-        componentModel = "spring",
-        nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE
-)
+@Mapper(componentModel = "spring")
 public interface UserProfileMapper {
 
     /**
@@ -26,12 +23,4 @@ public interface UserProfileMapper {
     @Mapping(source = "idNumberEncrypted", target = "idNumber")
     @Mapping(source = "phoneEncrypted", target = "phone")
     UserProfileResponse toResponse(UserProfile entity);
-
-    /**
-     * Cập nhật entity từ request — chỉ ghi đè các trường khác null (partial update).
-     * Các trường không có trong request (id, keycloakUserId, hash, encrypted, role...)
-     * được giữ nguyên, không phải lỗi unmapped.
-     */
-    @BeanMapping(unmappedTargetPolicy = ReportingPolicy.IGNORE)
-    void updateFromRequest(UpdateProfileRequest request, @MappingTarget UserProfile entity);
 }

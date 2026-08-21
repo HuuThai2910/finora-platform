@@ -51,11 +51,17 @@ public class EmailTemplateServiceImpl implements EmailTemplateService {
 
     @Override
     public String renderWelcomeEmail(String fullName) {
+        // Đăng ký không thu họ tên (tên chỉ có sau eKYC) — thiếu tên thì chào
+        // trống, không chèn email hay giá trị thay thế nào khác.
+        String greeting = fullName == null || fullName.isBlank()
+                ? "Xin chào!"
+                : "Xin chào, %s!".formatted(HtmlSanitizer.escape(fullName));
+
         return WRAPPER_OPEN
                 + HEADER_PRIMARY.formatted("Nền tảng cho vay ngang hàng")
                 + BODY_OPEN
                 + """
-                        <h2 style="color: #1a73e8; margin-top: 0;">Xin chào, %s!</h2>
+                        <h2 style="color: #1a73e8; margin-top: 0;">%s</h2>
                         <p style="color: #333; line-height: 1.6;">
                             Chào mừng bạn đến với <strong>FINORA</strong> — nền tảng cho vay ngang hàng an toàn và minh bạch.
                         </p>
@@ -66,7 +72,7 @@ public class EmailTemplateServiceImpl implements EmailTemplateService {
                             <a href="#" style="background: #1a73e8; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: bold;">
                                 Hoàn tất hồ sơ
                             </a>
-                        </div>""".formatted(HtmlSanitizer.escape(fullName))
+                        </div>""".formatted(greeting)
                 + FOOTER.formatted("Nếu bạn không tạo tài khoản này, vui lòng bỏ qua email này.")
                 + WRAPPER_CLOSE;
     }

@@ -84,6 +84,30 @@ public class UserProfile {
     @Builder.Default
     private UserRole role = UserRole.BORROWER;
 
+    /** Trạng thái xác minh eKYC */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "ekyc_status", nullable = false)
+    @Builder.Default
+    private EkycStatus ekycStatus = EkycStatus.PENDING;
+
+    /** Điểm khớp khuôn mặt (0-1) */
+    @Column(name = "face_match_score")
+    private Double faceMatchScore;
+
+    /** Đã xác minh liveness (ảnh thật) */
+    @Column(name = "liveness_verified", nullable = false)
+    @Builder.Default
+    private boolean livenessVerified = false;
+
+    /** Đã xác minh giấy tờ (CCCD) */
+    @Column(name = "document_verified", nullable = false)
+    @Builder.Default
+    private boolean documentVerified = false;
+
+    /** Thời điểm hoàn thành eKYC */
+    @Column(name = "ekyc_completed_at")
+    private Instant ekycCompletedAt;
+
     /** Đánh dấu hồ sơ đã điền đầy đủ thông tin eKYC hay chưa */
     @Column(name = "profile_completed", nullable = false)
     @Builder.Default
@@ -96,6 +120,19 @@ public class UserProfile {
     /** Thời điểm cập nhật gần nhất — gán tự động khi persist hoặc update */
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    // ── eKYC state transitions ────────────────────────────────────────
+
+    /**
+     * Đánh dấu đã xác minh giấy tờ (CCCD hai mặt). Luồng hiện tại không có
+     * xác minh khuôn mặt nên {@code livenessVerified}/{@code faceMatchScore}
+     * giữ nguyên giá trị mặc định.
+     */
+    public void markEkycDocumentVerified() {
+        this.ekycStatus = EkycStatus.VERIFIED;
+        this.documentVerified = true;
+        this.ekycCompletedAt = Instant.now();
+    }
 
     // ── Lifecycle callbacks ──────────────────────────────────────────
 
