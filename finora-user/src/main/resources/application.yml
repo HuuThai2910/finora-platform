@@ -23,5 +23,41 @@ spring:
     validate-on-migrate: true
     clean-disabled: true
 
+  # Spring Security — Keycloak JWT validation
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/finora}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/finora/protocol/openid-connect/certs}
+
+  # Redis — OTP storage (TTL 5 phút) và rate limiting (brute-force detection)
+  data:
+    redis:
+      host: ${USER_REDIS_HOST:localhost}
+      port: ${USER_REDIS_PORT:6381}
+      password: ${USER_REDIS_PASSWORD:}
+
 server:
   port: 8085
+
+# Keycloak Admin Client — tạo user, gán role, đổi mật khẩu
+keycloak:
+  admin:
+    server-url: ${KEYCLOAK_SERVER_URL:http://localhost:8180}
+    realm: ${KEYCLOAK_REALM:finora}
+    client-id: ${KEYCLOAK_CLIENT_ID:finora-user-client}
+    client-secret: ${KEYCLOAK_CLIENT_SECRET:}
+
+# Mã hóa PII (CCCD, SĐT) — secret key cho HMAC-SHA256 và AES-256-GCM
+# Notification service — gọi qua Feign (internal HTTP, không qua gateway)
+finora:
+  notification:
+    url: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
+  crypto:
+    hmac-secret: ${FINORA_HMAC_SECRET:change-me-in-production-hmac-secret-key-32chars}
+    aes-secret: ${FINORA_AES_SECRET:change-me-prod-aes-256-key-32ch!}
+  auth:
+    cookie:
+      domain: ${AUTH_COOKIE_DOMAIN:localhost}
+      secure: ${AUTH_COOKIE_SECURE:false}
