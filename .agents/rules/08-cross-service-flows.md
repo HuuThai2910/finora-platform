@@ -22,18 +22,18 @@ Mỗi flow mới hoặc thay đổi MUST xác định trigger, orchestrator, con
 5. User phát `KycVerified`, `KycRejected` hoặc `KycManualReviewRequired`.
 6. Notification gửi kết quả theo event.
 
-**CURRENT STATE (2026-08-21):** đã triển khai xác minh trên `UserProfile`, chưa có KYC application entity và chưa phát event; Notification chưa nhận kết quả eKYC.
+**CURRENT STATE (2026-08-22):** đã triển khai xác minh trên `UserProfile`, chưa có KYC application entity và chưa phát event; Notification chưa nhận kết quả eKYC. Luồng đã **bỏ xác minh khuôn mặt/liveness** theo quyết định thiết kế — bằng chứng định danh là ảnh giấy tờ hai mặt:
 
-1. User cấp thử thách active liveness: `POST /api/v1/users/profile/liveness-challenge` sinh `sessionId` và chuỗi hành động ngẫu nhiên (`blink`/`turn_left`/`turn_right`), lưu Redis TTL 60 giây.
-2. Client gửi `POST /api/v1/users/profile/ekyc-verify` gồm `sessionId`, các frame và ảnh CCCD.
-3. User chạy tuần tự và dừng ở bước đầu tiên trượt: tiêu thụ phiên (dùng một lần) → `POST /api/v1/ai/ekyc/ocr` → đối chiếu HMAC số CCCD với `idNumberHash` → `POST /api/v1/ai/ekyc/liveness-active` với đúng chuỗi hành động của phiên → `POST /api/v1/ai/ekyc/face-match` trên `best_frame_index` do AI chỉ ra.
-4. User áp policy: đạt hết → `VERIFIED`; sai khuôn mặt liên tiếp đủ ngưỡng → `MANUAL_REVIEW`; các trường hợp còn lại giữ nguyên trạng thái và trả `resultCode` để người dùng chụp lại.
+1. Client gửi `POST /api/v1/users/profile/ekyc-verify` gồm ảnh mặt trước và mặt sau CCCD (`cccdFrontBase64`, `cccdBackBase64`).
+2. User chạy tuần tự và dừng ở bước đầu tiên trượt: rate limit → `POST /api/v1/ai/ekyc/ocr` trên ảnh mặt trước → đối chiếu HMAC số CCCD với `idNumberHash`. Hồ sơ chưa có số CCCD thì lấy số từ OCR điền vào sau khi kiểm tra số đó chưa thuộc tài khoản khác (`ID_TAKEN`).
+3. Ảnh mặt sau không OCR (model chỉ đọc mặt trước) — nộp kèm làm bằng chứng cầm thẻ đầy đủ, phục vụ đối soát tay khi có nghi vấn.
+4. User áp policy: đạt → `VERIFIED` (`documentVerified = true`); các trường hợp còn lại giữ nguyên trạng thái và trả `resultCode` (`OCR_FAILED`/`ID_MISMATCH`/`ID_TAKEN`/`RATE_LIMITED`/`AI_UNAVAILABLE`) để người dùng chụp lại.
 
-**State authority:** AI không giữ trạng thái phiên; chuỗi hành động và bộ đếm nằm ở User (Redis). Số CCCD là điều kiện chặn duy nhất; họ tên và ngày sinh chỉ sinh cảnh báo `ocrWarnings`.
+**State authority:** AI không giữ trạng thái; rate limit nằm ở User (Redis). Số CCCD là điều kiện đối chiếu duy nhất; họ tên và ngày sinh chỉ sinh cảnh báo `ocrWarnings`. Các endpoint face-match/liveness phía AI vẫn tồn tại nhưng không còn được User gọi.
 
-**Chống replay:** `sessionId` dùng một lần và chuỗi hành động ngẫu nhiên theo phiên — video quay sẵn không biết trước thứ tự động tác. Rate limit 1 request/10 giây cho mỗi người dùng.
+**Chống lạm dụng:** rate limit 1 request/10 giây cho mỗi người dùng; mỗi CCCD chỉ gắn với một tài khoản toàn hệ thống.
 
-**Idempotency:** `kycApplicationId + analysisType + modelVersion`. Hiện tại vai trò này do `sessionId` dùng một lần đảm nhiệm.
+**Idempotency:** `kycApplicationId + analysisType + modelVersion`. Hiện tại xác minh là thao tác trạng thái trên `UserProfile`, gọi lại khi đã `VERIFIED` trả kết quả cũ mà không gọi AI.
 
 **Failure:** AI timeout → KYC giữ `PROCESSING`/`RETRY_PENDING`; retry có giới hạn, sau đó manual review/DLT. MUST NOT tự đánh dấu verified khi AI lỗi. Hiện tại AI lỗi trả `AI_UNAVAILABLE` và giữ nguyên trạng thái hồ sơ.
 

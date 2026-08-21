@@ -12,25 +12,16 @@ public enum EkycResultCode {
     /** Đạt toàn bộ các bước — hồ sơ chuyển sang {@link EkycStatus#VERIFIED}. */
     VERIFIED,
 
-    /** Hồ sơ chưa có số CCCD; phải nộp qua {@code cccd-manual} trước. */
-    PROFILE_NO_CCCD,
-
-    /** Phiên challenge hết hạn, sai hoặc đã dùng — lấy challenge mới rồi quay lại. */
-    CHALLENGE_EXPIRED,
-
-    /** OCR không đọc được số CCCD trên ảnh — yêu cầu chụp lại rõ hơn. */
+    /** OCR không đọc được số CCCD trên ảnh mặt trước — yêu cầu chụp lại rõ hơn. */
     OCR_FAILED,
 
-    /** Số CCCD đọc được khác số CCCD đã khai trong hồ sơ. */
+    /** Số CCCD đọc được khác số CCCD đã có trong hồ sơ. */
     ID_MISMATCH,
 
-    /** Không thực hiện đúng chuỗi hành động, hoặc trượt kiểm tra texture. */
-    LIVENESS_FAILED,
+    /** Số CCCD trên ảnh đã được tài khoản khác đăng ký — mỗi CCCD một tài khoản. */
+    ID_TAKEN,
 
-    /** Khuôn mặt không khớp ảnh trên CCCD. */
-    FACE_MISMATCH,
-
-    /** Gọi lại quá nhanh — chặn spam vì mỗi lần xác minh tốn OCR và nhận dạng khuôn mặt. */
+    /** Gọi lại quá nhanh — chặn spam vì mỗi lần xác minh tốn OCR. */
     RATE_LIMITED,
 
     /** Không gọi được AI service; trạng thái hồ sơ giữ nguyên để người dùng thử lại. */

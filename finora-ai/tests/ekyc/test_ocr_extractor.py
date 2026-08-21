@@ -123,3 +123,77 @@ def test_extract_name_fallback_khi_nhan_bi_tach_dong(extractor):
     _, buf = cv2.imencode(".jpg", dummy_image)
     result = ext.extract(buf.tobytes())
     assert result["full_name"] == "NGUYỄN VĂN A"
+
+
+def test_extract_du_truong_mem_ke_ca_dia_chi(extractor):
+    """Nhãn mất dấu, giá trị tách dòng, địa chỉ tràn hai dòng — vẫn trích đủ."""
+    ext, mock_reader = extractor
+    mock_reader.readtext.return_value = [
+        ([0, 0, 100, 20], "CONG HOA XA HOI CHU NGHIA VIET NAM", 0.95),
+        ([0, 20, 100, 40], "So / No.: 079204001234", 0.91),
+        ([0, 40, 100, 60], "Ho va ten / Full name:", 0.89),
+        ([0, 60, 100, 80], "NGUYEN THI B", 0.90),
+        ([0, 80, 100, 100], "Ngay sinh / Date of birth: 02/03/1999", 0.88),
+        ([0, 100, 100, 120], "Gioi tinh / Sex: Nu", 0.92),
+        ([0, 120, 100, 140], "Que quan / Place of origin:", 0.87),
+        ([0, 140, 100, 160], "Nam Dinh", 0.86),
+        ([0, 160, 100, 180], "Noi thuong tru / Place of residence:", 0.85),
+        ([0, 180, 100, 200], "25 Nguyen Trai", 0.84),
+        ([0, 200, 100, 220], "Thanh Xuan, Ha Noi", 0.83),
+    ]
+
+    dummy_image = np.zeros((300, 400, 3), dtype=np.uint8)
+    import cv2
+    _, buf = cv2.imencode(".jpg", dummy_image)
+    result = ext.extract(buf.tobytes())
+
+    assert result["date_of_birth"] == "02/03/1999"
+    assert result["gender"] == "Nữ"
+    assert result["place_of_origin"] == "Nam Dinh"
+    assert result["address"] == "25 Nguyen Trai Thanh Xuan, Ha Noi"
+
+
+def test_gioi_tinh_khong_dinh_chu_nam_trong_viet_nam(extractor):
+    """"Nam" trong tiêu đề/quốc tịch không được tính là giới tính."""
+    ext, mock_reader = extractor
+    mock_reader.readtext.return_value = [
+        ([0, 0, 100, 20], "CONG HOA XA HOI CHU NGHIA VIET NAM", 0.95),
+        ([0, 20, 100, 40], "079204001234", 0.91),
+        ([0, 40, 100, 60], "Quoc tich / Nationality: Viet Nam", 0.90),
+    ]
+
+    dummy_image = np.zeros((300, 400, 3), dtype=np.uint8)
+    import cv2
+    _, buf = cv2.imencode(".jpg", dummy_image)
+    result = ext.extract(buf.tobytes())
+
+    assert result["gender"] is None
+
+
+def test_ngay_sinh_khong_nham_sang_han_the(extractor):
+    """Ngày trên dòng "Có giá trị đến" không được lấy làm ngày sinh."""
+    ext, mock_reader = extractor
+    mock_reader.readtext.return_value = [
+        ([0, 0, 100, 20], "Co gia tri den / Date of expiry: 01/01/2030", 0.90),
+        ([0, 20, 100, 40], "079204001234", 0.91),
+        ([0, 40, 100, 60], "Ngay sinh / Date of birth: 02/03/1999", 0.88),
+    ]
+
+    dummy_image = np.zeros((300, 400, 3), dtype=np.uint8)
+    import cv2
+    _, buf = cv2.imencode(".jpg", dummy_image)
+    result = ext.extract(buf.tobytes())
+
+    assert result["date_of_birth"] == "02/03/1999"
+
+
+def test_thieu_easyocr_phai_no_loi_ha_tang():
+    """Thiếu thư viện phải nổ RuntimeError để backend trả AI_UNAVAILABLE.
+
+    Nuốt lỗi thành success=False sẽ hiển thị "ảnh mờ, chụp lại" — người dùng
+    chụp lại bao nhiêu lần cũng vô ích vì lỗi nằm ở môi trường server.
+    """
+    with patch("app.ml.ekyc.ocr_extractor.easyocr", None):
+        ext = OcrExtractor()
+        with pytest.raises(RuntimeError):
+            ext.extract(b"anh-bat-ky")

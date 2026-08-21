@@ -1,17 +1,27 @@
 spring:
+  config:
+    import: optional:file:.env[.properties]
   application:
     name: finora-notification
+  # SMTP mac dinh la Gmail. Doi sang mail server local (Mailpit) bang cach set
+  # MAIL_HOST/MAIL_PORT/MAIL_SMTP_AUTH/MAIL_SMTP_STARTTLS trong finora-notification/.env
   mail:
-    host: smtp.gmail.com
-    port: 587
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    # Dia chi nay vua dung de dang nhap SMTP vua la dia chi gui (From).
     username: ${MAIL_USERNAME:finora.noreply@gmail.com}
-    password: ${MAIL_PASSWORD:your-app-password}
+    # Gmail bat buoc dung App Password 16 ky tu, khong phai mat khau tai khoan.
+    password: ${MAIL_PASSWORD:}
     properties:
       mail:
         smtp:
-          auth: true
+          auth: ${MAIL_SMTP_AUTH:true}
           starttls:
-            enable: true
+            enable: ${MAIL_SMTP_STARTTLS:true}
+          # Khong de request cua finora-user treo khi SMTP khong phan hoi.
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
 
 server:
   port: 8086

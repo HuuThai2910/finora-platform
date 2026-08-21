@@ -21,6 +21,7 @@ class OcrResponse(BaseModel):
     date_of_birth: str | None = None
     gender: str | None = None
     place_of_origin: str | None = None
+    address: str | None = Field(default=None, description="Nơi thường trú in trên mặt trước")
     confidence: float = Field(ge=0.0, le=1.0)
 
 

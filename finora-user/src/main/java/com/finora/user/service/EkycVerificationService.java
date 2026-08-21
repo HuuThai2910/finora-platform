@@ -5,37 +5,35 @@ import com.finora.user.client.AiEkycClient;
 import com.finora.user.config.CryptoProperties;
 import com.finora.user.domain.EkycResultCode;
 import com.finora.user.domain.EkycStatus;
-import com.finora.user.domain.LivenessAction;
+import com.finora.user.domain.Gender;
 import com.finora.user.domain.UserProfile;
 import com.finora.user.dto.request.EkycVerifyRequest;
 import com.finora.user.dto.response.EkycResultResponse;
-import com.finora.user.dto.response.LivenessChallengeResponse;
 import com.finora.user.repository.UserProfileRepository;
+import com.finora.user.support.CryptoUtils;
 import com.finora.user.util.CccdMatcher;
-import com.finora.user.util.CryptoUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Xác minh eKYC theo luồng F01 — User là orchestrator, AI chỉ cung cấp bằng chứng.
+ * Xác minh eKYC bằng ảnh giấy tờ — User là orchestrator, AI chỉ cung cấp bằng chứng.
  * <p>
- * Một lần xác minh chạy lần lượt và <b>dừng ngay ở bước đầu tiên thất bại</b> để
- * không tốn các bước sau (OCR, FaceMesh và nhận dạng khuôn mặt đều nặng):
+ * Luồng đã bỏ xác minh khuôn mặt/liveness theo quyết định thiết kế: người dùng
+ * chụp <b>hai mặt CCCD</b>, backend OCR mặt trước để lấy số CCCD, còn mặt sau
+ * nộp kèm làm bằng chứng cầm thẻ đầy đủ (không OCR — model chỉ đọc mặt trước,
+ * ép đọc mặt sau sẽ trượt oan). Một lần xác minh chạy lần lượt:
  * <ol>
- *   <li>Hồ sơ phải có số CCCD — số CCCD là điều kiện chặn duy nhất.</li>
- *   <li>Phiên challenge còn hiệu lực và chưa dùng.</li>
- *   <li>OCR ảnh CCCD, đối chiếu số CCCD bằng HMAC.</li>
- *   <li>Active liveness đúng chuỗi hành động của phiên.</li>
- *   <li>So khớp khuôn mặt giữa frame tốt nhất và ảnh CCCD.</li>
+ *   <li>Chặn gọi dồn dập (OCR tốn tài nguyên).</li>
+ *   <li>OCR ảnh mặt trước — không đọc được số thì yêu cầu chụp lại.</li>
+ *   <li>Đối chiếu số CCCD với hồ sơ bằng HMAC. Hồ sơ chưa có số thì lấy số từ
+ *       OCR điền vào, sau khi kiểm tra số đó chưa thuộc tài khoản khác.</li>
+ *   <li>So trường mềm (họ tên, ngày sinh) — chỉ cảnh báo, không chặn.</li>
  * </ol>
- * Mọi thất bại đều cho gửi lại: trạng thái hồ sơ giữ nguyên, người dùng chụp lại
- * và lấy challenge mới. Chỉ khi sai khuôn mặt liên tiếp nhiều lần mới gắn cờ
- * {@link EkycStatus#MANUAL_REVIEW} cho admin xem — vẫn không khoá người dùng.
+ * Mọi thất bại đều cho gửi lại: trạng thái hồ sơ giữ nguyên và người dùng chụp lại.
  */
 @Service
 @Slf4j
@@ -44,22 +42,16 @@ public class EkycVerificationService {
 
     private final UserProfileRepository userProfileRepository;
     private final AiEkycClient aiEkycClient;
-    private final EkycChallengeService challengeService;
+    private final EkycRateLimitService rateLimitService;
     private final CryptoProperties cryptoProperties;
-
-    /** Cấp thử thách mới cho phiên xác minh sắp tới. */
-    public LivenessChallengeResponse createLivenessChallenge(UUID keycloakUserId) {
-        findProfileOrThrow(keycloakUserId);
-        return challengeService.createChallenge(keycloakUserId);
-    }
 
     /**
      * Xác minh eKYC.
      * <p>
-     * Cố ý <b>không</b> đặt {@code @Transactional} trên phương thức này: luồng có
-     * ba lần gọi HTTP sang AI service, giữ transaction trong lúc chờ mạng sẽ
-     * giam connection database hàng chục giây. Trạng thái chỉ được ghi bằng một
-     * lệnh {@code save} ở cuối, bản thân nó đã là một transaction ngắn.
+     * Cố ý <b>không</b> đặt {@code @Transactional} trên phương thức này: OCR là
+     * lời gọi HTTP sang AI service, giữ transaction trong lúc chờ mạng sẽ giam
+     * connection database hàng chục giây. Trạng thái chỉ được ghi bằng một lệnh
+     * {@code save} ở cuối, bản thân nó đã là một transaction ngắn.
      */
     public EkycResultResponse verify(UUID keycloakUserId, EkycVerifyRequest request) {
         UserProfile profile = findProfileOrThrow(keycloakUserId);
@@ -67,28 +59,16 @@ public class EkycVerificationService {
         // Kiểm tra rẻ tiền đặt trước, để không tiêu suất rate limit vào những
         // lần gọi chắc chắn không cần tới AI.
         if (profile.getEkycStatus() == EkycStatus.VERIFIED) {
-            return EkycResultResponse.verified(
-                    orZero(profile.getFaceMatchScore()), List.of(), "Hồ sơ đã được xác minh trước đó");
+            return EkycResultResponse.verified(List.of(), "Hồ sơ đã được xác minh trước đó");
         }
-        if (profile.getIdNumberHash() == null || profile.getIdNumberHash().isBlank()) {
-            return reject(profile, EkycResultCode.PROFILE_NO_CCCD,
-                    "Vui lòng nhập thông tin CCCD trước khi xác minh");
-        }
-        if (!challengeService.tryAcquireVerifySlot(keycloakUserId)) {
+        if (!rateLimitService.tryAcquireVerifySlot(keycloakUserId)) {
             return reject(profile, EkycResultCode.RATE_LIMITED,
                     "Bạn thao tác quá nhanh, vui lòng thử lại sau "
-                            + EkycChallengeService.VERIFY_MIN_INTERVAL.toSeconds() + " giây");
-        }
-
-        Optional<List<LivenessAction>> actions =
-                challengeService.consumeChallenge(keycloakUserId, request.sessionId());
-        if (actions.isEmpty()) {
-            return reject(profile, EkycResultCode.CHALLENGE_EXPIRED,
-                    "Phiên xác minh đã hết hạn, vui lòng bắt đầu lại");
+                            + EkycRateLimitService.VERIFY_MIN_INTERVAL.toSeconds() + " giây");
         }
 
         try {
-            return runVerification(profile, request, actions.get());
+            return runVerification(profile, request);
         } catch (Exception e) {
             // AI lỗi không phải lỗi của người dùng: giữ nguyên trạng thái hồ sơ
             // để họ thử lại, tuyệt đối không tự đánh dấu verified hay failed.
@@ -100,26 +80,21 @@ public class EkycVerificationService {
 
     // ── Các bước xác minh ───────────────────────────────────────────
 
-    private EkycResultResponse runVerification(
-            UserProfile profile, EkycVerifyRequest request, List<LivenessAction> actions) {
-
+    private EkycResultResponse runVerification(UserProfile profile, EkycVerifyRequest request) {
         AiEkycClient.OcrResult ocr = aiEkycClient.ocr(
-                new AiEkycClient.OcrInput(request.cccdImageBase64()));
+                new AiEkycClient.OcrInput(request.cccdFrontBase64()));
 
         if (!ocr.success() || ocr.id_number() == null) {
             log.info("OCR không đọc được số CCCD: userId={}, confidence={}",
                     profile.getId(), ocr.confidence());
             return reject(profile, EkycResultCode.OCR_FAILED,
-                    "Không đọc được thông tin trên ảnh CCCD, vui lòng chụp lại rõ hơn");
+                    "Không đọc được thông tin trên ảnh mặt trước CCCD, vui lòng chụp lại rõ hơn");
         }
 
-        String ocrIdHash = CryptoUtils.hmacSha256(ocr.id_number(), cryptoProperties.hmacSecret());
-        if (!ocrIdHash.equals(profile.getIdNumberHash())) {
-            log.warn("Số CCCD trên ảnh khác hồ sơ: userId={}", profile.getId());
-            return reject(profile, EkycResultCode.ID_MISMATCH,
-                    "Số CCCD trên ảnh không khớp thông tin đã khai");
-        }
+        String ocrIdHash = CryptoUtils.hmacSha256(ocr.id_number(), cryptoProperties.getHmacSecret());
 
+        // So trường mềm với dữ liệu người dùng ĐÃ KHAI, phải tính trước khi
+        // điền từ OCR — điền xong mới so thì mọi thứ luôn khớp và cảnh báo mất tác dụng.
         List<String> warnings = CccdMatcher.softFieldWarnings(
                 profile.getFullName(), profile.getDateOfBirth(),
                 ocr.full_name(), ocr.date_of_birth());
@@ -128,92 +103,85 @@ public class EkycVerificationService {
                     profile.getId(), warnings);
         }
 
-        AiEkycClient.ActiveLivenessResult liveness = aiEkycClient.activeLiveness(
-                new AiEkycClient.ActiveLivenessInput(
-                        request.frames(), LivenessAction.toWireValues(actions)));
-
-        if (!liveness.is_live()) {
-            log.info("Liveness không đạt: userId={}, evidence={}",
-                    profile.getId(), describeFailedActions(liveness));
-            return reject(profile, EkycResultCode.LIVENESS_FAILED,
-                    "Chưa thực hiện đúng động tác yêu cầu, vui lòng thử lại");
+        if (profile.getIdNumberHash() != null && !profile.getIdNumberHash().isBlank()) {
+            // Hồ sơ đã khai số CCCD — ảnh phải khớp đúng số đó.
+            if (!ocrIdHash.equals(profile.getIdNumberHash())) {
+                log.warn("Số CCCD trên ảnh khác hồ sơ: userId={}", profile.getId());
+                return reject(profile, EkycResultCode.ID_MISMATCH,
+                        "Số CCCD trên ảnh không khớp thông tin đã khai");
+            }
+        } else {
+            // Hồ sơ chưa có số CCCD — lấy số từ OCR, nhưng mỗi CCCD chỉ được
+            // gắn với một tài khoản trên toàn hệ thống.
+            if (userProfileRepository.existsByIdNumberHash(ocrIdHash)) {
+                log.warn("Số CCCD trên ảnh đã thuộc tài khoản khác: userId={}", profile.getId());
+                return reject(profile, EkycResultCode.ID_TAKEN,
+                        "Số CCCD này đã được đăng ký trong hệ thống");
+            }
+            profile.setIdNumberHash(ocrIdHash);
+            // CryptoConverter tự mã hoá khi JPA persist
+            profile.setIdNumberEncrypted(ocr.id_number());
         }
 
-        AiEkycClient.FaceMatchResult face = aiEkycClient.faceMatch(
-                new AiEkycClient.FaceMatchInput(
-                        selectFrame(request.frames(), liveness.best_frame_index()),
-                        request.cccdImageBase64()));
+        fillMissingSoftFields(profile, ocr);
 
-        if (!face.match()) {
-            return handleFaceMismatch(profile, face, warnings);
-        }
-
-        challengeService.resetFaceMismatch(profile.getKeycloakUserId());
-        profile.markEkycVerified(face.similarity());
+        profile.markEkycDocumentVerified();
+        updateProfileCompleteness(profile);
         userProfileRepository.save(profile);
 
-        log.info("Xác minh eKYC thành công: userId={}, similarity={}, warnings={}",
-                profile.getId(), face.similarity(), warnings);
+        log.info("Xác minh eKYC (giấy tờ hai mặt) thành công: userId={}, warnings={}",
+                profile.getId(), warnings);
 
-        return EkycResultResponse.verified(face.similarity(), warnings, "Xác minh eKYC thành công");
+        return EkycResultResponse.verified(warnings, "Xác minh eKYC thành công");
     }
 
     /**
-     * Sai khuôn mặt: vẫn cho thử lại, nhưng sai liên tiếp nhiều lần là dấu hiệu
-     * người cầm CCCD không phải chủ thẻ nên gắn cờ cho admin xem.
+     * Điền các trường mềm còn trống từ OCR: ngày sinh, giới tính, quê quán,
+     * nơi thường trú. Chỉ điền chỗ trống — không bao giờ ghi đè dữ liệu người
+     * dùng đã khai, vì dữ liệu khai tay là thứ họ đã xác nhận.
      */
-    private EkycResultResponse handleFaceMismatch(
-            UserProfile profile, AiEkycClient.FaceMatchResult face, List<String> warnings) {
-
-        int failures = challengeService.recordFaceMismatch(profile.getKeycloakUserId());
-        log.warn("Khuôn mặt không khớp CCCD: userId={}, similarity={}, lần thứ {}",
-                profile.getId(), face.similarity(), failures);
-
-        if (failures >= EkycChallengeService.MAX_FACE_FAILURES
-                && profile.getEkycStatus() != EkycStatus.MANUAL_REVIEW) {
-            profile.markEkycManualReview();
-            userProfileRepository.save(profile);
-            return EkycResultResponse.faceRejected(
-                    EkycStatus.MANUAL_REVIEW, face.similarity(), warnings,
-                    "Khuôn mặt không khớp nhiều lần, hồ sơ đã được chuyển cho nhân viên xem xét");
+    private void fillMissingSoftFields(UserProfile profile, AiEkycClient.OcrResult ocr) {
+        if (profile.getDateOfBirth() == null && ocr.date_of_birth() != null) {
+            CccdMatcher.parseDate(ocr.date_of_birth()).ifPresent(profile::setDateOfBirth);
         }
+        if (profile.getGender() == null) {
+            Gender gender = toGender(ocr.gender());
+            if (gender != null) profile.setGender(gender);
+        }
+        if (isBlank(profile.getPlaceOfOrigin()) && !isBlank(ocr.place_of_origin())) {
+            profile.setPlaceOfOrigin(ocr.place_of_origin());
+        }
+        if (isBlank(profile.getAddress()) && !isBlank(ocr.address())) {
+            profile.setAddress(ocr.address());
+        }
+    }
 
-        return EkycResultResponse.faceRejected(
-                profile.getEkycStatus(), face.similarity(), warnings,
-                "Khuôn mặt không khớp với ảnh trên CCCD, vui lòng thử lại");
+    /** OCR chuẩn hoá giới tính về đúng hai giá trị "Nam"/"Nữ"; giá trị lạ bỏ qua. */
+    private static Gender toGender(String raw) {
+        if ("Nam".equals(raw)) return Gender.MALE;
+        if ("Nữ".equals(raw)) return Gender.FEMALE;
+        return null;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    /**
+     * Cùng luật với {@code UserProfileServiceImpl}: hồ sơ đủ khi có họ tên,
+     * số CCCD và số điện thoại.
+     */
+    private void updateProfileCompleteness(UserProfile profile) {
+        boolean isComplete = profile.getFullName() != null && !profile.getFullName().isBlank()
+                && profile.getIdNumberHash() != null && !profile.getIdNumberHash().isBlank()
+                && profile.getPhoneHash() != null && !profile.getPhoneHash().isBlank();
+        profile.setProfileCompleted(isComplete);
     }
 
     // ── Helper ──────────────────────────────────────────────────────
 
-    /**
-     * Lấy frame mà AI đánh giá là tốt nhất để so khớp khuôn mặt. Chỉ số ngoài
-     * phạm vi thì rơi về frame đầu — chỉ mất độ chính xác, không hỏng luồng.
-     */
-    private String selectFrame(List<String> frames, Integer bestFrameIndex) {
-        if (bestFrameIndex == null || bestFrameIndex < 0 || bestFrameIndex >= frames.size()) {
-            log.warn("best_frame_index không hợp lệ ({}), dùng frame đầu tiên", bestFrameIndex);
-            return frames.get(0);
-        }
-        return frames.get(bestFrameIndex);
-    }
-
-    private String describeFailedActions(AiEkycClient.ActiveLivenessResult liveness) {
-        if (liveness.actions() == null) {
-            return "không có chi tiết";
-        }
-        return liveness.actions().stream()
-                .filter(action -> !action.passed())
-                .map(action -> action.action() + ": " + action.evidence())
-                .reduce((a, b) -> a + "; " + b)
-                .orElse("không có chi tiết");
-    }
-
     private EkycResultResponse reject(UserProfile profile, EkycResultCode code, String message) {
         return EkycResultResponse.rejected(profile.getEkycStatus(), code, message);
-    }
-
-    private double orZero(Double value) {
-        return value != null ? value : 0.0;
     }
 
     private UserProfile findProfileOrThrow(UUID keycloakUserId) {

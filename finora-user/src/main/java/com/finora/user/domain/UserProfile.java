@@ -1,6 +1,6 @@
 package com.finora.user.domain;
 
-import com.finora.user.util.CryptoConverter;
+import com.finora.user.support.CryptoConverter;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -123,20 +123,15 @@ public class UserProfile {
 
     // ── eKYC state transitions ────────────────────────────────────────
 
-    public void markEkycVerified(double faceScore) {
+    /**
+     * Đánh dấu đã xác minh giấy tờ (CCCD hai mặt). Luồng hiện tại không có
+     * xác minh khuôn mặt nên {@code livenessVerified}/{@code faceMatchScore}
+     * giữ nguyên giá trị mặc định.
+     */
+    public void markEkycDocumentVerified() {
         this.ekycStatus = EkycStatus.VERIFIED;
-        this.faceMatchScore = faceScore;
-        this.livenessVerified = true;
         this.documentVerified = true;
         this.ekycCompletedAt = Instant.now();
-    }
-
-    public void markEkycFailed() {
-        this.ekycStatus = EkycStatus.FAILED;
-    }
-
-    public void markEkycManualReview() {
-        this.ekycStatus = EkycStatus.MANUAL_REVIEW;
     }
 
     // ── Lifecycle callbacks ──────────────────────────────────────────

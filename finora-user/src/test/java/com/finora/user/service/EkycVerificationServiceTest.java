@@ -4,49 +4,41 @@ import com.finora.user.client.AiEkycClient;
 import com.finora.user.config.CryptoProperties;
 import com.finora.user.domain.EkycResultCode;
 import com.finora.user.domain.EkycStatus;
-import com.finora.user.domain.LivenessAction;
+import com.finora.user.domain.Gender;
 import com.finora.user.domain.UserProfile;
 import com.finora.user.dto.request.EkycVerifyRequest;
 import com.finora.user.dto.response.EkycResultResponse;
 import com.finora.user.repository.UserProfileRepository;
+import com.finora.user.support.CryptoUtils;
 import com.finora.user.util.CccdMatcher;
-import com.finora.user.util.CryptoUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-/**
- * Kiểm tra luồng xác minh eKYC: mỗi mã kết quả trong hợp đồng phải có một ca test,
- * và các bước nặng phía sau không được chạy khi bước trước đã trượt.
- */
+/** Kiểm tra luồng xác minh eKYC bằng ảnh hai mặt CCCD (không còn face/liveness). */
 @ExtendWith(MockitoExtension.class)
 class EkycVerificationServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("11111111-2222-3333-4444-555555555555");
-    private static final String HMAC_SECRET = "test-hmac-secret-32-characters-long";
-    private static final String ID_NUMBER = "079204001234";
-    private static final String SESSION_ID = "session-1";
-    private static final String CCCD_IMAGE = "cccd-base64";
-    private static final List<String> FRAMES = List.of("frame-0", "frame-1", "frame-2");
+    private static final String ID_NUMBER = "036094001234";
+    private static final String OTHER_ID = "036094009999";
+    private static final String HMAC_SECRET = "test-hmac-secret";
     private static final LocalDate DOB = LocalDate.of(2000, 1, 1);
-    private static final List<LivenessAction> ACTIONS =
-            List.of(LivenessAction.TURN_LEFT, LivenessAction.BLINK);
+
+    private static final EkycVerifyRequest REQUEST =
+            new EkycVerifyRequest("front-base64", "back-base64");
 
     @Mock
     private UserProfileRepository userProfileRepository;
@@ -55,18 +47,19 @@ class EkycVerificationServiceTest {
     private AiEkycClient aiEkycClient;
 
     @Mock
-    private EkycChallengeService challengeService;
+    private EkycRateLimitService rateLimitService;
 
     private EkycVerificationService service;
     private UserProfile profile;
 
     @BeforeEach
     void setUp() {
+        CryptoProperties cryptoProperties = new CryptoProperties();
+        cryptoProperties.setHmacSecret(HMAC_SECRET);
+        cryptoProperties.setAesSecret("test-aes-secret-32-characters!!");
+
         service = new EkycVerificationService(
-                userProfileRepository,
-                aiEkycClient,
-                challengeService,
-                new CryptoProperties(HMAC_SECRET, "test-aes-secret-32-characters!!"));
+                userProfileRepository, aiEkycClient, rateLimitService, cryptoProperties);
 
         profile = UserProfile.builder()
                 .id(7L)
@@ -82,285 +75,174 @@ class EkycVerificationServiceTest {
     // ── Happy path ──────────────────────────────────────────────────
 
     @Test
-    void dungTatCaCacBuocThiHoSoDuocXacMinh() {
+    void ocrKhopSoCccdThiHoSoDuocXacMinh() {
         givenProfileFound();
         givenSlotAcquired();
-        givenChallengeConsumed();
         givenOcrReturns(ocrResult(true, ID_NUMBER, "NGUYEN VAN A", "01/01/2000"));
-        givenLivenessReturns(activeResult(true, 1));
-        givenFaceMatchReturns(new AiEkycClient.FaceMatchResult(true, 0.88, 0.6));
 
-        EkycResultResponse result = service.verify(USER_ID, request());
+        EkycResultResponse result = service.verify(USER_ID, REQUEST);
 
         assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
         assertThat(result.status()).isEqualTo(EkycStatus.VERIFIED);
-        assertThat(result.faceMatchScore()).isEqualTo(0.88);
         assertThat(result.ocrWarnings()).isEmpty();
-        verify(userProfileRepository).save(profile);
-        verify(challengeService).resetFaceMismatch(USER_ID);
         assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.VERIFIED);
-        assertThat(profile.isLivenessVerified()).isTrue();
+        assertThat(profile.isDocumentVerified()).isTrue();
+        assertThat(profile.getEkycCompletedAt()).isNotNull();
+        verify(userProfileRepository).save(profile);
     }
 
     @Test
-    void hoSoDaXacMinhThiKhongGoiLaiAiService() {
-        profile.markEkycVerified(0.9);
-        givenProfileFound();
-
-        EkycResultResponse result = service.verify(USER_ID, request());
-
-        assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
-        verifyNoInteractions(aiEkycClient);
-        verifyNoInteractions(challengeService);
-    }
-
-    @Test
-    void truongMemLechVanXacMinhNhungCoCanhBao() {
+    void hoSoChuaCoSoCccdThiLaySoTuOcrDienVao() {
+        profile.setIdNumberHash(null);
+        profile.setDateOfBirth(null);
         givenProfileFound();
         givenSlotAcquired();
-        givenChallengeConsumed();
-        givenOcrReturns(ocrResult(true, ID_NUMBER, "TRAN VAN B", "02/01/2000"));
-        givenLivenessReturns(activeResult(true, 0));
-        givenFaceMatchReturns(new AiEkycClient.FaceMatchResult(true, 0.9, 0.6));
+        when(userProfileRepository.existsByIdNumberHash(
+                CryptoUtils.hmacSha256(ID_NUMBER, HMAC_SECRET))).thenReturn(false);
+        givenOcrReturns(new AiEkycClient.OcrResult(
+                true, ID_NUMBER, "NGUYEN VAN A", "01/01/2000", "Nam", "Nam Định",
+                "25 Nguyễn Trãi, Thanh Xuân, Hà Nội", 0.95));
 
-        EkycResultResponse result = service.verify(USER_ID, request());
+        EkycResultResponse result = service.verify(USER_ID, REQUEST);
+
+        assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
+        assertThat(profile.getIdNumberHash())
+                .isEqualTo(CryptoUtils.hmacSha256(ID_NUMBER, HMAC_SECRET));
+        assertThat(profile.getIdNumberEncrypted()).isEqualTo(ID_NUMBER);
+        assertThat(profile.getDateOfBirth()).isEqualTo(DOB);
+        assertThat(profile.getGender()).isEqualTo(Gender.MALE);
+        assertThat(profile.getPlaceOfOrigin()).isEqualTo("Nam Định");
+        assertThat(profile.getAddress()).isEqualTo("25 Nguyễn Trãi, Thanh Xuân, Hà Nội");
+        verify(userProfileRepository).save(profile);
+    }
+
+    @Test
+    void hoSoDaKhaiCccdVanDuocDienTruongMemConThieu() {
+        // Hồ sơ có sẵn số CCCD (đã khai) nhưng thiếu giới tính/quê quán/địa chỉ
+        givenProfileFound();
+        givenSlotAcquired();
+        givenOcrReturns(new AiEkycClient.OcrResult(
+                true, ID_NUMBER, "NGUYEN VAN A", "01/01/2000", "Nữ", "Hà Nội",
+                "12 Lý Thường Kiệt, Hoàn Kiếm, Hà Nội", 0.95));
+
+        EkycResultResponse result = service.verify(USER_ID, REQUEST);
+
+        assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
+        assertThat(profile.getGender()).isEqualTo(Gender.FEMALE);
+        assertThat(profile.getPlaceOfOrigin()).isEqualTo("Hà Nội");
+        assertThat(profile.getAddress()).isEqualTo("12 Lý Thường Kiệt, Hoàn Kiếm, Hà Nội");
+        // Ngày sinh đã khai từ trước — không bị OCR ghi đè
+        assertThat(profile.getDateOfBirth()).isEqualTo(DOB);
+    }
+
+    @Test
+    void tenHoacNgaySinhLechThiVanXacMinhNhungKemCanhBao() {
+        givenProfileFound();
+        givenSlotAcquired();
+        givenOcrReturns(ocrResult(true, ID_NUMBER, "TRAN VAN B", "02/02/1999"));
+
+        EkycResultResponse result = service.verify(USER_ID, REQUEST);
 
         assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
         assertThat(result.ocrWarnings()).containsExactlyInAnyOrder(
                 CccdMatcher.WARNING_FULL_NAME_MISMATCH, CccdMatcher.WARNING_DOB_MISMATCH);
     }
 
-    // ── Các nhánh trượt ─────────────────────────────────────────────
+    // ── Các nhánh từ chối ───────────────────────────────────────────
 
     @Test
-    void hoSoChuaCoCccdThiDungNgayVaKhongTonSuatGoi() {
-        profile.setIdNumberHash(null);
-        givenProfileFound();
-
-        EkycResultResponse result = service.verify(USER_ID, request());
-
-        assertThat(result.resultCode()).isEqualTo(EkycResultCode.PROFILE_NO_CCCD);
-        assertThat(result.status()).isEqualTo(EkycStatus.PENDING);
-        verifyNoInteractions(aiEkycClient);
-        verify(challengeService, never()).tryAcquireVerifySlot(any());
-    }
-
-    @Test
-    void goiQuaNhanhThiBiChan() {
-        givenProfileFound();
-        when(challengeService.tryAcquireVerifySlot(USER_ID)).thenReturn(false);
-
-        EkycResultResponse result = service.verify(USER_ID, request());
-
-        assertThat(result.resultCode()).isEqualTo(EkycResultCode.RATE_LIMITED);
-        verifyNoInteractions(aiEkycClient);
-    }
-
-    @Test
-    void phienHetHanThiKhongChayOcr() {
+    void ocrKhongDocDuocThiTraOcrFailed() {
         givenProfileFound();
         givenSlotAcquired();
-        when(challengeService.consumeChallenge(USER_ID, SESSION_ID)).thenReturn(Optional.empty());
-
-        EkycResultResponse result = service.verify(USER_ID, request());
-
-        assertThat(result.resultCode()).isEqualTo(EkycResultCode.CHALLENGE_EXPIRED);
-        verifyNoInteractions(aiEkycClient);
-    }
-
-    @Test
-    void ocrKhongDocDuocSoCccdThiChoChupLai() {
-        givenProfileFound();
-        givenSlotAcquired();
-        givenChallengeConsumed();
         givenOcrReturns(ocrResult(false, null, null, null));
 
-        EkycResultResponse result = service.verify(USER_ID, request());
+        EkycResultResponse result = service.verify(USER_ID, REQUEST);
 
         assertThat(result.resultCode()).isEqualTo(EkycResultCode.OCR_FAILED);
         assertThat(result.status()).isEqualTo(EkycStatus.PENDING);
-        verify(aiEkycClient, never()).activeLiveness(any());
         verify(userProfileRepository, never()).save(any());
     }
 
     @Test
-    void soCccdTrenAnhKhacHoSoThiChan() {
+    void soCccdTrenAnhKhacHoSoThiTraIdMismatch() {
         givenProfileFound();
         givenSlotAcquired();
-        givenChallengeConsumed();
-        givenOcrReturns(ocrResult(true, "079204009999", "NGUYEN VAN A", "01/01/2000"));
+        givenOcrReturns(ocrResult(true, OTHER_ID, "NGUYEN VAN A", "01/01/2000"));
 
-        EkycResultResponse result = service.verify(USER_ID, request());
+        EkycResultResponse result = service.verify(USER_ID, REQUEST);
 
         assertThat(result.resultCode()).isEqualTo(EkycResultCode.ID_MISMATCH);
-        verify(aiEkycClient, never()).activeLiveness(any());
-    }
-
-    @Test
-    void khongDungDongTacThiKhongChayNhanDangKhuonMat() {
-        givenProfileFound();
-        givenSlotAcquired();
-        givenChallengeConsumed();
-        givenOcrReturns(ocrResult(true, ID_NUMBER, "NGUYEN VAN A", "01/01/2000"));
-        givenLivenessReturns(activeResult(false, null));
-
-        EkycResultResponse result = service.verify(USER_ID, request());
-
-        assertThat(result.resultCode()).isEqualTo(EkycResultCode.LIVENESS_FAILED);
-        verify(aiEkycClient, never()).faceMatch(any());
         verify(userProfileRepository, never()).save(any());
     }
 
     @Test
-    void saiKhuonMatLanDauVanGiuTrangThaiCu() {
+    void soCccdDaThuocTaiKhoanKhacThiTraIdTaken() {
+        profile.setIdNumberHash(null);
         givenProfileFound();
         givenSlotAcquired();
-        givenChallengeConsumed();
+        when(userProfileRepository.existsByIdNumberHash(
+                CryptoUtils.hmacSha256(ID_NUMBER, HMAC_SECRET))).thenReturn(true);
         givenOcrReturns(ocrResult(true, ID_NUMBER, "NGUYEN VAN A", "01/01/2000"));
-        givenLivenessReturns(activeResult(true, 0));
-        givenFaceMatchReturns(new AiEkycClient.FaceMatchResult(false, 0.31, 0.6));
-        when(challengeService.recordFaceMismatch(USER_ID)).thenReturn(1);
 
-        EkycResultResponse result = service.verify(USER_ID, request());
+        EkycResultResponse result = service.verify(USER_ID, REQUEST);
 
-        assertThat(result.resultCode()).isEqualTo(EkycResultCode.FACE_MISMATCH);
-        assertThat(result.status()).isEqualTo(EkycStatus.PENDING);
-        assertThat(result.livenessVerified()).isTrue();
+        assertThat(result.resultCode()).isEqualTo(EkycResultCode.ID_TAKEN);
+        assertThat(profile.getIdNumberHash()).isNull();
         verify(userProfileRepository, never()).save(any());
     }
 
     @Test
-    void saiKhuonMatLienTiepDuLanThiChuyenXetDuyetThuCong() {
+    void goiQuaNhanhThiTraRateLimitedVaKhongGoiAi() {
         givenProfileFound();
-        givenSlotAcquired();
-        givenChallengeConsumed();
-        givenOcrReturns(ocrResult(true, ID_NUMBER, "NGUYEN VAN A", "01/01/2000"));
-        givenLivenessReturns(activeResult(true, 0));
-        givenFaceMatchReturns(new AiEkycClient.FaceMatchResult(false, 0.28, 0.6));
-        when(challengeService.recordFaceMismatch(USER_ID))
-                .thenReturn(EkycChallengeService.MAX_FACE_FAILURES);
+        when(rateLimitService.tryAcquireVerifySlot(USER_ID)).thenReturn(false);
 
-        EkycResultResponse result = service.verify(USER_ID, request());
+        EkycResultResponse result = service.verify(USER_ID, REQUEST);
 
-        assertThat(result.resultCode()).isEqualTo(EkycResultCode.FACE_MISMATCH);
-        assertThat(result.status()).isEqualTo(EkycStatus.MANUAL_REVIEW);
-        verify(userProfileRepository).save(profile);
+        assertThat(result.resultCode()).isEqualTo(EkycResultCode.RATE_LIMITED);
+        verify(aiEkycClient, never()).ocr(any());
     }
 
     @Test
-    void aiServiceLoiThiGiuNguyenTrangThaiHoSo() {
+    void hoSoDaXacMinhThiTraVerifiedNgayKhongGoiAi() {
+        profile.setEkycStatus(EkycStatus.VERIFIED);
+        givenProfileFound();
+
+        EkycResultResponse result = service.verify(USER_ID, REQUEST);
+
+        assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
+        verify(aiEkycClient, never()).ocr(any());
+        verify(rateLimitService, never()).tryAcquireVerifySlot(any());
+    }
+
+    @Test
+    void aiLoiThiTraAiUnavailableVaGiuNguyenHoSo() {
         givenProfileFound();
         givenSlotAcquired();
-        givenChallengeConsumed();
-        when(aiEkycClient.ocr(any())).thenThrow(new IllegalStateException("connection refused"));
+        when(aiEkycClient.ocr(any())).thenThrow(new RuntimeException("connection refused"));
 
-        EkycResultResponse result = service.verify(USER_ID, request());
+        EkycResultResponse result = service.verify(USER_ID, REQUEST);
 
         assertThat(result.resultCode()).isEqualTo(EkycResultCode.AI_UNAVAILABLE);
-        assertThat(result.status()).isEqualTo(EkycStatus.PENDING);
         assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.PENDING);
         verify(userProfileRepository, never()).save(any());
     }
 
-    // ── Chọn frame cho bước so khớp khuôn mặt ───────────────────────
-
-    @Test
-    void dungDungFrameMaAiDanhGiaLaTotNhat() {
-        givenProfileFound();
-        givenSlotAcquired();
-        givenChallengeConsumed();
-        givenOcrReturns(ocrResult(true, ID_NUMBER, "NGUYEN VAN A", "01/01/2000"));
-        givenLivenessReturns(activeResult(true, 2));
-        givenFaceMatchReturns(new AiEkycClient.FaceMatchResult(true, 0.9, 0.6));
-
-        service.verify(USER_ID, request());
-
-        ArgumentCaptor<AiEkycClient.FaceMatchInput> input =
-                ArgumentCaptor.forClass(AiEkycClient.FaceMatchInput.class);
-        verify(aiEkycClient).faceMatch(input.capture());
-        assertThat(input.getValue().selfie_base64()).isEqualTo(FRAMES.get(2));
-        assertThat(input.getValue().cccd_image_base64()).isEqualTo(CCCD_IMAGE);
-    }
-
-    @Test
-    void chiSoFrameKhongHopLeThiDungFrameDauTien() {
-        givenProfileFound();
-        givenSlotAcquired();
-        givenChallengeConsumed();
-        givenOcrReturns(ocrResult(true, ID_NUMBER, "NGUYEN VAN A", "01/01/2000"));
-        givenLivenessReturns(activeResult(true, 99));
-        givenFaceMatchReturns(new AiEkycClient.FaceMatchResult(true, 0.9, 0.6));
-
-        service.verify(USER_ID, request());
-
-        ArgumentCaptor<AiEkycClient.FaceMatchInput> input =
-                ArgumentCaptor.forClass(AiEkycClient.FaceMatchInput.class);
-        verify(aiEkycClient).faceMatch(input.capture());
-        assertThat(input.getValue().selfie_base64()).isEqualTo(FRAMES.get(0));
-    }
-
-    @Test
-    void guiDungChuoiHanhDongCuaPhienSangAiService() {
-        givenProfileFound();
-        givenSlotAcquired();
-        givenChallengeConsumed();
-        givenOcrReturns(ocrResult(true, ID_NUMBER, "NGUYEN VAN A", "01/01/2000"));
-        givenLivenessReturns(activeResult(true, 0));
-        givenFaceMatchReturns(new AiEkycClient.FaceMatchResult(true, 0.9, 0.6));
-
-        service.verify(USER_ID, request());
-
-        ArgumentCaptor<AiEkycClient.ActiveLivenessInput> input =
-                ArgumentCaptor.forClass(AiEkycClient.ActiveLivenessInput.class);
-        verify(aiEkycClient).activeLiveness(input.capture());
-        assertThat(input.getValue().expected_actions()).containsExactly("turn_left", "blink");
-        assertThat(input.getValue().frames()).isEqualTo(FRAMES);
-    }
-
     // ── Helper ──────────────────────────────────────────────────────
-
-    private EkycVerifyRequest request() {
-        return new EkycVerifyRequest(SESSION_ID, FRAMES, CCCD_IMAGE);
-    }
 
     private void givenProfileFound() {
         when(userProfileRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(profile));
     }
 
     private void givenSlotAcquired() {
-        when(challengeService.tryAcquireVerifySlot(USER_ID)).thenReturn(true);
-    }
-
-    private void givenChallengeConsumed() {
-        when(challengeService.consumeChallenge(USER_ID, SESSION_ID))
-                .thenReturn(Optional.of(ACTIONS));
+        when(rateLimitService.tryAcquireVerifySlot(USER_ID)).thenReturn(true);
     }
 
     private void givenOcrReturns(AiEkycClient.OcrResult result) {
-        when(aiEkycClient.ocr(eq(new AiEkycClient.OcrInput(CCCD_IMAGE)))).thenReturn(result);
+        when(aiEkycClient.ocr(any())).thenReturn(result);
     }
 
-    private void givenLivenessReturns(AiEkycClient.ActiveLivenessResult result) {
-        when(aiEkycClient.activeLiveness(any())).thenReturn(result);
-    }
-
-    private void givenFaceMatchReturns(AiEkycClient.FaceMatchResult result) {
-        when(aiEkycClient.faceMatch(any())).thenReturn(result);
-    }
-
-    private AiEkycClient.OcrResult ocrResult(
-            boolean success, String idNumber, String fullName, String dateOfBirth) {
-        return new AiEkycClient.OcrResult(
-                success, idNumber, fullName, dateOfBirth, "Nam", "TP HCM", 0.91);
-    }
-
-    private AiEkycClient.ActiveLivenessResult activeResult(boolean isLive, Integer bestFrameIndex) {
-        return new AiEkycClient.ActiveLivenessResult(
-                isLive,
-                List.of(new AiEkycClient.ActionCheck("turn_left", isLive, "stub")),
-                isLive ? 0.8 : 0.25,
-                "mediapipe_facemesh",
-                bestFrameIndex,
-                new AiEkycClient.LivenessResult(isLive, 0.7, "lbp_texture"));
+    private static AiEkycClient.OcrResult ocrResult(
+            boolean success, String idNumber, String fullName, String dob) {
+        return new AiEkycClient.OcrResult(success, idNumber, fullName, dob, null, null, null, 0.9);
     }
 }

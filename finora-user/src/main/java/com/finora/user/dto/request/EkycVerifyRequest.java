@@ -1,37 +1,24 @@
 package com.finora.user.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.Size;
-
-import java.util.List;
 
 /**
- * Yêu cầu xác minh eKYC: ảnh CCCD và chuỗi frame quay theo thử thách của phiên.
+ * Yêu cầu xác minh eKYC: ảnh hai mặt CCCD.
  * <p>
- * Giới hạn số frame phải khớp cấu hình phía {@code finora-ai}
- * ({@code EKYC_MIN_FRAMES}, {@code EKYC_MAX_FRAMES}): dưới mức tối thiểu thì
- * không đủ dữ liệu thời gian để kết luận, trên mức tối đa thì request trở thành
- * kênh nhồi ảnh làm nghẽn service.
+ * Luồng đã bỏ xác minh khuôn mặt/liveness: bằng chứng định danh là ảnh giấy tờ.
+ * Mặt trước được OCR để đối chiếu (hoặc điền) số CCCD của hồ sơ; mặt sau bắt
+ * buộc nộp kèm làm bằng chứng người dùng cầm thẻ đầy đủ, phục vụ đối soát tay
+ * khi có nghi vấn.
  *
- * @param sessionId        mã phiên lấy từ {@code liveness-challenge}, dùng một lần
- * @param frames           các frame base64 xếp đúng thứ tự thời gian
- * @param cccdImageBase64  ảnh mặt trước CCCD để OCR và so khớp khuôn mặt
+ * @param cccdFrontBase64 ảnh mặt trước CCCD, base64
+ * @param cccdBackBase64  ảnh mặt sau CCCD, base64
  */
 public record EkycVerifyRequest(
 
         @NotBlank
-        String sessionId,
-
-        @NotEmpty
-        @Size(min = EkycVerifyRequest.MIN_FRAMES, max = EkycVerifyRequest.MAX_FRAMES,
-                message = "Số frame phải từ 3 đến 20")
-        List<@NotBlank String> frames,
+        String cccdFrontBase64,
 
         @NotBlank
-        String cccdImageBase64
+        String cccdBackBase64
 ) {
-
-    public static final int MIN_FRAMES = 3;
-    public static final int MAX_FRAMES = 20;
 }

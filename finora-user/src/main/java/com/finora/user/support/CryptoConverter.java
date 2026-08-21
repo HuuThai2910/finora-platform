@@ -1,4 +1,4 @@
-package com.finora.user.util;
+package com.finora.user.support;
 
 import com.finora.user.config.CryptoProperties;
 import jakarta.persistence.AttributeConverter;
@@ -23,7 +23,7 @@ public class CryptoConverter implements AttributeConverter<String, String> {
         if (plaintext == null || plaintext.isBlank()) {
             return plaintext;
         }
-        return CryptoUtils.encryptAesGcm(plaintext, cryptoProperties.aesSecret());
+        return CryptoUtils.encryptAesGcm(plaintext, cryptoProperties.getAesSecret());
     }
 
     @Override
@@ -31,6 +31,6 @@ public class CryptoConverter implements AttributeConverter<String, String> {
         if (ciphertext == null || ciphertext.isBlank()) {
             return ciphertext;
         }
-        return CryptoUtils.decryptAesGcm(ciphertext, cryptoProperties.aesSecret());
+        return CryptoUtils.decryptAesGcm(ciphertext, cryptoProperties.getAesSecret());
     }
 }

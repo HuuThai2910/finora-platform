@@ -16,13 +16,17 @@ if ([string]::IsNullOrWhiteSpace($EnvFile)) {
 }
 
 $composeFile = Join-Path $PSScriptRoot 'docker-compose.yml'
-$coreServices = @('keycloak-db', 'keycloak')
+$coreServices = @('keycloak-realm-init', 'keycloak')
 $profiles = @('core')
 $infraServices = @($coreServices)
-$healthServices = @('keycloak-db')
-$requiredSecrets = @('KEYCLOAK_POSTGRES_ADMIN_PASSWORD', 'KEYCLOAK_DB_PASSWORD', 'KEYCLOAK_ADMIN', 'KEYCLOAK_ADMIN_PASSWORD')
+# keycloak-realm-init la job chay mot lan; keycloak duoc kiem tra bang Wait-Keycloak.
+$healthServices = @()
+$requiredSecrets = @('KEYCLOAK_ADMIN', 'KEYCLOAK_ADMIN_PASSWORD', 'KEYCLOAK_DB_PASSWORD', 'KEYCLOAK_CLIENT_SECRET')
 
 switch ($Scope) {
+    'Core' {
+        # Chi Keycloak; danh sach base o tren da du.
+    }
     'Loan' {
         $profiles += 'loan'
         $infraServices += 'loan-postgres'
@@ -42,10 +46,10 @@ switch ($Scope) {
         $requiredSecrets += @('BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD', 'BLOCKCHAIN_DB_PASSWORD')
     }
     'User' {
+        # PostgreSQL cua finora-user nam tren may host; Docker chi con Redis.
         $profiles += 'user'
-        $infraServices += @('user-postgres', 'user-redis')
-        $healthServices += @('user-postgres', 'user-redis')
-        $requiredSecrets += @('USER_POSTGRES_ADMIN_PASSWORD', 'USER_DB_PASSWORD')
+        $infraServices += 'user-redis'
+        $healthServices += 'user-redis'
     }
     'Investment' {
         $profiles += 'investment'
@@ -55,13 +59,12 @@ switch ($Scope) {
     }
     'All' {
         $profiles += @('loan', 'payment', 'blockchain', 'user', 'investment')
-        $infraServices += @('loan-postgres', 'payment-postgres', 'payment-redis', 'blockchain-postgres', 'user-postgres', 'investment-postgres')
-        $healthServices += @('loan-postgres', 'payment-postgres', 'payment-redis', 'blockchain-postgres', 'user-postgres', 'investment-postgres')
+        $infraServices += @('loan-postgres', 'payment-postgres', 'payment-redis', 'blockchain-postgres', 'user-redis', 'investment-postgres')
+        $healthServices += @('loan-postgres', 'payment-postgres', 'payment-redis', 'blockchain-postgres', 'user-redis', 'investment-postgres')
         $requiredSecrets += @(
             'LOAN_POSTGRES_ADMIN_PASSWORD', 'LOAN_DB_PASSWORD',
             'PAYMENT_POSTGRES_ADMIN_PASSWORD', 'PAYMENT_DB_PASSWORD', 'PAYMENT_REDIS_PASSWORD',
             'BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD', 'BLOCKCHAIN_DB_PASSWORD',
-            'USER_POSTGRES_ADMIN_PASSWORD', 'USER_DB_PASSWORD',
             'INVESTMENT_POSTGRES_ADMIN_PASSWORD', 'INVESTMENT_DB_PASSWORD'
         )
     }
