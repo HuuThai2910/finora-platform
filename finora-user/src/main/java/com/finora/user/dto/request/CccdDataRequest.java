@@ -9,7 +9,7 @@ import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 
 /**
- * Dữ liệu từ chip NFC trên CCCD hoặc nhập tay từ form eKYC.
+ * Dữ liệu CCCD người dùng tự khai ở form eKYC.
  * <p>
  * Sau khi xác minh, hệ thống sẽ hash số CCCD để tra cứu và mã hoá bản gốc để lưu trữ.
  */

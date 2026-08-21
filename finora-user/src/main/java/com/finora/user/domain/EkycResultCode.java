@@ -12,7 +12,7 @@ public enum EkycResultCode {
     /** Đạt toàn bộ các bước — hồ sơ chuyển sang {@link EkycStatus#VERIFIED}. */
     VERIFIED,
 
-    /** Hồ sơ chưa có số CCCD; phải nộp qua {@code cccd-nfc} hoặc {@code cccd-manual} trước. */
+    /** Hồ sơ chưa có số CCCD; phải nộp qua {@code cccd-manual} trước. */
     PROFILE_NO_CCCD,
 
     /** Phiên challenge hết hạn, sai hoặc đã dùng — lấy challenge mới rồi quay lại. */

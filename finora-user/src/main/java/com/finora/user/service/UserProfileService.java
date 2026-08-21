@@ -96,7 +96,7 @@ public class UserProfileService {
     // ── eKYC — CCCD ─────────────────────────────────────────────────
 
     /**
-     * Tiếp nhận dữ liệu CCCD từ NFC hoặc nhập tay — cập nhật hồ sơ eKYC.
+     * Tiếp nhận dữ liệu CCCD người dùng tự khai — cập nhật hồ sơ eKYC.
      * <p>
      * Hash số CCCD để kiểm tra trùng lặp toàn hệ thống;
      * nếu trùng và thuộc người khác, từ chối (mỗi CCCD chỉ đăng ký một tài khoản).

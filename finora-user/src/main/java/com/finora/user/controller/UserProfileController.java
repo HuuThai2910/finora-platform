@@ -58,19 +58,10 @@ public class UserProfileController {
     // ── eKYC — CCCD ─────────────────────────────────────────────────
 
     /**
-     * Tiếp nhận dữ liệu CCCD từ chip NFC — cập nhật hồ sơ eKYC.
-     */
-    @PostMapping("/profile/cccd-nfc")
-    @PreAuthorize("hasAuthority('user:cccd:scan')")
-    public BaseResponse<UserProfileResponse> submitCccdNfc(
-            @Valid @RequestBody CccdDataRequest request) {
-
-        UUID keycloakUserId = SecurityUtils.getCurrentKeycloakUserId();
-        return BaseResponse.success(userProfileService.submitCccdData(keycloakUserId, request));
-    }
-
-    /**
-     * Tiếp nhận dữ liệu CCCD nhập tay từ form web — cùng logic xử lý với NFC.
+     * Tiếp nhận dữ liệu CCCD người dùng tự khai — cập nhật hồ sơ eKYC.
+     * <p>
+     * Đây là đường duy nhất đưa số CCCD vào hồ sơ. Dữ liệu tự khai chưa được
+     * tin cậy: bước {@code ekyc-verify} sẽ OCR ảnh CCCD rồi đối chiếu lại.
      */
     @PutMapping("/profile/cccd-manual")
     @PreAuthorize("hasAuthority('user:cccd:scan')")

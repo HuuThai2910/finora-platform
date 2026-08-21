@@ -1,9 +1,8 @@
-# Plan Chi Tiết: Tích hợp Keycloak vào `finora-user` & Đọc CCCD qua NFC trên `finora-mobile`
+# Plan Chi Tiết: Tích hợp Keycloak vào `finora-user`
 
 Tài liệu này định hướng kế hoạch triển khai toàn diện từng bước cho các nhóm tính năng chính trong hệ thống **FINORA Platform** (loại trừ eKYC/Face Matching):
 1. **Tích hợp Keycloak IAM vào `finora-user`** (Xác thực OAuth2/OIDC, Đồng bộ tài khoản, Quản lý Profile, Keycloak Admin REST Client, Email Thông báo & OTP, Phân quyền Theo Chức Năng, Bảo mật Token qua HTTP-Only Cookie với Refresh Token, Chống Dò Mật Khẩu, PII Log Masking, **Hash & Mã Hóa Số CCCD & Số Điện Thoại**).
-2. **Đọc dữ liệu CCCD qua chip NFC trên `finora-mobile`** (React Native đọc chip ICAO 9303 trực tiếp trên điện thoại, gửi dữ liệu có cấu trúc lên `finora-user`, auto-fill profile — không cần xác minh chữ ký số Bộ Công An).
-3. **Giao diện Người dùng (UI):** `finora-web` (React + Vite) cho web và `finora-mobile` (React Native) cho mobile; **KHÔNG** sử dụng LocalStorage cho Token và **KHÔNG** dùng Thymeleaf. Quét NFC CCCD chỉ khả dụng trên mobile.
+2. **Giao diện Người dùng (UI):** `finora-web` (React + Vite) cho web và `finora-mobile` (React Native) cho mobile; **KHÔNG** sử dụng LocalStorage cho Token và **KHÔNG** dùng Thymeleaf.
 
 ---
 
@@ -17,14 +16,14 @@ FINORA là nền tảng cho vay ngang hàng (P2P Lending). Trước khi một ng
 2. **Có hồ sơ cá nhân đầy đủ** — họ tên, ngày sinh, địa chỉ, số CCCD, số điện thoại.
 3. **Được phân đúng vai trò** — người vay, nhà đầu tư, hoặc quản trị viên — để hệ thống biết cho phép truy cập chức năng nào.
 
-Plan này xây dựng toàn bộ nền tảng trên: xác thực an toàn qua Keycloak, quản lý hồ sơ cá nhân, đọc CCCD qua chip NFC trên điện thoại để giảm nhập liệu thủ công, gửi email thông báo, và bảo vệ dữ liệu nhạy cảm. Đây là tiền đề bắt buộc trước khi triển khai luồng KYC, tạo hồ sơ vay, hoặc bất kỳ nghiệp vụ tài chính nào.
+Plan này xây dựng toàn bộ nền tảng trên: xác thực an toàn qua Keycloak, quản lý hồ sơ cá nhân, gửi email thông báo, và bảo vệ dữ liệu nhạy cảm. Đây là tiền đề bắt buộc trước khi triển khai luồng KYC, tạo hồ sơ vay, hoặc bất kỳ nghiệp vụ tài chính nào.
 
 ### Ai tham gia và nhìn thấy gì?
 
 | Actor | Vai trò | Họ nhìn thấy / tương tác gì |
 |---|---|---|
-| **Người vay (Borrower)** | Muốn vay tiền | Đăng ký → đăng nhập → chạm NFC đọc CCCD → xác nhận thông tin → hoàn thiện hồ sơ → sẵn sàng gửi hồ sơ vay |
-| **Nhà đầu tư (Investor)** | Muốn đầu tư | Đăng ký → đăng nhập → chạm NFC đọc CCCD → xác nhận thông tin → hoàn thiện hồ sơ → sẵn sàng đặt lệnh đầu tư |
+| **Người vay (Borrower)** | Muốn vay tiền | Đăng ký → đăng nhập → nhập thông tin CCCD → hoàn thiện hồ sơ → sẵn sàng gửi hồ sơ vay |
+| **Nhà đầu tư (Investor)** | Muốn đầu tư | Đăng ký → đăng nhập → nhập thông tin CCCD → hoàn thiện hồ sơ → sẵn sàng đặt lệnh đầu tư |
 | **Quản trị viên (Admin)** | Quản lý hệ thống | Xem danh sách tất cả người dùng → khóa/mở khóa tài khoản → gán/đổi vai trò |
 | **Hệ thống (tự động)** | Bảo vệ nền tảng | Phát hiện đăng nhập sai liên tiếp → tạm khóa → gửi email cảnh báo; tự làm mới token khi hết hạn |
 
@@ -91,30 +90,24 @@ Người dùng nhập email + mật khẩu trên finora-mobile
 - Refresh Token bị replay (token cũ sau khi đã rotation) → Keycloak phát hiện reuse → **revoke toàn bộ session** → người dùng phải đăng nhập lại trên tất cả thiết bị. Đây là cơ chế bảo vệ khi refresh token bị đánh cắp.
 - Keycloak server lỗi → đăng nhập không được, trả lỗi tạm thời; phiên đang hoạt động vẫn dùng được cho đến khi Access Token hiện tại hết hạn.
 
-#### Luồng 3: Đọc CCCD qua NFC
+#### Luồng 3: Nhập thông tin CCCD vào hồ sơ
 
 ```
-Người dùng mở finora-mobile → vào "Cập nhật hồ sơ" → bấm "Quét CCCD"
-  → App hướng dẫn: "Chạm mặt sau CCCD vào điện thoại"
-  → Điện thoại đọc chip NFC trên CCCD (giao thức ICAO 9303):
-    - Xác thực truy cập chip bằng CAN (6 số in trên thẻ) hoặc MRZ
-    - Đọc Data Group 1 (MRZ) + Data Group 13 (dữ liệu tiếng Việt)
-    - KHÔNG xác minh chữ ký số Bộ Công An (Passive Authentication)
-    - Trích xuất: số CCCD, họ tên, ngày sinh, giới tính, quê quán, địa chỉ
-  → finora-mobile hiển thị form đã điền sẵn từ dữ liệu chip
-  → Người dùng xem, sửa nếu cần, bấm "Xác nhận"
-  → finora-mobile gửi dữ liệu có cấu trúc lên finora-user
-    (POST /api/v1/users/profile/cccd-nfc — JSON, không phải file ảnh)
-  → finora-user validate + lưu vào DB: số CCCD được hash (HMAC-SHA256)
+Người dùng vào "Cập nhật hồ sơ" → điền form thông tin CCCD
+  → Nhập: số CCCD (12 chữ số), họ tên, ngày sinh, giới tính,
+    quê quán, địa chỉ
+  → Bấm "Xác nhận" → gửi lên finora-user
+    (PUT /api/v1/users/profile/cccd-manual — JSON)
+  → finora-user validate + kiểm tra trùng số CCCD toàn hệ thống
+  → Lưu vào DB: số CCCD được hash (HMAC-SHA256)
     + mã hóa (AES-256-GCM), không bao giờ lưu dạng thô
 ```
 
 **Không thành công:**
-- Điện thoại không có NFC → app thông báo "Thiết bị không hỗ trợ NFC", hướng dẫn nhập tay thông tin CCCD.
-- Chạm quá nhanh hoặc mất kết nối giữa chừng → đọc chip thất bại → app báo "Không đọc được, vui lòng giữ yên thẻ và thử lại". Không mất dữ liệu — chỉ cần chạm lại.
-- CAN nhập sai (6 số trên thẻ không khớp) → chip từ chối xác thực → app báo "Mã truy cập không đúng, kiểm tra lại 6 số in trên thẻ CCCD".
+- Số CCCD không đúng 12 chữ số → validate ở DTO trả lỗi ngay, không chạm tới DB.
 - Số CCCD đã tồn tại (trùng hash trong DB) → `finora-user` từ chối lưu, thông báo "Số CCCD này đã được đăng ký trong hệ thống". Không tiết lộ tài khoản nào đang dùng số này.
-- Người dùng trên `finora-web` (máy tính) → không có NFC → phải nhập tay toàn bộ thông tin CCCD qua form thông thường.
+
+> Dữ liệu ở bước này là **tự khai, chưa được tin cậy**. Việc xác minh danh tính thật (OCR ảnh CCCD, đối chiếu số CCCD, active liveness, so khớp khuôn mặt) thuộc plan eKYC riêng và chỉ chuyển hồ sơ sang `VERIFIED` sau khi đối chiếu đạt.
 
 #### Luồng 4: Quên mật khẩu
 
@@ -157,11 +150,10 @@ Admin đăng nhập (có vai trò ROLE_ADMIN)
 | `keycloak_user_id` | (Ẩn) Mã liên kết với tài khoản đăng nhập | Keycloak tạo khi đăng ký | Mọi bước xác thực và lấy thông tin user | Profile mồ côi, không đăng nhập được | Là cầu nối duy nhất giữa credential (Keycloak) và hồ sơ (FINORA DB) |
 | Email | Địa chỉ nhận thông báo, dùng để đăng nhập | Người dùng nhập khi đăng ký | Đăng nhập, nhận OTP, nhận cảnh báo, welcome email | Không nhận email thông báo, không lấy lại mật khẩu | Kênh liên lạc chính; Keycloak yêu cầu email duy nhất |
 | Mật khẩu | Mật khẩu đăng nhập | Người dùng tạo khi đăng ký | Đăng nhập, đổi mật khẩu | Không đăng nhập được | Keycloak quản lý (hash bcrypt), `finora-user` không lưu và không nhìn thấy |
-| Số CCCD (12 chữ số) | Số căn cước công dân | Chip NFC trên CCCD hoặc người dùng nhập tay | Xác nhận hồ sơ, kiểm tra trùng, phục vụ KYC sau này | Hồ sơ chưa đầy đủ, không thể nộp hồ sơ vay/đầu tư | Là dữ liệu định danh bắt buộc; lưu dạng hash (tìm kiếm) + mã hóa (bảo vệ PII) |
+| Số CCCD (12 chữ số) | Số căn cước công dân | Người dùng nhập tay | Xác nhận hồ sơ, kiểm tra trùng, phục vụ KYC sau này | Hồ sơ chưa đầy đủ, không thể nộp hồ sơ vay/đầu tư | Là dữ liệu định danh bắt buộc; lưu dạng hash (tìm kiếm) + mã hóa (bảo vệ PII) |
 | Số điện thoại | Số liên hệ cá nhân | Người dùng nhập tay | Hồ sơ liên lạc, phục vụ KYC | Thiếu kênh liên hệ dự phòng | Lưu dạng hash + mã hóa tương tự CCCD |
-| Họ tên, ngày sinh, giới tính, quê quán, địa chỉ | Thông tin cá nhân | Chip NFC trên CCCD hoặc người dùng nhập tay | Hiển thị hồ sơ, đối chiếu KYC | Hồ sơ không đầy đủ | Phục vụ quy trình xác minh danh tính và hợp đồng vay |
+| Họ tên, ngày sinh, giới tính, quê quán, địa chỉ | Thông tin cá nhân | Người dùng nhập tay | Hiển thị hồ sơ, đối chiếu KYC | Hồ sơ không đầy đủ | Phục vụ quy trình xác minh danh tính và hợp đồng vay |
 | Vai trò (`BORROWER`, `INVESTOR`, `ADMIN`) | "Tôi là người vay" / "Tôi là nhà đầu tư" | Chọn khi đăng ký, Admin có thể đổi | Mọi lần gọi API — quyết định được truy cập chức năng nào | Không truy cập được tính năng tương ứng | Phân quyền: người vay không thấy sàn đầu tư, nhà đầu tư không tạo hồ sơ vay, Admin quản lý hệ thống |
-| CAN (Card Access Number) | 6 số in trên mặt trước CCCD, dùng để mở khóa chip NFC | Người dùng nhập hoặc app đọc MRZ | Xác thực truy cập chip NFC trước khi đọc dữ liệu | Không mở khóa được chip → phải nhập tay | Không lưu — chỉ dùng một lần tại thời điểm đọc chip |
 
 ### Ví dụ thực tế
 
@@ -170,10 +162,9 @@ Admin đăng nhập (có vai trò ROLE_ADMIN)
 Minh (người muốn vay tiền) mở app FINORA trên điện thoại lần đầu:
 1. Minh chọn "Đăng ký" → nhập email `minh.nguyen@gmail.com`, mật khẩu, chọn vai trò "Người vay".
 2. Hệ thống tạo tài khoản → Minh nhận email chào mừng với hướng dẫn bước tiếp theo.
-3. Minh đăng nhập → vào trang "Hồ sơ cá nhân" → bấm "Quét CCCD".
-4. App hiển thị: "Nhập 6 số CAN in trên CCCD" → Minh nhập `123456` → "Chạm mặt sau CCCD vào điện thoại".
-5. Minh úp mặt sau CCCD lên lưng điện thoại → giữ yên 2–3 giây → chip NFC trả dữ liệu → app tự động điền: Số CCCD `079203012345`, Họ tên `NGUYỄN VĂN MINH`, Ngày sinh `15/03/1995`, Quê quán `Hồ Chí Minh`.
-6. Minh kiểm tra thông tin → mọi thứ đúng → bấm "Xác nhận".
+3. Minh đăng nhập → vào trang "Hồ sơ cá nhân" → bấm "Cập nhật CCCD".
+4. Minh nhập: Số CCCD `079203012345`, Họ tên `NGUYỄN VĂN MINH`, Ngày sinh `15/03/1995`, Quê quán `Hồ Chí Minh`.
+5. Minh kiểm tra lại thông tin → bấm "Xác nhận".
 7. Hệ thống lưu: `id_number_hash = HMAC-SHA256("079203012345")`, `id_number_encrypted = AES-GCM("079203012345")`. Trong DB không có chuỗi `079203012345` thô.
 8. Minh giờ đã sẵn sàng nộp hồ sơ vay (luồng P1-B02/F02, ngoài plan này).
 
@@ -188,7 +179,7 @@ Ai đó (hoặc bot) nhập sai mật khẩu của tài khoản Minh 5 lần li�
 **Ví dụ 3 — CCCD đã trùng:**
 
 Một người cố đăng ký tài khoản thứ hai với cùng số CCCD `079203012345`:
-1. Quét NFC CCCD → chip trả dữ liệu thành công → app điền form.
+1. Điền form thông tin CCCD trên app.
 2. Bấm "Xác nhận" → `finora-user` tính HMAC-SHA256 và phát hiện hash đã tồn tại trong DB.
 3. Hệ thống trả lỗi: "Số CCCD này đã được đăng ký". Không nói tài khoản nào đang dùng.
 
@@ -207,15 +198,12 @@ Admin Lan muốn thêm quyền Investor cho tài khoản Minh (hiện chỉ là 
 | 2 | **Web:** Token lưu trong HttpOnly Cookie, `localStorage` trống, response body không chứa token. **Mobile:** Token lưu trong Secure Storage (Keychain/Keystore), không có Cookie, app gửi qua header `Authorization: Bearer` | Web: DevTools → Cookies vs LocalStorage. Mobile: login response body chứa token, không có Set-Cookie header |
 | 3 | Access Token hết hạn sau 5 phút → silent refresh tự động đổi token mới (cả web và mobile), người dùng không bị gián đoạn. Nhiều request cùng bị 401 → chỉ gọi refresh 1 lần (mutex pattern) | Đợi 5 phút, thao tác tiếp → request thành công, không chuyển trang login. Kiểm tra server log chỉ có 1 lần refresh |
 | 4 | Đăng nhập sai 5 lần → tạm khóa 15 phút, email cảnh báo gửi ngay | Nhập sai 5 lần → lần 6 bị chặn → kiểm tra hộp thư có email cảnh báo |
-| 5 | Chạm NFC CCCD trên điện thoại → app tự động trích xuất ít nhất: số CCCD, họ tên, ngày sinh; điền sẵn vào form | Quét CCCD thật bằng NFC → kiểm tra form có giá trị đúng |
-| 6 | Chạm NFC thất bại (mất kết nối, CAN sai) → app báo lỗi có hướng dẫn, không crash | Rút thẻ giữa chừng → nhận thông báo "Thử lại" rõ ràng |
-| 7 | Thiết bị không có NFC → app hướng dẫn nhập tay, không chặn hoàn toàn | Mở app trên điện thoại cũ không có NFC → hiển thị form nhập tay |
-| 8 | Số CCCD và SĐT trong DB là hash + mã hóa, không có bản thô | Query trực tiếp DB → cột `id_number_hash` là chuỗi 64 ký tự, `id_number_encrypted` là chuỗi mã hóa |
-| 9 | Số CCCD trùng → từ chối, không tiết lộ tài khoản đang dùng | Đăng ký CCCD đã tồn tại → lỗi chung chung |
-| 10 | Console log không hiển thị email, CCCD, SĐT, OTP dạng thô | Grep log sau khi chạy luồng → không tìm thấy PII rõ ràng |
-| 11 | Người dùng Borrower gọi API admin → nhận `403 Forbidden` | Đăng nhập Borrower → gọi GET /api/v1/admin/users → 403 |
-| 12 | Quên mật khẩu → nhận OTP qua email → đổi mật khẩu thành công | Chạy luồng → kiểm tra email có OTP → đổi mật khẩu → đăng nhập thành công |
-| 13 | Người dùng trên `finora-web` (máy tính) → nhập tay CCCD qua form → lưu thành công | Đăng nhập web → nhập thông tin CCCD → xác nhận → kiểm tra DB |
+| 5 | Số CCCD và SĐT trong DB là hash + mã hóa, không có bản thô | Query trực tiếp DB → cột `id_number_hash` là chuỗi 64 ký tự, `id_number_encrypted` là chuỗi mã hóa |
+| 6 | Số CCCD trùng → từ chối, không tiết lộ tài khoản đang dùng | Đăng ký CCCD đã tồn tại → lỗi chung chung |
+| 7 | Console log không hiển thị email, CCCD, SĐT, OTP dạng thô | Grep log sau khi chạy luồng → không tìm thấy PII rõ ràng |
+| 8 | Người dùng Borrower gọi API admin → nhận `403 Forbidden` | Đăng nhập Borrower → gọi GET /api/v1/admin/users → 403 |
+| 9 | Quên mật khẩu → nhận OTP qua email → đổi mật khẩu thành công | Chạy luồng → kiểm tra email có OTP → đổi mật khẩu → đăng nhập thành công |
+| 10 | Người dùng nhập tay CCCD qua form (web hoặc mobile) → lưu thành công | Đăng nhập → nhập thông tin CCCD → xác nhận → kiểm tra DB |
 
 ---
 
@@ -224,18 +212,15 @@ Admin Lan muốn thêm quyền Investor cho tài khoản Minh (hiện chỉ là 
 ```
 [finora-mobile (React Native)]              [finora-web (React + Vite)]
        │                                           │
-       ├── (1) NFC đọc chip CCCD trực tiếp         │
-       │     (ICAO 9303, không qua server)          │
-       │                                           │
-       ├── (2a) Login → nhận JSON body ────────────┤── (2b) Login → nhận HttpOnly Cookie
+       ├── (1a) Login → nhận JSON body ────────────┤── (1b) Login → nhận HttpOnly Cookie
        │   {accessToken, refreshToken}             │   Set-Cookie: access_token, refresh_token
        │   Lưu vào Secure Storage                  │
        │   (Keychain iOS / Keystore Android)       │
        │                                           │
-       ├── (3a) Request API ───────────────────────┼──► [finora-gateway] ─► [finora-user (Port 8085)]
+       ├── (2a) Request API ───────────────────────┼──► [finora-gateway] ─► [finora-user (Port 8085)]
        │   Header: Authorization: Bearer <AT>      │       (Auto-send Cookie)  │ (DualBearerTokenResolver)
        │                                           │                         │ (HMAC-SHA256 & AES-256-GCM)
-       └── (4) POST /cccd-nfc (dữ liệu chip) ─────┘                         │ (PiiMasker & Redis Rate Limit)
+       └── (3) PUT /cccd-manual (form nhập tay) ──┘                         │ (PiiMasker & Redis Rate Limit)
                                                                               │
                                                        [Keycloak (Port 8180)]─┘ (Brute-Force / SMTP)
                                                                               │
@@ -272,12 +257,12 @@ Admin Lan muốn thêm quyền Investor cho tài khoản Minh (hiện chỉ là 
 
 - **Bảo vệ Dữ liệu Nhạy cảm (CCCD & SĐT):**
   - **Mã hóa & Deterministic Hash:** Toàn bộ số CCCD và Số điện thoại được lưu ở DB `user_profiles` dưới dạng **HMAC-SHA256 Hash** (để kiểm tra trùng lặp và truy vấn nhanh) và **AES-256-GCM Encrypted** (dữ liệu mã hóa tĩnh).
-- **`finora-mobile` (React Native):** Đọc chip NFC CCCD trực tiếp trên điện thoại (ICAO 9303); gửi dữ liệu có cấu trúc lên `finora-user`; xác thực bằng `Authorization: Bearer` header với token lưu trong Secure Storage (Keychain/Keystore).
-- **`finora-web` (React + Vite):** UI trên web; không hỗ trợ NFC — người dùng web nhập tay CCCD qua form; xác thực bằng `HttpOnly` Cookie tự động gửi qua `withCredentials: true`.
+- **`finora-mobile` (React Native):** UI trên điện thoại; gửi dữ liệu hồ sơ lên `finora-user`; xác thực bằng `Authorization: Bearer` header với token lưu trong Secure Storage (Keychain/Keystore).
+- **`finora-web` (React + Vite):** UI trên web; người dùng nhập tay CCCD qua form; xác thực bằng `HttpOnly` Cookie tự động gửi qua `withCredentials: true`.
 - **Keycloak (Port 8180):** Quản lý Credentials, Session, Token (JWT), Realm Roles, Client Roles / Composite Roles, Brute-Force Detection (tạm khóa sau 5 lần nhập sai). **Bật Refresh Token Rotation** (`Revoke Refresh Token = ON`, `Refresh Token Max Reuse = 0`) — mỗi lần refresh cấp refresh token mới, token cũ bị vô hiệu; nếu phát hiện token cũ bị replay → revoke toàn bộ session.
-- **`finora-user` (Port 8085):** Cấu hình `DualBearerTokenResolver` đọc JWT từ Header (mobile) hoặc Cookie (web); Bảo vệ API bằng **Method Security (`@PreAuthorize`)**; Che dấu dữ liệu PII (`PiiMasker`) khi ghi log; JPA `CryptoConverter`; Redis Rate Limiter; Phát Kafka Events; Nhận dữ liệu CCCD từ mobile (JSON) hoặc form nhập tay từ web.
+- **`finora-user` (Port 8085):** Cấu hình `DualBearerTokenResolver` đọc JWT từ Header (mobile) hoặc Cookie (web); Bảo vệ API bằng **Method Security (`@PreAuthorize`)**; Che dấu dữ liệu PII (`PiiMasker`) khi ghi log; JPA `CryptoConverter`; Redis Rate Limiter; Phát Kafka Events; Nhận dữ liệu CCCD người dùng tự khai (JSON) từ web hoặc mobile.
 - **`finora-notification` (Port 8086):** Consume Kafka Events, dùng HTML Template String gửi Email thông báo/OTP qua `JavaMailSender`.
-- **`finora-ai` (Port 8000):** Credit Scoring, eKYC (face/liveness — plan riêng). **Không tham gia luồng đọc CCCD** — chip NFC trả dữ liệu có cấu trúc, không cần OCR.
+- **`finora-ai` (Port 8000):** Credit Scoring, eKYC (OCR CCCD, active liveness, face match — plan riêng). **Không tham gia plan này** — hồ sơ CCCD ở đây là dữ liệu tự khai, chưa qua xác minh.
 
 ---
 
@@ -415,7 +400,7 @@ Admin Lan muốn thêm quyền Investor cho tài khoản Minh (hiện chỉ là 
    - **Nhóm Quyền Hồ Sơ (`user:profile`):**
      - `user:profile:read`: Xem thông tin hồ sơ cá nhân (`BORROWER`, `INVESTOR`, `ADMIN`).
      - `user:profile:write`: Cập nhật thông tin cá nhân (`BORROWER`, `INVESTOR`).
-     - `user:cccd:scan`: Quét NFC hoặc nhập tay CCCD (`BORROWER`, `INVESTOR`).
+     - `user:cccd:scan`: Nhập thông tin CCCD vào hồ sơ (`BORROWER`, `INVESTOR`).
    - **Nhóm Quyền Quản Trị Hệ Thống (`user:admin`):**
      - `user:admin:read_all`: Xem danh sách tất cả người dùng trong hệ thống (`ADMIN`).
      - `user:admin:lock`: Khóa / mở khóa tài khoản người dùng (`ADMIN`).
@@ -499,42 +484,12 @@ Admin Lan muốn thêm quyền Investor cho tài khoản Minh (hiện chỉ là 
 
 ---
 
-## 🎯 GIAI ĐOẠN 2: Đọc CCCD qua NFC trên `finora-mobile` (React Native)
+## 🎯 GIAI ĐOẠN 2: Tiếp nhận thông tin CCCD vào hồ sơ
 
-### Bước 2.1: Xây dựng NFC Reader đọc chip CCCD trên React Native (`finora-mobile`)
-
-#### 📝 Nhiệm vụ Kỹ thuật:
-- Khởi tạo project `finora-mobile` bằng React Native CLI.
-- Thêm thư viện NFC: `react-native-nfc-manager` (đọc/ghi NFC tags, hỗ trợ ISO 14443 trên Android & iOS).
-- Viết module `src/services/cccd-nfc-reader.ts`:
-  - **Kiểm tra NFC khả dụng:** Kiểm tra thiết bị có NFC không, NFC đã bật chưa → hướng dẫn bật nếu tắt hoặc fallback nhập tay nếu không có.
-  - **Xác thực truy cập chip (BAC/PACE):** Người dùng nhập CAN (Card Access Number — 6 chữ số in trên mặt trước CCCD) → app dùng CAN để xác thực với chip qua giao thức ICAO 9303.
-  - **Đọc Data Groups:** Đọc DG1 (MRZ — dữ liệu máy đọc được) và DG13 (dữ liệu tiếng Việt: họ tên, ngày sinh, giới tính, quê quán, địa chỉ, số CCCD).
-  - **KHÔNG xác minh chữ ký số Bộ Công An** (Passive Authentication) — dữ liệu từ chip được tin tưởng trực tiếp, người dùng xác nhận trước khi lưu.
-  - **Parse và chuẩn hóa:** Chuyển dữ liệu thô từ chip thành JSON có cấu trúc (`{ idNumber, fullName, dateOfBirth, gender, placeOfOrigin, address }`).
-- Viết màn hình `CccdNfcScanScreen`:
-  - Bước 1: Form nhập CAN (6 số).
-  - Bước 2: Hướng dẫn + animation "Chạm mặt sau CCCD vào điện thoại".
-  - Bước 3: Hiển thị kết quả dạng form chỉnh sửa được → nút "Xác nhận".
-
-#### 📚 Kiến thức cần học & nghiên cứu:
-1. **ICAO 9303 (Machine Readable Travel Documents):** Chuẩn quốc tế cho thẻ căn cước/hộ chiếu có chip — giải thích đơn giản: chip trên CCCD hoạt động giống hộ chiếu điện tử, lưu dữ liệu cá nhân trong các "Data Group" (DG) theo chuẩn quốc tế.
-2. **BAC (Basic Access Control) & CAN:** Cơ chế mở khóa chip — cần nhập 6 số CAN (in trên thẻ) để chip cho phép đọc dữ liệu, ngăn người lạ quét lén thẻ. Giải thích: giống mã PIN để mở khóa thẻ.
-3. **React Native NFC Manager:** Thư viện `react-native-nfc-manager` — API đọc/ghi NFC tag trên Android (NfcA/IsoDep) và iOS (CoreNFC/NFCTagReaderSession).
-4. **ISO 14443 Type A/B:** Giao thức truyền thông vật lý giữa điện thoại và chip CCCD (tầm đọc ~4cm, tốc độ 106–848 kbps).
-
-#### 🔗 Nguồn tài liệu Research:
-- 📖 [react-native-nfc-manager GitHub](https://github.com/revtel/react-native-nfc-manager)
-- 📖 [ICAO Doc 9303 Part 10 — Logical Data Structure](https://www.icao.int/publications/Documents/9303_p10_cons_en.pdf)
-- 📖 [Android NFC Developer Guide](https://developer.android.com/develop/connectivity/nfc)
-- 📖 [Apple CoreNFC Documentation](https://developer.apple.com/documentation/corenfc)
-
----
-
-### Bước 2.2: Tích hợp API nhận dữ liệu CCCD NFC từ `finora-mobile` vào `finora-user`
+### Bước 2.1: API tiếp nhận thông tin CCCD trong `finora-user`
 
 #### 📝 Nhiệm vụ Kỹ thuật:
-- Viết API endpoint trong `finora-user`: **`POST /api/v1/users/profile/cccd-nfc`** nhận JSON có cấu trúc từ `finora-mobile` (không phải file ảnh):
+- Viết API endpoint trong `finora-user`: **`PUT /api/v1/users/profile/cccd-manual`** nhận JSON người dùng tự khai (không phải file ảnh):
   ```json
   {
     "idNumber": "079203012345",
@@ -548,11 +503,10 @@ Admin Lan muốn thêm quyền Investor cho tài khoản Minh (hiện chỉ là 
 - Validate dữ liệu: số CCCD đúng 12 chữ số, ngày sinh hợp lệ, tên không trống.
 - Kiểm tra trùng CCCD: tính HMAC-SHA256 hash → so sánh `id_number_hash` trong DB.
 - Nếu không trùng → lưu hash + mã hóa vào `user_profiles` (dùng `CryptoConverter` từ Bước 1.7).
-- Viết API cho `finora-web` (nhập tay): **`PUT /api/v1/users/profile/cccd-manual`** — cùng payload JSON, cùng logic validate/hash/encrypt — dành cho người dùng web không có NFC.
 
 #### 📚 Kiến thức cần học & nghiên cứu:
 1. **React Native ↔ Spring Boot REST:** Cấu hình CORS, cookie handling trên mobile (khác browser về cookie domain/path).
-2. **Validation & Duplicate Detection:** Server-side validation vẫn bắt buộc dù dữ liệu từ chip — client có thể bị giả mạo.
+2. **Validation & Duplicate Detection:** Dữ liệu từ client không bao giờ đáng tin — server phải tự validate và tự kiểm tra trùng.
 
 #### 🔗 Nguồn tài liệu Research:
 - 📖 [React Native Networking (Fetch/Axios)](https://reactnative.dev/docs/network)
@@ -572,7 +526,7 @@ Admin Lan muốn thêm quyền Investor cho tài khoản Minh (hiện chỉ là 
 #### [NEW] `src/main/java/com/finora/user/controller/AuthController.java` (Login/Refresh/Logout/Register — dual-mode: Cookie cho web, JSON body cho mobile)
 #### [NEW] `src/main/java/com/finora/user/service/KeycloakAdminService.java`
 #### [NEW] `src/main/java/com/finora/user/service/UserEventProducer.java` (Phát Kafka events gửi Mail)
-#### [NEW] `src/main/java/com/finora/user/controller/UserProfileController.java` (Nhận dữ liệu CCCD NFC + form nhập tay)
+#### [NEW] `src/main/java/com/finora/user/controller/UserProfileController.java` (Hồ sơ cá nhân + form nhập CCCD)
 #### [NEW] `src/main/resources/db/migration/V1__init_user_schema.sql`
 
 ### 2. Component: `finora-notification`
@@ -582,14 +536,13 @@ Admin Lan muốn thêm quyền Investor cho tài khoản Minh (hiện chỉ là 
 
 ### 3. Component: `finora-mobile` (MỚI — React Native)
 #### [NEW] `finora-mobile/` (Khởi tạo project React Native CLI)
-#### [NEW] `src/services/cccd-nfc-reader.ts` (Đọc chip CCCD qua NFC: BAC/PACE auth, parse DG1 + DG13)
-#### [NEW] `src/screens/CccdNfcScanScreen.tsx` (Màn hình quét: nhập CAN → hướng dẫn chạm → form xác nhận)
+#### [NEW] `src/screens/CccdFormScreen.tsx` (Form nhập thông tin CCCD)
 #### [NEW] `src/services/auth-storage.ts` (Lưu/đọc/xóa accessToken & refreshToken trong Secure Storage via `react-native-keychain`)
 #### [NEW] `src/services/api-client.ts` (Axios client + interceptor: tự gắn `Authorization: Bearer` header từ Secure Storage, mutex refresh khi 401)
-#### [NEW] `package.json` (Dependencies: `react-native-nfc-manager`, `react-native-keychain`, `axios`, ...)
+#### [NEW] `package.json` (Dependencies: `react-native-keychain`, `axios`, ...)
 
-### ~~3. Component: `finora-ai`~~ (Không thay đổi cho luồng CCCD)
-> `finora-ai` không tham gia luồng đọc CCCD NFC. Các file OCR (`ocr_service.py`, `cccd_parser.py`, `ocr_router.py`) và dependency (`paddleocr`, `paddlepaddle`) **không cần tạo**.
+### ~~3. Component: `finora-ai`~~ (Không thay đổi trong plan này)
+> Plan này chỉ tiếp nhận thông tin CCCD người dùng tự khai. OCR ảnh CCCD, active liveness và so khớp khuôn mặt thuộc plan eKYC riêng.
 
 ---
 
@@ -619,10 +572,7 @@ Admin Lan muốn thêm quyền Investor cho tài khoản Minh (hiện chỉ là 
    - **Refresh Token Rotation:** Sau refresh → dùng refresh token cũ gọi `/refresh` lần nữa → Keycloak reject + revoke session.
 4. **Kiểm thử Phân quyền Chức năng (Method Security):**
    - User `BORROWER` gọi API Admin $\rightarrow$ Nhận `403 Forbidden`.
-5. **Kiểm thử CCCD NFC:**
-   - Mở `finora-mobile` trên điện thoại có NFC → nhập CAN → chạm CCCD → dữ liệu hiển thị trên form xác nhận → bấm Xác nhận → kiểm tra DB có hash + mã hóa.
-6. **Kiểm thử Fallback nhập tay:**
-   - Mở `finora-web` trên máy tính (không có NFC) → nhập tay thông tin CCCD → Xác nhận → kiểm tra DB.
-7. **Kiểm thử NFC thất bại:**
-   - Rút thẻ CCCD giữa chừng đang quét → app hiển thị lỗi rõ ràng, cho phép thử lại.
-   - Nhập sai CAN → app báo "Mã truy cập không đúng".
+5. **Kiểm thử nhập thông tin CCCD:**
+   - Nhập tay thông tin CCCD trên `finora-web` hoặc `finora-mobile` → Xác nhận → kiểm tra DB có hash + mã hóa.
+   - Nhập số CCCD sai định dạng (khác 12 chữ số) → nhận lỗi validate, DB không đổi.
+   - Nhập số CCCD đã tồn tại của tài khoản khác → nhận lỗi trùng, không lộ tài khoản đang dùng.

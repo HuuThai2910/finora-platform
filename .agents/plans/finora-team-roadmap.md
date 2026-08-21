@@ -274,7 +274,7 @@ Các task có thể chạy song song theo ownership, nhưng mỗi task vẫn ph�
 | P7-B05 | AI | Fraud detection | Payment behavior contract | `BACKLOG` |
 | P7-B06 | AI | Document forgery | P1 eKYC | `BACKLOG` |
 | P7-B07 | AI/Loan contract | Early warning | P5 behavior snapshot | `BACKLOG` |
-| P7-B08 | User/AI | NFC CCCD PoC | Thiết bị/pháp lý rõ | `BACKLOG` |
+| P7-B08 | User/AI | NFC CCCD PoC | — | `DROPPED` — bỏ khỏi phạm vi 2026-08-21: Passive Authentication cần chứng thư CSCA của Bộ Công an (không công bố), nên đọc chip không chứng minh được thẻ thật; giá trị còn lại không bù được chi phí native module NFC cho cả Android/iOS. Thay bằng OCR + active liveness + face match. |
 | P7-B09 | Notification | Đa kênh email/SMS/push | Provider adapter | `BACKLOG` |
 | P7-B10 | User | Admin user/RBAC nâng cao | P0 security | `BACKLOG` |
 
