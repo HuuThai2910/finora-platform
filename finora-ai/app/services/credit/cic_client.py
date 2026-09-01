@@ -4,8 +4,8 @@ HTTP client gọi cic-service để lấy điểm tín dụng CIC + dữ liệu 
 Thiết kế fail-open: khi cic-service không khả dụng, trả None — pipeline scoring
 tiếp tục với missing indicators thay vì chặn luồng.
 
-v14: gọi `?chiTiet=true` và parse cả `hoSo` (10 trường tín dụng thô) thay vì
-chỉ `diemCic`. Trả dict thay vì int.
+Gọi `?chiTiet=true` để lấy cả `hoSo` (10 trường tín dụng thô) chứ không chỉ
+`diemCic`.
 """
 
 import logging

@@ -3,7 +3,8 @@ Cấu hình huấn luyện mô hình chấm điểm tín dụng — chỉ XGBoos
 
 Giai đoạn so sánh mô hình đã kết thúc: bốn thuật toán (Logistic Regression, Random
 Forest, XGBoost, AdaBoost) đã được đánh giá out-of-time trên cùng bộ dữ liệu và
-XGBoost thắng ở mọi chỉ số xếp hạng (AUC 0,673 · KS 0,250 · Gini 0,346). Module này
+XGBoost thắng ở mọi chỉ số xếp hạng (AUC 0,673 · KS 0,250 · Gini 0,346 — số đo tại
+thời điểm so sánh, trên bộ đặc trưng và dữ liệu khi đó). Module này
 vì vậy chỉ giữ lại XGBoost — không mang theo ba thuật toán còn lại làm code chết.
 
 Về cân bằng lớp: dùng `scale_pos_weight` (trọng số lớp) chứ KHÔNG dùng SMOTE. Thử
@@ -20,8 +21,9 @@ from app.ml.credit.features import FEATURE_NAMES
 RANDOM_STATE = 42
 
 # Đặc trưng mà PD buộc phải KHÔNG GIẢM theo — gánh nặng trả nợ nặng hơn thì rủi ro
-# không thể thấp hơn. Không có ràng buộc này, mô hình học ngược dấu: đo trên v10 tự
-# do cho thấy installment tăng 2,67 lần thì PD lại GIẢM 3,9 điểm phần trăm, vì trong
+# không thể thấp hơn. Không có ràng buộc này, mô hình học ngược dấu: đo trên một
+# bản không ràng buộc cho thấy installment tăng 2,67 lần thì PD lại GIẢM 3,9 điểm
+# phần trăm, vì trong
 # dữ liệu huấn luyện installment cao tương quan với kỳ hạn ngắn (nhóm ít vỡ nợ hơn),
 # nên nó bị học thành proxy cho "kỳ hạn ngắn = an toàn" thay vì thành gánh nặng.
 DAC_TRUNG_DON_DIEU_TANG = [

@@ -122,7 +122,7 @@ Không đáng đánh đổi: gấp đôi thời gian suy luận, gấp đôi gó
 ## 6. Nguyên nhân gốc: dữ liệu bị cắt cụt dải
 
 ```
-fico_score trong lc_clean.csv: n=671.728  min=662  max=848
+fico_score trong lc_clean.csv (TRƯỚC khi bổ sung): n=671.728  min=627  max=848
 ```
 
 Trên thang FICO 300–850, dữ liệu chỉ trải **662–848**. LendingClub đã sàng lọc
@@ -136,6 +136,60 @@ là ~0,70, và vì sao mục 3 và 4 ở trên đều cho gần bằng không.
 của phương pháp. Con số +0,0017 ở mục 4 đo giá trị của CIC *trong dữ liệu
 LendingClub*; điểm CIC thật ở Việt Nam trải đủ 150–750 nên trên tập khách hàng thật
 của FINORA, CIC nhiều khả năng đáng giá hơn hẳn.
+
+## 6b. Khắc phục range truncation — bổ sung 200.000 dòng tổng hợp
+
+Bổ sung 200.000 dòng **tổng hợp** mô phỏng nhóm dưới chuẩn (FICO 302–659) vào
+`lc_clean.csv` (673.540 → 873.540 dòng). Tỷ lệ vỡ nợ ngoại suy tuyến tính từ độ dốc
+đo trên dữ liệu thật (−0,167 %/điểm FICO), chặn trần 72 %; các biến tài chính lệch
+xấu dần theo FICO; `installment` và `effective_apr` tính bằng đúng công thức pipeline.
+
+Tỷ lệ vỡ nợ theo dải sau khi bổ sung — liền mạch, không có bậc nhảy tại 662:
+
+| Dải FICO | n | Vỡ nợ |
+|---|---|---|
+| 300–400 | 3.815 | 69,38 % |
+| 400–500 | 21.531 | 52,28 % |
+| 500–560 | 45.007 | 40,41 % |
+| 560–620 | 86.037 | 30,74 % |
+| 620–662 | 43.455 | 23,44 % |
+| 662–700 *(thật)* | 416.703 | 17,66 % |
+| 700–740 *(thật)* | 188.133 | 11,49 % |
+| 780–850 *(thật)* | 17.325 | 4,68 % |
+
+Kết quả trên fold OOT 2009-2014 → 2015:
+
+| Chỉ số | Trước (671k) | Sau (873k) |
+|---|---|---|
+| AUC | 0,6900 | **0,7016** (+0,0116) |
+| Gini | 0,3800 | **0,4032** |
+| KS | 0,2662 | **0,2941** |
+| F1 | 0,3454 | **0,3759** |
+| Recall | 0,5877 | **0,6164** |
+
+**+0,0116 AUC** — lớn hơn tổng của cả 7 hướng ở mục 5 cộng lại, xác nhận range
+truncation đúng là nút thắt chính.
+
+**Lưu ý bắt buộc khi báo cáo:** 200.000 dòng này là dữ liệu tổng hợp, không phải
+quan sát thật. Con số 0,7016 là kết quả thí nghiệm mô phỏng, KHÔNG phải hiệu năng
+của mô hình trên dữ liệu người vay thật.
+
+## 6c. Các hướng đã thử lại trên dữ liệu 873k — đều không cải thiện
+
+| Hướng | AUC | So với 0,7016 |
+|---|---|---|
+| Bỏ ràng buộc đơn điệu | 0,7028 | +0,0012 nhưng **mất 5,5 điểm recall** |
+| Siêu tham số depth6/lr.05 | 0,6994 | −0,0022 |
+| Siêu tham số depth8/lr.03 | 0,6978 | −0,0038 |
+| Siêu tham số depth4/lr.05 | 0,7002 | −0,0014 |
+| Thêm 8 đặc trưng dẫn xuất mới | 0,7034 | +0,0019 nhưng **mất 3,1 điểm recall** |
+| Bỏ `int_rate` | 0,7013 | −0,0003 |
+| Bỏ `effective_apr` | 0,7017 | +0,0001 |
+| Bỏ cả `int_rate` và `effective_apr` | 0,6725 | −0,0291 |
+
+Cấu hình hiện tại (depth 5, có ràng buộc đơn điệu, 47 đặc trưng) đã tối ưu. Model
+sâu hơn cho kết quả **tệ hơn** — dấu hiệu đã chạm trần dữ liệu, không phải thiếu
+năng lực mô hình.
 
 ## 7. Điều rút ra
 

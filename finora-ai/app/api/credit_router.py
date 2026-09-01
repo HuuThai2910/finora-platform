@@ -9,11 +9,12 @@ Luồng ra quyết định:
         │
         ├──────────────────────────┬──────────────────────────┐
         ▼                          ▼                          │
-    Mô hình XGBoost v14          Rule Engine 5C                │
+    Mô hình XGBoost              Rule Engine 5C                │
     (47 features, có CIC)→ PD    (4 yếu tố) → risk_score      │
         └──────────────────────────┴──────────────────────────┘
                                   ▼
-            evaluation_score = (1-PD)x100 x 0,6 + risk_score x 0,4
+       evaluation_score = (1-PD)x100 x pd_weight + risk_score x risk_weight
+              (trọng số đọc từ config/product_config.json)
                                   ▼
                     credit_grade · decision · hạn mức
 

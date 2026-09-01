@@ -34,7 +34,9 @@ def compute_ks_statistic(y_true: np.ndarray, y_proba: np.ndarray) -> float:
     return float(np.max(np.abs(tpr - fpr)))
 
 
-def evaluate_model(model, X_test: np.ndarray, y_test: np.ndarray) -> dict:
+def evaluate_model(
+    model, X_test: np.ndarray, y_test: np.ndarray, nguong: float = 0.5
+) -> dict:
     """Đánh giá mô hình trên tập test, trả về dict các chỉ số.
 
     `accuracy` được tính kèm `accuracy_baseline` — độ chính xác của một mô hình
@@ -43,9 +45,13 @@ def evaluate_model(model, X_test: np.ndarray, y_test: np.ndarray) -> dict:
     baseline. Ví dụ tập test của đề tài có 14,89% vỡ nợ, nên đoán "ai cũng trả đủ"
     đã đạt 85,11% — bằng đúng mô hình tốt nhất. Chỉ số dùng để xếp hạng mô hình
     vẫn là AUC/KS/Gini, còn Recall cho biết mô hình bắt được bao nhiêu ca vỡ nợ.
+
+    `nguong` chỉ cắt PD để tính f1/recall/precision/accuracy khi BÁO CÁO. Đường ra
+    quyết định của hệ thống không cắt ngưỡng — `tinh_diem_tong_hop()` nhận PD liên
+    tục — nên đổi giá trị này không làm đổi hành vi chấm điểm.
     """
     y_proba = model.predict_proba(X_test)[:, 1]
-    y_pred = (y_proba >= 0.5).astype(int)
+    y_pred = (y_proba >= nguong).astype(int)
 
     auc = roc_auc_score(y_test, y_proba)
     ty_le_lop_da_so = max(np.mean(y_test), 1 - np.mean(y_test))
@@ -59,6 +65,7 @@ def evaluate_model(model, X_test: np.ndarray, y_test: np.ndarray) -> dict:
         "accuracy": accuracy_score(y_test, y_pred),
         "accuracy_baseline": float(ty_le_lop_da_so),
         "ks_statistic": compute_ks_statistic(y_test, y_proba),
+        "nguong_bao_cao": float(nguong),
     }
 
 

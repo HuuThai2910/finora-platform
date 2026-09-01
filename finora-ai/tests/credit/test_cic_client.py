@@ -1,4 +1,4 @@
-"""Test CIC client v14 — trả dict thay vì int."""
+"""Test CIC client — trả dict gồm cic_score + 9 trường CIC thô."""
 
 import httpx
 import pytest

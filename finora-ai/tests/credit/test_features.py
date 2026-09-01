@@ -1,4 +1,4 @@
-"""Test bộ đặc trưng v14 — 47 features bao gồm CIC raw + Fineract."""
+"""Test bộ đặc trưng — 47 features bao gồm CIC raw + Fineract."""
 
 from app.ml.credit.features import (
     AGE_BINS,

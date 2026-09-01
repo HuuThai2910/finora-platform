@@ -1,16 +1,16 @@
 {
-  "version": "15.0.0",
+  "version": "16.0.0",
   "sha256": "bd6df4dadf984749dfc596c3c4aa1049df00240888768741a18c9a35f69615ff",
   "metrics": {
     "auc_roc": 0.6998925826313869,
     "gini": 0.3997851652627737,
     "ks_statistic": 0.29192498193005445,
-    "recall": 0.5368475391452752,
-    "precision": 0.29412014452398627,
-    "f1": 0.37921474294161994,
-    "accuracy": 0.7015179470744833,
+    "recall": 0.6558640174907892,
+    "precision": 0.2687721404815394,
+    "f1": 0.3807761741230191,
+    "accuracy": 0.6371484870439356,
     "accuracy_baseline": 0.8299052118850891,
-    "chenh_so_voi_baseline": -0.12838726481060578
+    "chenh_so_voi_baseline": -0.1927567248411535
   },
   "feature_names": [
     "person_age",
@@ -62,7 +62,7 @@
     "age_over_60"
   ],
   "model_class": "XGBClassifier",
-  "saved_at": "2026-09-01T17:42:59.872910+00:00",
+  "saved_at": "2026-09-01T18:56:58.922338+00:00",
   "du_lieu_huan_luyen": {
     "nguon": "data/lc_clean.csv",
     "loc": "issue_year >= 2009",
@@ -148,7 +148,7 @@
     "log_du_no": "log1p(tong_du_no)",
     "ty_le_du_no_thu_nhap": "clip(tong_du_no / annual_inc, 0, 10)"
   },
-  "nguon_du_lieu": "Hồ sơ người vay tự khai + eKYC/CCCD + CIC (điểm 150–750 + 9 trường thô) từ cic-service. Trong dữ liệu huấn luyện, CIC features ánh xạ từ LendingClub (delinq_2yrs→so_lan_tre_han, tot_cur_bal→tong_du_no, v.v.), cic_score tổng hợp từ fico_score bằng ánh xạ tuyến tính + nhiễu Gaussian, ~15% NaN đồng bộ.",
+  "nguon_du_lieu": "Hồ sơ người vay tự khai + eKYC/CCCD + CIC (điểm 150–750 + 9 trường thô) từ cic-service. Trong dữ liệu huấn luyện, CIC features ánh xạ từ LendingClub (delinq_2yrs→so_lan_tre_han, tot_cur_bal→tong_du_no, v.v.), cic_score tổng hợp từ fico_score bằng ánh xạ tuyến tính + nhiễu Gaussian, ~15% NaN đồng bộ. Tập huấn luyện gồm 673.540 dòng LendingClub thật (FICO 627–848) và 200.000 dòng TỔNG HỢP mô phỏng nhóm dưới chuẩn (FICO 302–659) — sinh bằng cách ngoại suy tuyến tính tỷ lệ vỡ nợ theo FICO đo trên dữ liệu thật, nhằm khắc phục range truncation. Chỉ số dưới đây KHÔNG phải hiệu năng trên dữ liệu thật thuần.",
   "muc_phan_loai": {
     "home_ownership": [
       "RENT",
@@ -175,7 +175,7 @@
       "Not Verified"
     ]
   },
-  "nguong_bao_cao": 0.458,
+  "nguong_bao_cao": 0.405,
   "ghi_chu_nguong": "Ngưỡng 0,5 CHỈ dùng để tính recall/precision/f1/accuracy khi báo cáo. Đường ra quyết định không cắt ngưỡng — tinh_diem_tong_hop() nhận PD liên tục.",
   "chi_so": {
     "out_of_time": {
@@ -184,14 +184,14 @@
         {
           "auc_roc": 0.6987703765491051,
           "gini": 0.39754075309821024,
-          "f1": 0.3994086485154614,
-          "recall": 0.6149680979479221,
-          "precision": 0.29574404564452994,
-          "accuracy": 0.6603906220313865,
+          "f1": 0.3942386068914413,
+          "recall": 0.7339541300224176,
+          "precision": 0.26949914519090734,
+          "accuracy": 0.5858317184076199,
           "accuracy_baseline": 0.8163734468214462,
           "ks_statistic": 0.2914540823354763,
-          "nguong_bao_cao": 0.458,
-          "chenh_so_voi_baseline": -0.15598282479005965,
+          "nguong_bao_cao": 0.405,
+          "chenh_so_voi_baseline": -0.23054172841382625,
           "ten": "2009-2012 -> 2013",
           "n_train": 184821,
           "n_val": 157902,
@@ -200,14 +200,14 @@
         {
           "auc_roc": 0.6993173037020517,
           "gini": 0.3986346074041034,
-          "f1": 0.36881592088276133,
-          "recall": 0.49937335092348284,
-          "precision": 0.2923763179237632,
-          "accuracy": 0.7215634654130288,
+          "f1": 0.37223736298712923,
+          "recall": 0.6171503957783642,
+          "precision": 0.2664843772252129,
+          "accuracy": 0.6609053055742109,
           "accuracy_baseline": 0.8370987239758227,
           "ks_statistic": 0.29022683198054133,
-          "nguong_bao_cao": 0.458,
-          "chenh_so_voi_baseline": -0.1155352585627939,
+          "nguong_bao_cao": 0.405,
+          "chenh_so_voi_baseline": -0.17619341840161185,
           "ten": "2009-2013 -> 2014",
           "n_train": 342723,
           "n_val": 186125,
@@ -216,14 +216,14 @@
         {
           "auc_roc": 0.7015900676430037,
           "gini": 0.4031801352860074,
-          "f1": 0.3694196594266372,
-          "recall": 0.4962011685644206,
-          "precision": 0.29424007000366575,
-          "accuracy": 0.7225997537790346,
+          "f1": 0.37585255249048666,
+          "recall": 0.6164875266715856,
+          "precision": 0.270332899028498,
+          "accuracy": 0.664708437149976,
           "accuracy_baseline": 0.8362434648579984,
           "ks_statistic": 0.2940940314741457,
-          "nguong_bao_cao": 0.458,
-          "chenh_so_voi_baseline": -0.11364371107896376,
+          "nguong_bao_cao": 0.405,
+          "chenh_so_voi_baseline": -0.17153502770802243,
           "ten": "2009-2014 -> 2015",
           "n_train": 528848,
           "n_val": 306229,
@@ -244,28 +244,28 @@
           "std": 0.0016135091781505008
         },
         "recall": {
-          "mean": 0.5368475391452752,
-          "std": 0.05525475524609109
+          "mean": 0.6558640174907892,
+          "std": 0.055218711232485805
         },
         "precision": {
-          "mean": 0.29412014452398627,
-          "std": 0.0013774817822903
+          "mean": 0.2687721404815394,
+          "std": 0.0016531146165491284
         },
         "f1": {
-          "mean": 0.37921474294161994,
-          "std": 0.014281374625743788
+          "mean": 0.3807761741230191,
+          "std": 0.00963311029105737
         },
         "accuracy": {
-          "mean": 0.7015179470744833,
-          "std": 0.02908448752966413
+          "mean": 0.6371484870439356,
+          "std": 0.03631963665292288
         },
         "accuracy_baseline": {
           "mean": 0.8299052118850891,
           "std": 0.009574771236357754
         },
         "chenh_so_voi_baseline": {
-          "mean": -0.12838726481060578,
-          "std": 0.019528281813916682
+          "mean": -0.1927567248411535,
+          "std": 0.026785630752372926
         }
       }
     },
@@ -276,14 +276,14 @@
         {
           "auc_roc": 0.7073923757714808,
           "gini": 0.4147847515429617,
-          "f1": 0.40271614087395624,
-          "recall": 0.7517372281559644,
-          "precision": 0.27502559937855303,
-          "accuracy": 0.5849918570675864,
+          "f1": 0.38940899779986343,
+          "recall": 0.8256337665680092,
+          "precision": 0.2547902229811568,
+          "accuracy": 0.5181180246203957,
           "accuracy_baseline": 0.8138860947454136,
           "ks_statistic": 0.3050181123171516,
-          "nguong_bao_cao": 0.458,
-          "chenh_so_voi_baseline": -0.22889423767782724,
+          "nguong_bao_cao": 0.405,
+          "chenh_so_voi_baseline": -0.29576807012501793,
           "ten": "fold 1/5",
           "n_train": 668061,
           "n_val": 167016,
@@ -292,14 +292,14 @@
         {
           "auc_roc": 0.7088637488958776,
           "gini": 0.4177274977917551,
-          "f1": 0.4036749384353097,
-          "recall": 0.7541178741474713,
-          "precision": 0.2756013826510217,
-          "accuracy": 0.5853331417349236,
+          "f1": 0.39105315035256655,
+          "recall": 0.8296229571483722,
+          "precision": 0.2558181060651152,
+          "accuracy": 0.5191239162714949,
           "accuracy_baseline": 0.8138860947454136,
           "ks_statistic": 0.3045712660807077,
-          "nguong_bao_cao": 0.458,
-          "chenh_so_voi_baseline": -0.22855295301049006,
+          "nguong_bao_cao": 0.405,
+          "chenh_so_voi_baseline": -0.2947621784739187,
           "ten": "fold 2/5",
           "n_train": 668061,
           "n_val": 167016,
@@ -308,14 +308,14 @@
         {
           "auc_roc": 0.7078658756251035,
           "gini": 0.415731751250207,
-          "f1": 0.4017589755946439,
-          "recall": 0.7509651267533136,
-          "precision": 0.2742363721804511,
-          "accuracy": 0.5837619375505194,
+          "f1": 0.3901715513783892,
+          "recall": 0.8293655900141552,
+          "precision": 0.2550884101995785,
+          "accuracy": 0.5174864533125767,
           "accuracy_baseline": 0.8138849803909829,
           "ks_statistic": 0.30181024813526147,
-          "nguong_bao_cao": 0.458,
-          "chenh_so_voi_baseline": -0.23012304284046348,
+          "nguong_bao_cao": 0.405,
+          "chenh_so_voi_baseline": -0.2963985270784062,
           "ten": "fold 3/5",
           "n_train": 668062,
           "n_val": 167015,
@@ -324,14 +324,14 @@
         {
           "auc_roc": 0.7119166284093921,
           "gini": 0.42383325681878414,
-          "f1": 0.40471245249196347,
-          "recall": 0.755372538926779,
-          "precision": 0.2764011347985262,
-          "accuracy": 0.586426368889022,
+          "f1": 0.3916681854079339,
+          "recall": 0.8296551280401493,
+          "precision": 0.25634169615522245,
+          "accuracy": 0.5203424842080052,
           "accuracy_baseline": 0.8138849803909829,
           "ks_statistic": 0.31028203219301376,
-          "nguong_bao_cao": 0.458,
-          "chenh_so_voi_baseline": -0.2274586115019609,
+          "nguong_bao_cao": 0.405,
+          "chenh_so_voi_baseline": -0.2935424961829777,
           "ten": "fold 4/5",
           "n_train": 668062,
           "n_val": 167015,
@@ -340,14 +340,14 @@
         {
           "auc_roc": 0.7116802501840065,
           "gini": 0.423360500368013,
-          "f1": 0.4075996983696359,
-          "recall": 0.756434178355424,
-          "precision": 0.2789569220182942,
-          "accuracy": 0.5907732838367812,
+          "f1": 0.39406164763446005,
+          "recall": 0.8342877364560546,
+          "precision": 0.2579499676729497,
+          "accuracy": 0.5224800167649613,
           "accuracy_baseline": 0.8138849803909829,
           "ks_statistic": 0.3118344119727431,
-          "nguong_bao_cao": 0.458,
-          "chenh_so_voi_baseline": -0.2231116965542017,
+          "nguong_bao_cao": 0.405,
+          "chenh_so_voi_baseline": -0.29140496362602164,
           "ten": "fold 5/5",
           "n_train": 668062,
           "n_val": 167015,
@@ -368,28 +368,28 @@
           "std": 0.003754011637161999
         },
         "recall": {
-          "mean": 0.7537253892677904,
-          "std": 0.002086936436816909
+          "mean": 0.8297130356453482,
+          "std": 0.0027459246022352437
         },
         "precision": {
-          "mean": 0.27604428220536925,
-          "std": 0.0016194584173833775
+          "mean": 0.25599768061480455,
+          "std": 0.0011177428231400831
         },
         "f1": {
-          "mean": 0.4040924411531018,
-          "std": 0.002009917397979161
+          "mean": 0.39127270651464263,
+          "std": 0.0015917759792630467
         },
         "accuracy": {
-          "mean": 0.5862573178157665,
-          "std": 0.002412672475496805
+          "mean": 0.5195101790354867,
+          "std": 0.0017717464084616187
         },
         "accuracy_baseline": {
           "mean": 0.8138854261327552,
           "std": 5.459199495802457e-07
         },
         "chenh_so_voi_baseline": {
-          "mean": -0.2276281083169887,
-          "std": 0.002412874796720567
+          "mean": -0.2943752470972684,
+          "std": 0.0017719701884485858
         }
       }
     },

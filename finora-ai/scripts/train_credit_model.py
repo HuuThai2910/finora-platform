@@ -70,7 +70,7 @@ from app.ml.shared.evaluation import evaluate_model
 from app.ml.shared.model_registry import luu_mo_hinh
 
 # ── Cấu hình ──────────────────────────────────────────────────────────────────
-PHIEN_BAN = "15.0.0"
+PHIEN_BAN = "16.0.0"
 
 # Hệ số quy đổi thống nhất — trung bình của 2012 và 2014:
 #   VN_AVG = (44_400_000 + 53_880_000) / 2 = 49_140_000
@@ -83,12 +83,15 @@ NAM_BAT_DAU = 2009
 
 # Ngưỡng cắt PD để tính Recall/Precision/F1/Accuracy khi BÁO CÁO.
 # Đường ra quyết định KHÔNG dùng ngưỡng này — `tinh_diem_tong_hop()` nhận PD liên tục.
-NGUONG_BAO_CAO = 0.5
+# Chọn bằng cách quét toàn dải ngưỡng trên fold OOT cuối (2009-2014 -> 2015,
+# n=306.229) của tập 873.540 dòng: 0,405 là điểm tối ưu F1 (recall 0,616 · F1 0,376).
+# Chỉ ảnh hưởng số BÁO CÁO — đường ra quyết định dùng PD liên tục.
+NGUONG_BAO_CAO = 0.405
 
 COT_TIEN_TE = ["annual_inc", "loan_amnt", "installment", "tot_cur_bal", "revol_bal"]
 
 # Out-of-time: train trên các năm trước, validate năm kế tiếp.
-# Nhiều fold hơn v14 (chỉ có 1 fold 2012→2014).
+# Ba fold trượt theo thời gian.
 FOLD_OUT_OF_TIME = [
     ("2009-2012 -> 2013", 2012, 2013),
     ("2009-2013 -> 2014", 2013, 2014),
@@ -150,7 +153,7 @@ def nap_va_chuan_hoa() -> pd.DataFrame:
     print(f"  Quy đổi VND động theo từng năm cho {len(COT_TIEN_TE)} cột tiền tệ")
 
     # ── Tạo 9 CIC features từ LendingClub ────────────────────────────────────
-    # Ánh xạ cột LC → tên feature CIC, để mô hình v14 học cùng schema
+    # Ánh xạ cột LC → tên feature CIC, để mô hình học cùng schema
     # với dữ liệu CIC thật sẽ nhận lúc triển khai.
     d["so_lan_tre_han"] = d["delinq_2yrs"]
     d["thang_tu_tre_gan_nhat"] = d["mths_since_last_delinq"].fillna(-1).astype(int)
@@ -232,7 +235,7 @@ def do_mot_fold(train: pd.DataFrame, val: pd.DataFrame, ten: str) -> dict:
     X_val, y_val = tao_ma_tran(val, median, target_encodings, global_mean)
 
     model, scale_pos_weight = fit_xgboost(X_train, y_train)
-    chi_so = evaluate_model(model, X_val, y_val)
+    chi_so = evaluate_model(model, X_val, y_val, nguong=NGUONG_BAO_CAO)
     chi_so["chenh_so_voi_baseline"] = chi_so["accuracy"] - chi_so["accuracy_baseline"]
     chi_so.update({
         "ten": ten,
@@ -348,7 +351,11 @@ def main() -> None:
             "Hồ sơ người vay tự khai + eKYC/CCCD + CIC (điểm 150–750 + 9 trường thô) "
             "từ cic-service. Trong dữ liệu huấn luyện, CIC features ánh xạ từ LendingClub "
             "(delinq_2yrs→so_lan_tre_han, tot_cur_bal→tong_du_no, v.v.), cic_score tổng hợp "
-            "từ fico_score bằng ánh xạ tuyến tính + nhiễu Gaussian, ~15% NaN đồng bộ."
+            "từ fico_score bằng ánh xạ tuyến tính + nhiễu Gaussian, ~15% NaN đồng bộ. "
+            "Tập huấn luyện gồm 673.540 dòng LendingClub thật (FICO 627–848) và 200.000 "
+            "dòng TỔNG HỢP mô phỏng nhóm dưới chuẩn (FICO 302–659) — sinh bằng cách ngoại "
+            "suy tuyến tính tỷ lệ vỡ nợ theo FICO đo trên dữ liệu thật, nhằm khắc phục "
+            "range truncation. Chỉ số dưới đây KHÔNG phải hiệu năng trên dữ liệu thật thuần."
         ),
         "muc_phan_loai": {
             "home_ownership": HOME_OWNERSHIP_CATS,

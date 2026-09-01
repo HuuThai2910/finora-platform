@@ -1,9 +1,9 @@
-"""Test tích hợp v14: cic_data dict đi qua pipeline chuan_bi_dac_trung → du_doan → router."""
+"""Test tích hợp: cic_data dict đi qua pipeline chuan_bi_dac_trung → du_doan → router."""
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from app.ml.credit.predictor import BoDuDoan
+from app.ml.credit.predictor import PHIEN_BAN_MAC_DINH, BoDuDoan
 
 
 class TestChuanBiDacTrungV14:
@@ -41,7 +41,7 @@ class TestChuanBiDacTrungV14:
         try:
             bo = BoDuDoan.nap()
         except (FileNotFoundError, ValueError):
-            pytest.skip("Model v14 chưa được train")
+            pytest.skip("Gói model chưa được train")
         row = bo.chuan_bi_dac_trung(ho_so_co_ban)
         assert row["cic_score"] == 580
         assert row["so_lan_tre_han"] == 2
@@ -55,7 +55,7 @@ class TestChuanBiDacTrungV14:
         try:
             bo = BoDuDoan.nap()
         except (FileNotFoundError, ValueError):
-            pytest.skip("Model v14 chưa được train")
+            pytest.skip("Gói model chưa được train")
         row = bo.chuan_bi_dac_trung(ho_so_co_ban)
         assert row["cic_score_missing"] == 1.0
         assert row["so_lan_tre_han_missing"] == 1.0
@@ -69,7 +69,7 @@ class TestChuanBiDacTrungV14:
         try:
             bo = BoDuDoan.nap()
         except (FileNotFoundError, ValueError):
-            pytest.skip("Model v14 chưa được train")
+            pytest.skip("Gói model chưa được train")
         row = bo.chuan_bi_dac_trung(ho_so_co_ban)
         assert row["int_rate"] == 12.0
         assert row["term_months"] == 12
@@ -84,7 +84,7 @@ class TestDuDoanV14:
         try:
             bo = BoDuDoan.nap()
         except (FileNotFoundError, ValueError):
-            pytest.skip("Model v14 chưa được train")
+            pytest.skip("Gói model chưa được train")
         ho_so = {
             "annual_inc": 300_000_000,
             "loan_amnt": 50_000_000,
@@ -101,13 +101,14 @@ class TestDuDoanV14:
         ket_qua = bo.du_doan(ho_so, cic_data=cic_data)
         assert "pd_probability" in ket_qua
         assert "cic_score" not in ket_qua
-        assert ket_qua["model_version"] == "14.0.0"
+        # Đọc từ PHIEN_BAN_MAC_DINH thay vì viết cứng — train model mới không làm gãy test.
+        assert ket_qua["model_version"] == PHIEN_BAN_MAC_DINH
 
     def test_du_doan_khong_cic_data(self):
         try:
             bo = BoDuDoan.nap()
         except (FileNotFoundError, ValueError):
-            pytest.skip("Model v14 chưa được train")
+            pytest.skip("Gói model chưa được train")
         ho_so = {
             "annual_inc": 300_000_000,
             "loan_amnt": 50_000_000,

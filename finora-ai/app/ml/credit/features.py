@@ -1,5 +1,5 @@
 """
-Bộ đặc trưng cho mô hình chấm điểm tín dụng v14.
+Bộ đặc trưng cho mô hình chấm điểm tín dụng — 47 đặc trưng.
 
 Nguồn dữ liệu:
   - Hồ sơ người vay tự khai trên app (thu nhập, thâm niên, nhà ở, mục đích)
@@ -7,9 +7,8 @@ Nguồn dữ liệu:
   - CIC qua cic-service: điểm CIC (150–750) + 9 trường tín dụng thô
   - Fineract: lãi suất, kỳ hạn từ sản phẩm vay
 
-So với v13 (22 features): thêm 9 CIC raw, 3 Fineract (int_rate, term_months,
-effective_apr), 2 derived (log_du_no, ty_le_du_no_thu_nhap), 11 missing indicators
-mới → tổng 47.
+Cơ cấu 47 đặc trưng: 7 hồ sơ/eKYC + 9 CIC thô + 2 Fineract + 5 dẫn xuất
++ 4 target-encoded + 16 missing indicator + 4 age bucket.
 """
 import numpy as np
 import pandas as pd
@@ -37,7 +36,7 @@ CIC_RAW_FEATURES = [
     "nhom_no_cao_nhat",         # Nhóm nợ cao nhất (1-5)
 ]
 
-# ── 2 trường từ Fineract (khôi phục từ v10) ─────────────────────────────────
+# ── 2 trường từ Fineract ────────────────────────────────────────────────────
 FINERACT_FEATURES = [
     "int_rate",                 # Lãi suất danh nghĩa (%/năm)
     "term_months",              # Kỳ hạn vay (tháng)
@@ -127,8 +126,7 @@ def encode_features(
 ) -> pd.DataFrame:
     """Mã hóa và tạo đặc trưng mới từ DataFrame đã làm sạch.
 
-    Tính thêm 3 đặc trưng dẫn xuất so với v13: effective_apr, log_du_no,
-    ty_le_du_no_thu_nhap. Các đặc trưng dẫn xuất PHẢI tính SAU khi điền
+    Các đặc trưng dẫn xuất PHẢI tính SAU khi điền
     median — nếu tính trước thì giá trị thiếu sẽ truyền lên cột dẫn xuất
     mà không bị chặn.
     """
@@ -167,15 +165,15 @@ def encode_features(
     df["loan_to_income"] = df["loan_amnt"] / df["annual_inc"].replace(0, np.nan)
     df["loan_to_income"] = df["loan_to_income"].fillna(0).clip(upper=5)
 
-    # Dẫn xuất: lãi suất thực (MỚI v14)
+    # Dẫn xuất: lãi suất thực
     df["effective_apr"] = tinh_effective_apr(
         df["installment"], df["loan_amnt"], df["term_months"]
     )
 
-    # Dẫn xuất: log dư nợ (MỚI v14)
+    # Dẫn xuất: log dư nợ
     df["log_du_no"] = np.log1p(df["tong_du_no"])
 
-    # Dẫn xuất: tỷ lệ dư nợ / thu nhập (MỚI v14)
+    # Dẫn xuất: tỷ lệ dư nợ / thu nhập
     df["ty_le_du_no_thu_nhap"] = df["tong_du_no"] / df["annual_inc"].replace(0, np.nan)
     df["ty_le_du_no_thu_nhap"] = df["ty_le_du_no_thu_nhap"].fillna(0).clip(upper=10)
 

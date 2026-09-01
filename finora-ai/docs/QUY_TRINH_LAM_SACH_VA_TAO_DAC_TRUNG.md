@@ -131,31 +131,34 @@ Trong chấm điểm tín dụng tài chính, việc lựa chọn mô hình khô
 
 1. **Ứng dụng Dữ liệu phi truyền thống (Alternative Data) cho đối tượng Underbanked:**
    * Khách hàng tìm đến các nền tảng cho vay ngang hàng (P2P Lending) phần lớn là nhóm khách hàng dưới chuẩn ngân hàng (Subprime) hoặc nhóm khách hàng chưa có lịch sử tín dụng tại các tổ chức tài chính lớn (Unbanked/Underbanked). Họ hoàn toàn không có điểm CIC truyền thống.
-   * Việc thiết kế mô hình sử dụng **Alternative Data** (như nhân thân qua eKYC, thâm niên công việc tự khai, tỷ lệ nợ DTI tự khai) là hoàn toàn phù hợp với thực tế tệp khách hàng của FINORA. Việc mô hình v10.0.0 (không dùng CIC) vẫn đạt AUC-ROC thực tế **0.6531** chứng minh tính khả thi cao của phương án này.
+   * Việc thiết kế mô hình sử dụng **Alternative Data** (như nhân thân qua eKYC, thâm niên công việc tự khai, tỷ lệ nợ DTI tự khai) là hoàn toàn phù hợp với thực tế tệp khách hàng của FINORA. Phiên bản mô hình đầu (v10.0.0, chưa dùng CIC) đạt AUC-ROC **0,6531** chứng minh tính khả thi cao của phương án này.
 2. **Học từ hành vi khuyết thiếu thông tin (Missing Data Behavior):**
    * Trong đăng ký vay online, khách hàng thường cố ý bỏ trống hoặc che giấu các thông tin tài chính bất lợi.
    * Việc kết hợp cơ chế xử lý khuyết thiếu tự động của XGBoost với việc tạo các cột **Missing Indicators (`_missing`)** giúp mô hình học được mối tương quan giữa hành vi cố ý không khai báo thông tin với rủi ro vỡ nợ thực tế (một dạng Fraud Detection rất phổ biến trong tài chính).
 
 Do đó, **XGBoost** kết hợp với bộ dữ liệu phi truyền thống là phương án tối ưu nhất cho hoạt động kinh doanh của FINORA.
 
-## 11. Bước huấn luyện model v10.0.0 (Cập nhật mới)
+## 11. Bước huấn luyện model (quy trình hiện hành)
 
 Giai đoạn huấn luyện hiện tại được thực hiện trong [scripts/train_credit_model.py](../scripts/train_credit_model.py).
 
 Quy trình làm sạch và chuẩn bị dữ liệu trong RAM được cải tiến như sau:
 
 1. **Đọc dữ liệu** từ `data/lc_clean.csv`.
-2. **Lọc thời gian phát hành:** Chỉ giữ lại dữ liệu của hai năm **2012** và **2014** (giảm từ 673.540 dòng xuống còn 215.937 dòng) để tối ưu thời gian huấn luyện và giữ chất lượng phân phối tốt nhất cho tập kiểm thử out-of-time (OOT) `2012 -> 2014`.
+2. **Lọc thời gian phát hành và kỳ hạn:** Giữ `issue_year >= 2009` và `term_months <= 24` (theo NĐ 94/2025) — từ 873.540 dòng còn **835.077 dòng**. Tập gồm 673.540 dòng LendingClub thật (FICO 627–848) và 200.000 dòng **tổng hợp** mô phỏng nhóm dưới chuẩn (FICO 302–659), bổ sung để khắc phục range truncation.
 3. **Chuẩn hóa tiền tệ động theo năm (Dynamic Present Value Scaling):** 
    Thay vì nhân với một hệ số cố định, hệ thống áp dụng hệ số quy đổi động cho từng dòng dựa trên năm phát hành $Y$:
    $$k_Y = \frac{\text{Thu nhập bình quân Việt Nam}}{\text{Thu nhập bình quân Mỹ năm } Y}$$
    Hệ số $k_Y$ được nhân trực tiếp cho 3 cột tiền tệ: `annual_inc` (thu nhập năm), `loan_amnt` (khoản vay), và `installment` (số tiền trả nợ hàng tháng) để đưa dữ liệu lịch sử về cùng một mặt bằng sức mua đồng nhất tại Việt Nam.
 4. **Tạo chỉ báo khuyết thiếu (Missing Indicators):** Tạo cột `_missing` cho tất cả các biến số học có khả năng khuyết thiếu trước khi điền giá trị trung vị (median).
 5. **Điền giá trị khuyết thiếu:** Điền trung vị (median) của tập huấn luyện cho các giá trị `NaN` ở các biến số học.
-6. **Mã hóa Target Encoding với Smoothing:** Thay thế One-Hot thô bằng Target Encoding có làm mịn (smoothing factor $m=10.0$) cho 3 biến phân loại (`home_ownership`, `purpose`, `verification_status`) giúp XGBoost tránh overfitting và giảm số chiều đặc trưng từ 41 xuống còn 26 đặc trưng.
+6. **Mã hóa Target Encoding với Smoothing:** Target Encoding có làm mịn (smoothing factor $m=10.0$) cho **4** biến phân loại (`home_ownership`, `purpose_cat`, `verification_status`, `interest_method`). Bộ đặc trưng cuối cùng gồm **47 đặc trưng**.
 7. **Age Binning:** Phân nhóm độ tuổi thành các bins (`age_under_25`, v.v.).
-8. **Đánh giá Out-of-time (OOT):** Huấn luyện trên năm 2012, kiểm thử trên năm 2014.
-9. **Huấn luyện mô hình cuối cùng:** Huấn luyện lại trên 100% dữ liệu đã lọc (215.937 dòng) bằng thuật toán XGBoost và lưu đĩa.
+8. **Ràng buộc đơn điệu:** 7 đặc trưng bị ép quan hệ không giảm với PD (`installment`, `effective_apr`, `dti`, `so_lan_tre_han`, `tong_du_no`, `du_no_the_tin_dung`, `nhom_no_cao_nhat`) — xem `app/ml/credit/training.py`.
+9. **Đánh giá Out-of-time (OOT):** 3 fold trượt theo thời gian (2009-2012→2013, 2009-2013→2014, 2009-2014→2015), kèm 5 fold K-fold ngẫu nhiên để đối chiếu.
+10. **Huấn luyện mô hình cuối cùng:** Huấn luyện lại trên 100% dữ liệu đã lọc bằng XGBoost và lưu gói tự chứa (model + median + siêu tham số + công thức dẫn xuất + chỉ số từng fold).
+
+> **Lưu ý về nguồn dữ liệu:** 200.000 dòng nhóm dưới chuẩn là dữ liệu **tổng hợp**, sinh bằng cách ngoại suy tuyến tính tỷ lệ vỡ nợ theo FICO đo trên dữ liệu thật. Chỉ số đánh giá vì vậy là kết quả **thí nghiệm mô phỏng**, không phải hiệu năng trên dữ liệu người vay thật thuần.
 
 ## 12. Danh sách và Ý nghĩa của 15 Đặc trưng đầu vào thô (Input Features)
 
