@@ -86,7 +86,7 @@ NAM_BAT_DAU = 2009
 # Chọn bằng cách quét toàn dải ngưỡng trên fold OOT cuối (2009-2014 -> 2015,
 # n=306.229) của tập 873.540 dòng: 0,405 là điểm tối ưu F1 (recall 0,616 · F1 0,376).
 # Chỉ ảnh hưởng số BÁO CÁO — đường ra quyết định dùng PD liên tục.
-NGUONG_BAO_CAO = 0.405
+NGUONG_BAO_CAO = 0.90
 
 COT_TIEN_TE = ["annual_inc", "loan_amnt", "installment", "tot_cur_bal", "revol_bal"]
 

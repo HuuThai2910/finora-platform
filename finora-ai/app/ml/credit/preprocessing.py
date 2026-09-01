@@ -39,27 +39,6 @@ HOME_OWNERSHIP_MAP = {
 }
 
 
-PHUONG_PHAP_TINH_LAI = ["FLAT", "DECLINING_BALANCE", "DECLINING_BALANCE_RECALC"]
-PHUONG_PHAP_MAC_DINH = "DECLINING_BALANCE"
-
-
-def tinh_installment(goc, lai_suat_nam, so_thang, phuong_phap):
-    """Số tiền trả hàng tháng theo phương pháp tính lãi.
-
-    FLAT tính lãi trên toàn bộ gốc ban đầu suốt kỳ vay nên trả nhiều hơn.
-    DECLINING_BALANCE tính trên dư nợ còn lại. DECLINING_BALANCE_RECALC tại thời
-    điểm giải ngân có lịch trả trùng khít DECLINING_BALANCE — khác biệt chỉ phát
-    sinh khi khách trả trước hạn, và khi đó lãi chỉ giảm.
-    """
-    goc = np.asarray(goc, dtype=float)
-    r = np.asarray(lai_suat_nam, dtype=float) / 100.0 / 12.0
-    n = np.asarray(so_thang, dtype=float)
-
-    giam_dan = goc * r * (1 + r) ** n / ((1 + r) ** n - 1)
-    co_dinh = goc * (1 + np.asarray(lai_suat_nam, dtype=float) / 100.0 * n / 12.0) / n
-    return np.where(np.asarray(phuong_phap) == "FLAT", co_dinh, giam_dan)
-
-
 def tinh_effective_apr(installment, goc, so_thang, so_vong: int = 60):
     """Lãi suất thực (%/năm) của dòng tiền trả đều — giải IRR bằng bisection.
 
