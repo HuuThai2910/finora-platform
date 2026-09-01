@@ -16,11 +16,16 @@ Bốn yếu tố hiện tại đều tính được từ hồ sơ tự khai + eK
 Lưu ý: Điểm CIC (cic_score) được dùng trong mô hình ML, KHÔNG dùng trong rule engine.
 
 Khoảng điểm AI, hạng tín dụng, hạn mức và ngưỡng duyệt được đọc từ
-config/product_config.json — xem app/services/product_config.py.
+config/product_config.json — xem app/services/credit/product_config.py.
 """
 from collections import namedtuple
 
-from app.services.product_config import get_approval_thresholds, get_grades, get_legal_limits, get_model_weights
+from app.services.credit.product_config import (
+    get_approval_thresholds,
+    get_grades,
+    get_legal_limits,
+    get_model_weights,
+)
 
 XepHangTinDung = namedtuple("XepHangTinDung", ["hang", "han_muc"])
 

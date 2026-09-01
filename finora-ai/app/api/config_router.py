@@ -10,7 +10,7 @@ import json
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
-from app.services.product_config import _CONFIG_PATH, reload
+from app.services.credit.product_config import _CONFIG_PATH, reload
 
 router = APIRouter()
 

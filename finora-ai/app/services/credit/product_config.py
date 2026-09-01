@@ -8,7 +8,7 @@ này — rule_engine và predictor tự lấy giá trị mới qua module này.
 import json
 from pathlib import Path
 
-_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "product_config.json"
+_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent.parent / "config" / "product_config.json"
 
 _cache: dict | None = None
 
