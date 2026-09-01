@@ -113,7 +113,7 @@ class CreditScoreResponse(BaseModel):
     evaluation_score: float = Field(
         description="Điểm tổng hợp = (1-PD)x100 x 0,6 + risk_score x 0,4"
     )
-    credit_grade: Literal["A", "B", "C", "D", "E"]
+    credit_grade: Literal["A", "B", "C", "D"]
     suggested_limit: int = Field(
         description="Hạn mức đề xuất (VNĐ). Trần 100 triệu/nền tảng theo Nghị định 94/2025"
     )

@@ -20,15 +20,9 @@
     },
     {
       "grade": "D",
-      "min_score": 40,
+      "min_score": 0,
       "max_score": 53,
       "limit": 20000000
-    },
-    {
-      "grade": "E",
-      "min_score": 0,
-      "max_score": 40,
-      "limit": 0
     }
   ],
   "approval_thresholds": {
