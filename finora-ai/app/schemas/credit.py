@@ -106,6 +106,18 @@ class CreditScoreRequest(BaseModel):
     }
 
 
+class RuleTraceItem(BaseModel):
+    """Vết của một luật đã chạy — cơ sở giải trình quyết định cho người vay."""
+
+    ma: str = Field(description="Mã luật, vd CHARACTER_CIC_HISTORY")
+    nhom_5c: str = Field(description="Nhóm 5C: Character / Capacity / Capital")
+    mo_ta: str = Field(description="Mô tả luật bằng tiếng Việt")
+    gia_tri: float | str | None = Field(description="Giá trị luật đọc được, None nếu thiếu")
+    diem: int = Field(description="Điểm luật này cộng vào risk_score")
+    toi_da: int = Field(description="Điểm tối đa của luật")
+    thieu_du_lieu: bool = Field(description="True khi phải dùng điểm trung tính vì thiếu dữ liệu")
+
+
 class CreditScoreResponse(BaseModel):
     """Kết quả chấm điểm."""
 
@@ -122,5 +134,19 @@ class CreditScoreResponse(BaseModel):
         description="Hạn mức đề xuất (VNĐ). Trần 100 triệu/nền tảng theo Nghị định 94/2025"
     )
     decision: Literal["APPROVED", "PENDING_REVIEW", "REJECTED"]
-    rejection_reason: str | None = Field(default=None, description="Lý do từ chối nếu bị chốt chặn cứng vi phạm")
+    rejection_reason: str | None = Field(
+        default=None,
+        description="Mã vi phạm đầu tiên. Giữ lại cho tương thích ngược — dùng rejection_reasons.",
+    )
+    rejection_reasons: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Toàn bộ mã chốt chặn cứng bị vi phạm. Trả hết thay vì dừng ở lỗi đầu để "
+            "người vay sửa một lần, không phải quay lại nhiều vòng."
+        ),
+    )
+    rule_trace: list[RuleTraceItem] = Field(
+        default_factory=list,
+        description="Vết từng luật đã chạy — mỗi điểm cộng đều truy ngược được về một luật có tên.",
+    )
     model_version: str

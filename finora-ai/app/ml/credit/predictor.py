@@ -33,9 +33,10 @@ from app.ml.credit.preprocessing import (
 )
 from app.ml.shared.model_registry import _duong_dan_mo_hinh, _tinh_sha256, tai_mo_hinh
 from app.services.credit.rule_engine import (
+    cham_diem_chi_tiet,
+    dem_luat_co_du_lieu,
     kiem_tra_chot_chan_cung,
     quyet_dinh,
-    tinh_diem_rui_ro,
     tinh_diem_tong_hop,
     xep_hang,
 )
@@ -179,11 +180,12 @@ class BoDuDoan:
             ho_so = {**ho_so, **cic_data}
 
         pd_probability = self.du_doan_pd(ho_so)
-        risk_score = tinh_diem_rui_ro(ho_so)
+        risk_score, rule_trace = cham_diem_chi_tiet(ho_so)
         evaluation_score = tinh_diem_tong_hop(pd_probability, risk_score)
         hang = xep_hang(evaluation_score)
 
-        chot_chan_ly_do = kiem_tra_chot_chan_cung(ho_so)
+        vi_pham = kiem_tra_chot_chan_cung(ho_so)
+        decision = quyet_dinh(evaluation_score, vi_pham, dem_luat_co_du_lieu(rule_trace))
 
         return {
             "pd_probability": round(pd_probability, 4),
@@ -191,7 +193,10 @@ class BoDuDoan:
             "evaluation_score": round(evaluation_score, 2),
             "credit_grade": hang.hang,
             "suggested_limit": hang.han_muc,
-            "decision": quyet_dinh(evaluation_score, chot_chan_ly_do),
-            "rejection_reason": chot_chan_ly_do,
+            "decision": decision,
+            # Giữ field cũ (mã đầu tiên) để finora-loan không phải sửa hợp đồng.
+            "rejection_reason": vi_pham[0] if vi_pham else None,
+            "rejection_reasons": vi_pham,
+            "rule_trace": rule_trace,
             "model_version": self.metadata["version"],
         }

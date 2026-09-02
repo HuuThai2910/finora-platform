@@ -1,41 +1,42 @@
 {
   "grades": [
-    {
-      "grade": "A",
-      "min_score": 84,
-      "max_score": 100,
-      "limit": 100000000
-    },
-    {
-      "grade": "B",
-      "min_score": 70,
-      "max_score": 84,
-      "limit": 80000000
-    },
-    {
-      "grade": "C",
-      "min_score": 53,
-      "max_score": 70,
-      "limit": 40000000
-    },
-    {
-      "grade": "D",
-      "min_score": 0,
-      "max_score": 53,
-      "limit": 20000000
-    }
+    { "grade": "A", "min_score": 84, "max_score": 100, "limit": 100000000 },
+    { "grade": "B", "min_score": 70, "max_score": 84, "limit": 80000000 },
+    { "grade": "C", "min_score": 53, "max_score": 70, "limit": 40000000 },
+    { "grade": "D", "min_score": 0, "max_score": 53, "limit": 20000000 }
   ],
-  "approval_thresholds": {
-    "auto_approve": 75,
-    "auto_reject": 70
-  },
-  "model_weights": {
-    "pd_weight": 0.85,
-    "risk_weight": 0.15
-  },
+  "approval_thresholds": { "auto_approve": 75, "auto_reject": 70 },
+  "model_weights": { "pd_weight": 0.85, "risk_weight": 0.15 },
   "legal_limits": {
     "max_platform_limit": 100000000,
     "max_interest_rate": 0.2,
     "max_term_months": 24
+  },
+  "rules": {
+    "CHARACTER_CIC_HISTORY": {
+      "bat": true,
+      "diem_khi_thieu": 8,
+      "bac": [[740, 20], [700, 15], [670, 10], [0, 5]]
+    },
+    "CAPACITY_EXISTING_DEBT": {
+      "bat": true,
+      "diem_khi_thieu": 8,
+      "bac": [[10, 20], [20, 15], [30, 8], [1000000000, 2]]
+    },
+    "CAPACITY_INSTALLMENT_BURDEN": {
+      "bat": true,
+      "diem_khi_thieu": 8,
+      "bac": [[0.1, 20], [0.2, 15], [0.35, 8], [1000000000, 2]]
+    },
+    "CHARACTER_CREDIT_SEEKING": {
+      "bat": true,
+      "diem_khi_thieu": 8,
+      "bac": [[0, 20], [1, 13], [3, 6], [1000000000, 0]]
+    },
+    "CAPITAL_RESIDENCE_STABILITY": {
+      "bat": true,
+      "diem_khi_thieu": 8,
+      "bang_diem": { "OWN": 20, "MORTGAGE": 16, "RENT": 8, "OTHER": 4 }
+    }
   }
 }

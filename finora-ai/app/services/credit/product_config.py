@@ -28,6 +28,20 @@ def reload() -> dict:
     return _load()
 
 
+def save(config: dict) -> dict:
+    """Ghi config xuống đĩa rồi nạp lại, trả về bản vừa nạp.
+
+    Đây là lối ghi DUY NHẤT. Nơi khác đừng tự `_CONFIG_PATH.write_text()`: import
+    `_CONFIG_PATH` trực tiếp sẽ bind đường dẫn ngay lúc import, nên test không
+    trỏ được config sang file tạm và sẽ ghi đè lên file thật.
+    """
+    _CONFIG_PATH.write_text(
+        json.dumps(config, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return reload()
+
+
 def get_grades() -> list[dict]:
     return _load()["grades"]
 
@@ -43,3 +57,12 @@ def get_model_weights() -> dict:
 
 def get_legal_limits() -> dict:
     return _load()["legal_limits"]
+
+
+def get_rules() -> dict:
+    """Cấu hình các luật chấm điểm, khóa theo mã luật.
+
+    Chỉ chứa phần admin sửa được (ngưỡng, điểm, bật/tắt). Cách đọc dữ liệu từ hồ
+    sơ nằm trong rule_engine._DINH_NGHIA_LUAT và không cấu hình được.
+    """
+    return _load()["rules"]
