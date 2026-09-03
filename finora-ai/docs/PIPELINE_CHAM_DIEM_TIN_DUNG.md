@@ -519,6 +519,8 @@ Trọng số đọc từ `config/product_config.json` (`model_weights`), **khôn
 | Lãi suất không hợp lệ | ≤ 0 | `INVALID_INTEREST_RATE` |
 | Trần kỳ hạn | > 24 tháng (NĐ 94/2025) | `TERM_EXCEEDS_LEGAL_LIMIT` |
 | Áp lực trả nợ | installment / thu nhập tháng > 50 % | `DEBT_SERVICE_RATIO_TOO_HIGH` |
+| Nợ xấu CIC | nhóm nợ ≥ 3 (TT 11/2021/TT-NHNN) | `CIC_BAD_DEBT_GROUP` |
+| Trần tổng dư nợ | `tong_du_no + loan_amnt` > 400 triệu (QĐ 2866/QĐ-NHNN) | `TOTAL_DEBT_EXCEEDS_LEGAL_LIMIT` |
 | Tuổi vs kinh nghiệm | `tuổi − thâm_niên < 10` | `AGE_AND_EXPERIENCE_INCONSISTENCY` |
 
 `xep_hang()` tra bảng dựng từ `product_config.json` (hạng A/B/C/D). `quyet_dinh()` so

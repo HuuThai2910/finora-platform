@@ -131,7 +131,10 @@ class CreditScoreResponse(BaseModel):
     )
     credit_grade: Literal["A", "B", "C", "D"]
     suggested_limit: int = Field(
-        description="Hạn mức đề xuất (VNĐ). Trần 100 triệu/nền tảng theo Nghị định 94/2025"
+        description=(
+            "Hạn mức đề xuất (VNĐ). Trần 100 triệu/khách hàng/nền tảng theo "
+            "Quyết định 2866/QĐ-NHNN ngày 22/7/2025"
+        )
     )
     decision: Literal["APPROVED", "PENDING_REVIEW", "REJECTED"]
     rejection_reason: str | None = Field(
@@ -148,5 +151,133 @@ class CreditScoreResponse(BaseModel):
     rule_trace: list[RuleTraceItem] = Field(
         default_factory=list,
         description="Vết từng luật đã chạy — mỗi điểm cộng đều truy ngược được về một luật có tên.",
+    )
+    model_version: str
+
+
+class YeuToAnhHuong(BaseModel):
+    """Một yếu tố ảnh hưởng tới PD, đo bằng đóng góp TreeSHAP."""
+
+    dac_trung: str = Field(description="Tên đặc trưng trong gói model")
+    mo_ta: str = Field(description="Diễn giải tiếng Việt của đặc trưng")
+    gia_tri: float = Field(
+        description="Giá trị đặc trưng của chính hồ sơ này, sau khi điền median nếu thiếu"
+    )
+    muc_dong_gop: float = Field(
+        description=(
+            "Đóng góp TreeSHAP vào log-odds vỡ nợ. Dương = đẩy hồ sơ về phía rủi ro "
+            "cao hơn, âm = kéo về phía an toàn hơn."
+        )
+    )
+    la_leakage: bool = Field(
+        default=False,
+        description=(
+            "True khi đặc trưng là target leakage đã biết (int_rate). Vẫn hiển thị để "
+            "mô tả trung thực mô hình, nhưng KHÔNG được dùng giải thích cho người vay."
+        ),
+    )
+
+
+class YeuToGop(BaseModel):
+    """Một dữ kiện gốc của hồ sơ, gộp từ mọi đặc trưng dẫn xuất của nó."""
+
+    ma_nhom: str = Field(description="Mã nhóm dữ kiện, vd du_no, diem_cic")
+    mo_ta: str = Field(description="Tên dữ kiện bằng tiếng Việt")
+    muc_do: Literal["manh", "vua", "nhe"] = Field(
+        description="Mức ảnh hưởng so với dữ kiện mạnh nhất của chính hồ sơ này"
+    )
+    muc_dong_gop: float = Field(
+        description="Tổng đóng góp SHAP của cả nhóm trên thang log-odds, để đối chứng"
+    )
+
+
+class TomTatYeuTo(BaseModel):
+    """Bản gộp cho thẩm định viên: tối đa ba dữ kiện mỗi chiều, không có lãi suất.
+
+    Bản thô chia một dữ kiện (dư nợ, thu nhập) ra nhiều đặc trưng trái dấu nhau nên
+    không đọc được. Bản này cộng lại theo dữ kiện gốc — hợp lệ vì SHAP cộng dồn.
+    """
+
+    bat_loi: list[YeuToGop] = Field(default_factory=list, description="Đẩy rủi ro lên")
+    co_loi: list[YeuToGop] = Field(default_factory=list, description="Kéo rủi ro xuống")
+
+
+class GiaiThichMoHinh(BaseModel):
+    """Phần giải thích của mô hình ML — vì sao mô hình cho hồ sơ này PD như vậy."""
+
+    yeu_to_bat_loi: list[YeuToAnhHuong] = Field(
+        default_factory=list,
+        description="Yếu tố đẩy PD lên, sắp xếp theo độ lớn đóng góp giảm dần.",
+    )
+    yeu_to_co_loi: list[YeuToAnhHuong] = Field(
+        default_factory=list,
+        description="Yếu tố kéo PD xuống, sắp xếp theo độ lớn đóng góp giảm dần.",
+    )
+    gia_tri_co_so: float = Field(
+        description=(
+            "Bias của mô hình trên thang log-odds. Tổng mọi đóng góp cộng giá trị này "
+            "bằng log-odds đầu ra — dùng để kiểm chứng tính cộng dồn của SHAP."
+        )
+    )
+    canh_bao: list[str] = Field(
+        default_factory=list,
+        description="Cảnh báo về chất lượng giải thích, vd đặc trưng leakage xuất hiện.",
+    )
+    tom_tat: TomTatYeuTo = Field(
+        description="Bản gộp theo dữ kiện gốc, dành cho thẩm định viên đọc."
+    )
+
+
+class DienGiaiNguoiDung(BaseModel):
+    """Phần diễn giải dành cho người vay đọc, không phải cho kỹ sư.
+
+    Tồn tại vì đóng góp TreeSHAP trên thang log-odds là con số đúng nhưng vô nghĩa
+    với người nhận quyết định. Một lời giải thích chỉ hoàn thành nhiệm vụ khi người
+    đọc hiểu được và biết phải làm gì tiếp theo.
+    """
+
+    thong_diep: str = Field(description="Một câu tóm tắt quyết định bằng tiếng Việt")
+    ly_do_chinh: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Vì sao ra quyết định đó. Vi phạm chốt chặn pháp lý được nêu trước vì "
+            "đó là lý do thật sự, mọi phân tích điểm số phía sau không đổi được."
+        ),
+    )
+    goi_y_cai_thien: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Việc cần làm để lần sau khá hơn, kèm mốc cụ thể suy ra từ ngưỡng thật "
+            "trong Rule Engine. Tối đa ba gợi ý, ưu tiên luật đang mất nhiều điểm nhất."
+        ),
+    )
+
+
+class CreditExplainResponse(BaseModel):
+    """Giải thích đầy đủ một quyết định chấm điểm (C1.2).
+
+    Gộp cả hai nửa của quyết định: `giai_thich_mo_hinh` nói vì sao mô hình ML cho
+    PD đó, `rule_trace` nói vì sao Rule Engine 5C cộng/trừ điểm. Trả riêng lẻ chỉ
+    một nửa sẽ không giải thích được `evaluation_score` vì điểm này trộn cả hai.
+    """
+
+    pd_probability: float = Field(description="Xác suất vỡ nợ do mô hình dự đoán")
+    risk_score: int = Field(description="Điểm rủi ro theo quy tắc 5C (0-100)")
+    evaluation_score: float = Field(description="Điểm tổng hợp của PD và risk_score")
+    credit_grade: Literal["A", "B", "C", "D"]
+    decision: Literal["APPROVED", "PENDING_REVIEW", "REJECTED"]
+    dien_giai: DienGiaiNguoiDung = Field(
+        description="Bản diễn giải cho người vay — thông điệp, lý do và gợi ý cải thiện."
+    )
+    giai_thich_mo_hinh: GiaiThichMoHinh = Field(
+        description="Giải thích PD bằng TreeSHAP — nửa ML của quyết định."
+    )
+    rule_trace: list[RuleTraceItem] = Field(
+        default_factory=list,
+        description="Vết luật 5C — nửa quy tắc của quyết định.",
+    )
+    rejection_reasons: list[str] = Field(
+        default_factory=list,
+        description="Mã chốt chặn cứng bị vi phạm, nếu có.",
     )
     model_version: str

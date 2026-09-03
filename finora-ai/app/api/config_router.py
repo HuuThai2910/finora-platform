@@ -50,6 +50,7 @@ class ModelWeights(BaseModel):
 
 class LegalLimits(BaseModel):
     max_platform_limit: int
+    max_total_debt_all_platforms: int
     max_interest_rate: float
     max_term_months: int
 

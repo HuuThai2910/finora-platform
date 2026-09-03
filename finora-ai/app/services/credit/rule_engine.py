@@ -68,6 +68,15 @@ DIEM_TOI_DA_MOI_LUAT = 20
 # không được cấp tín dụng mới cho khách hàng đang có nợ xấu.
 NHOM_NO_XAU_TOI_THIEU = 3
 
+# Quyết định 2866/QĐ-NHNN (22/7/2025) đặt HAI trần dư nợ cho cơ chế thử nghiệm P2P,
+# cả hai đều phải kiểm:
+#   · 100 triệu — một khách hàng tại MỘT nền tảng, áp ở `_build_bang_xep_hang()`
+#     bằng cách chặn hạn mức của từng hạng tín dụng.
+#   · 400 triệu — một khách hàng trên TOÀN BỘ nền tảng thử nghiệm, áp ở
+#     `kiem_tra_chot_chan_cung()` dựa trên tổng dư nợ CIC trả về.
+# Chỉ kiểm trần thứ nhất là chưa đủ tuân thủ: bốn nền tảng mỗi nơi 100 triệu đều
+# hợp lệ riêng lẻ nhưng tổng 400 triệu đã chạm trần, khoản thứ năm phải bị chặn.
+
 # Trần tỷ lệ trả nợ trên thu nhập. Vượt ngưỡng này người vay không còn đủ sống.
 TRAN_TY_LE_TRA_NO = 0.50
 
@@ -395,7 +404,7 @@ def _build_bang_xep_hang() -> list[tuple[int, XepHangTinDung]]:
         if han_muc > tran:
             raise ValueError(
                 f"Hạng {g['grade']}: hạn mức {han_muc:,} vượt trần "
-                f"{tran:,} đồng/nền tảng của Nghị định 94/2025"
+                f"{tran:,} đồng/khách hàng/nền tảng của Quyết định 2866/QĐ-NHNN"
             )
         bang.append((g["min_score"], XepHangTinDung(g["grade"], han_muc)))
     return bang
@@ -446,6 +455,27 @@ def kiem_tra_chot_chan_cung(features: dict) -> list[str]:
     nhom_no = _so_hoac_none(features.get("nhom_no_cao_nhat"))
     if nhom_no is not None and nhom_no >= NHOM_NO_XAU_TOI_THIEU:
         vi_pham.append("CIC_BAD_DEBT_GROUP")
+
+    # 4b. Trần tổng dư nợ 400 triệu trên TOÀN BỘ nền tảng thử nghiệm —
+    # Quyết định 2866/QĐ-NHNN ngày 22/7/2025. Đây là trần thứ hai, độc lập với
+    # trần 100 triệu/nền tảng đã áp ở `_build_bang_xep_hang()`: một người vay đủ
+    # hạn mức ở bốn nền tảng khác nhau vẫn hợp lệ ở từng nơi nhưng vi phạm trần tổng.
+    #
+    # Phải cộng cả khoản đang xin vay, không chỉ dư nợ hiện có: trần là mức dư nợ
+    # SAU khi giải ngân, kiểm tra trước khi cộng sẽ luôn cho lọt khoản vay đẩy
+    # người vay vượt trần.
+    #
+    # `tong_du_no` lấy từ CIC, nên hồ sơ không tra được CIC sẽ bỏ qua chốt chặn này
+    # và rơi vào PENDING_REVIEW theo cơ chế thiếu dữ liệu — đúng nguyên tắc không
+    # phạt người vay vì sự cố hạ tầng, nhưng cũng không tự động duyệt.
+    du_no_hien_co = _so_hoac_none(features.get("tong_du_no"))
+    khoan_vay_moi = _so_hoac_none(features.get("loan_amnt"))
+    if (
+        du_no_hien_co is not None
+        and khoan_vay_moi is not None
+        and du_no_hien_co + khoan_vay_moi > legal["max_total_debt_all_platforms"]
+    ):
+        vi_pham.append("TOTAL_DEBT_EXCEEDS_LEGAL_LIMIT")
 
     # 5. Tuổi và thâm niên mâu thuẫn — hồ sơ khai sai
     tuoi = _so_hoac_none(features.get("person_age"))

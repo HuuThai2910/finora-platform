@@ -16,7 +16,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-CIC_BASE_URL = os.getenv("CIC_SERVICE_URL", "http://localhost:8082")
+CIC_BASE_URL = os.getenv("CIC_SERVICE_URL", "http://localhost:9000")
 CIC_TIMEOUT_SECONDS = float(os.getenv("CIC_TIMEOUT_SECONDS", "3.0"))
 
 
@@ -28,7 +28,7 @@ def _che_cccd(so_cccd: str) -> str:
 
 
 class CicClient:
-    """Client gọi cic-service (port 8082) lấy điểm + dữ liệu tín dụng theo CCCD."""
+    """Client gọi cic-service (port 9000) lấy điểm + dữ liệu tín dụng theo CCCD."""
 
     def __init__(
         self,

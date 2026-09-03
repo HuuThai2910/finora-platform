@@ -297,6 +297,29 @@ class TestChotChanCung:
     def test_no_nhom_1_2_khong_bi_chan(self, nhom_no):
         assert kiem_tra_chot_chan_cung({**HO_SO_TOT, "nhom_no_cao_nhat": nhom_no}) == []
 
+    def test_tong_du_no_vuot_400_trieu_bi_chan(self):
+        """Trần tổng 400 triệu toàn hệ thống — Quyết định 2866/QĐ-NHNN."""
+        ho_so = {**HO_SO_TOT, "tong_du_no": 380_000_000, "loan_amnt": 50_000_000}
+        assert "TOTAL_DEBT_EXCEEDS_LEGAL_LIMIT" in kiem_tra_chot_chan_cung(ho_so)
+
+    def test_tong_du_no_dung_400_trieu_van_hop_le(self):
+        """Ranh giới: đúng trần là hợp lệ, chỉ vượt mới bị chặn."""
+        ho_so = {**HO_SO_TOT, "tong_du_no": 350_000_000, "loan_amnt": 50_000_000}
+        assert "TOTAL_DEBT_EXCEEDS_LEGAL_LIMIT" not in kiem_tra_chot_chan_cung(ho_so)
+
+    def test_cong_ca_khoan_dang_xin_vay(self):
+        """Dư nợ hiện có dưới trần nhưng cộng khoản mới thì vượt — phải chặn.
+
+        Nếu chỉ kiểm dư nợ hiện có, khoản vay đẩy người vay vượt trần sẽ luôn lọt.
+        """
+        ho_so = {**HO_SO_TOT, "tong_du_no": 390_000_000, "loan_amnt": 20_000_000}
+        assert "TOTAL_DEBT_EXCEEDS_LEGAL_LIMIT" in kiem_tra_chot_chan_cung(ho_so)
+
+    def test_thieu_du_no_cic_khong_coi_la_vi_pham(self):
+        """CIC không tra được là sự cố hạ tầng, không phải bằng chứng vượt trần."""
+        ho_so = {**HO_SO_TOT, "tong_du_no": None, "loan_amnt": 50_000_000}
+        assert "TOTAL_DEBT_EXCEEDS_LEGAL_LIMIT" not in kiem_tra_chot_chan_cung(ho_so)
+
     def test_tuoi_va_tham_nien_mau_thuan(self):
         """25 tuổi mà 20 năm kinh nghiệm nghĩa là đi làm từ năm 5 tuổi."""
         assert "AGE_AND_EXPERIENCE_INCONSISTENCY" in kiem_tra_chot_chan_cung(
