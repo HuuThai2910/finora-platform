@@ -27,15 +27,21 @@ gốc, và các nhóm bất lợi được duyệt theo độ lớn đóng góp 
 
 Mỗi nhóm nói được tới đâu thì tuỳ dữ liệu sẵn có:
 
-  * Nhóm có luật tương ứng (CIC, DTI, tra cứu, nhà ở...) → nêu **mốc thật** lấy từ
-    `bac` của luật trong `product_config.json`. Ví dụ luật CIC có bậc
-    (740, 700, 670), hồ sơ đang ở 600 thì gợi ý nêu đúng mốc gần nhất là 670, và
-    mốc đó tự đổi khi admin sửa cấu hình. Viết cứng "nâng lên 750" thì lời khuyên
-    sai ngay khi ai đó chỉnh ngưỡng, mà không có gì báo lỗi.
-  * Nhóm chỉ mô hình biết, rule engine không có luật (kỳ hạn, tổng dư nợ, thu
-    nhập, thâm niên...) → nêu bằng **chính giá trị trên hồ sơ**, không bịa ra mốc.
-    SHAP cho biết đặc trưng đó đẩy rủi ro lên bao nhiêu, nhưng không cho biết
-    "cần đạt bao nhiêu" — nói mốc ở đây là bịa số.
+  * Nhóm có luật đọc cùng dữ kiện (tra qua `nhom_shap` của trường trong danh mục)
+    → nêu **mốc thật** lấy từ `bac` của luật trong `product_config.json`. Ví dụ
+    luật CIC có bậc (740, 700, 670), hồ sơ đang ở 600 thì gợi ý nêu đúng mốc gần
+    nhất là 670, và mốc đó tự đổi khi admin sửa cấu hình. Viết cứng "nâng lên 750"
+    thì lời khuyên sai ngay khi ai đó chỉnh ngưỡng, mà không có gì báo lỗi.
+  * Nhóm chỉ mô hình biết, rule engine không có luật → nêu bằng **chính giá trị
+    trên hồ sơ**, không bịa ra mốc. SHAP cho biết đặc trưng đó đẩy rủi ro lên bao
+    nhiêu, nhưng không cho biết "cần đạt bao nhiêu" — nói mốc ở đây là bịa số.
+
+Luật là dữ liệu, câu gợi ý cũng là dữ liệu
+------------------------------------------
+Admin thêm luật tuỳ ý, nên lớp này KHÔNG có bảng câu viết cứng theo mã luật. Mỗi
+luật mang mẫu câu `goi_y` riêng (chỗ trống `{moc}` là ngưỡng kế tiếp); luật không
+có mẫu thì ghép câu chung từ mô tả luật, chiều so sánh và đơn vị của trường. Câu
+chung khô hơn câu admin viết, nhưng vẫn đúng mốc và không lộ mã kỹ thuật.
 
 Nhóm lãi suất bị loại khỏi gợi ý vì `int_rate` là target leakage: lãi suất được
 gán SAU khi chấm rủi ro, nên khuyên "giảm lãi suất để bớt rủi ro" là lập luận
@@ -48,7 +54,7 @@ Lớp này KHÔNG quyết định gì và KHÔNG chấm lại điểm. Nó chỉ
 động nghiệp vụ thuộc `finora-loan`.
 """
 
-from app.services.credit.rule_engine import lay_bo_luat
+from app.services.credit.rule_engine import LuatChamDiem, lay_bo_luat
 
 # Ngưỡng "còn lại" trong config là một số rất lớn thay cho vô cực (JSON không có
 # Infinity). Bậc nào có ngưỡng từ mức này trở lên thì không phải mốc phấn đấu.
@@ -83,43 +89,10 @@ DIEN_GIAI_CHOT_CHAN: dict[str, str] = {
     ),
 }
 
-# Gợi ý cải thiện theo từng luật. `{moc}` được thay bằng mốc thật của bậc kế tiếp.
-GOI_Y_THEO_LUAT: dict[str, str] = {
-    "CHARACTER_CIC_HISTORY": (
-        "Nâng điểm tín dụng CIC lên {moc} điểm bằng cách trả nợ đúng hạn trong "
-        "vài kỳ tới. Đây là yếu tố có trọng số cao nhất trong nhóm uy tín."
-    ),
-    "CAPACITY_EXISTING_DEBT": (
-        "Giảm tỷ lệ nợ trên thu nhập xuống dưới {moc}% — bằng cách trả bớt dư nợ "
-        "hiện có hoặc chứng minh thêm nguồn thu nhập."
-    ),
-    "CAPACITY_INSTALLMENT_BURDEN": (
-        "Giảm số tiền trả hàng tháng xuống dưới {moc}% thu nhập, bằng cách vay ít "
-        "hơn hoặc kéo dài kỳ hạn (tối đa 24 tháng)."
-    ),
-    "CHARACTER_CREDIT_SEEKING": (
-        "Hạn chế nộp hồ sơ vay ở nhiều nơi cùng lúc. Giữ số lần bị tra cứu CIC "
-        "trong 6 tháng ở mức {moc} lần trở xuống."
-    ),
-    "CAPITAL_RESIDENCE_STABILITY": (
-        "Tình trạng nhà ở ảnh hưởng tới điểm tài sản tích lũy. Nếu bạn sở hữu nhà "
-        "hoặc đang trả góp mua nhà, hãy bổ sung giấy tờ chứng minh."
-    ),
-}
-
-# Nhóm đặc trưng (theo `explainer._CAC_NHOM`) → mã luật chấm cùng dữ kiện đó.
-# Nhóm có mặt ở đây thì gợi ý nêu được mốc số thật từ bậc thang của luật.
-NHOM_SANG_LUAT: dict[str, str] = {
-    "diem_cic": "CHARACTER_CIC_HISTORY",
-    "dti": "CAPACITY_EXISTING_DEBT",
-    "tra_hang_thang": "CAPACITY_INSTALLMENT_BURDEN",
-    "tra_cuu": "CHARACTER_CREDIT_SEEKING",
-    "nha_o": "CAPITAL_RESIDENCE_STABILITY",
-}
-
 # Nhóm chỉ mô hình nhìn thấy, rule engine không có luật nào chấm. Không có bậc
 # thang nên không nêu mốc — chỉ nói rõ dữ kiện nào đang kéo hồ sơ xuống và hướng
-# xử lý, để người vay biết chỗ mà xoay xở.
+# xử lý, để người vay biết chỗ mà xoay xở. Cũng là câu dự phòng khi nhóm có luật
+# nhưng hồ sơ đã ở bậc cao nhất của luật đó.
 GOI_Y_NHOM_AI: dict[str, str] = {
     "ky_han": (
         "Kỳ hạn vay đang là yếu tố kéo hồ sơ xuống. Kỳ hạn ngắn hơn thường được "
@@ -169,7 +142,7 @@ GOI_Y_NHOM_AI: dict[str, str] = {
 }
 
 
-def _moc_can_dat(luat, gia_tri: float | None) -> float | None:
+def _moc_can_dat(luat: LuatChamDiem, gia_tri: float | None) -> float | None:
     """Ngưỡng gần nhất mà hồ sơ chưa đạt, theo đúng chiều so sánh của luật."""
     if luat.bang_diem is not None or not luat.bac or gia_tri is None:
         return None
@@ -190,18 +163,68 @@ def _moc_can_dat(luat, gia_tri: float | None) -> float | None:
 
 
 def _so_gon(x: float) -> str:
-    """Bỏ phần thập phân thừa: 740.0 -> '740', 0.35 -> '35' khi là tỷ lệ."""
-    return str(int(x)) if float(x).is_integer() else str(x)
+    """Số cho người đọc: bỏ thập phân thừa, tách nghìn bằng dấu chấm kiểu Việt.
+
+    740.0 -> '740', 50000000 -> '50.000.000', 0.35 -> '0.35'.
+    """
+    if float(x).is_integer():
+        return f"{int(x):,}".replace(",", ".")
+    return str(x)
 
 
-# Luật đo bằng tỷ lệ 0–1 nhưng câu gợi ý nói với người vay bằng phần trăm, nên mốc
-# phải nhân 100 trước khi hiển thị. CAPACITY_EXISTING_DEBT (DTI) KHÔNG nằm đây:
-# bậc thang của nó trong config đã để sẵn thang phần trăm (10/20/30).
-LUAT_THANG_TY_LE = {"CAPACITY_INSTALLMENT_BURDEN"}
+def _moc_hien_thi(luat: LuatChamDiem, moc: float) -> tuple[str, str]:
+    """(số để điền vào `{moc}`, số kèm đơn vị cho câu chung).
+
+    Trường 0–1 nhân 100 và gắn '%': người vay nghĩ bằng phần trăm, không bằng 0,2.
+    """
+    if luat.truong.la_ty_le:
+        so = _so_gon(moc * 100)
+        return so, f"{so}%"
+    so = _so_gon(moc)
+    don_vi = luat.truong.don_vi
+    if not don_vi:
+        return so, so
+    return so, f"{so}{don_vi}" if don_vi == "%" else f"{so} {don_vi}"
 
 
-def _la_ty_le(ma_luat: str) -> bool:
-    return ma_luat in LUAT_THANG_TY_LE
+def _cau_chung(luat: LuatChamDiem, moc_kem_don_vi: str | None, gia_tri) -> str:
+    """Câu gợi ý ghép tự động khi admin không nhập mẫu."""
+    if luat.bang_diem is not None:
+        return (
+            f"“{luat.mo_ta}” hiện ở mức “{gia_tri}” chưa được đánh giá cao. Nếu tình "
+            "trạng thực tế đã khác, hãy cập nhật hồ sơ và bổ sung giấy tờ chứng minh."
+        )
+    if luat.nghich_dao:
+        return f"Giảm “{luat.mo_ta}” xuống mức {moc_kem_don_vi} trở xuống."
+    return f"Nâng “{luat.mo_ta}” lên mức {moc_kem_don_vi} trở lên."
+
+
+def _cau_goi_y_cho_luat(luat: LuatChamDiem, vet_luat: dict | None) -> str | None:
+    """Câu gợi ý của một luật, điền mốc thật từ bậc thang của luật đó.
+
+    Trả None khi không còn gì để khuyên: hồ sơ đã ở bậc cao nhất, hoặc không có
+    vết luật để biết hồ sơ đang ở đâu.
+    """
+    # Luật tra bảng không có bậc số để phấn đấu — câu khuyên không cần mốc.
+    if luat.bang_diem is not None:
+        if luat.goi_y:
+            return luat.goi_y.format(moc="")
+        gia_tri = vet_luat.get("gia_tri") if vet_luat else None
+        return _cau_chung(luat, None, gia_tri)
+
+    if vet_luat is None:
+        return None
+    gia_tri = (
+        vet_luat["gia_tri"] if isinstance(vet_luat["gia_tri"], (int, float)) else None
+    )
+    moc = _moc_can_dat(luat, gia_tri)
+    if moc is None:
+        return None
+
+    so, so_kem_don_vi = _moc_hien_thi(luat, moc)
+    if luat.goi_y:
+        return luat.goi_y.format(moc=so)
+    return _cau_chung(luat, so_kem_don_vi, gia_tri)
 
 
 def sinh_dien_giai(ket_qua: dict, tom_tat: dict | None = None) -> dict:
@@ -246,12 +269,8 @@ def sinh_dien_giai(ket_qua: dict, tom_tat: dict | None = None) -> dict:
     # Vi phạm chốt chặn được ưu tiên tuyệt đối: đó là lý do thật sự khiến hồ sơ
     # bị từ chối, mọi phân tích điểm số phía sau đều không đổi được kết quả.
     ly_do: list[str] = [
-        DIEN_GIAI_CHOT_CHAN.get(ma, f"Hồ sơ vi phạm quy định: {ma}")
-        for ma in vi_pham
+        DIEN_GIAI_CHOT_CHAN.get(ma, f"Hồ sơ vi phạm quy định: {ma}") for ma in vi_pham
     ]
-
-    # ── Gợi ý cải thiện ───────────────────────────────────────────────────
-    theo_ma = {t["ma"]: t for t in vet}
 
     # Thiếu dữ liệu là chuyện của hệ thống, không phải lỗi người vay: báo ở phần lý
     # do bất kể luật đó có lọt vào top gợi ý hay không.
@@ -262,10 +281,16 @@ def sinh_dien_giai(ket_qua: dict, tom_tat: dict | None = None) -> dict:
                 "chấm mức trung tính thay vì mức thật của bạn."
             )
 
+    # ── Gợi ý cải thiện ───────────────────────────────────────────────────
+    # Đọc bộ luật một lần cho cả lượt diễn giải. Vết luật có thể nhắc luật admin
+    # đã xoá (trace lưu kèm quyết định cũ) — luật đó không còn bậc để nêu mốc, bỏ qua.
+    bo_luat = {luat.ma: luat for luat in lay_bo_luat()}
+    theo_ma = {t["ma"]: t for t in vet}
+
     if tom_tat:
-        goi_y = _goi_y_theo_shap(tom_tat, theo_ma)
+        goi_y = _goi_y_theo_shap(tom_tat, bo_luat, theo_ma)
     else:
-        goi_y = _goi_y_theo_luat(vet)
+        goi_y = _goi_y_theo_luat(vet, bo_luat)
 
     return {
         "thong_diep": thong_diep,
@@ -274,53 +299,43 @@ def sinh_dien_giai(ket_qua: dict, tom_tat: dict | None = None) -> dict:
     }
 
 
-def _cau_goi_y_cho_luat(ma_luat: str, vet_luat: dict | None) -> str | None:
-    """Câu gợi ý của một luật, điền mốc thật từ bậc thang của luật đó."""
-    mau = GOI_Y_THEO_LUAT.get(ma_luat)
-    if mau is None:
-        return None
-
-    luat = {l.ma: l for l in lay_bo_luat()}.get(ma_luat)
-    if luat is None:
-        return None
-
-    # Luật tra bảng (nhà ở) không có bậc số để phấn đấu — câu khuyên không cần mốc.
-    if luat.bang_diem is not None:
-        return mau.format(moc="")
-
-    if vet_luat is None:
-        return None
-    gia_tri = vet_luat["gia_tri"] if isinstance(vet_luat["gia_tri"], (int, float)) else None
-    moc = _moc_can_dat(luat, gia_tri)
-    if moc is None:
-        # Đã ở bậc cao nhất mà điểm vẫn chưa tối đa: không còn mốc nào để nêu.
-        return None
-
-    return mau.format(moc=_so_gon(moc * 100) if _la_ty_le(ma_luat) else _so_gon(moc))
+def _diem_hut(vet_luat: dict | None) -> int:
+    return (vet_luat["toi_da"] - vet_luat["diem"]) if vet_luat else 0
 
 
-def _goi_y_theo_shap(tom_tat: dict, theo_ma: dict[str, dict]) -> list[str]:
+def _goi_y_theo_shap(
+    tom_tat: dict, bo_luat: dict[str, LuatChamDiem], theo_ma: dict[str, dict]
+) -> list[str]:
     """Gợi ý xếp theo mức ảnh hưởng của mô hình, cao nhất trước.
 
     Duyệt các nhóm bất lợi mà `tom_tat_yeu_to()` đã sắp sẵn theo độ lớn đóng góp.
-    Nhóm nào có luật tương ứng thì nêu mốc thật; nhóm chỉ mô hình biết thì dùng
-    câu mô tả riêng. Nhóm không thuộc cả hai (chưa có câu chữ) bị bỏ qua thay vì
-    in ra mã kỹ thuật.
+    Nhóm nào có luật đọc trường thuộc nhóm đó thì nêu mốc thật (nhiều luật cùng
+    nhóm thì ưu tiên luật đang hụt nhiều điểm nhất); nhóm chỉ mô hình biết thì
+    dùng câu mô tả riêng. Nhóm không thuộc cả hai (chưa có câu chữ) bị bỏ qua thay
+    vì in ra mã kỹ thuật.
     """
-    goi_y: list[str] = []
+    luat_theo_nhom: dict[str, list[LuatChamDiem]] = {}
+    for luat in bo_luat.values():
+        if luat.bat and luat.truong.nhom_shap:
+            luat_theo_nhom.setdefault(luat.truong.nhom_shap, []).append(luat)
 
+    goi_y: list[str] = []
     for nhom in tom_tat.get("bat_loi", []):
         ma_nhom = nhom["ma_nhom"]
 
-        ma_luat = NHOM_SANG_LUAT.get(ma_nhom)
-        cau = (
-            _cau_goi_y_cho_luat(ma_luat, theo_ma.get(ma_luat))
-            if ma_luat
-            else GOI_Y_NHOM_AI.get(ma_nhom)
+        cau = None
+        ung_vien = sorted(
+            luat_theo_nhom.get(ma_nhom, []),
+            key=lambda luat: _diem_hut(theo_ma.get(luat.ma)),
+            reverse=True,
         )
-        # Nhóm có luật nhưng hồ sơ đã đạt bậc cao nhất: không còn mốc để khuyên,
-        # lùi về câu mô tả chung nếu có.
-        if cau is None and ma_luat:
+        for luat in ung_vien:
+            cau = _cau_goi_y_cho_luat(luat, theo_ma.get(luat.ma))
+            if cau:
+                break
+        # Không có luật, hoặc hồ sơ đã đạt bậc cao nhất ở mọi luật của nhóm: lùi về
+        # câu mô tả chung nếu có.
+        if cau is None:
             cau = GOI_Y_NHOM_AI.get(ma_nhom)
 
         if cau and cau not in goi_y:
@@ -331,17 +346,20 @@ def _goi_y_theo_shap(tom_tat: dict, theo_ma: dict[str, dict]) -> list[str]:
     return goi_y
 
 
-def _goi_y_theo_luat(vet: list[dict]) -> list[str]:
+def _goi_y_theo_luat(vet: list[dict], bo_luat: dict[str, LuatChamDiem]) -> list[str]:
     """Gợi ý xếp theo số điểm luật bị mất — dùng khi không có dữ liệu SHAP."""
     goi_y: list[str] = []
     thieu_diem = sorted(
         (t for t in vet if t["diem"] < t["toi_da"] and not t["thieu_du_lieu"]),
-        key=lambda t: t["toi_da"] - t["diem"],
+        key=_diem_hut,
         reverse=True,
     )
 
     for t in thieu_diem:
-        cau = _cau_goi_y_cho_luat(t["ma"], t)
+        luat = bo_luat.get(t["ma"])
+        if luat is None:
+            continue
+        cau = _cau_goi_y_cho_luat(luat, t)
         if cau and cau not in goi_y:
             goi_y.append(cau)
         if len(goi_y) == SO_GOI_Y_TOI_DA:

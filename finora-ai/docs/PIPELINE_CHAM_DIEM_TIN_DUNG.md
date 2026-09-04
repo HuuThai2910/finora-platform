@@ -50,7 +50,7 @@ model là hợp đồng nối chúng — mô tả ở phần II, đúng vị tr�
 │     ├─(1) chuan_bi_dac_trung()   → row thô, cờ missing, median    │
 │     ├─(2) encode_features()      → encoding, age bucket, dẫn xuất │
 │     ├─(3) model.predict_proba()  → PD                             │
-│     ├─(4) cham_diem_chi_tiet()   → risk_score + rule_trace (5C)   │
+│     ├─(4) cham_diem_chi_tiet()   → risk_score + rule_trace        │
 │     ├─(5) tinh_diem_tong_hop()   → evaluation_score               │
 │     └─(6) chốt chặn + xep_hang() + quyet_dinh()                   │
 │        ▼                                                          │
@@ -481,29 +481,45 @@ Xác suất vỡ nợ, khoảng `(0, 1)`.
 
 ### Bước 4 — `cham_diem_chi_tiet()` → risk_score + rule_trace
 
-Rule engine 5C, [`rule_engine.py`](../app/services/credit/rule_engine.py). **Năm luật
-× 20 điểm**, mỗi luật thuộc một nhóm của khung 5C:
+Rule engine, [`rule_engine.py`](../app/services/credit/rule_engine.py). **Luật là dữ
+liệu**: toàn bộ bộ luật nằm trong `config/product_config.json["rules"]`, admin thêm /
+sửa / xoá / sắp xếp / bật-tắt tuỳ ý qua `PUT /api/v1/ai/config/rules`, có hiệu lực
+ngay không cần deploy. Code chỉ giữ **danh mục trường** được phép đọc
+([`truong_du_lieu.py`](../app/services/credit/truong_du_lieu.py), 23 trường từ hồ sơ tự
+khai, CIC, Fineract và dẫn xuất — cố ý **không có `int_rate`** vì là target leakage).
 
-| Mã luật | Nhóm 5C | Bậc thang / bảng điểm |
+Mỗi luật gồm: `ma`, `mo_ta`, `truong` (mã trong danh mục), `nghich_dao` (càng thấp càng
+tốt), `trong_so` (0,1–10), `bat`, `diem_khi_thieu`, và `bac` (trường số) hoặc `bang_diem`
+(trường phân loại), cùng `goi_y` — mẫu câu gợi ý cải thiện cho người vay với chỗ trống
+`{moc}`. Bậc tốt nhất của mọi luật đều là **20 điểm**; luật nặng nhẹ khác nhau thể hiện
+qua `trong_so`, không qua độ lớn điểm bậc.
+
+Bộ luật **mặc định** (năm luật đã kiểm chứng AUC 0,64, trọng số đều 1,0):
+
+| Mã luật | Trường | Bậc thang / bảng điểm |
 |---|---|---|
-| `CHARACTER_CIC_HISTORY` | Character | CIC ≥740→20 · ≥700→15 · ≥670→10 · còn lại→5 |
-| `CAPACITY_EXISTING_DEBT` | Capacity | DTI ≤10%→20 · ≤20%→15 · ≤30%→8 · còn lại→2 |
-| `CAPACITY_INSTALLMENT_BURDEN` | Capacity | Trả nợ ≤0,1→20 · ≤0,2→15 · ≤0,35→8 · còn lại→2 |
-| `CHARACTER_CREDIT_SEEKING` | Character | Tra cứu 0 lần→20 · ≤1→13 · ≤3→6 · còn lại→0 |
-| `CAPITAL_RESIDENCE_STABILITY` | Capital | OWN 20 · MORTGAGE 16 · RENT 8 · OTHER 4 |
+| `CHARACTER_CIC_HISTORY` | `cic_score` | CIC ≥740→20 · ≥700→15 · ≥670→10 · còn lại→5 |
+| `CAPACITY_EXISTING_DEBT` | `dti` | DTI ≤10%→20 · ≤20%→15 · ≤30%→8 · còn lại→2 |
+| `CAPACITY_INSTALLMENT_BURDEN` | `ty_le_tra_no_thang` | Trả nợ ≤0,1→20 · ≤0,2→15 · ≤0,35→8 · còn lại→2 |
+| `CHARACTER_CREDIT_SEEKING` | `so_lan_tra_cuu` | Tra cứu 0 lần→20 · ≤1→13 · ≤3→6 · còn lại→0 |
+| `CAPITAL_RESIDENCE_STABILITY` | `home_ownership` | OWN 20 · MORTGAGE 16 · RENT 8 · OTHER 4 |
 
-Thiếu dữ liệu cho **8 điểm trung tính** — không phải 0. Ở Việt Nam cic-service có thể
-không trả lời, và "không tra được lịch sử tín dụng" ≠ "lịch sử tín dụng xấu"; cho điểm
-sàn là phạt oan người vay vì sự cố hạ tầng. Luật đó được đánh dấu `thieu_du_lieu=True`,
-và dưới `SO_LUAT_TOI_THIEU_CO_DU_LIEU = 3` luật có dữ liệu thật thì hồ sơ bị đẩy sang
-`PENDING_REVIEW` thay vì để máy quyết.
+Năm luật này chỉ là dữ liệu khởi tạo — admin xoá được như bất kỳ luật nào khác.
 
-Điểm được **chuẩn hoá về thang 100** theo tổng điểm tối đa của các luật đang bật:
-`round(tong_tho × 100 / tran_tho)`. Không chuẩn hoá thì tắt một luật sẽ kéo trần xuống
-80 và mọi hồ sơ tụt hạng oan.
+Thiếu dữ liệu cho **điểm trung tính** (mặc định 8) — không phải 0. Ở Việt Nam cic-service
+có thể không trả lời, và "không tra được lịch sử tín dụng" ≠ "lịch sử tín dụng xấu"; cho
+điểm sàn là phạt oan người vay vì sự cố hạ tầng. Luật đó được đánh dấu
+`thieu_du_lieu=True`, và khi số luật có dữ liệu thật dưới **60 % số luật đang bật**
+(`TY_LE_LUAT_TOI_THIEU_CO_DU_LIEU`, làm tròn lên — với 5 luật là 3) thì hồ sơ bị đẩy
+sang `PENDING_REVIEW` thay vì để máy quyết. Dùng tỷ lệ chứ không phải hằng số vì số
+luật do admin quyết.
 
-Bậc thang, điểm khi thiếu và công tắc `bat` của từng luật đọc từ `product_config.json`
-lúc chạy — sửa qua `PUT /api/v1/ai/config/rules`, không cần deploy.
+Điểm được **chuẩn hoá về thang 100** theo tổng điểm tối đa có trọng số của các luật đang
+bật: `round(Σ(điểm × trọng số) × 100 / Σ(20 × trọng số))`. Không chuẩn hoá thì tắt hay
+thêm một luật sẽ kéo trần điểm lệch đi và mọi hồ sơ đổi hạng oan.
+
+Mỗi vết luật trong `rule_trace` ghi `{ma, mo_ta, truong, gia_tri, diem, toi_da, trong_so,
+thieu_du_lieu}` — đủ để dựng màn hình giải trình mà không cần biết trước bộ luật.
 
 Đây là phần **giải trình được không cần công cụ** — ngưỡng cố định, không học từ dữ
 liệu. Đo trên tập out-of-time 2015: rule engine một mình đạt AUC 0,6043 so với 0,7018

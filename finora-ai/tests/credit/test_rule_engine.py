@@ -3,21 +3,26 @@
 Đây là tầng quyết định duyệt hay từ chối tiền thật, nên test tập trung vào những
 sai lầm KHÔNG gây crash: điểm ra ngoài thang, hồ sơ rỗng lọt qua, vi phạm pháp lý
 bị bỏ sót, vết luật không khớp điểm.
+
+Luật là dữ liệu trong `product_config.json`, không còn khai trong code. Test về
+từng luật dưới đây khẳng định CẤU HÌNH MẶC ĐỊNH — bộ luật đã kiểm chứng AUC 0,64
+trên 150.000 hồ sơ — để việc sửa config ngoài ý muốn bị phát hiện.
 """
+
+import json
+
 import pytest
 
+from app.services.credit import product_config
 from app.services.credit.rule_engine import (
-    MA_LUAT_HOP_LE,
-    SO_LUAT_TOI_THIEU_CO_DU_LIEU,
+    TY_LE_LUAT_TOI_THIEU_CO_DU_LIEU,
     LuatChamDiem,
-    _lay_ty_le_tra_no_thang,
-    _so_hoac_none,
-    _tinh_tien_tra_thang,
     cham_diem_chi_tiet,
     dem_luat_co_du_lieu,
     kiem_tra_chot_chan_cung,
     lay_bo_luat,
     quyet_dinh,
+    so_luat_toi_thieu_co_du_lieu,
     tinh_diem_rui_ro,
     tinh_diem_tong_hop,
     xep_hang,
@@ -27,9 +32,23 @@ from app.services.credit.rule_engine import (
 # sửa config ngoài ý muốn bị phát hiện, thay vì đọc lại chính config đang test.
 DIEM_NHA_O_MAC_DINH = {"OWN": 20, "MORTGAGE": 16, "RENT": 8, "OTHER": 4}
 
+# Năm luật mặc định, đúng thứ tự trong config.
+MA_LUAT_MAC_DINH = (
+    "CHARACTER_CIC_HISTORY",
+    "CAPACITY_EXISTING_DEBT",
+    "CAPACITY_INSTALLMENT_BURDEN",
+    "CHARACTER_CREDIT_SEEKING",
+    "CAPITAL_RESIDENCE_STABILITY",
+)
+
 
 def _luat(ma: str) -> LuatChamDiem:
     return next(l for l in lay_bo_luat() if l.ma == ma)
+
+
+def _luat_config(cau_hinh: dict, ma: str) -> dict:
+    return next(r for r in cau_hinh["rules"] if r["ma"] == ma)
+
 
 HO_SO_TOT = {
     "cic_score": 780,
@@ -60,18 +79,50 @@ HO_SO_XAU = {
 }
 
 
+@pytest.fixture
+def sua_config(tmp_path, monkeypatch):
+    """Cho phép sửa config trong test mà không đụng file thật."""
+    duong_dan_goc = product_config._CONFIG_PATH
+    goc = json.loads(duong_dan_goc.read_text(encoding="utf-8"))
+    file_tam = tmp_path / "product_config.json"
+    monkeypatch.setattr(product_config, "_CONFIG_PATH", file_tam)
+
+    def ghi(sua):
+        cau_hinh = json.loads(json.dumps(goc))
+        sua(cau_hinh)
+        file_tam.write_text(json.dumps(cau_hinh, ensure_ascii=False), encoding="utf-8")
+        product_config.reload()
+
+    ghi(lambda c: None)
+    yield ghi
+    # Trỏ về file thật TRƯỚC khi nạp lại: monkeypatch chỉ hoàn tác sau fixture này,
+    # nên reload ngay lúc này sẽ giữ cache là bản tạm (có thể cố ý hỏng) cho test sau.
+    monkeypatch.setattr(product_config, "_CONFIG_PATH", duong_dan_goc)
+    product_config.reload()
+
+
 class TestBoLuat:
+    def test_bo_luat_mac_dinh_dung_thu_tu(self):
+        assert tuple(l.ma for l in lay_bo_luat()) == MA_LUAT_MAC_DINH
+
     def test_tong_diem_toi_da_bang_100(self):
         assert sum(l.diem_toi_da for l in lay_bo_luat()) == 100
 
     def test_ma_luat_khong_trung_nhau(self):
         ma = [l.ma for l in lay_bo_luat()]
-        assert len(ma) == len(set(ma)) == len(MA_LUAT_HOP_LE)
+        assert len(ma) == len(set(ma))
 
     def test_moi_luat_deu_co_diem_khi_thieu_trung_tinh(self):
         """Thiếu dữ liệu không được cho điểm sàn cũng không được thưởng."""
         for luat in lay_bo_luat():
             assert 0 < luat.diem_khi_thieu < luat.diem_toi_da, luat.ma
+
+    def test_luat_mac_dinh_trong_so_bang_nhau(self):
+        """Trọng số 1.0 cho cả 5 luật để kết quả không đổi so với bộ luật đã kiểm chứng."""
+        assert all(l.trong_so == 1.0 for l in lay_bo_luat())
+
+    def test_luat_khong_con_nhom_5c(self):
+        assert not hasattr(_luat("CHARACTER_CIC_HISTORY"), "nhom_5c")
 
 
 class TestCharacterCicHistory:
@@ -79,7 +130,16 @@ class TestCharacterCicHistory:
 
     @pytest.mark.parametrize(
         "cic_score,diem_mong_doi",
-        [(800, 20), (740, 20), (739, 15), (700, 15), (699, 10), (670, 10), (669, 5), (300, 5)],
+        [
+            (800, 20),
+            (740, 20),
+            (739, 15),
+            (700, 15),
+            (699, 10),
+            (670, 10),
+            (669, 5),
+            (300, 5),
+        ],
     )
     def test_cac_bac_diem(self, cic_score, diem_mong_doi):
         diem, gia_tri, thieu = _luat(self.LUAT).cham({"cic_score": cic_score})
@@ -118,7 +178,8 @@ class TestCapacityInstallmentBurden:
     LUAT = "CAPACITY_INSTALLMENT_BURDEN"
 
     @pytest.mark.parametrize(
-        "ty_le,diem_mong_doi", [(0.05, 20), (0.10, 20), (0.15, 15), (0.20, 15), (0.30, 8), (0.50, 2)]
+        "ty_le,diem_mong_doi",
+        [(0.05, 20), (0.10, 20), (0.15, 15), (0.20, 15), (0.30, 8), (0.50, 2)],
     )
     def test_cac_bac_diem(self, ty_le, diem_mong_doi):
         thu_nhap_nam = 120_000_000.0
@@ -127,21 +188,10 @@ class TestCapacityInstallmentBurden:
         assert diem == diem_mong_doi
         assert thieu is False
 
-    def test_tu_tinh_khi_thieu_installment(self):
-        """Không có installment thì tính từ lãi suất và kỳ hạn."""
-        ho_so = {
-            "annual_inc": 120_000_000,
-            "loan_amnt": 12_000_000,
-            "term_months": 12,
-            "int_rate": 12.0,
-        }
-        _, gia_tri, thieu = _luat(self.LUAT).cham(ho_so)
-        assert thieu is False
-        assert gia_tri is not None and gia_tri > 0
-
     def test_thu_nhap_bang_khong_coi_la_thieu(self):
-        """Chia cho 0 phải trả None, không được crash hay ra vô cực."""
-        _, gia_tri, thieu = _luat(self.LUAT).cham({"annual_inc": 0, "installment": 5_000_000})
+        _, gia_tri, thieu = _luat(self.LUAT).cham(
+            {"annual_inc": 0, "installment": 5_000_000}
+        )
         assert thieu is True and gia_tri is None
 
 
@@ -165,7 +215,12 @@ class TestCapitalResidenceStability:
     LUAT = "CAPITAL_RESIDENCE_STABILITY"
 
     def test_bang_diem_nha_o_dung_thu_tu_uu_tien(self):
-        assert DIEM_NHA_O_MAC_DINH["OWN"] > DIEM_NHA_O_MAC_DINH["MORTGAGE"] > DIEM_NHA_O_MAC_DINH["RENT"] > DIEM_NHA_O_MAC_DINH["OTHER"]
+        assert (
+            DIEM_NHA_O_MAC_DINH["OWN"]
+            > DIEM_NHA_O_MAC_DINH["MORTGAGE"]
+            > DIEM_NHA_O_MAC_DINH["RENT"]
+            > DIEM_NHA_O_MAC_DINH["OTHER"]
+        )
 
     @pytest.mark.parametrize("tinh_trang", ["OWN", "MORTGAGE", "RENT", "OTHER"])
     def test_tra_bang_diem(self, tinh_trang):
@@ -178,52 +233,6 @@ class TestCapitalResidenceStability:
         """Giá trị lạ không được im lặng nhận điểm — phải đánh dấu thiếu."""
         diem, gia_tri, thieu = _luat(self.LUAT).cham(ho_so)
         assert thieu is True and gia_tri is None and diem == 8
-
-
-class TestHamTienIch:
-    @pytest.mark.parametrize("dau_vao", [None, "abc", float("nan")])
-    def test_so_hoac_none_loai_gia_tri_khong_dung(self, dau_vao):
-        assert _so_hoac_none(dau_vao) is None
-
-    @pytest.mark.parametrize("dau_vao,mong_doi", [(5, 5.0), ("12.5", 12.5), (0, 0.0)])
-    def test_so_hoac_none_giu_gia_tri_hop_le(self, dau_vao, mong_doi):
-        assert _so_hoac_none(dau_vao) == mong_doi
-
-    def test_tinh_tien_tra_thang_lai_suat_khong(self):
-        """Lãi 0% thì chia đều gốc, không được chia cho 0."""
-        tien = _tinh_tien_tra_thang({"loan_amnt": 12_000_000, "term_months": 12, "int_rate": 0})
-        assert tien == pytest.approx(1_000_000)
-
-    def test_tien_tra_thang_tang_dan_theo_lai_suat(self):
-        """Lãi suất cao hơn thì trả nhiều hơn — ở MỌI khoảng, kể cả quanh mốc 1,0.
-
-        Bản trước đoán đơn vị bằng `lai <= 1.0`, nên `int_rate=1.0` bị hiểu là
-        100%/năm còn `2.0` là 2%/năm: tiền trả GIẢM khi lãi suất tăng. Test cũ
-        (`12.0` và `0.12` cho cùng kết quả) khẳng định chính cách đoán đó, nên nó
-        được thay bằng tính đơn điệu — thứ luôn đúng với một hàm niên kim.
-        """
-        chung = {"loan_amnt": 12_000_000, "term_months": 12}
-        tien = [
-            _tinh_tien_tra_thang({**chung, "int_rate": ls})
-            for ls in (0.5, 1.0, 2.0, 5.0, 12.0, 18.0)
-        ]
-        assert tien == sorted(tien), f"tiền trả không tăng đơn điệu: {tien}"
-
-    def test_int_rate_luon_doc_la_phan_tram_nam(self):
-        """`int_rate` là %/năm đúng như schema khai, không đoán theo độ lớn."""
-        chung = {"loan_amnt": 12_000_000, "term_months": 12}
-        # 12%/năm = 1%/tháng: công thức niên kim cho 1.066.185 đ.
-        assert _tinh_tien_tra_thang({**chung, "int_rate": 12.0}) == pytest.approx(
-            1_066_185, rel=1e-4
-        )
-        # 0,12%/năm là khoản vay gần như không lãi, KHÔNG phải 12%/năm.
-        assert _tinh_tien_tra_thang({**chung, "int_rate": 0.12}) == pytest.approx(
-            1_000_650, rel=1e-4
-        )
-
-    def test_thieu_du_lieu_thi_khong_tinh_duoc(self):
-        assert _tinh_tien_tra_thang({"loan_amnt": 12_000_000}) is None
-        assert _lay_ty_le_tra_no_thang({"installment": 1_000_000}) is None
 
 
 class TestChamDiem:
@@ -248,21 +257,35 @@ class TestChamDiem:
 class TestRuleTrace:
     def test_trace_co_du_moi_luat(self):
         _, vet = cham_diem_chi_tiet(HO_SO_TOT)
-        assert len(vet) == len(MA_LUAT_HOP_LE)
-        assert [m["ma"] for m in vet] == list(MA_LUAT_HOP_LE)
+        assert [m["ma"] for m in vet] == list(MA_LUAT_MAC_DINH)
 
     def test_tong_diem_trace_bang_risk_score(self):
         """Vết luật phải giải thích được TOÀN BỘ điểm, không thiếu không thừa."""
         diem, vet = cham_diem_chi_tiet(HO_SO_XAU)
-        assert sum(m["diem"] for m in vet) == diem
+        tong = sum(m["diem"] * m["trong_so"] for m in vet)
+        tran = sum(m["toi_da"] * m["trong_so"] for m in vet)
+        assert round(tong * 100 / tran) == diem
 
     def test_moi_muc_trace_du_truong_giai_trinh(self):
         _, vet = cham_diem_chi_tiet(HO_SO_TOT)
         for muc in vet:
             assert set(muc) == {
-                "ma", "nhom_5c", "mo_ta", "gia_tri", "diem", "toi_da", "thieu_du_lieu"
+                "ma",
+                "mo_ta",
+                "truong",
+                "gia_tri",
+                "diem",
+                "toi_da",
+                "trong_so",
+                "thieu_du_lieu",
             }
             assert 0 <= muc["diem"] <= muc["toi_da"]
+
+    def test_trace_ghi_dung_truong_da_doc(self):
+        _, vet = cham_diem_chi_tiet(HO_SO_TOT)
+        theo_ma = {m["ma"]: m for m in vet}
+        assert theo_ma["CHARACTER_CIC_HISTORY"]["truong"] == "cic_score"
+        assert theo_ma["CAPITAL_RESIDENCE_STABILITY"]["truong"] == "home_ownership"
 
     def test_danh_dau_dung_luat_nao_thieu_du_lieu(self):
         ho_so = {"cic_score": 750, "dti": 5.0, "home_ownership": "OWN"}
@@ -273,8 +296,94 @@ class TestRuleTrace:
     def test_dem_luat_co_du_lieu(self):
         _, vet_day = cham_diem_chi_tiet(HO_SO_TOT)
         _, vet_rong = cham_diem_chi_tiet({})
-        assert dem_luat_co_du_lieu(vet_day) == len(MA_LUAT_HOP_LE)
+        assert dem_luat_co_du_lieu(vet_day) == len(MA_LUAT_MAC_DINH)
         assert dem_luat_co_du_lieu(vet_rong) == 0
+
+
+# Luật mẫu do admin tự tạo, dùng cho các test thêm luật qua config.
+LUAT_TUOI = {
+    "ma": "AGE_BRACKET",
+    "mo_ta": "Tuổi người vay — độ tuổi lao động ổn định",
+    "truong": "person_age",
+    "nghich_dao": False,
+    "trong_so": 1.0,
+    "bat": True,
+    "diem_khi_thieu": 10,
+    "bac": [[25, 20], [0, 5]],
+}
+
+
+class TestLuatTuCauHinh:
+    """Admin thêm luật mới hoàn toàn bằng config — engine không cần biết trước."""
+
+    def test_them_luat_moi_duoc_cham_va_vao_trace(self, sua_config):
+        sua_config(lambda c: c["rules"].append(LUAT_TUOI))
+        _, vet = cham_diem_chi_tiet(HO_SO_TOT)
+        muc = next(m for m in vet if m["ma"] == "AGE_BRACKET")
+        assert (
+            muc["gia_tri"] == 40 and muc["diem"] == 20 and muc["truong"] == "person_age"
+        )
+
+    def test_luat_phan_loai_tu_cau_hinh(self, sua_config):
+        luat = {
+            "ma": "PURPOSE_RISK",
+            "mo_ta": "Mục đích vay",
+            "truong": "purpose",
+            "trong_so": 1.0,
+            "bat": True,
+            "diem_khi_thieu": 10,
+            "bang_diem": {
+                "debt_consolidation": 5,
+                "credit_card": 8,
+                "home_improvement": 20,
+                "major_purchase": 15,
+                "medical": 12,
+                "car": 15,
+                "small_business": 4,
+                "moving": 10,
+                "vacation": 6,
+                "education": 18,
+                "other": 8,
+            },
+        }
+        sua_config(lambda c: c["rules"].append(luat))
+        diem, gia_tri, thieu = _luat("PURPOSE_RISK").cham({"purpose": "education"})
+        assert (diem, gia_tri, thieu) == (18, "education", False)
+
+    def test_trong_so_lam_lech_diem_theo_dung_ty_le(self, sua_config):
+        """Luật nặng gấp đôi thì mất điểm ở luật đó kéo tổng xuống gấp đôi."""
+        ho_so = {**HO_SO_TOT, "cic_score": 600}  # chỉ luật CIC hụt điểm (5/20)
+
+        sua_config(lambda c: None)
+        diem_1 = tinh_diem_rui_ro(ho_so)
+        sua_config(
+            lambda c: _luat_config(c, "CHARACTER_CIC_HISTORY").update(trong_so=2.0)
+        )
+        diem_2 = tinh_diem_rui_ro(ho_so)
+
+        # trọng số 1: (80+5)/100 = 85; trọng số 2: (80+10)/120 = 75
+        assert diem_1 == 85 and diem_2 == 75
+
+    def test_trong_so_ghi_vao_trace(self, sua_config):
+        sua_config(
+            lambda c: _luat_config(c, "CHARACTER_CIC_HISTORY").update(trong_so=2.5)
+        )
+        _, vet = cham_diem_chi_tiet(HO_SO_TOT)
+        assert (
+            next(m for m in vet if m["ma"] == "CHARACTER_CIC_HISTORY")["trong_so"]
+            == 2.5
+        )
+
+    def test_xoa_luat_mac_dinh_duoc(self, sua_config):
+        sua_config(lambda c: c["rules"].pop(0))
+        assert "CHARACTER_CIC_HISTORY" not in {l.ma for l in lay_bo_luat()}
+        assert tinh_diem_rui_ro(HO_SO_TOT) == 100
+
+    def test_truong_khong_co_trong_danh_muc_bao_loi_ro(self, sua_config):
+        """Config hỏng phải nổ ngay với thông báo chỉ đúng luật, không im lặng cho 0 điểm."""
+        sua_config(lambda c: c["rules"].append({**LUAT_TUOI, "truong": "int_rate"}))
+        with pytest.raises(ValueError, match="AGE_BRACKET.*int_rate"):
+            lay_bo_luat()
 
 
 class TestChotChanCung:
@@ -338,7 +447,12 @@ class TestChotChanCung:
 
     def test_tra_ve_TAT_CA_vi_pham_khong_dung_o_loi_dau(self):
         """Người vay phải thấy hết lỗi để sửa một lần, không quay lại nhiều vòng."""
-        ho_so = {**HO_SO_TOT, "int_rate": 30.0, "term_months": 48, "nhom_no_cao_nhat": 5}
+        ho_so = {
+            **HO_SO_TOT,
+            "int_rate": 30.0,
+            "term_months": 48,
+            "nhom_no_cao_nhat": 5,
+        }
         vi_pham = kiem_tra_chot_chan_cung(ho_so)
         assert {
             "INTEREST_RATE_EXCEEDS_LEGAL_LIMIT",
@@ -351,26 +465,58 @@ class TestChotChanCung:
         assert kiem_tra_chot_chan_cung({}) == []
 
 
+class TestNguongLuatCoDuLieu:
+    """Số luật tối thiểu phải có dữ liệu thật tính theo TỶ LỆ số luật đang chấm.
+
+    Hằng số 3 của bản cũ chỉ đúng với 5 luật: admin thêm lên 10 luật thì 3/10 có
+    dữ liệu vẫn được máy quyết — quá lỏng. Tỷ lệ 60% cho đúng 3 với 5 luật (giữ
+    hành vi đã kiểm chứng) và tự nâng lên khi bộ luật lớn hơn.
+    """
+
+    def test_ty_le_giu_dung_hanh_vi_cu_voi_5_luat(self):
+        assert TY_LE_LUAT_TOI_THIEU_CO_DU_LIEU == 0.6
+        assert so_luat_toi_thieu_co_du_lieu(5) == 3
+
+    @pytest.mark.parametrize(
+        "so_luat,mong_doi", [(1, 1), (2, 2), (4, 3), (8, 5), (10, 6)]
+    )
+    def test_lam_tron_len(self, so_luat, mong_doi):
+        assert so_luat_toi_thieu_co_du_lieu(so_luat) == mong_doi
+
+    def test_khong_luat_nao_thi_nguong_0(self):
+        assert so_luat_toi_thieu_co_du_lieu(0) == 0
+
+
 class TestQuyetDinh:
     def test_vi_pham_luon_bi_tu_choi_du_diem_cao(self):
-        assert quyet_dinh(99.0, ["CIC_BAD_DEBT_GROUP"], 5) == "REJECTED"
+        assert quyet_dinh(99.0, ["CIC_BAD_DEBT_GROUP"], 5, 5) == "REJECTED"
 
     def test_thieu_du_lieu_thi_cho_tham_dinh_khong_tu_choi(self):
         """Không tra được thông tin là sự cố nền tảng, không phải lỗi người vay."""
-        assert quyet_dinh(90.0, [], SO_LUAT_TOI_THIEU_CO_DU_LIEU - 1) == "PENDING_REVIEW"
+        assert quyet_dinh(90.0, [], 2, 5) == "PENDING_REVIEW"
+
+    def test_nguong_thieu_du_lieu_theo_so_luat_da_cham(self):
+        """3/10 luật có dữ liệu là chưa đủ, dù 3/5 thì đủ."""
+        assert quyet_dinh(90.0, [], 3, 5) == "APPROVED"
+        assert quyet_dinh(90.0, [], 3, 10) == "PENDING_REVIEW"
 
     def test_diem_cao_du_du_lieu_thi_duyet(self):
-        assert quyet_dinh(90.0, [], 5) == "APPROVED"
+        assert quyet_dinh(90.0, [], 5, 5) == "APPROVED"
 
     def test_diem_thap_thi_tu_choi(self):
-        assert quyet_dinh(50.0, [], 5) == "REJECTED"
+        assert quyet_dinh(50.0, [], 5, 5) == "REJECTED"
 
     def test_vung_xam_cho_tham_dinh(self):
-        assert quyet_dinh(72.0, [], 5) == "PENDING_REVIEW"
+        assert quyet_dinh(72.0, [], 5, 5) == "PENDING_REVIEW"
 
     def test_khong_truyen_so_luat_van_chay_duoc(self):
         """Tương thích ngược với chỗ gọi cũ."""
         assert quyet_dinh(90.0) == "APPROVED"
+
+    def test_thieu_tong_so_luat_thi_lay_theo_bo_luat_dang_bat(self):
+        """Chỗ gọi cũ chỉ truyền số luật có dữ liệu — mẫu số lấy từ config hiện tại."""
+        assert quyet_dinh(90.0, [], 5) == "APPROVED"
+        assert quyet_dinh(90.0, [], 2) == "PENDING_REVIEW"
 
 
 class TestXepHang:
@@ -411,44 +557,23 @@ class TestDiemTongHop:
 class TestBatTatLuat:
     """Tắt luật phải giữ nguyên thang điểm 100, nếu không mọi hồ sơ tụt hạng oan."""
 
-    @pytest.fixture
-    def sua_config(self, tmp_path, monkeypatch):
-        """Cho phép sửa config trong test mà không đụng file thật."""
-        import json
-
-        from app.services.credit import product_config
-
-        goc = json.loads(product_config._CONFIG_PATH.read_text(encoding="utf-8"))
-        file_tam = tmp_path / "product_config.json"
-        monkeypatch.setattr(product_config, "_CONFIG_PATH", file_tam)
-
-        def ghi(sua):
-            cau_hinh = json.loads(json.dumps(goc))
-            sua(cau_hinh)
-            file_tam.write_text(json.dumps(cau_hinh, ensure_ascii=False), encoding="utf-8")
-            product_config.reload()
-
-        ghi(lambda c: None)
-        yield ghi
-        product_config.reload()
-
     def test_tat_mot_luat_van_giu_thang_100(self, sua_config):
         truoc = tinh_diem_rui_ro(HO_SO_TOT)
-        sua_config(lambda c: c["rules"]["CHARACTER_CIC_HISTORY"].update(bat=False))
+        sua_config(lambda c: _luat_config(c, "CHARACTER_CIC_HISTORY").update(bat=False))
         sau = tinh_diem_rui_ro(HO_SO_TOT)
-        assert truoc == sau == 100, "hồ sơ hoàn hảo phải vẫn đạt 100 sau khi tắt một luật"
+        assert truoc == sau == 100, (
+            "hồ sơ hoàn hảo phải vẫn đạt 100 sau khi tắt một luật"
+        )
 
     def test_luat_tat_khong_xuat_hien_trong_trace(self, sua_config):
-        sua_config(lambda c: c["rules"]["CHARACTER_CIC_HISTORY"].update(bat=False))
+        sua_config(lambda c: _luat_config(c, "CHARACTER_CIC_HISTORY").update(bat=False))
         _, vet = cham_diem_chi_tiet(HO_SO_TOT)
-        assert len(vet) == len(MA_LUAT_HOP_LE) - 1
+        assert len(vet) == len(MA_LUAT_MAC_DINH) - 1
         assert "CHARACTER_CIC_HISTORY" not in {m["ma"] for m in vet}
 
     def test_tat_het_luat_tra_ve_0_khong_crash(self, sua_config):
         """Không được chia cho 0, và không được cho điểm khống."""
-        sua_config(
-            lambda c: [r.update(bat=False) for r in c["rules"].values()]
-        )
+        sua_config(lambda c: [r.update(bat=False) for r in c["rules"]])
         diem, vet = cham_diem_chi_tiet(HO_SO_TOT)
         assert diem == 0 and vet == []
 
@@ -456,7 +581,7 @@ class TestBatTatLuat:
         """Không cần khởi động lại service — đây là điểm cốt lõi của rule engine."""
         assert _luat("CHARACTER_CIC_HISTORY").cham({"cic_score": 750})[0] == 20
         sua_config(
-            lambda c: c["rules"]["CHARACTER_CIC_HISTORY"].update(
+            lambda c: _luat_config(c, "CHARACTER_CIC_HISTORY").update(
                 bac=[[800, 20], [700, 15], [670, 10], [0, 5]]
             )
         )
@@ -465,7 +590,6 @@ class TestBatTatLuat:
     @pytest.mark.parametrize("so_luat_tat", [1, 2, 3, 4])
     def test_diem_luon_trong_thang_du_tat_bao_nhieu_luat(self, sua_config, so_luat_tat):
         """finora-loan validate risk_score 0-100 bất kể admin cấu hình thế nào."""
-        ma_tat = list(MA_LUAT_HOP_LE)[:so_luat_tat]
-        sua_config(lambda c: [c["rules"][m].update(bat=False) for m in ma_tat])
+        sua_config(lambda c: [r.update(bat=False) for r in c["rules"][:so_luat_tat]])
         for ho_so in (HO_SO_TOT, HO_SO_XAU, {}):
             assert 0 <= tinh_diem_rui_ro(ho_so) <= 100

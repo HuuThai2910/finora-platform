@@ -109,12 +109,13 @@ class CreditScoreRequest(BaseModel):
 class RuleTraceItem(BaseModel):
     """Vết của một luật đã chạy — cơ sở giải trình quyết định cho người vay."""
 
-    ma: str = Field(description="Mã luật, vd CHARACTER_CIC_HISTORY")
-    nhom_5c: str = Field(description="Nhóm 5C: Character / Capacity / Capital")
+    ma: str = Field(description="Mã luật do admin đặt, vd CHARACTER_CIC_HISTORY")
     mo_ta: str = Field(description="Mô tả luật bằng tiếng Việt")
+    truong: str = Field(description="Mã trường trong danh mục trường mà luật đã đọc, vd cic_score")
     gia_tri: float | str | None = Field(description="Giá trị luật đọc được, None nếu thiếu")
-    diem: int = Field(description="Điểm luật này cộng vào risk_score")
+    diem: int = Field(description="Điểm luật này cộng vào risk_score (thang 0–toi_da)")
     toi_da: int = Field(description="Điểm tối đa của luật")
+    trong_so: float = Field(description="Trọng số của luật khi chuẩn hoá risk_score về thang 100")
     thieu_du_lieu: bool = Field(description="True khi phải dùng điểm trung tính vì thiếu dữ liệu")
 
 
@@ -220,12 +221,12 @@ class CreditExplainResponse(BaseModel):
     """Giải thích đầy đủ một quyết định chấm điểm (C1.2).
 
     Gộp cả hai nửa của quyết định: `giai_thich_mo_hinh` nói vì sao mô hình ML cho
-    PD đó, `rule_trace` nói vì sao Rule Engine 5C cộng/trừ điểm. Trả riêng lẻ chỉ
+    PD đó, `rule_trace` nói vì sao Rule Engine cộng/trừ điểm. Trả riêng lẻ chỉ
     một nửa sẽ không giải thích được `evaluation_score` vì điểm này trộn cả hai.
     """
 
     pd_probability: float = Field(description="Xác suất vỡ nợ do mô hình dự đoán")
-    risk_score: int = Field(description="Điểm rủi ro theo quy tắc 5C (0-100)")
+    risk_score: int = Field(description="Điểm rủi ro theo bộ luật admin cấu hình (0-100)")
     evaluation_score: float = Field(description="Điểm tổng hợp của PD và risk_score")
     credit_grade: str = Field(
         min_length=1,
@@ -247,7 +248,7 @@ class CreditExplainResponse(BaseModel):
     )
     rule_trace: list[RuleTraceItem] = Field(
         default_factory=list,
-        description="Vết luật 5C — nửa quy tắc của quyết định.",
+        description="Vết luật — nửa quy tắc của quyết định, theo bộ luật đang cấu hình.",
     )
     rejection_reasons: list[str] = Field(
         default_factory=list,

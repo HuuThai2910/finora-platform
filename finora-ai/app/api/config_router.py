@@ -5,29 +5,32 @@ Hai nhóm endpoint:
 
   · /product — khoảng điểm AI, hạng tín dụng, hạn mức, ngưỡng duyệt, trọng số.
                Đây là cấu hình QUANH rule engine: quyết định điểm nào ra hạng nào.
-  · /rules   — ngưỡng và điểm của từng luật chấm điểm, bật/tắt luật.
-               Đây là cấu hình CỦA rule engine: quyết định hồ sơ được bao nhiêu điểm.
+  · /rules   — toàn bộ bộ luật chấm điểm: admin thêm, sửa, xoá, sắp xếp, bật/tắt
+               luật tuỳ ý. Đây là cấu hình CỦA rule engine: quyết định hồ sơ được
+               bao nhiêu điểm.
 
 Thay đổi ghi xuống config/product_config.json và có hiệu lực ngay, không cần
 khởi động lại service.
 
 Vì sao ràng buộc chặt ở /rules
 ------------------------------
-Ngưỡng hiện tại được chọn từ 150.000 hồ sơ thật và đạt AUC 0,6356
+Bộ luật mặc định được chọn từ 150.000 hồ sơ thật và đạt AUC 0,6356
 (scripts/validate_rule_engine.py). Admin kéo bừa thì AUC tụt mà không có gì báo —
 mô hình vẫn trả về số, chỉ là số sai. Nên API chặn trước những sai lầm khiến bộ
-luật mất ý nghĩa: bậc điểm không đơn điệu, ngưỡng không đúng thứ tự, tắt hết luật.
+luật mất ý nghĩa: bậc điểm không đơn điệu, ngưỡng không đúng thứ tự, trường không
+có trong danh mục, tắt hết luật. PUT thay TOÀN BỘ danh sách và nguyên tử: lỗi ở
+bất kỳ luật nào thì không luật nào được ghi.
 """
+
+import re
+from itertools import pairwise
+
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
 from app.services.credit.product_config import get_legal_limits, reload, save
-from app.services.credit.rule_engine import (
-    _DINH_NGHIA_LUAT,
-    DIEM_TOI_DA_MOI_LUAT,
-    MA_LUAT_HOP_LE,
-    TINH_TRANG_NHA_O,
-)
+from app.services.credit.rule_engine import DIEM_TOI_DA_MOI_LUAT
+from app.services.credit.truong_du_lieu import DANH_MUC_TRUONG, mo_ta_danh_muc
 
 router = APIRouter()
 
@@ -135,7 +138,7 @@ def _kiem_tra_bang_hang(grades: list[GradeConfig]) -> None:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Hạng cao nhất ({theo_diem[-1].grade}) phải kết thúc ở 100 điểm.",
         )
-    for duoi, tren in zip(theo_diem, theo_diem[1:]):
+    for duoi, tren in pairwise(theo_diem):
         if duoi.max_score != tren.min_score:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -181,6 +184,15 @@ async def update_product_config(body: ProductConfigUpdate):
 # biểu diễn "mọi giá trị còn lại".
 NGUONG_VO_CUC = 1e9
 
+# Trọng số cho phép: 0,1 đến 10. Dưới 0,1 luật gần như vô nghĩa nhưng vẫn chiếm
+# chỗ trong trace; trên 10 một luật át hết các luật khác — muốn thế thì tắt luật kia.
+TRONG_SO_TOI_THIEU = 0.1
+TRONG_SO_TOI_DA = 10.0
+
+# Mã luật: chữ hoa, số, gạch dưới, bắt đầu bằng chữ, 3–64 ký tự. Mã xuất hiện trong
+# rule_trace lưu kèm quyết định và trong log, nên phải ổn định và không có khoảng trắng.
+MAU_MA_LUAT = r"^[A-Z][A-Z0-9_]{2,63}$"
+
 # `DIEM_TOI_DA_MOI_LUAT` nhập từ rule_engine, không khai báo lại: validator ở đây
 # bắt bậc tốt nhất của mỗi luật phải bằng đúng trần đó, còn `cham_diem_chi_tiet`
 # quy đổi điểm theo chính trần đó. Hai bản sao lệch nhau nghĩa là API từ chối một
@@ -188,18 +200,44 @@ NGUONG_VO_CUC = 1e9
 
 
 class RuleConfig(BaseModel):
-    """Phần cấu hình được của một luật."""
+    """Một luật chấm điểm đầy đủ — đây là đúng bản ghi được ghi vào config."""
 
+    ma: str = Field(
+        pattern=MAU_MA_LUAT, description="Mã luật, ổn định, không đổi sau khi tạo"
+    )
+    mo_ta: str = Field(
+        min_length=1, max_length=200, description="Tên luật hiển thị cho người đọc"
+    )
+    truong: str = Field(
+        description="Mã trường trong danh mục trường mà luật đọc giá trị"
+    )
+    nghich_dao: bool = Field(
+        default=False,
+        description="True nghĩa là giá trị càng thấp càng tốt (chỉ luật số)",
+    )
+    trong_so: float = Field(
+        default=1.0,
+        ge=TRONG_SO_TOI_THIEU,
+        le=TRONG_SO_TOI_DA,
+        description="Tỷ trọng so với các luật khác khi chuẩn hoá về thang 100",
+    )
     bat: bool = Field(default=True, description="Tắt thì luật không tham gia chấm điểm")
     diem_khi_thieu: int = Field(
-        ge=0, le=DIEM_TOI_DA_MOI_LUAT,
+        ge=0,
+        le=DIEM_TOI_DA_MOI_LUAT,
         description="Điểm trung tính khi hồ sơ không có dữ liệu cho luật này",
     )
     bac: list[tuple[float, int]] | None = Field(
-        default=None, description="Các bậc (ngưỡng, điểm). Dùng cho luật so ngưỡng."
+        default=None, description="Các bậc (ngưỡng, điểm). Dùng cho trường kiểu số."
     )
     bang_diem: dict[str, int] | None = Field(
-        default=None, description="Bảng điểm theo giá trị rời rạc. Dùng cho luật nhà ở."
+        default=None,
+        description="Bảng điểm theo giá trị rời rạc. Dùng cho trường phân loại.",
+    )
+    goi_y: str | None = Field(
+        default=None,
+        max_length=300,
+        description="Mẫu câu gợi ý cải thiện cho người vay, chỗ trống {moc} là ngưỡng kế tiếp",
     )
 
     @field_validator("bac")
@@ -211,7 +249,9 @@ class RuleConfig(BaseModel):
             raise ValueError("mỗi luật phải có ít nhất 2 bậc điểm")
         for _, diem in bac:
             if not 0 <= diem <= DIEM_TOI_DA_MOI_LUAT:
-                raise ValueError(f"điểm mỗi bậc phải trong khoảng 0-{DIEM_TOI_DA_MOI_LUAT}")
+                raise ValueError(
+                    f"điểm mỗi bậc phải trong khoảng 0-{DIEM_TOI_DA_MOI_LUAT}"
+                )
         diem_cac_bac = [diem for _, diem in bac]
         if diem_cac_bac != sorted(diem_cac_bac, reverse=True):
             raise ValueError(
@@ -219,7 +259,8 @@ class RuleConfig(BaseModel):
             )
         if max(diem_cac_bac) != DIEM_TOI_DA_MOI_LUAT:
             raise ValueError(
-                f"bậc tốt nhất phải đạt đúng {DIEM_TOI_DA_MOI_LUAT} điểm để các luật cân nhau"
+                f"bậc tốt nhất phải đạt đúng {DIEM_TOI_DA_MOI_LUAT} điểm; "
+                "muốn luật nặng nhẹ khác nhau thì dùng trong_so"
             )
         return bac
 
@@ -228,111 +269,134 @@ class RuleConfig(BaseModel):
     def _kiem_tra_bang_diem(cls, bang):
         if bang is None:
             return bang
-        if set(bang) != set(TINH_TRANG_NHA_O):
-            raise ValueError(f"bảng điểm phải có đúng các khóa {list(TINH_TRANG_NHA_O)}")
         for diem in bang.values():
             if not 0 <= diem <= DIEM_TOI_DA_MOI_LUAT:
                 raise ValueError(f"điểm phải trong khoảng 0-{DIEM_TOI_DA_MOI_LUAT}")
         if max(bang.values()) != DIEM_TOI_DA_MOI_LUAT:
             raise ValueError(
-                f"loại tốt nhất phải đạt đúng {DIEM_TOI_DA_MOI_LUAT} điểm để các luật cân nhau"
+                f"loại tốt nhất phải đạt đúng {DIEM_TOI_DA_MOI_LUAT} điểm; "
+                "muốn luật nặng nhẹ khác nhau thì dùng trong_so"
             )
         return bang
 
+    @field_validator("goi_y")
+    @classmethod
+    def _kiem_tra_goi_y(cls, goi_y):
+        """Chỉ cho phép chỗ trống `{moc}`. Chỗ trống lạ sẽ nổ KeyError lúc format
+        — tức lúc người vay đang chờ kết quả, không phải lúc admin bấm lưu."""
+        if goi_y is None or not goi_y.strip():
+            return None
+        cho_trong_la = set(re.findall(r"\{([^{}]*)\}", goi_y)) - {"moc"}
+        if cho_trong_la:
+            raise ValueError(
+                f"mẫu gợi ý chỉ được dùng chỗ trống {{moc}}, không hiểu: {sorted(cho_trong_la)}"
+            )
+        return goi_y.strip()
 
-class RuleInfo(RuleConfig):
-    """Luật kèm phần mô tả cố định — dùng cho GET, frontend không phải tự dịch mã luật."""
+
+class TruongInfo(BaseModel):
+    """Một trường trong danh mục — để frontend dựng ô chọn trường và form bậc/bảng."""
 
     ma: str
-    nhom_5c: str
     mo_ta: str
-    nghich_dao: bool = Field(description="True nghĩa là giá trị càng thấp càng tốt")
-    la_bang_diem: bool = Field(description="True thì luật tra bảng thay vì so ngưỡng")
+    kieu: str
+    nguon: str
+    don_vi: str
+    la_ty_le: bool
+    gia_tri_hop_le: list[str]
+    nhom_shap: str | None
 
 
 class RulesResponse(BaseModel):
-    rules: list[RuleInfo]
+    rules: list[RuleConfig]
+    truong: list[TruongInfo]
     diem_toi_da_moi_luat: int = DIEM_TOI_DA_MOI_LUAT
     nguong_vo_cuc: float = NGUONG_VO_CUC
 
 
 class RulesUpdate(BaseModel):
-    rules: dict[str, RuleConfig]
+    rules: list[RuleConfig]
 
 
 def _dung_rules_response() -> RulesResponse:
-    cau_hinh = reload()["rules"]
     return RulesResponse(
-        rules=[
-            RuleInfo(
-                ma=dn.ma,
-                nhom_5c=dn.nhom_5c,
-                mo_ta=dn.mo_ta,
-                nghich_dao=dn.nghich_dao,
-                la_bang_diem=dn.la_bang_diem,
-                **cau_hinh[dn.ma],
-            )
-            for dn in _DINH_NGHIA_LUAT
-        ]
+        rules=[RuleConfig(**c) for c in reload()["rules"]],
+        truong=[TruongInfo(**t) for t in mo_ta_danh_muc()],
     )
+
+
+def _loi(chi_tiet: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=chi_tiet
+    )
+
+
+def _kiem_tra_bo_luat(rules: list[RuleConfig]) -> None:
+    """Ràng buộc liên trường và ràng buộc với danh mục — Pydantic không kiểm được."""
+    if not rules:
+        raise _loi("phải có ít nhất một luật")
+
+    ma = [r.ma for r in rules]
+    trung = {m for m in ma if ma.count(m) > 1}
+    if trung:
+        raise _loi(f"mã luật bị trùng: {sorted(trung)}")
+
+    if not any(r.bat for r in rules):
+        raise _loi(
+            "phải bật ít nhất một luật, nếu không hệ thống không còn cơ sở chấm điểm"
+        )
+
+    for r in rules:
+        truong = DANH_MUC_TRUONG.get(r.truong)
+        if truong is None:
+            raise _loi(
+                f"luật {r.ma}: trường '{r.truong}' không có trong danh mục trường "
+                f"(xem GET /config/rules → truong)"
+            )
+
+        # Trường phân loại cần bang_diem với đúng tập giá trị; trường số cần bac.
+        if truong.kieu == "phan_loai":
+            if r.bang_diem is None:
+                raise _loi(
+                    f"luật {r.ma}: trường '{r.truong}' là phân loại, phải có 'bang_diem'"
+                )
+            if r.bac is not None:
+                raise _loi(f"luật {r.ma}: trường phân loại không dùng 'bac'")
+            if set(r.bang_diem) != set(truong.gia_tri_hop_le):
+                raise _loi(
+                    f"luật {r.ma}: bảng điểm phải có đúng các khóa {list(truong.gia_tri_hop_le)}"
+                )
+            continue
+
+        if r.bac is None:
+            raise _loi(f"luật {r.ma}: trường '{r.truong}' là số, phải có 'bac'")
+        if r.bang_diem is not None:
+            raise _loi(f"luật {r.ma}: trường số không dùng 'bang_diem'")
+        nguong = [n for n, _ in r.bac]
+        if len(nguong) != len(set(nguong)):
+            raise _loi(f"luật {r.ma}: các bậc không được trùng ngưỡng nhau")
+        dung_thu_tu = (
+            nguong == sorted(nguong)
+            if r.nghich_dao
+            else nguong == sorted(nguong, reverse=True)
+        )
+        if not dung_thu_tu:
+            chieu = "tăng dần" if r.nghich_dao else "giảm dần"
+            raise _loi(f"luật {r.ma}: ngưỡng phải {chieu} để bậc đầu là bậc tốt nhất")
 
 
 @router.get("/rules", response_model=RulesResponse)
 async def get_rules_config():
-    """Đọc cấu hình các luật chấm điểm kèm mô tả."""
+    """Đọc bộ luật chấm điểm hiện tại kèm danh mục trường được phép dùng."""
     return _dung_rules_response()
 
 
 @router.put("/rules", response_model=RulesResponse)
 async def update_rules_config(body: RulesUpdate):
-    """Cập nhật ngưỡng, điểm và trạng thái bật/tắt của các luật chấm điểm."""
-    thieu = set(MA_LUAT_HOP_LE) - set(body.rules)
-    la = set(body.rules) - set(MA_LUAT_HOP_LE)
-    if thieu or la:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"phải gửi đúng {len(MA_LUAT_HOP_LE)} luật. "
-                f"Thiếu: {sorted(thieu) or 'không'}. Không hợp lệ: {sorted(la) or 'không'}"
-            ),
-        )
-
-    if not any(r.bat for r in body.rules.values()):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="phải bật ít nhất một luật, nếu không hệ thống không còn cơ sở chấm điểm",
-        )
-
-    # Luật tra bảng cần bang_diem, luật so ngưỡng cần bac — không được lẫn lộn.
-    for dn in _DINH_NGHIA_LUAT:
-        r = body.rules[dn.ma]
-        can = "bang_diem" if dn.la_bang_diem else "bac"
-        thua = "bac" if dn.la_bang_diem else "bang_diem"
-        if getattr(r, can) is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"luật {dn.ma} phải có '{can}'",
-            )
-        if getattr(r, thua) is not None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"luật {dn.ma} không dùng '{thua}'",
-            )
-        if not dn.la_bang_diem:
-            nguong = [n for n, _ in r.bac]
-            dung_thu_tu = (
-                nguong == sorted(nguong) if dn.nghich_dao else nguong == sorted(nguong, reverse=True)
-            )
-            if not dung_thu_tu:
-                chieu = "tăng dần" if dn.nghich_dao else "giảm dần"
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=f"luật {dn.ma}: ngưỡng phải {chieu} để bậc đầu là bậc tốt nhất",
-                )
+    """Thay toàn bộ bộ luật: thêm, sửa, xoá, sắp xếp, bật/tắt trong một lần lưu."""
+    _kiem_tra_bo_luat(body.rules)
 
     current = reload()
-    current["rules"] = {
-        ma: r.model_dump(exclude_none=True) for ma, r in body.rules.items()
-    }
+    current["rules"] = [r.model_dump(exclude_none=True) for r in body.rules]
     save(current)
     return _dung_rules_response()

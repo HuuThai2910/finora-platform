@@ -60,9 +60,10 @@ def get_legal_limits() -> dict:
 
 
 def get_rules() -> dict:
-    """Cấu hình các luật chấm điểm, khóa theo mã luật.
+    """Danh sách luật chấm điểm, đúng thứ tự admin sắp.
 
-    Chỉ chứa phần admin sửa được (ngưỡng, điểm, bật/tắt). Cách đọc dữ liệu từ hồ
-    sơ nằm trong rule_engine._DINH_NGHIA_LUAT và không cấu hình được.
+    Mỗi phần tử là một luật đầy đủ: mã, mô tả, trường đọc (phải có trong
+    `truong_du_lieu.DANH_MUC_TRUONG`), chiều so sánh, trọng số, bậc/bảng điểm,
+    điểm khi thiếu, bật/tắt, mẫu gợi ý. Không có luật nào khai trong code.
     """
     return _load()["rules"]

@@ -19,10 +19,14 @@ xuống 0,6904 ở mức 0,30) — trộn tín hiệu yếu vào tín hiệu m�
 
 Luật là dữ liệu, không phải code
 --------------------------------
-Mỗi luật là một `LuatChamDiem` khai báo: lấy giá trị từ đâu, quy đổi ra điểm theo
-bậc nào, cho bao nhiêu điểm khi thiếu dữ liệu. `cham_diem_chi_tiet()` chỉ chạy qua
-danh sách `BO_LUAT` — thêm hay bớt một luật không phải sửa logic tính điểm, và vết
-luật sinh ra tự động.
+Toàn bộ luật chấm điểm nằm trong `config/product_config.json["rules"]`, admin
+thêm/sửa/xoá qua `PUT /api/v1/ai/config/rules`. Mỗi luật chỉ định: đọc TRƯỜNG nào
+(chọn trong `truong_du_lieu.DANH_MUC_TRUONG`), quy đổi ra điểm theo bậc ngưỡng
+hoặc bảng tra, trọng số so với luật khác, và điểm khi thiếu dữ liệu. Code ở đây
+không biết trước có bao nhiêu luật hay luật tên gì — `lay_bo_luat()` ghép config
+với danh mục trường thành `LuatChamDiem`, `cham_diem_chi_tiet()` chỉ chạy qua
+danh sách đó. Bộ luật mặc định (năm luật đã kiểm chứng AUC) chỉ là dữ liệu khởi
+tạo, không có vị thế gì đặc biệt so với luật admin tạo thêm.
 
 Vì sao trường thiếu KHÔNG bị cho điểm sàn
 -----------------------------------------
@@ -33,17 +37,15 @@ liệu và đánh dấu `thieu_du_lieu=True` để thẩm định viên biết m
 
 Vì sao KHÔNG luật nào dùng int_rate để chấm điểm
 ------------------------------------------------
-Lãi suất có sức phân biệt cao nhất trong dữ liệu (AUC 0,68) nhưng đó là target
-leakage: LendingClub gán lãi suất SAU KHI đã chấm rủi ro, nên nó là kết quả chứ
-không phải nguyên nhân. FINORA cũng tự quyết lãi suất theo hạng tín dụng mình chấm
-— dùng nó làm đầu vào là lập luận vòng tròn. int_rate chỉ dùng ở chốt chặn pháp lý
-(trần 20%/năm) và để tính ra số tiền phải trả hàng tháng.
+Lãi suất là target leakage (xem docstring `truong_du_lieu.py`). Danh mục trường
+không có int_rate nên admin không thể tạo luật chấm theo nó; int_rate chỉ dùng ở
+chốt chặn pháp lý (trần 20%/năm) và để tính ra số tiền phải trả hàng tháng.
 
 Khoảng điểm, hạng tín dụng, hạn mức và ngưỡng duyệt đọc từ config/product_config.json.
 """
+
 import math
 from collections import namedtuple
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -54,14 +56,17 @@ from app.services.credit.product_config import (
     get_model_weights,
     get_rules,
 )
+from app.services.credit.truong_du_lieu import (
+    DANH_MUC_TRUONG,
+    TruongDuLieu,
+    _so_hoac_none,
+    _ty_le_lai_nam,
+)
 
 XepHangTinDung = namedtuple("XepHangTinDung", ["hang", "han_muc"])
 
-# Nhóm 5C — dùng cho báo cáo và cho màn hình giải trình của thẩm định viên.
-CHARACTER = "Character"
-CAPACITY = "Capacity"
-CAPITAL = "Capital"
-
+# Điểm cao nhất một luật có thể cho ở bậc tốt nhất. Mọi luật cùng trần này để trọng
+# số giữa chúng nằm tường minh ở `trong_so`, không ẩn trong độ lớn điểm bậc.
 DIEM_TOI_DA_MOI_LUAT = 20
 
 # Nợ nhóm 3 trở lên là nợ xấu theo Thông tư 11/2021/TT-NHNN. Tổ chức tín dụng
@@ -77,139 +82,46 @@ NHOM_NO_XAU_TOI_THIEU = 3
 # Chỉ kiểm trần thứ nhất là chưa đủ tuân thủ: bốn nền tảng mỗi nơi 100 triệu đều
 # hợp lệ riêng lẻ nhưng tổng 400 triệu đã chạm trần, khoản thứ năm phải bị chặn.
 
-# Số luật tối thiểu phải có dữ liệu thật thì kết quả mới đáng tin.
-# Dưới ngưỡng này hồ sơ bị đẩy sang thẩm định viên thay vì để máy quyết.
-SO_LUAT_TOI_THIEU_CO_DU_LIEU = 3
-
-# Các giá trị nhà ở hợp lệ. Đây là miền giá trị của dữ liệu đầu vào (do schema
-# CreditScoreRequest quy định), không phải cấu hình nghiệp vụ — admin sửa được
-# điểm của từng loại, nhưng không thêm được loại nhà ở mới.
-TINH_TRANG_NHA_O = ("OWN", "MORTGAGE", "RENT", "OTHER")
+# Tỷ lệ luật (trong số luật đang bật) phải có dữ liệu thật thì kết quả mới đáng tin;
+# dưới ngưỡng này hồ sơ bị đẩy sang thẩm định viên thay vì để máy quyết.
+# Là tỷ lệ chứ không phải số tuyệt đối vì số luật do admin quyết: hằng số 3 của bản
+# cũ chỉ đúng với 5 luật — với 10 luật, 3 luật có dữ liệu là quá lỏng. 0,6 cho đúng
+# 3 với 5 luật (giữ hành vi đã kiểm chứng) và tự nâng lên khi bộ luật lớn hơn.
+TY_LE_LUAT_TOI_THIEU_CO_DU_LIEU = 0.6
 
 
-# ── Hàm đọc dữ liệu từ hồ sơ ──────────────────────────────────────────────────
-# Tách thành hàm có tên thay vì lambda để test gọi thẳng được và stack trace đọc được.
-
-
-def _so_hoac_none(gia_tri: Any) -> float | None:
-    """Ép về float, trả None cho mọi thứ không phải số.
-
-    NaN cũng bị loại: pandas dùng NaN cho ô trống, và NaN lọt vào phép so sánh
-    ngưỡng sẽ luôn cho False — luật rơi xuống bậc thấp nhất mà không ai biết là
-    do thiếu dữ liệu.
-    """
-    if gia_tri is None:
-        return None
-    try:
-        so = float(gia_tri)
-    except (TypeError, ValueError):
-        return None
-    return None if math.isnan(so) else so
-
-
-def _ty_le_lai_nam(int_rate: float) -> float:
-    """Đổi `int_rate` sang tỷ lệ thập phân/năm: 18 -> 0,18.
-
-    `int_rate` luôn là PHẦN TRĂM một năm — `CreditScoreRequest` khai `ge=0, le=100`
-    kèm mô tả "(%/năm)", và cả finora-web lẫn finora-loan đều gửi theo đơn vị đó.
-
-    Bản trước đoán đơn vị bằng `lai_nam if lai_nam <= 1.0 else lai_nam / 100.0`,
-    tức coi mọi giá trị từ 1,0 trở xuống là đã ở dạng thập phân. Cách đoán đó phá
-    đúng khoảng lãi suất ưu đãi hợp lệ: khoản vay 0,5%/năm bị đọc thành 50%/năm và
-    dính `INTEREST_RATE_EXCEEDS_LEGAL_LIMIT` — từ chối một hồ sơ hoàn toàn hợp lệ.
-    Nó còn làm tiền trả hàng tháng NGHỊCH biến quanh mốc 1: `int_rate=1.0` cho ra
-    1.619.949 đ/tháng còn `int_rate=2.0` chỉ 1.010.866 đ/tháng, vì 1,0 bị hiểu là
-    100%/năm. Không đoán nữa: tin vào đơn vị mà schema đã quy định.
-    """
-    return int_rate / 100.0
-
-
-def _tinh_tien_tra_thang(f: dict) -> float | None:
-    """Số tiền trả hàng tháng theo công thức niên kim, None nếu thiếu dữ liệu."""
-    goc = _so_hoac_none(f.get("loan_amnt"))
-    ky_han = _so_hoac_none(f.get("term_months"))
-    lai_nam = _so_hoac_none(f.get("int_rate"))
-    if goc is None or ky_han is None or ky_han <= 0 or lai_nam is None:
-        return None
-
-    lai_thang = _ty_le_lai_nam(lai_nam) / 12.0
-    so_ky = int(ky_han)
-    if lai_thang <= 0:
-        return goc / so_ky
-    luy_thua = (1 + lai_thang) ** so_ky
-    return goc * lai_thang * luy_thua / (luy_thua - 1)
-
-
-def _lay_cic_score(f: dict) -> float | None:
-    return _so_hoac_none(f.get("cic_score"))
-
-
-def _lay_dti(f: dict) -> float | None:
-    return _so_hoac_none(f.get("dti"))
-
-
-def _lay_so_lan_tra_cuu(f: dict) -> float | None:
-    return _so_hoac_none(f.get("so_lan_tra_cuu"))
-
-
-def _lay_ty_le_tra_no_thang(f: dict) -> float | None:
-    """Tiền trả hàng tháng chia thu nhập tháng.
-
-    Ưu tiên `installment` do bên gọi đưa sang (Loan lấy từ lịch trả Fineract).
-    Thiếu thì tự tính từ lãi suất và kỳ hạn — dùng lãi suất ở đây là để ra số tiền
-    phải trả, không phải lấy nó làm thước đo rủi ro.
-    """
-    thu_nhap_nam = _so_hoac_none(f.get("annual_inc"))
-    if not thu_nhap_nam or thu_nhap_nam <= 0:
-        return None
-
-    tra_thang = _so_hoac_none(f.get("installment"))
-    if tra_thang is None:
-        tra_thang = _tinh_tien_tra_thang(f)
-    if tra_thang is None:
-        return None
-
-    return tra_thang / (thu_nhap_nam / 12.0)
-
-
-def _lay_on_dinh_cu_tru(f: dict) -> str | None:
-    tinh_trang = f.get("home_ownership")
-    return tinh_trang if tinh_trang in TINH_TRANG_NHA_O else None
+def so_luat_toi_thieu_co_du_lieu(so_luat_da_cham: int) -> int:
+    """Số luật tối thiểu phải có dữ liệu thật, làm tròn LÊN để không bao giờ lỏng hơn tỷ lệ."""
+    return math.ceil(so_luat_da_cham * TY_LE_LUAT_TOI_THIEU_CO_DU_LIEU)
 
 
 # ── Đặc tả luật ───────────────────────────────────────────────────────────────
-#
-# Mỗi luật gồm hai nửa:
-#   · Nửa CODE  — cách đọc giá trị từ hồ sơ (`trich_xuat`) và kiểu so sánh.
-#                 Không đưa ra config được vì đó là hàm Python, và cũng không nên:
-#                 đọc sai một trường là lỗi lập trình, không phải lựa chọn nghiệp vụ.
-#   · Nửa CONFIG — ngưỡng, điểm mỗi bậc, điểm khi thiếu, bật/tắt. Admin sửa được
-#                 qua PUT /api/v1/ai/config/rules, ghi xuống config/product_config.json.
-#
-# `_DINH_NGHIA_LUAT` là nửa code; `product_config.json["rules"]` là nửa config;
-# `lay_bo_luat()` ghép hai nửa lại thành `LuatChamDiem` để chấm điểm.
 
 
 @dataclass(frozen=True)
 class LuatChamDiem:
-    """Một luật chấm điểm đã ghép đủ hai nửa, sẵn sàng chạy.
+    """Một luật chấm điểm đã ghép config với danh mục trường, sẵn sàng chạy.
 
     bac: danh sách (nguong, diem). Luật lấy điểm của ngưỡng đầu tiên mà giá trị
          đạt tới. Với chỉ số "càng cao càng xấu" (ví dụ dti), đặt `nghich_dao=True`
          để so sánh đổi chiều.
-    bang_diem: dùng thay `bac` cho luật tra bảng theo giá trị rời rạc (nhà ở).
+    bang_diem: dùng thay `bac` cho luật tra bảng theo giá trị rời rạc (nhà ở, mục đích).
+    trong_so: tỷ trọng của luật so với các luật khác khi chuẩn hoá về thang 100.
     bat: False thì luật bị bỏ qua hoàn toàn, không cộng điểm và không vào trace.
+    goi_y: mẫu câu gợi ý cải thiện cho người vay, có chỗ trống `{moc}`; None thì
+           `dien_giai.py` tự ghép câu chung từ mô tả và chiều so sánh.
     """
 
     ma: str
-    nhom_5c: str
     mo_ta: str
-    trich_xuat: Callable[[dict], Any]
+    truong: TruongDuLieu
     diem_khi_thieu: int
+    trong_so: float = 1.0
     bac: tuple[tuple[float, int], ...] = ()
     bang_diem: dict[str, int] | None = None
     nghich_dao: bool = False
     bat: bool = True
+    goi_y: str | None = None
 
     @property
     def diem_toi_da(self) -> int:
@@ -220,7 +132,7 @@ class LuatChamDiem:
 
     def cham(self, features: dict) -> tuple[int, Any, bool]:
         """Trả về (điểm, giá trị đã dùng, có thiếu dữ liệu không)."""
-        gia_tri = self.trich_xuat(features)
+        gia_tri = self.truong.doc(features)
         if gia_tri is None:
             return self.diem_khi_thieu, None, True
 
@@ -233,86 +145,41 @@ class LuatChamDiem:
         return self.bac[-1][1], gia_tri, False
 
 
-@dataclass(frozen=True)
-class _DinhNghiaLuat:
-    """Nửa code của một luật — cố định, admin không sửa được."""
-
-    ma: str
-    nhom_5c: str
-    mo_ta: str
-    trich_xuat: Callable[[dict], Any]
-    nghich_dao: bool = False
-    la_bang_diem: bool = False
-
-
-# Thứ tự ở đây là thứ tự hiển thị trong rule trace.
-_DINH_NGHIA_LUAT: tuple[_DinhNghiaLuat, ...] = (
-    _DinhNghiaLuat(
-        ma="CHARACTER_CIC_HISTORY",
-        nhom_5c=CHARACTER,
-        mo_ta="Điểm tín dụng CIC — lịch sử trả nợ tại các tổ chức tín dụng",
-        trich_xuat=_lay_cic_score,
-    ),
-    _DinhNghiaLuat(
-        ma="CAPACITY_EXISTING_DEBT",
-        nhom_5c=CAPACITY,
-        mo_ta="Tỷ lệ nợ trên thu nhập hiện có (DTI) — càng thấp càng tốt",
-        trich_xuat=_lay_dti,
-        nghich_dao=True,
-    ),
-    _DinhNghiaLuat(
-        ma="CAPACITY_INSTALLMENT_BURDEN",
-        nhom_5c=CAPACITY,
-        mo_ta="Tiền trả hàng tháng trên thu nhập tháng — càng thấp càng tốt",
-        trich_xuat=_lay_ty_le_tra_no_thang,
-        nghich_dao=True,
-    ),
-    _DinhNghiaLuat(
-        ma="CHARACTER_CREDIT_SEEKING",
-        nhom_5c=CHARACTER,
-        mo_ta="Số lần bị tra cứu CIC 6 tháng — tìm vốn dồn dập là dấu hiệu khát tiền",
-        trich_xuat=_lay_so_lan_tra_cuu,
-        nghich_dao=True,
-    ),
-    _DinhNghiaLuat(
-        ma="CAPITAL_RESIDENCE_STABILITY",
-        nhom_5c=CAPITAL,
-        mo_ta="Tình trạng nhà ở — đại diện cho tài sản tích lũy và độ ổn định cư trú",
-        trich_xuat=_lay_on_dinh_cu_tru,
-        la_bang_diem=True,
-    ),
-)
-
-MA_LUAT_HOP_LE = tuple(dn.ma for dn in _DINH_NGHIA_LUAT)
+def _ghep_luat(c: dict) -> LuatChamDiem:
+    """Ghép một bản ghi config với danh mục trường. Lỗi config phải nổ RÕ, không im lặng."""
+    truong = DANH_MUC_TRUONG.get(c["truong"])
+    if truong is None:
+        raise ValueError(
+            f"Luật {c['ma']}: trường '{c['truong']}' không có trong danh mục trường "
+            f"(hợp lệ: {', '.join(DANH_MUC_TRUONG)})"
+        )
+    la_bang_diem = truong.kieu == "phan_loai"
+    return LuatChamDiem(
+        ma=c["ma"],
+        mo_ta=c["mo_ta"],
+        truong=truong,
+        diem_khi_thieu=int(c["diem_khi_thieu"]),
+        trong_so=float(c.get("trong_so", 1.0)),
+        nghich_dao=bool(c.get("nghich_dao", False)) and not la_bang_diem,
+        bat=c.get("bat", True),
+        goi_y=c.get("goi_y") or None,
+        bang_diem={k: int(v) for k, v in c["bang_diem"].items()}
+        if la_bang_diem
+        else None,
+        bac=()
+        if la_bang_diem
+        else tuple((float(nguong), int(diem)) for nguong, diem in c["bac"]),
+    )
 
 
 def lay_bo_luat() -> tuple[LuatChamDiem, ...]:
-    """Ghép nửa code với nửa config thành bộ luật chạy được.
+    """Dựng bộ luật chạy được từ config, đúng thứ tự admin sắp.
 
-    Đọc lại config mỗi lần gọi để admin sửa ngưỡng có hiệu lực ngay, không cần
+    Đọc lại config mỗi lần gọi để admin sửa luật có hiệu lực ngay, không cần
     khởi động lại service. Luật bị tắt (`bat=False`) vẫn được ghép nhưng
     `cham_diem_chi_tiet()` sẽ bỏ qua.
     """
-    cau_hinh = get_rules()
-    bo_luat = []
-    for dn in _DINH_NGHIA_LUAT:
-        c = cau_hinh[dn.ma]
-        bo_luat.append(
-            LuatChamDiem(
-                ma=dn.ma,
-                nhom_5c=dn.nhom_5c,
-                mo_ta=dn.mo_ta,
-                trich_xuat=dn.trich_xuat,
-                nghich_dao=dn.nghich_dao,
-                diem_khi_thieu=c["diem_khi_thieu"],
-                bat=c.get("bat", True),
-                bang_diem=dict(c["bang_diem"]) if dn.la_bang_diem else None,
-                bac=() if dn.la_bang_diem else tuple(
-                    (float(nguong), int(diem)) for nguong, diem in c["bac"]
-                ),
-            )
-        )
-    return tuple(bo_luat)
+    return tuple(_ghep_luat(c) for c in get_rules())
 
 
 # ── Chấm điểm ─────────────────────────────────────────────────────────────────
@@ -322,31 +189,33 @@ def cham_diem_chi_tiet(features: dict) -> tuple[int, list[dict]]:
     """Chấm điểm rủi ro và trả kèm vết luật.
 
     Trả về (điểm 0-100, danh sách vết luật). Mỗi vết ghi lại luật nào đã chạy,
-    đọc được giá trị gì và cộng bao nhiêu điểm — đủ để dựng màn hình giải trình
-    cho thẩm định viên hoặc trả lời khiếu nại của người vay.
+    đọc trường gì được giá trị gì và cộng bao nhiêu điểm — đủ để dựng màn hình
+    giải trình cho thẩm định viên hoặc trả lời khiếu nại của người vay.
 
-    Điểm được CHUẨN HÓA về thang 100 theo tổng điểm tối đa của các luật đang bật.
-    Không chuẩn hóa thì tắt một luật sẽ kéo trần điểm xuống 80 và mọi hồ sơ tụt
-    hạng oan — một thay đổi cấu hình tưởng vô hại lại làm sai toàn bộ quyết định.
+    Điểm được CHUẨN HÓA về thang 100 theo tổng điểm tối đa CÓ TRỌNG SỐ của các luật
+    đang bật: Σ(điểm × trọng số) / Σ(tối đa × trọng số). Không chuẩn hóa thì tắt
+    hay thêm một luật sẽ kéo trần điểm lệch đi và mọi hồ sơ đổi hạng oan — một
+    thay đổi cấu hình tưởng vô hại lại làm sai toàn bộ quyết định.
     """
-    tong_tho = 0
-    tran_tho = 0
+    tong_tho = 0.0
+    tran_tho = 0.0
     vet = []
 
     for luat in lay_bo_luat():
         if not luat.bat:
             continue
         diem, gia_tri, thieu = luat.cham(features)
-        tong_tho += diem
-        tran_tho += luat.diem_toi_da
+        tong_tho += diem * luat.trong_so
+        tran_tho += luat.diem_toi_da * luat.trong_so
         vet.append(
             {
                 "ma": luat.ma,
-                "nhom_5c": luat.nhom_5c,
                 "mo_ta": luat.mo_ta,
+                "truong": luat.truong.ma,
                 "gia_tri": round(gia_tri, 4) if isinstance(gia_tri, float) else gia_tri,
                 "diem": diem,
                 "toi_da": luat.diem_toi_da,
+                "trong_so": luat.trong_so,
                 "thieu_du_lieu": thieu,
             }
         )
@@ -360,7 +229,7 @@ def cham_diem_chi_tiet(features: dict) -> tuple[int, list[dict]]:
 
 
 def tinh_diem_rui_ro(features: dict) -> int:
-    """Tính điểm rủi ro theo bộ luật 5C (0-100), bỏ vết chấm.
+    """Tính điểm rủi ro theo bộ luật (0-100), bỏ vết chấm.
 
     Đường chấm điểm thật (`BoDuDoan.du_doan`) gọi thẳng `cham_diem_chi_tiet` vì
     còn cần `rule_trace` cho `dem_luat_co_du_lieu` và cho phần giải thích. Hàm này
@@ -427,7 +296,8 @@ def kiem_tra_chot_chan_cung(features: dict) -> list[str]:
     Mọi luật ở đây đều dẫn được số hiệu văn bản pháp luật: vi phạm nghĩa là hợp
     đồng vô hiệu, chứ không phải "rủi ro cao hơn". Chốt chặn có quyền phủ quyết
     tuyệt đối — REJECTED bất kể điểm số — nên chỉ dành cho ràng buộc pháp lý,
-    không dành cho khẩu vị rủi ro. Khẩu vị rủi ro thuộc tầng điểm số.
+    không dành cho khẩu vị rủi ro. Khẩu vị rủi ro thuộc tầng điểm số, và đó là lý
+    do chốt chặn cố định trong code trong khi luật chấm điểm là config.
     """
     legal = get_legal_limits()
     vi_pham: list[str] = []
@@ -479,6 +349,7 @@ def quyet_dinh(
     evaluation_score: float,
     vi_pham: list[str] | None = None,
     so_luat_co_du_lieu: int | None = None,
+    so_luat_da_cham: int | None = None,
 ) -> str:
     """Quyết định tự động: REJECTED / PENDING_REVIEW / APPROVED.
 
@@ -489,12 +360,17 @@ def quyet_dinh(
 
     Hồ sơ thiếu dữ liệu KHÔNG bị từ chối: không tra được thông tin là sự cố của
     nền tảng chứ không phải lỗi người vay, nên đẩy sang thẩm định viên xem xét.
+    `so_luat_da_cham` là mẫu số của tỷ lệ; chỗ gọi cũ chỉ truyền tử số thì lấy
+    số luật đang bật trong config làm mẫu số.
     """
     if vi_pham:
         return "REJECTED"
 
-    if so_luat_co_du_lieu is not None and so_luat_co_du_lieu < SO_LUAT_TOI_THIEU_CO_DU_LIEU:
-        return "PENDING_REVIEW"
+    if so_luat_co_du_lieu is not None:
+        if so_luat_da_cham is None:
+            so_luat_da_cham = sum(1 for luat in lay_bo_luat() if luat.bat)
+        if so_luat_co_du_lieu < so_luat_toi_thieu_co_du_lieu(so_luat_da_cham):
+            return "PENDING_REVIEW"
 
     thresholds = get_approval_thresholds()
     if evaluation_score >= thresholds["auto_approve"]:

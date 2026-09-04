@@ -9,8 +9,8 @@ Luồng ra quyết định:
         │
         ├──────────────────────────┬──────────────────────────┐
         ▼                          ▼                          │
-    Mô hình XGBoost              Rule Engine 5C                │
-    (47 features, có CIC)→ PD    (5 luật) → risk_score        │
+    Mô hình XGBoost              Rule Engine                   │
+    (47 features, có CIC)→ PD    (luật admin cấu hình) → risk_score │
         └──────────────────────────┴──────────────────────────┘
                                   ▼
        evaluation_score = (1-PD)x100 x pd_weight + risk_score x risk_weight
@@ -19,7 +19,7 @@ Luồng ra quyết định:
                     credit_grade · decision · hạn mức
 
 `/explain` là endpoint DUY NHẤT của luồng này: nó vừa chấm điểm, vừa giải thích
-quyết định bằng TreeSHAP (nửa ML) cộng rule trace 5C (nửa quy tắc) — xem
+quyết định bằng TreeSHAP (nửa ML) cộng rule trace (nửa quy tắc) — xem
 `app/ml/credit/explainer.py`.
 
 TODO: /backtest.

@@ -187,7 +187,11 @@ class BoDuDoan:
         hang = xep_hang(evaluation_score)
 
         vi_pham = kiem_tra_chot_chan_cung(ho_so)
-        decision = quyet_dinh(evaluation_score, vi_pham, dem_luat_co_du_lieu(rule_trace))
+        # Mẫu số là số luật ĐÃ CHẤM (đang bật), không phải hằng số: admin thêm bớt
+        # luật thì ngưỡng "đủ dữ liệu để máy quyết" phải co giãn theo.
+        decision = quyet_dinh(
+            evaluation_score, vi_pham, dem_luat_co_du_lieu(rule_trace), len(rule_trace)
+        )
 
         return {
             "pd_probability": round(pd_probability, 4),
