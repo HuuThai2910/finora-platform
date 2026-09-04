@@ -113,6 +113,23 @@ def _so_hoac_none(gia_tri: Any) -> float | None:
     return None if math.isnan(so) else so
 
 
+def _ty_le_lai_nam(int_rate: float) -> float:
+    """Đổi `int_rate` sang tỷ lệ thập phân/năm: 18 -> 0,18.
+
+    `int_rate` luôn là PHẦN TRĂM một năm — `CreditScoreRequest` khai `ge=0, le=100`
+    kèm mô tả "(%/năm)", và cả finora-web lẫn finora-loan đều gửi theo đơn vị đó.
+
+    Bản trước đoán đơn vị bằng `lai_nam if lai_nam <= 1.0 else lai_nam / 100.0`,
+    tức coi mọi giá trị từ 1,0 trở xuống là đã ở dạng thập phân. Cách đoán đó phá
+    đúng khoảng lãi suất ưu đãi hợp lệ: khoản vay 0,5%/năm bị đọc thành 50%/năm và
+    dính `INTEREST_RATE_EXCEEDS_LEGAL_LIMIT` — từ chối một hồ sơ hoàn toàn hợp lệ.
+    Nó còn làm tiền trả hàng tháng NGHỊCH biến quanh mốc 1: `int_rate=1.0` cho ra
+    1.619.949 đ/tháng còn `int_rate=2.0` chỉ 1.010.866 đ/tháng, vì 1,0 bị hiểu là
+    100%/năm. Không đoán nữa: tin vào đơn vị mà schema đã quy định.
+    """
+    return int_rate / 100.0
+
+
 def _tinh_tien_tra_thang(f: dict) -> float | None:
     """Số tiền trả hàng tháng theo công thức niên kim, None nếu thiếu dữ liệu."""
     goc = _so_hoac_none(f.get("loan_amnt"))
@@ -121,8 +138,7 @@ def _tinh_tien_tra_thang(f: dict) -> float | None:
     if goc is None or ky_han is None or ky_han <= 0 or lai_nam is None:
         return None
 
-    ty_le_nam = lai_nam if lai_nam <= 1.0 else lai_nam / 100.0
-    lai_thang = ty_le_nam / 12.0
+    lai_thang = _ty_le_lai_nam(lai_nam) / 12.0
     so_ky = int(ky_han)
     if lai_thang <= 0:
         return goc / so_ky
@@ -371,7 +387,13 @@ def cham_diem_chi_tiet(features: dict) -> tuple[int, list[dict]]:
 
 
 def tinh_diem_rui_ro(features: dict) -> int:
-    """Tính điểm rủi ro theo bộ luật 5C (0-100)."""
+    """Tính điểm rủi ro theo bộ luật 5C (0-100), bỏ vết chấm.
+
+    Đường chấm điểm thật (`BoDuDoan.du_doan`) gọi thẳng `cham_diem_chi_tiet` vì
+    còn cần `rule_trace` cho `dem_luat_co_du_lieu` và cho phần giải thích. Hàm này
+    giữ lại cho những chỗ chỉ quan tâm con số — hiện là test và
+    `scripts/validate_rule_engine.py` — để khỏi phải viết `tong, _ =` mỗi lần.
+    """
     tong, _ = cham_diem_chi_tiet(features)
     return tong
 
@@ -435,7 +457,7 @@ def kiem_tra_chot_chan_cung(features: dict) -> list[str]:
     # 1. Trần lãi suất 20%/năm theo Điều 468 Bộ luật Dân sự 2015
     lai_suat = _so_hoac_none(features.get("int_rate"))
     if lai_suat is not None:
-        ty_le_lai = lai_suat if lai_suat <= 1.0 else lai_suat / 100.0
+        ty_le_lai = _ty_le_lai_nam(lai_suat)
         if ty_le_lai > legal["max_interest_rate"]:
             vi_pham.append("INTEREST_RATE_EXCEEDS_LEGAL_LIMIT")
         elif ty_le_lai <= 0.0:

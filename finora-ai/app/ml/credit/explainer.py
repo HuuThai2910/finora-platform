@@ -107,7 +107,7 @@ NHAN_DAC_TRUNG = {
     # Đặc trưng dẫn xuất
     "log_income": "Thu nhập năm (thang log)",
     "loan_to_income": "Tỷ lệ khoản vay trên thu nhập",
-    "effective_apr": "Lãi suất thực tế (APR)",
+    "ty_le_tra_no_thang": "Tỷ lệ trả nợ trên thu nhập tháng",
     "log_du_no": "Tổng dư nợ (thang log)",
     "ty_le_du_no_thu_nhap": "Tỷ lệ dư nợ trên thu nhập",
     # Target-encoded
@@ -134,7 +134,11 @@ _CAC_NHOM: list[tuple[str, str, list[str]]] = [
     ("thu_nhap", "Thu nhập năm", ["annual_inc", "log_income"]),
     ("khoan_vay", "Số tiền vay so với thu nhập", ["loan_amnt", "loan_to_income"]),
     ("dti", "Tỷ lệ nợ trên thu nhập (DTI)", ["dti", "dti_missing"]),
-    ("tra_hang_thang", "Số tiền phải trả hàng tháng", ["installment", "installment_missing"]),
+    # `ty_le_tra_no_thang` thuộc nhóm này chứ không phải nhóm lãi suất: nó đo gánh
+    # nặng trả nợ từ `installment` và `annual_inc`, không suy ra từ `int_rate`, nên
+    # không mang leakage và ĐƯỢC hiển thị trong bản gộp.
+    ("tra_hang_thang", "Số tiền phải trả hàng tháng",
+     ["installment", "installment_missing", "ty_le_tra_no_thang"]),
     ("ky_han", "Kỳ hạn vay", ["term_months", "term_months_missing"]),
     ("diem_cic", "Điểm tín dụng CIC", ["cic_score", "cic_score_missing"]),
     ("lich_su_tra_no", "Lịch sử trễ hạn và nhóm nợ (CIC)",
@@ -151,7 +155,7 @@ _CAC_NHOM: list[tuple[str, str, list[str]]] = [
      ["so_hop_dong_dang_co", "so_hop_dong_dang_co_missing",
       "so_thang_quan_he", "so_thang_quan_he_missing"]),
     ("lai_suat", "Lãi suất và cách tính lãi",
-     ["int_rate", "int_rate_missing", "effective_apr", "interest_method_encoded"]),
+     ["int_rate", "int_rate_missing", "interest_method_encoded"]),
     ("nha_o", "Tình trạng nhà ở", ["home_ownership_encoded"]),
     ("muc_dich", "Mục đích vay", ["purpose_cat_encoded"]),
     ("xac_minh", "Tình trạng xác minh thu nhập", ["verification_status_encoded"]),

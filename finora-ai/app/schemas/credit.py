@@ -129,7 +129,7 @@ class CreditScoreResponse(BaseModel):
             "Trọng số đọc từ config/product_config.json (model_weights)."
         )
     )
-    credit_grade: Literal["A", "B", "C", "D"]
+    credit_grade: Literal["A", "B", "C", "D", "E"]
     suggested_limit: int = Field(
         description=(
             "Hạn mức đề xuất (VNĐ). Trần 100 triệu/khách hàng/nền tảng theo "
@@ -264,7 +264,7 @@ class CreditExplainResponse(BaseModel):
     pd_probability: float = Field(description="Xác suất vỡ nợ do mô hình dự đoán")
     risk_score: int = Field(description="Điểm rủi ro theo quy tắc 5C (0-100)")
     evaluation_score: float = Field(description="Điểm tổng hợp của PD và risk_score")
-    credit_grade: Literal["A", "B", "C", "D"]
+    credit_grade: Literal["A", "B", "C", "D", "E"]
     decision: Literal["APPROVED", "PENDING_REVIEW", "REJECTED"]
     dien_giai: DienGiaiNguoiDung = Field(
         description="Bản diễn giải cho người vay — thông điệp, lý do và gợi ý cải thiện."

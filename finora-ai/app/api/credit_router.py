@@ -18,8 +18,15 @@ Luồng ra quyết định:
                                   ▼
                     credit_grade · decision · hạn mức
 
-`/explain` giải thích cùng một quyết định đó bằng TreeSHAP (nửa ML) cộng với
-rule trace 5C (nửa quy tắc) — xem `app/ml/credit/explainer.py`.
+`/explain` là endpoint DUY NHẤT của luồng này: nó vừa chấm điểm, vừa giải thích
+quyết định bằng TreeSHAP (nửa ML) cộng rule trace 5C (nửa quy tắc) — xem
+`app/ml/credit/explainer.py`.
+
+`/score` đã bị bỏ 2026-09-04. Nó trả đúng phần điểm số của `/explain` và nhận
+cùng `CreditScoreRequest`, nên mọi thứ nó làm được `/explain` đều làm được; giữ
+hai đường cho cùng một quyết định chỉ tạo thêm chỗ để lệch nhau. Bên gọi cần lưu
+vết vì sao một hồ sơ bị từ chối — nghĩa vụ với hồ sơ tín dụng — bắt buộc phải
+qua `/explain`, vì `/score` không hề sinh ra phần diễn giải đó.
 
 TODO: /backtest.
 """
@@ -30,11 +37,7 @@ from fastapi import APIRouter, HTTPException, status
 from app.ml.credit.dien_giai import sinh_dien_giai
 from app.ml.credit.explainer import giai_thich_mo_hinh
 from app.ml.credit.predictor import BoDuDoan
-from app.schemas.credit import (
-    CreditExplainResponse,
-    CreditScoreRequest,
-    CreditScoreResponse,
-)
+from app.schemas.credit import CreditExplainResponse, CreditScoreRequest
 from app.services.credit.cic_client import CicClient
 
 router = APIRouter()
@@ -86,19 +89,6 @@ async def _tra_cic(ho_so: CreditScoreRequest) -> dict | None:
     return await lay_cic_client().tra_diem_cic(ho_so.so_cccd)
 
 
-@router.post("/score", response_model=CreditScoreResponse)
-async def score_credit(ho_so: CreditScoreRequest) -> CreditScoreResponse:
-    """Chấm điểm tín dụng cho một hồ sơ vay."""
-    bo_du_doan = _nap_bo_du_doan_hoac_503()
-    cic_data = await _tra_cic(ho_so)
-
-    ket_qua = bo_du_doan.du_doan(
-        ho_so.model_dump(exclude_none=True),
-        cic_data=cic_data,
-    )
-    return CreditScoreResponse(**ket_qua)
-
-
 @router.post("/explain", response_model=CreditExplainResponse)
 async def explain_credit(ho_so: CreditScoreRequest) -> CreditExplainResponse:
     """Giải thích quyết định chấm điểm của một hồ sơ vay (C1.2).
@@ -119,14 +109,18 @@ async def explain_credit(ho_so: CreditScoreRequest) -> CreditExplainResponse:
     # quyết định khác với quyết định thật.
     ket_qua = bo_du_doan.du_doan(du_lieu)
 
+    # Tính SHAP trước rồi truyền `tom_tat` sang `sinh_dien_giai`: thứ tự gợi ý phải
+    # theo mức ảnh hưởng thật của mô hình, vì mô hình chiếm 85% điểm tổng hợp.
+    giai_thich = giai_thich_mo_hinh(bo_du_doan, du_lieu)
+
     return CreditExplainResponse(
         pd_probability=ket_qua["pd_probability"],
         risk_score=ket_qua["risk_score"],
         evaluation_score=ket_qua["evaluation_score"],
         credit_grade=ket_qua["credit_grade"],
         decision=ket_qua["decision"],
-        dien_giai=sinh_dien_giai(ket_qua),
-        giai_thich_mo_hinh=giai_thich_mo_hinh(bo_du_doan, du_lieu),
+        dien_giai=sinh_dien_giai(ket_qua, giai_thich["tom_tat"]),
+        giai_thich_mo_hinh=giai_thich,
         rule_trace=ket_qua["rule_trace"],
         rejection_reasons=ket_qua["rejection_reasons"],
         model_version=ket_qua["model_version"],

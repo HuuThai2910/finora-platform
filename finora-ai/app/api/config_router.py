@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.services.credit.product_config import reload, save
 from app.services.credit.rule_engine import (
     _DINH_NGHIA_LUAT,
+    DIEM_TOI_DA_MOI_LUAT,
     MA_LUAT_HOP_LE,
     TINH_TRANG_NHA_O,
 )
@@ -108,7 +109,10 @@ async def update_product_config(body: ProductConfigUpdate):
 # biểu diễn "mọi giá trị còn lại".
 NGUONG_VO_CUC = 1e9
 
-DIEM_TOI_DA_MOI_LUAT = 20
+# `DIEM_TOI_DA_MOI_LUAT` nhập từ rule_engine, không khai báo lại: validator ở đây
+# bắt bậc tốt nhất của mỗi luật phải bằng đúng trần đó, còn `cham_diem_chi_tiet`
+# quy đổi điểm theo chính trần đó. Hai bản sao lệch nhau nghĩa là API từ chối một
+# cấu hình mà engine chấm được, hoặc ngược lại.
 
 
 class RuleConfig(BaseModel):

@@ -28,7 +28,7 @@ RANDOM_STATE = 42
 # nên nó bị học thành proxy cho "kỳ hạn ngắn = an toàn" thay vì thành gánh nặng.
 DAC_TRUNG_DON_DIEU_TANG = [
     "installment",            # Gánh nặng trả nợ hàng tháng
-    "effective_apr",          # Lãi suất thực — chi phí vay cao hơn → rủi ro cao hơn
+    "ty_le_tra_no_thang",     # Trả nợ chiếm phần thu nhập lớn hơn → rủi ro cao hơn
     "dti",                    # Tỷ lệ nợ/thu nhập
     "so_lan_tre_han",         # Số lần trễ hạn — trễ nhiều → rủi ro cao hơn
     "tong_du_no",             # Tổng dư nợ hiện tại

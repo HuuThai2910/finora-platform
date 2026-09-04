@@ -194,11 +194,31 @@ class TestHamTienIch:
         tien = _tinh_tien_tra_thang({"loan_amnt": 12_000_000, "term_months": 12, "int_rate": 0})
         assert tien == pytest.approx(1_000_000)
 
-    def test_tinh_tien_tra_thang_chap_nhan_ca_hai_dinh_dang_lai(self):
-        """12.0 (phần trăm) và 0.12 (tỷ lệ) phải cho cùng kết quả."""
+    def test_tien_tra_thang_tang_dan_theo_lai_suat(self):
+        """Lãi suất cao hơn thì trả nhiều hơn — ở MỌI khoảng, kể cả quanh mốc 1,0.
+
+        Bản trước đoán đơn vị bằng `lai <= 1.0`, nên `int_rate=1.0` bị hiểu là
+        100%/năm còn `2.0` là 2%/năm: tiền trả GIẢM khi lãi suất tăng. Test cũ
+        (`12.0` và `0.12` cho cùng kết quả) khẳng định chính cách đoán đó, nên nó
+        được thay bằng tính đơn điệu — thứ luôn đúng với một hàm niên kim.
+        """
         chung = {"loan_amnt": 12_000_000, "term_months": 12}
+        tien = [
+            _tinh_tien_tra_thang({**chung, "int_rate": ls})
+            for ls in (0.5, 1.0, 2.0, 5.0, 12.0, 18.0)
+        ]
+        assert tien == sorted(tien), f"tiền trả không tăng đơn điệu: {tien}"
+
+    def test_int_rate_luon_doc_la_phan_tram_nam(self):
+        """`int_rate` là %/năm đúng như schema khai, không đoán theo độ lớn."""
+        chung = {"loan_amnt": 12_000_000, "term_months": 12}
+        # 12%/năm = 1%/tháng: công thức niên kim cho 1.066.185 đ.
         assert _tinh_tien_tra_thang({**chung, "int_rate": 12.0}) == pytest.approx(
-            _tinh_tien_tra_thang({**chung, "int_rate": 0.12})
+            1_066_185, rel=1e-4
+        )
+        # 0,12%/năm là khoản vay gần như không lãi, KHÔNG phải 12%/năm.
+        assert _tinh_tien_tra_thang({**chung, "int_rate": 0.12}) == pytest.approx(
+            1_000_650, rel=1e-4
         )
 
     def test_thieu_du_lieu_thi_khong_tinh_duoc(self):
@@ -364,10 +384,16 @@ class TestQuyetDinh:
 
 
 class TestXepHang:
-    @pytest.mark.parametrize("diem", [0, 50, 75, 84, 100])
-    def test_hang_luon_thuoc_bo_finora_loan_chap_nhan(self, diem):
-        """finora-loan validate credit_grade in (A,B,C,D) — lệch là phá hợp đồng."""
-        assert xep_hang(diem).hang in {"A", "B", "C", "D"}
+    @pytest.mark.parametrize("diem", [0, 37, 50, 69, 84, 100])
+    def test_hang_luon_thuoc_bo_hop_le(self, diem):
+        """Hạng phải nằm trong A-E.
+
+        Hạng E được thêm 2026-09-04 cùng model v17: nhóm điểm dưới 37 có tỷ lệ vỡ
+        nợ 40,6% (lift 2,47x) nên hạn mức phải là 0, không thể gộp vào D như trước.
+        LƯU Ý: `finora-loan` đang validate `credit_grade in (A,B,C,D)` — phải mở
+        rộng bên đó trước khi bật hạng E trên môi trường có Loan gọi sang.
+        """
+        assert xep_hang(diem).hang in {"A", "B", "C", "D", "E"}
 
     def test_han_muc_khong_vuot_tran_phap_ly(self):
         """Trần 100 triệu/nền tảng theo Nghị định 94/2025."""
@@ -375,7 +401,7 @@ class TestXepHang:
             assert xep_hang(diem).han_muc <= 100_000_000
 
     def test_diem_cao_hon_khong_bao_gio_cho_hang_thap_hon(self):
-        thu_tu = {"D": 0, "C": 1, "B": 2, "A": 3}
+        thu_tu = {"E": 0, "D": 1, "C": 2, "B": 3, "A": 4}
         hang = [thu_tu[xep_hang(d).hang] for d in range(101)]
         assert hang == sorted(hang), "xếp hạng phải đơn điệu theo điểm"
 

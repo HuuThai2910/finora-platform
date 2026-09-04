@@ -13,8 +13,6 @@ Cơ cấu 47 đặc trưng: 7 hồ sơ/eKYC + 9 CIC thô + 2 Fineract + 5 dẫn 
 import numpy as np
 import pandas as pd
 
-from app.ml.credit.preprocessing import tinh_effective_apr
-
 HOME_OWNERSHIP_CATS = ["RENT", "OWN", "MORTGAGE", "OTHER"]
 PURPOSE_CATS = [
     "DEBT_CONSOLIDATION", "CREDIT_CARD", "HOME_IMPROVEMENT", "OTHER",
@@ -76,7 +74,7 @@ NUMERIC_FEATURES = [
     # Đặc trưng dẫn xuất
     "log_income",             # log1p(annual_inc)
     "loan_to_income",         # clip(loan_amnt / annual_inc, 0, 5)
-    "effective_apr",          # Lãi suất thực (%/năm) — bisection IRR
+    "ty_le_tra_no_thang",     # clip(installment / (annual_inc/12), 0, 2)
     "log_du_no",              # log1p(tong_du_no)
     "ty_le_du_no_thu_nhap",   # clip(tong_du_no / annual_inc, 0, 10)
 ]
@@ -165,10 +163,29 @@ def encode_features(
     df["loan_to_income"] = df["loan_amnt"] / df["annual_inc"].replace(0, np.nan)
     df["loan_to_income"] = df["loan_to_income"].fillna(0).clip(upper=5)
 
-    # Dẫn xuất: lãi suất thực
-    df["effective_apr"] = tinh_effective_apr(
-        df["installment"], df["loan_amnt"], df["term_months"]
-    )
+    # Dẫn xuất: gánh nặng trả nợ trên thu nhập tháng.
+    #
+    # Thay cho `effective_apr` (giải IRR) từ 2026-09-04. Ba lý do:
+    #
+    #   1. IRR giả định trả ĐỀU suốt kỳ, nhưng lịch declining trả gốc đều thì mỗi
+    #      kỳ một số khác nhau. Cùng khoản vay 12%/năm, khai `installment` của
+    #      tháng đầu cho APR 20,29% còn khai trung bình cho 12,00% — con số phụ
+    #      thuộc người khai chứ không phụ thuộc khoản vay.
+    #   2. `effective_apr` suy ra từ `int_rate`, nên thừa hưởng target leakage của
+    #      nó. Cùng `int_rate` và `interest_method_encoded`, nhóm lãi suất chiếm
+    #      46,98% độ quan trọng của model v16 — gần một nửa sức mạnh đến từ đặc
+    #      trưng không dùng để giải thích được.
+    #   3. Bisection có các biên hỏng: `loan_amnt = 0` cho APR 600%, `term_months
+    #      = 0` chia cho 0. Tỷ lệ này không có biên nào như vậy.
+    #
+    # Đại lượng mới đo đúng thứ nghiệp vụ quan tâm: mỗi tháng phải trả bao nhiêu
+    # phần thu nhập. Nó dùng `installment` như dữ liệu thật thay vì để suy ngược
+    # ra lãi suất, và là chính công thức mà chốt chặn DSR đang dùng.
+    thu_nhap_thang = df["annual_inc"].replace(0, np.nan) / 12.0
+    df["ty_le_tra_no_thang"] = df["installment"] / thu_nhap_thang
+    # Trần 2.0: trả gấp đôi thu nhập tháng đã là bất khả thi, cao hơn nữa chỉ là
+    # dữ liệu rác và sẽ kéo giãn thang đo của mọi hồ sơ bình thường.
+    df["ty_le_tra_no_thang"] = df["ty_le_tra_no_thang"].fillna(0).clip(upper=2.0)
 
     # Dẫn xuất: log dư nợ
     df["log_du_no"] = np.log1p(df["tong_du_no"])

@@ -232,15 +232,25 @@ class TestTomTat:
         assert kq["bat_loi"][0]["muc_dong_gop"] == pytest.approx(0.01)
 
     def test_nhom_lai_suat_bi_loai(self):
-        """int_rate là leakage; APR và phương pháp tính lãi suy ra từ nó nên đi cùng."""
+        """int_rate là leakage; phương pháp tính lãi suy ra từ nó nên đi cùng."""
         assert "lai_suat" in NHOM_LOAI_KHOI_TOM_TAT
-        for cot in ("int_rate", "effective_apr", "interest_method_encoded", "int_rate_missing"):
+        for cot in ("int_rate", "interest_method_encoded", "int_rate_missing"):
             assert NHOM_DAC_TRUNG[cot][0] == "lai_suat"
 
-        kq = tom_tat_yeu_to(
-            _dong_gop(int_rate=0.9, effective_apr=0.5, dti=0.1), FEATURE_NAMES
-        )
+        kq = tom_tat_yeu_to(_dong_gop(int_rate=0.9, dti=0.1), FEATURE_NAMES)
         assert [y["ma_nhom"] for y in kq["bat_loi"]] == ["dti"]
+
+    def test_ty_le_tra_no_thang_khong_bi_loai(self):
+        """`ty_le_tra_no_thang` thay `effective_apr` và KHÔNG mang leakage.
+
+        Nó tính từ `installment` và `annual_inc` — dữ liệu hồ sơ thật — chứ không
+        suy ra từ `int_rate`, nên thuộc nhóm tiền trả hàng tháng và phải hiển thị
+        được cho người đọc, khác hẳn `effective_apr` trước đây.
+        """
+        assert NHOM_DAC_TRUNG["ty_le_tra_no_thang"][0] == "tra_hang_thang"
+
+        kq = tom_tat_yeu_to(_dong_gop(ty_le_tra_no_thang=0.9, dti=0.1), FEATURE_NAMES)
+        assert [y["ma_nhom"] for y in kq["bat_loi"]] == ["tra_hang_thang", "dti"]
 
     def test_toi_da_ba_nhom_moi_chieu(self):
         assert SO_NHOM_TOI_DA == 3
@@ -309,11 +319,17 @@ class TestEndpointExplain:
         assert set(tom_tat) == {"bat_loi", "co_loi"}
         assert all("lai_suat" != y["ma_nhom"] for y in (*tom_tat["bat_loi"], *tom_tat["co_loi"]))
 
-    def test_khop_voi_ket_qua_cua_score(self, client):
-        """Giải thích phải mô tả đúng quyết định mà /score đưa ra, không lệch."""
+    def test_cham_lai_cung_ho_so_cho_ket_qua_giong_het(self, client):
+        """Cùng hồ sơ phải ra cùng quyết định ở mọi lần gọi.
+
+        Trước đây test này so `/explain` với `/score`; `/score` đã bị bỏ nên nay
+        kiểm chứng tính tất định của chính `/explain`. Vẫn bắt được lỗi cũ: nếu
+        đường chấm điểm lẫn trạng thái giữa các request — cache config bị sửa tại
+        chỗ, hay bộ dự đoán giữ lại dữ liệu hồ sơ trước — hai lần gọi sẽ lệch.
+        """
         hs = _ho_so()
-        diem = client.post("/api/v1/ai/credit/score", json=hs).json()
-        gt = client.post(DUONG_DAN, json=hs).json()
+        lan_1 = client.post(DUONG_DAN, json=hs).json()
+        lan_2 = client.post(DUONG_DAN, json=hs).json()
 
         for khoa in (
             "pd_probability",
@@ -322,7 +338,7 @@ class TestEndpointExplain:
             "credit_grade",
             "decision",
         ):
-            assert gt[khoa] == diem[khoa], f"{khoa} lệch giữa /score và /explain"
+            assert lan_1[khoa] == lan_2[khoa], f"{khoa} lệch giữa hai lần gọi"
 
     def test_thieu_truong_bat_buoc_tra_422(self, client):
         r = client.post(DUONG_DAN, json={"annual_inc": 100_000_000})

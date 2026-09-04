@@ -1,5 +1,7 @@
 """Test bộ đặc trưng — 47 features bao gồm CIC raw + Fineract."""
 
+import pytest
+
 from app.ml.credit.features import (
     AGE_BINS,
     CIC_RAW_FEATURES,
@@ -37,7 +39,7 @@ class TestFeatureNamesV14:
             assert f"{f}_missing" in MISSING_INDICATORS
 
     def test_derived_features_trong_numeric(self):
-        for f in ["log_income", "loan_to_income", "effective_apr", "log_du_no", "ty_le_du_no_thu_nhap"]:
+        for f in ["log_income", "loan_to_income", "ty_le_tra_no_thang", "log_du_no", "ty_le_du_no_thu_nhap"]:
             assert f in NUMERIC_FEATURES
 
     def test_16_missing_indicators(self):
@@ -51,8 +53,8 @@ class TestFeatureNamesV14:
 
 
 class TestEncodeFeatures:
-    def test_encode_tao_effective_apr(self):
-        """encode_features() tính effective_apr từ installment/loan_amnt/term_months."""
+    def test_encode_tao_ty_le_tra_no_thang(self):
+        """encode_features() tính ty_le_tra_no_thang từ installment/annual_inc."""
         import pandas as pd
 
         from app.ml.credit.features import encode_features
@@ -69,9 +71,10 @@ class TestEncodeFeatures:
             "verification_status": "Verified", "interest_method": "DECLINING_BALANCE",
         }])
         result = encode_features(df)
-        assert "effective_apr" in result.columns
+        assert "ty_le_tra_no_thang" in result.columns
         assert "log_du_no" in result.columns
         assert "ty_le_du_no_thu_nhap" in result.columns
-        assert result["effective_apr"].iloc[0] > 0
+        # 4,5tr / (300tr/12) = 0,18 — tỷ lệ trả nợ trên thu nhập tháng.
+        assert result["ty_le_tra_no_thang"].iloc[0] == pytest.approx(0.18)
         assert result["log_du_no"].iloc[0] > 0
         assert result["ty_le_du_no_thu_nhap"].iloc[0] >= 0

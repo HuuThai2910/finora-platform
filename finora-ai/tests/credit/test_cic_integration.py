@@ -143,8 +143,25 @@ class TestRouterV14:
                     "suggested_limit": 50_000_000,
                     "decision": "APPROVED",
                     "rejection_reason": None,
+                    "rejection_reasons": [],
+                    "rule_trace": [],
                     "model_version": "14.0.0",
                 }
+
+        # `/explain` còn gọi TreeSHAP, mà nhóm test này chỉ quan tâm dữ liệu CIC
+        # có tới được bộ dự đoán hay không. Thay vì dựng một booster giả, vá thẳng
+        # phần giải thích bằng cấu trúc rỗng đúng schema.
+        monkeypatch.setattr(
+            credit_router,
+            "giai_thich_mo_hinh",
+            lambda bo_du_doan, ho_so: {
+                "yeu_to_bat_loi": [],
+                "yeu_to_co_loi": [],
+                "gia_tri_co_so": 0.0,
+                "canh_bao": [],
+                "tom_tat": {"bat_loi": [], "co_loi": []},
+            },
+        )
 
         bo_gia = BoDuDoanGia()
         monkeypatch.setattr(credit_router, "lay_bo_du_doan", lambda: bo_gia)
@@ -165,7 +182,7 @@ class TestRouterV14:
 
     def test_khong_co_so_cccd_cic_data_la_none(self, app_client, monkeypatch):
         client, bo_gia = app_client
-        response = client.post("/api/v1/ai/credit/score", json=self._ho_so_co_ban())
+        response = client.post("/api/v1/ai/credit/explain", json=self._ho_so_co_ban())
         assert response.status_code == 200
 
     def test_co_so_cccd_forward_cic_data(self, app_client, monkeypatch):
@@ -183,7 +200,7 @@ class TestRouterV14:
         monkeypatch.setattr(CicClient, "tra_diem_cic", tra_diem_gia)
 
         response = client.post(
-            "/api/v1/ai/credit/score",
+            "/api/v1/ai/credit/explain",
             json=self._ho_so_co_ban(so_cccd="012345678901"),
         )
         assert response.status_code == 200
@@ -198,7 +215,7 @@ class TestRouterV14:
         monkeypatch.setattr(CicClient, "tra_diem_cic", tra_diem_gia)
 
         response = client.post(
-            "/api/v1/ai/credit/score",
+            "/api/v1/ai/credit/explain",
             json=self._ho_so_co_ban(so_cccd="012345678901"),
         )
         assert response.status_code == 200
@@ -206,7 +223,7 @@ class TestRouterV14:
     def test_request_co_fineract_fields(self, app_client, monkeypatch):
         client, bo_gia = app_client
         response = client.post(
-            "/api/v1/ai/credit/score",
+            "/api/v1/ai/credit/explain",
             json=self._ho_so_co_ban(int_rate=12.0, term_months=12),
         )
         assert response.status_code == 200
