@@ -33,16 +33,19 @@ from app.ml.credit.preprocessing import (
 )
 from app.ml.shared.model_registry import _duong_dan_mo_hinh, _tinh_sha256, tai_mo_hinh
 from app.services.credit.rule_engine import (
+    cham_diem_chi_tiet,
+    dem_luat_co_du_lieu,
     kiem_tra_chot_chan_cung,
     quyet_dinh,
-    tinh_diem_rui_ro,
     tinh_diem_tong_hop,
     xep_hang,
 )
 
 # Ba cột này được TÍNH LẠI từ cột gốc trong `encode_features()` sau khi điền thiếu,
 # nên không điền median cho chúng — điền rồi cũng bị ghi đè.
-COT_DAN_XUAT = {"log_income", "loan_to_income", "effective_apr", "log_du_no", "ty_le_du_no_thu_nhap"}
+COT_DAN_XUAT = {
+    "log_income", "loan_to_income", "ty_le_tra_no_thang", "log_du_no", "ty_le_du_no_thu_nhap",
+}
 
 # 4 cột gốc cần median. Là nguồn sự thật duy nhất cho cả `scripts/train_credit_model.py`
 # lẫn `predictor.py`, để danh sách lúc huấn luyện và lúc chấm điểm không thể lệch nhau.
@@ -50,7 +53,7 @@ COT_DIEN_MEDIAN = [c for c in NUMERIC_FEATURES if c not in COT_DAN_XUAT]
 
 THU_MUC_MO_HINH_MAC_DINH = Path(__file__).resolve().parent.parent.parent.parent / "models" / "credit"
 
-PHIEN_BAN_MAC_DINH = "16.0.0"
+PHIEN_BAN_MAC_DINH = "17.0.0"
 
 
 class BoDuDoan:
@@ -179,11 +182,16 @@ class BoDuDoan:
             ho_so = {**ho_so, **cic_data}
 
         pd_probability = self.du_doan_pd(ho_so)
-        risk_score = tinh_diem_rui_ro(ho_so)
+        risk_score, rule_trace = cham_diem_chi_tiet(ho_so)
         evaluation_score = tinh_diem_tong_hop(pd_probability, risk_score)
         hang = xep_hang(evaluation_score)
 
-        chot_chan_ly_do = kiem_tra_chot_chan_cung(ho_so)
+        vi_pham = kiem_tra_chot_chan_cung(ho_so)
+        # Mẫu số là số luật ĐÃ CHẤM (đang bật), không phải hằng số: admin thêm bớt
+        # luật thì ngưỡng "đủ dữ liệu để máy quyết" phải co giãn theo.
+        decision = quyet_dinh(
+            evaluation_score, vi_pham, dem_luat_co_du_lieu(rule_trace), len(rule_trace)
+        )
 
         return {
             "pd_probability": round(pd_probability, 4),
@@ -191,7 +199,10 @@ class BoDuDoan:
             "evaluation_score": round(evaluation_score, 2),
             "credit_grade": hang.hang,
             "suggested_limit": hang.han_muc,
-            "decision": quyet_dinh(evaluation_score, chot_chan_ly_do),
-            "rejection_reason": chot_chan_ly_do,
+            "decision": decision,
+            # Giữ field cũ (mã đầu tiên) để finora-loan không phải sửa hợp đồng.
+            "rejection_reason": vi_pham[0] if vi_pham else None,
+            "rejection_reasons": vi_pham,
+            "rule_trace": rule_trace,
             "model_version": self.metadata["version"],
         }

@@ -55,6 +55,7 @@ from app.ml.credit.features import (
     FEATURE_NAMES,
     HOME_OWNERSHIP_CATS,
     PURPOSE_CATS,
+    VERIFICATION_CATS,
     encode_features,
 )
 from app.ml.credit.predictor import COT_DIEN_MEDIAN
@@ -70,7 +71,7 @@ from app.ml.shared.evaluation import evaluate_model
 from app.ml.shared.model_registry import luu_mo_hinh
 
 # ── Cấu hình ──────────────────────────────────────────────────────────────────
-PHIEN_BAN = "16.0.0"
+PHIEN_BAN = "17.0.0"
 
 # Hệ số quy đổi thống nhất — trung bình của 2012 và 2014:
 #   VN_AVG = (44_400_000 + 53_880_000) / 2 = 49_140_000
@@ -343,7 +344,7 @@ def main() -> None:
         "cong_thuc_dan_xuat": {
             "log_income": "log1p(annual_inc)",
             "loan_to_income": "clip(loan_amnt / annual_inc, 0, 5)",
-            "effective_apr": "tinh_effective_apr(installment, loan_amnt, term_months)",
+            "ty_le_tra_no_thang": "clip(installment / (annual_inc / 12), 0, 2)",
             "log_du_no": "log1p(tong_du_no)",
             "ty_le_du_no_thu_nhap": "clip(tong_du_no / annual_inc, 0, 10)",
         },
@@ -360,7 +361,7 @@ def main() -> None:
         "muc_phan_loai": {
             "home_ownership": HOME_OWNERSHIP_CATS,
             "purpose": PURPOSE_CATS,
-            "verification_status": ["Verified", "Source Verified", "Not Verified"],
+            "verification_status": VERIFICATION_CATS,
         },
         "nguong_bao_cao": NGUONG_BAO_CAO,
         "ghi_chu_nguong": (

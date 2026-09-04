@@ -8,26 +8,32 @@
     },
     {
       "grade": "B",
-      "min_score": 70,
+      "min_score": 69,
       "max_score": 84,
       "limit": 80000000
     },
     {
       "grade": "C",
-      "min_score": 53,
-      "max_score": 70,
+      "min_score": 50,
+      "max_score": 69,
       "limit": 40000000
     },
     {
       "grade": "D",
-      "min_score": 0,
-      "max_score": 53,
+      "min_score": 37,
+      "max_score": 50,
       "limit": 20000000
+    },
+    {
+      "grade": "E",
+      "min_score": 0,
+      "max_score": 37,
+      "limit": 0
     }
   ],
   "approval_thresholds": {
     "auto_approve": 75,
-    "auto_reject": 70
+    "auto_reject": 65
   },
   "model_weights": {
     "pd_weight": 0.85,
@@ -35,7 +41,134 @@
   },
   "legal_limits": {
     "max_platform_limit": 100000000,
+    "max_total_debt_all_platforms": 400000000,
     "max_interest_rate": 0.2,
     "max_term_months": 24
-  }
+  },
+  "rules": [
+    {
+      "ma": "CAPACITY_INSTALLMENT_BURDEN",
+      "mo_ta": "Tiền trả hàng tháng trên thu nhập tháng — càng thấp càng tốt",
+      "truong": "ty_le_tra_no_thang",
+      "nghich_dao": true,
+      "trong_so": 1.0,
+      "bat": true,
+      "diem_khi_thieu": 8,
+      "bac": [
+        [
+          0.1,
+          20
+        ],
+        [
+          0.2,
+          15
+        ],
+        [
+          0.35,
+          8
+        ],
+        [
+          1000000000.0,
+          2
+        ]
+      ],
+      "goi_y": "Giảm số tiền trả hàng tháng xuống dưới {moc}% thu nhập, bằng cách vay ít hơn hoặc kéo dài kỳ hạn (tối đa 24 tháng)."
+    },
+    {
+      "ma": "CAPACITY_EXISTING_DEBT",
+      "mo_ta": "Tỷ lệ nợ trên thu nhập hiện có (DTI) — càng thấp càng tốt",
+      "truong": "dti",
+      "nghich_dao": true,
+      "trong_so": 1.0,
+      "bat": true,
+      "diem_khi_thieu": 8,
+      "bac": [
+        [
+          10.0,
+          20
+        ],
+        [
+          20.0,
+          15
+        ],
+        [
+          30.0,
+          8
+        ],
+        [
+          1000000000.0,
+          2
+        ]
+      ],
+      "goi_y": "Giảm tỷ lệ nợ trên thu nhập xuống dưới {moc}% — bằng cách trả bớt dư nợ hiện có hoặc chứng minh thêm nguồn thu nhập."
+    },
+    {
+      "ma": "CHARACTER_CREDIT_SEEKING",
+      "mo_ta": "Số lần bị tra cứu CIC 6 tháng — tìm vốn dồn dập là dấu hiệu khát tiền",
+      "truong": "so_lan_tra_cuu",
+      "nghich_dao": true,
+      "trong_so": 1.0,
+      "bat": true,
+      "diem_khi_thieu": 8,
+      "bac": [
+        [
+          0.0,
+          20
+        ],
+        [
+          1.0,
+          13
+        ],
+        [
+          1000000000.0,
+          6
+        ]
+      ],
+      "goi_y": "Hạn chế nộp hồ sơ vay ở nhiều nơi cùng lúc. Giữ số lần bị tra cứu CIC trong 6 tháng ở mức {moc} lần trở xuống."
+    },
+    {
+      "ma": "CHARACTER_CIC_HISTORY",
+      "mo_ta": "Điểm tín dụng CIC — lịch sử trả nợ tại các tổ chức tín dụng",
+      "truong": "emp_length_years",
+      "nghich_dao": false,
+      "trong_so": 1.0,
+      "bat": true,
+      "diem_khi_thieu": 8,
+      "bac": [
+        [
+          740.0,
+          20
+        ],
+        [
+          700.0,
+          15
+        ],
+        [
+          670.0,
+          10
+        ],
+        [
+          0.0,
+          5
+        ]
+      ],
+      "goi_y": "Nâng điểm tín dụng CIC lên {moc} điểm bằng cách trả nợ đúng hạn trong vài kỳ tới. Đây là yếu tố có trọng số cao nhất trong nhóm uy tín."
+    },
+    {
+      "ma": "CAPITAL_RESIDENCE_STABILITY",
+      "mo_ta": "Tình trạng nhà ở — đại diện cho tài sản tích lũy và độ ổn định cư trú",
+      "truong": "home_ownership",
+      "nghich_dao": false,
+      "trong_so": 1.0,
+      "bat": true,
+      "diem_khi_thieu": 8,
+      "bang_diem": {
+        "OWN": 20,
+        "MORTGAGE": 16,
+        "RENT": 8,
+        "OTHER": 4
+      },
+      "goi_y": "Tình trạng nhà ở ảnh hưởng tới điểm tài sản tích lũy. Nếu bạn sở hữu nhà hoặc đang trả góp mua nhà, hãy bổ sung giấy tờ chứng minh."
+    }
+  ]
 }

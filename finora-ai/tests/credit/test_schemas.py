@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.schemas.credit import CreditScoreRequest, CreditScoreResponse
+from app.schemas.credit import CreditScoreRequest
 
 
 class TestCreditScoreRequestSoCccd:
@@ -68,18 +68,20 @@ class TestCreditScoreRequestFineract:
             )
 
 
-class TestCreditScoreResponseKhongCoCic:
-    """Response không chứa cic_score — CIC chỉ dùng nội bộ trong model."""
+class TestRuleTraceItem:
+    """Vết luật không còn nhóm 5C; ghi trường đã đọc và trọng số để giải trình."""
 
-    def test_response_khong_co_field_cic_score(self):
-        res = CreditScoreResponse(
-            pd_probability=0.12,
-            risk_score=65,
-            evaluation_score=72.5,
-            credit_grade="B",
-            suggested_limit=80_000_000,
-            decision="APPROVED",
-            rejection_reason=None,
-            model_version="13.0.0",
+    def test_nhan_vet_luat_moi(self):
+        from app.schemas.credit import RuleTraceItem
+
+        muc = RuleTraceItem(
+            ma="AGE_BRACKET", mo_ta="Tuổi", truong="person_age", gia_tri=30.0,
+            diem=20, toi_da=20, trong_so=1.5, thieu_du_lieu=False,
         )
-        assert not hasattr(res, "cic_score")
+        assert muc.truong == "person_age" and muc.trong_so == 1.5
+
+    def test_khong_con_nhom_5c(self):
+        from app.schemas.credit import RuleTraceItem
+
+        assert "nhom_5c" not in RuleTraceItem.model_fields
+        assert {"truong", "trong_so"} <= set(RuleTraceItem.model_fields)

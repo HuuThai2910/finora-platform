@@ -37,7 +37,7 @@ model là hợp đồng nối chúng — mô tả ở phần II, đúng vị tr�
                          ▼
 ┌─ PHẦN III — CHẤM ĐIỂM ─────────────  app/api/credit_router.py ────┐
 │                                                                   │
-│  POST /api/v1/ai/credit/score                                     │
+│  POST /api/v1/ai/credit/explain                                   │
 │        │                                                          │
 │        ▼                                                          │
 │  CreditScoreRequest (13 field)                                    │
@@ -50,11 +50,11 @@ model là hợp đồng nối chúng — mô tả ở phần II, đúng vị tr�
 │     ├─(1) chuan_bi_dac_trung()   → row thô, cờ missing, median    │
 │     ├─(2) encode_features()      → encoding, age bucket, dẫn xuất │
 │     ├─(3) model.predict_proba()  → PD                             │
-│     ├─(4) tinh_diem_rui_ro()     → risk_score (rule engine 5C)    │
+│     ├─(4) cham_diem_chi_tiet()   → risk_score + rule_trace        │
 │     ├─(5) tinh_diem_tong_hop()   → evaluation_score               │
 │     └─(6) chốt chặn + xep_hang() + quyet_dinh()                   │
 │        ▼                                                          │
-│  CreditScoreResponse                                              │
+│  CreditExplainResponse (điểm + dien_giai + SHAP + rule_trace)     │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
@@ -188,7 +188,7 @@ Bước 4 là lý do ràng buộc đơn điệu ở mục 3 áp đúng cột.
 | Đặc trưng | Quan hệ nghiệp vụ |
 |---|---|
 | `installment` | Trả hàng tháng nhiều hơn → gánh nặng nặng hơn |
-| `effective_apr` | Chi phí vay cao hơn → rủi ro cao hơn |
+| `ty_le_tra_no_thang` | Trả nợ chiếm phần thu nhập lớn hơn → rủi ro cao hơn |
 | `dti` | Nợ trên thu nhập cao hơn → rủi ro cao hơn |
 | `so_lan_tre_han` | Trễ nhiều hơn → rủi ro cao hơn |
 | `tong_du_no` | Dư nợ lớn hơn → rủi ro cao hơn |
@@ -285,7 +285,7 @@ không cần đọc lại script huấn luyện.
 ## 6. `COT_DIEN_MEDIAN` — nguồn sự thật duy nhất
 
 ```python
-COT_DAN_XUAT   = {"log_income", "loan_to_income", "effective_apr",
+COT_DAN_XUAT   = {"log_income", "loan_to_income", "ty_le_tra_no_thang",
                   "log_du_no", "ty_le_du_no_thu_nhap"}
 COT_DIEN_MEDIAN = [c for c in NUMERIC_FEATURES if c not in COT_DAN_XUAT]
 ```
@@ -396,7 +396,7 @@ Client chỉ gửi 13 field; 34 đặc trưng còn lại do service tự sinh.
 
 ### 9.4 Dẫn xuất (5)
 
-`log_income`, `loan_to_income`, `effective_apr`, `log_du_no`, `ty_le_du_no_thu_nhap`
+`log_income`, `loan_to_income`, `ty_le_tra_no_thang`, `log_du_no`, `ty_le_du_no_thu_nhap`
 — công thức ở mục 10.
 
 ### 9.5 Target-encoded (4)
@@ -427,42 +427,29 @@ Tất cả tính trong `encode_features()`, [`features.py`](../app/ml/credit/fea
 | `loan_to_income` | `clip(loan_amnt / annual_inc, 0, 5)` | Quy mô vay tương đối |
 | `log_du_no` | `log1p(tong_du_no)` | Nén đuôi phải của dư nợ |
 | `ty_le_du_no_thu_nhap` | `clip(tong_du_no / annual_inc, 0, 10)` | Tổng gánh nặng nợ |
-| `effective_apr` | giải IRR — xem dưới | Lãi suất thực, so sánh được giữa các phương pháp |
+| `ty_le_tra_no_thang` | `clip(installment / (annual_inc/12), 0, 2)` | Gánh nặng trả nợ trên thu nhập tháng |
 
 Chia cho `annual_inc = 0` được xử lý bằng `replace(0, NaN)` rồi `fillna(0)`.
 
-### `effective_apr` — vì sao phải giải lặp
+### `ty_le_tra_no_thang` — đo gánh nặng trả nợ
 
-`int_rate` **không so sánh được** giữa các phương pháp tính lãi: khoản vay FLAT ghi
-12 %/năm có chi phí thực khoảng 21 %, còn DECLINING ghi 12 % thì đúng 12 %.
-`effective_apr` đưa mọi phương pháp về cùng một thang.
-
-Bài toán: biết `installment`, `loan_amnt`, `term_months` — tìm lãi suất `r`. Công thức
-niên kim đi xuôi thì có sẵn:
+Mỗi tháng người vay phải trả bao nhiêu phần thu nhập. Đây là đại lượng nghiệp vụ
+quan tâm trực tiếp, và cũng là công thức mà luật `CAPACITY_INSTALLMENT_BURDEN` dùng
+để chấm điểm.
 
 ```
-installment = goc × r × (1+r)^n / ((1+r)^n − 1)
+ty_le_tra_no_thang = clip(installment / (annual_inc / 12), 0, 2)
 ```
 
-Đi ngược thì **không có công thức đóng**, phải dò bằng bisection — `tinh_effective_apr`
-trong [`preprocessing.py`](../app/ml/credit/preprocessing.py):
+Trần 2.0 vì trả gấp đôi thu nhập tháng đã là bất khả thi; cao hơn nữa chỉ là dữ liệu
+rác và sẽ kéo giãn thang đo của mọi hồ sơ bình thường.
 
-```
-thấp = 1e-12,  cao = 0.5          # lãi tháng: 0 % → 600 %/năm
-lặp 60 lần:
-    giữa = (thấp + cao) / 2
-    thử  = niên_kim(goc, giữa, n)
-    nếu thử < installment → thấp = giữa      # đang đoán thấp
-    ngược lại             → cao  = giữa
-trả về (thấp + cao) / 2 × 12 × 100           # lãi tháng → %/năm
-```
-
-60 vòng chia đôi cho sai số cỡ `0.5 / 2^60`.
+Nó dùng `installment` như **dữ liệu thật** thay vì suy ngược ra lãi suất, nên không
+thừa hưởng target leakage của `int_rate`.
 
 > **Đặc trưng dẫn xuất PHẢI tính SAU khi điền median.** `installment` và `term_months`
 > đều nằm trong `COLUMNS_WITH_MISSING`. Tính trước thì giá trị thiếu lan lên cột dẫn
-> xuất mà không bị chặn. Đây cũng là lý do dịch vụ gọi **không** được tự tính
-> `effective_apr` rồi gửi sang.
+> xuất mà không bị chặn.
 
 ## 11. Sáu bước trong `du_doan()`
 
@@ -492,14 +479,51 @@ mô hình đoán bừa.
 
 Xác suất vỡ nợ, khoảng `(0, 1)`.
 
-### Bước 4 — `tinh_diem_rui_ro()` → risk_score
+### Bước 4 — `cham_diem_chi_tiet()` → risk_score + rule_trace
 
-Rule engine 5C, [`rule_engine.py`](../app/services/credit/rule_engine.py). Bốn yếu tố ×
-25 điểm: tỷ lệ vay trên thu nhập, thâm niên việc làm, tình trạng nhà ở, mức thu nhập
-năm. Trừ 10 điểm nếu tuổi và thâm niên chênh bất hợp lý (10 ≤ `tuổi − thâm_niên` < 18).
+Rule engine, [`rule_engine.py`](../app/services/credit/rule_engine.py). **Luật là dữ
+liệu**: toàn bộ bộ luật nằm trong `config/product_config.json["rules"]`, admin thêm /
+sửa / xoá / sắp xếp / bật-tắt tuỳ ý qua `PUT /api/v1/ai/config/rules`, có hiệu lực
+ngay không cần deploy. Code chỉ giữ **danh mục trường** được phép đọc
+([`truong_du_lieu.py`](../app/services/credit/truong_du_lieu.py), 23 trường từ hồ sơ tự
+khai, CIC, Fineract và dẫn xuất — cố ý **không có `int_rate`** vì là target leakage).
+
+Mỗi luật gồm: `ma`, `mo_ta`, `truong` (mã trong danh mục), `nghich_dao` (càng thấp càng
+tốt), `trong_so` (0,1–10), `bat`, `diem_khi_thieu`, và `bac` (trường số) hoặc `bang_diem`
+(trường phân loại), cùng `goi_y` — mẫu câu gợi ý cải thiện cho người vay với chỗ trống
+`{moc}`. Bậc tốt nhất của mọi luật đều là **20 điểm**; luật nặng nhẹ khác nhau thể hiện
+qua `trong_so`, không qua độ lớn điểm bậc.
+
+Bộ luật **mặc định** (năm luật đã kiểm chứng AUC 0,64, trọng số đều 1,0):
+
+| Mã luật | Trường | Bậc thang / bảng điểm |
+|---|---|---|
+| `CHARACTER_CIC_HISTORY` | `cic_score` | CIC ≥740→20 · ≥700→15 · ≥670→10 · còn lại→5 |
+| `CAPACITY_EXISTING_DEBT` | `dti` | DTI ≤10%→20 · ≤20%→15 · ≤30%→8 · còn lại→2 |
+| `CAPACITY_INSTALLMENT_BURDEN` | `ty_le_tra_no_thang` | Trả nợ ≤0,1→20 · ≤0,2→15 · ≤0,35→8 · còn lại→2 |
+| `CHARACTER_CREDIT_SEEKING` | `so_lan_tra_cuu` | Tra cứu 0 lần→20 · ≤1→13 · ≤3→6 · còn lại→0 |
+| `CAPITAL_RESIDENCE_STABILITY` | `home_ownership` | OWN 20 · MORTGAGE 16 · RENT 8 · OTHER 4 |
+
+Năm luật này chỉ là dữ liệu khởi tạo — admin xoá được như bất kỳ luật nào khác.
+
+Thiếu dữ liệu cho **điểm trung tính** (mặc định 8) — không phải 0. Ở Việt Nam cic-service
+có thể không trả lời, và "không tra được lịch sử tín dụng" ≠ "lịch sử tín dụng xấu"; cho
+điểm sàn là phạt oan người vay vì sự cố hạ tầng. Luật đó được đánh dấu
+`thieu_du_lieu=True`, và khi số luật có dữ liệu thật dưới **60 % số luật đang bật**
+(`TY_LE_LUAT_TOI_THIEU_CO_DU_LIEU`, làm tròn lên — với 5 luật là 3) thì hồ sơ bị đẩy
+sang `PENDING_REVIEW` thay vì để máy quyết. Dùng tỷ lệ chứ không phải hằng số vì số
+luật do admin quyết.
+
+Điểm được **chuẩn hoá về thang 100** theo tổng điểm tối đa có trọng số của các luật đang
+bật: `round(Σ(điểm × trọng số) × 100 / Σ(20 × trọng số))`. Không chuẩn hoá thì tắt hay
+thêm một luật sẽ kéo trần điểm lệch đi và mọi hồ sơ đổi hạng oan.
+
+Mỗi vết luật trong `rule_trace` ghi `{ma, mo_ta, truong, gia_tri, diem, toi_da, trong_so,
+thieu_du_lieu}` — đủ để dựng màn hình giải trình mà không cần biết trước bộ luật.
 
 Đây là phần **giải trình được không cần công cụ** — ngưỡng cố định, không học từ dữ
-liệu. `cic_score` **không** dùng ở đây, chỉ dùng trong mô hình ML.
+liệu. Đo trên tập out-of-time 2015: rule engine một mình đạt AUC 0,6043 so với 0,7018
+của mô hình ML, nên `risk_weight` cố ý giữ thấp ở 0,15.
 
 ### Bước 5 — `tinh_diem_tong_hop()`
 
@@ -511,17 +535,20 @@ Trọng số đọc từ `config/product_config.json` (`model_weights`), **khôn
 
 ### Bước 6 — Chốt chặn, xếp hạng, quyết định
 
-`kiem_tra_chot_chan_cung()` chạy các luật loại trừ thẳng:
+`kiem_tra_chot_chan_cung()` chạy các luật loại trừ thẳng. Mọi luật ở đây đều dẫn
+được **số hiệu văn bản pháp luật**: vi phạm nghĩa là hợp đồng vô hiệu, chứ không
+phải "rủi ro cao hơn". Chốt chặn có quyền phủ quyết tuyệt đối nên chỉ dành cho ràng
+buộc pháp lý; khẩu vị rủi ro thuộc tầng điểm số.
 
 | Luật | Điều kiện | Mã trả về |
 |---|---|---|
 | Trần lãi suất | > 20 %/năm (Điều 468 BLDS 2015) | `INTEREST_RATE_EXCEEDS_LEGAL_LIMIT` |
 | Lãi suất không hợp lệ | ≤ 0 | `INVALID_INTEREST_RATE` |
 | Trần kỳ hạn | > 24 tháng (NĐ 94/2025) | `TERM_EXCEEDS_LEGAL_LIMIT` |
-| Áp lực trả nợ | installment / thu nhập tháng > 50 % | `DEBT_SERVICE_RATIO_TOO_HIGH` |
-| Tuổi vs kinh nghiệm | `tuổi − thâm_niên < 10` | `AGE_AND_EXPERIENCE_INCONSISTENCY` |
+| Nợ xấu CIC | nhóm nợ ≥ 3 (TT 11/2021/TT-NHNN) | `CIC_BAD_DEBT_GROUP` |
+| Trần tổng dư nợ | `tong_du_no + loan_amnt` > 400 triệu (QĐ 2866/QĐ-NHNN) | `TOTAL_DEBT_EXCEEDS_LEGAL_LIMIT` |
 
-`xep_hang()` tra bảng dựng từ `product_config.json` (hạng A/B/C/D). `quyet_dinh()` so
+`xep_hang()` tra bảng dựng từ `product_config.json` (hạng A-E, cấu hình động). `quyet_dinh()` so
 `evaluation_score` với `auto_approve` / `auto_reject`; **vi phạm chốt chặn thì luôn
 `REJECTED`** bất kể điểm.
 
@@ -584,7 +611,7 @@ trước tiên.
 ## 14. Việc `finora-loan` cần làm để kết nối thành công
 
 > Mục này mô tả **phía gọi**, nằm ngoài `finora-ai`. Owner của `finora-loan` thực hiện.
-> Trạng thái ghi nhận tại thời điểm model `v16.0.0`.
+> Trạng thái ghi nhận tại thời điểm model `v17.0.0`.
 
 Hiện tại `finora-loan` gọi sang sẽ **fail cứng**: cấu hình yêu cầu model `13.0.0` trong
 khi service phục vụ `16.0.0`, `validate()` ném `AI_MODEL_VERSION_MISMATCH` với
@@ -596,7 +623,7 @@ khi service phục vụ `16.0.0`, `validate()` ném `AI_MODEL_VERSION_MISMATCH` 
 |---|---|---|---|
 | 1 | Đồng bộ `model-version` | `application.yml` (`finora.ai.credit.model-version`) **và** `docker/docker-compose.yml` | Fail cứng `AI_MODEL_VERSION_MISMATCH`, non-retryable |
 | 2 | Thêm `so_cccd` | `AiCreditScoreRequest` + `AiCreditScoringMapper` | Không tra được CIC → mất **10/47 đặc trưng**, PD kém chính xác, **không báo lỗi** |
-| 3 | Thêm `interest_method` | `AiCreditScoreRequest` + `AiCreditScoringMapper` | Mặc định `DECLINING_BALANCE`; sản phẩm FLAT bị tính sai `effective_apr` (12 % danh nghĩa ≈ 21 % thực) |
+| 3 | Thêm `interest_method` | `AiCreditScoreRequest` + `AiCreditScoringMapper` | Mặc định `DECLINING_BALANCE`; sản phẩm FLAT bị target-encode sai nhóm |
 | 4 | Bỏ `delinq_2yrs`, `pub_rec` | `AiCreditScoreRequest` + `AiCreditScoringMapper` | Không sai kết quả (Pydantic `extra="ignore"` nuốt im lặng) nhưng là tàn dư của schema cũ |
 
 `docker-compose.yml` hiện **không khai báo** `AI_CREDIT_MODEL_VERSION` — chạy bằng Docker
@@ -621,7 +648,7 @@ trong `LoanProduct` và cần được truyền qua — `RepaymentMethod` không
 `config/product_config.json` và **sửa được lúc chạy** qua `PUT /api/v1/ai/config/product`
 (trường `grade` khai báo là `str`, không enum).
 
-Hiện hai bên khớp (A/B/C/D), nhưng admin thêm một hạng mới là Loan kẹt lại với
+Hạng ở AI nay là **cấu hình động** (`grade: str`, admin thêm/sửa/xoá qua API). Loan vẫn kẹt với
 `AI_CONTRACT_MISMATCH` non-retryable — và lần đó rất khó truy nguyên nhân.
 
 `creditGrade` phía Loan lưu dạng `String` và chỉ để hiển thị, không dùng ra quyết định.
@@ -642,8 +669,8 @@ hai bên thống nhất quy ước đánh version trước.
 - **`installment`** — Loan tính từ `ScheduleCalculationSnapshot` của Fineract rồi gửi
   sang; AI chỉ nhận, **không tự tính**. Bỏ trống thì AI điền median từ gói model — tức
   mất một đặc trưng thật. Giữ nguyên cách Loan đang làm.
-- **`effective_apr`** — AI tự tính. Loan **không** được gửi: nó phải được tính sau bước
-  điền median (mục 10).
+- **`ty_le_tra_no_thang`** — AI tự tính từ `installment` và `annual_inc`. Loan **không**
+  được gửi: nó phải được tính sau bước điền median (mục 10).
 - **`suggested_rate`** trong `AiCreditScoreResponse` — AI không trả field này, Jackson map
   thành `null`. Vô hại, dọn khi tiện.
 - **`cic-service`** — đã đồng nhất với `finora-ai` (endpoint, thang điểm 150–750, 9 trường
@@ -652,7 +679,7 @@ hai bên thống nhất quy ước đánh version trước.
 ### 14.6 Xác minh sau khi sửa
 
 1. `GET /health` trên `finora-ai` trả 200.
-2. Gọi thử `POST /api/v1/ai/credit/score` với một hồ sơ có `so_cccd` hợp lệ; kiểm tra
+2. Gọi thử `POST /api/v1/ai/credit/explain` với một hồ sơ có `so_cccd` hợp lệ; kiểm tra
    `model_version` trong response khớp cấu hình Loan.
 3. Đối chiếu log `finora-ai`: dòng `cic-service tra_diem_cic ... result=success` xác nhận
    CIC được tra thật, không rơi vào fail-open.

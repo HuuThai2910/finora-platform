@@ -69,7 +69,11 @@ def luu_mo_hinh(
         metadata.update(thong_so_bo_sung)
 
     meta_path = _duong_dan_metadata(version, model_dir)
-    meta_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False))
+    # `encoding` bắt buộc: `ensure_ascii=False` ghi tiếng Việt thành byte UTF-8,
+    # còn `write_text`/`read_text` không truyền encoding sẽ dùng locale máy. Trên
+    # Windows locale mặc định (cp1252) đọc lại là UnicodeDecodeError và không nạp
+    # được gói model.
+    meta_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
 
     return {
         "path": str(pkl_path),
@@ -85,23 +89,6 @@ def tai_mo_hinh(version: str, model_dir: Path):
     meta_path = _duong_dan_metadata(version, model_dir)
 
     model = joblib.load(pkl_path)
-    metadata = json.loads(meta_path.read_text())
+    metadata = json.loads(meta_path.read_text(encoding="utf-8"))
 
     return model, metadata
-
-
-def danh_sach_phien_ban(model_dir: Path) -> list[dict]:
-    """Liệt kê tất cả phiên bản mô hình đã lưu."""
-    ds = []
-    for meta_file in sorted(model_dir.glob("model_v*.json")):
-        metadata = json.loads(meta_file.read_text())
-        ds.append(metadata)
-    return ds
-
-
-def phien_ban_moi_nhat(model_dir: Path) -> str:
-    """Trả về chuỗi phiên bản mới nhất."""
-    ds = danh_sach_phien_ban(model_dir)
-    if not ds:
-        return "0.0.0"
-    return ds[-1]["version"]

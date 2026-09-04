@@ -39,29 +39,6 @@ HOME_OWNERSHIP_MAP = {
 }
 
 
-def tinh_effective_apr(installment, goc, so_thang, so_vong: int = 60):
-    """Lãi suất thực (%/năm) của dòng tiền trả đều — giải IRR bằng bisection.
-
-    Cần thiết vì sau khi có 3 phương pháp, `int_rate` mang hai ý nghĩa khác nhau:
-    khoản vay FLAT ghi 12% thì chi phí thật khoảng 21%, còn DECLINING ghi 12% thì
-    chi phí thật đúng 12%. Đây là đại lượng duy nhất so sánh được giữa các phương
-    pháp, và không có công thức đóng nên phải giải lặp.
-    """
-    installment = np.asarray(installment, dtype=float)
-    goc = np.asarray(goc, dtype=float)
-    n = np.asarray(so_thang, dtype=float)
-
-    thap = np.full(np.broadcast(installment, goc, n).shape, 1e-12)
-    cao = np.full_like(thap, 0.5)
-    for _ in range(so_vong):
-        giua = (thap + cao) / 2.0
-        thu = goc * giua * (1 + giua) ** n / ((1 + giua) ** n - 1)
-        nho_hon = thu < installment
-        thap = np.where(nho_hon, giua, thap)
-        cao = np.where(nho_hon, cao, giua)
-    return (thap + cao) / 2.0 * 12.0 * 100.0
-
-
 def _parse_emp_length(val) -> float:
     """Đọc thâm niên việc làm từ chuỗi ("10+ years", "< 1 year", "5 years")."""
     if pd.isna(val):
