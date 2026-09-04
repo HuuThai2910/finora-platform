@@ -120,7 +120,7 @@ class TestDuDoanV14:
 
 
 class TestRouterV14:
-    """score_credit() gọi CicClient trả dict, forward cic_data."""
+    """Endpoint gọi CicClient trả dict, forward cic_data."""
 
     @pytest.fixture
     def app_client(self, monkeypatch):

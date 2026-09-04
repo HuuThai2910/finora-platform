@@ -118,43 +118,6 @@ class RuleTraceItem(BaseModel):
     thieu_du_lieu: bool = Field(description="True khi phải dùng điểm trung tính vì thiếu dữ liệu")
 
 
-class CreditScoreResponse(BaseModel):
-    """Kết quả chấm điểm."""
-
-    pd_probability: float = Field(description="Xác suất vỡ nợ do mô hình dự đoán")
-    risk_score: int = Field(description="Điểm rủi ro theo quy tắc 5C (0-100)")
-    evaluation_score: float = Field(
-        description=(
-            "Điểm tổng hợp = (1-PD)x100 x pd_weight + risk_score x risk_weight. "
-            "Trọng số đọc từ config/product_config.json (model_weights)."
-        )
-    )
-    credit_grade: Literal["A", "B", "C", "D", "E"]
-    suggested_limit: int = Field(
-        description=(
-            "Hạn mức đề xuất (VNĐ). Trần 100 triệu/khách hàng/nền tảng theo "
-            "Quyết định 2866/QĐ-NHNN ngày 22/7/2025"
-        )
-    )
-    decision: Literal["APPROVED", "PENDING_REVIEW", "REJECTED"]
-    rejection_reason: str | None = Field(
-        default=None,
-        description="Mã vi phạm đầu tiên. Giữ lại cho tương thích ngược — dùng rejection_reasons.",
-    )
-    rejection_reasons: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Toàn bộ mã chốt chặn cứng bị vi phạm. Trả hết thay vì dừng ở lỗi đầu để "
-            "người vay sửa một lần, không phải quay lại nhiều vòng."
-        ),
-    )
-    rule_trace: list[RuleTraceItem] = Field(
-        default_factory=list,
-        description="Vết từng luật đã chạy — mỗi điểm cộng đều truy ngược được về một luật có tên.",
-    )
-    model_version: str
-
-
 class YeuToAnhHuong(BaseModel):
     """Một yếu tố ảnh hưởng tới PD, đo bằng đóng góp TreeSHAP."""
 
@@ -264,7 +227,17 @@ class CreditExplainResponse(BaseModel):
     pd_probability: float = Field(description="Xác suất vỡ nợ do mô hình dự đoán")
     risk_score: int = Field(description="Điểm rủi ro theo quy tắc 5C (0-100)")
     evaluation_score: float = Field(description="Điểm tổng hợp của PD và risk_score")
-    credit_grade: Literal["A", "B", "C", "D", "E"]
+    credit_grade: str = Field(
+        min_length=1,
+        max_length=8,
+        pattern=r"^[A-Z][A-Z0-9+-]*$",
+        description=(
+            "Hạng tín dụng, lấy nguyên tên hạng trong `config/product_config.json`. "
+            "KHÔNG dùng Literal cố định: bảng hạng là cấu hình động — admin thêm, "
+            "sửa, xoá hạng qua `PUT /api/v1/ai/config/product` mà không cần deploy. "
+            "Ràng buộc ở đây chỉ chặn tên rác (rỗng, ký tự lạ, quá dài)."
+        ),
+    )
     decision: Literal["APPROVED", "PENDING_REVIEW", "REJECTED"]
     dien_giai: DienGiaiNguoiDung = Field(
         description="Bản diễn giải cho người vay — thông điệp, lý do và gợi ý cải thiện."

@@ -72,10 +72,6 @@ DIEN_GIAI_CHOT_CHAN: dict[str, str] = {
         "Kỳ hạn vay vượt 24 tháng — mức tối đa cho vay ngang hàng theo Nghị định "
         "94/2025. Hãy chọn kỳ hạn ngắn hơn."
     ),
-    "DEBT_SERVICE_RATIO_TOO_HIGH": (
-        "Số tiền phải trả hàng tháng vượt quá một nửa thu nhập của bạn. Khoản vay "
-        "này sẽ khiến bạn không đủ chi tiêu sinh hoạt."
-    ),
     "CIC_BAD_DEBT_GROUP": (
         "Bạn đang có nợ xấu từ nhóm 3 trở lên trên hệ thống CIC. Theo Thông tư "
         "11/2021 của Ngân hàng Nhà nước, tổ chức tín dụng không được cấp khoản vay "
@@ -84,10 +80,6 @@ DIEN_GIAI_CHOT_CHAN: dict[str, str] = {
     "TOTAL_DEBT_EXCEEDS_LEGAL_LIMIT": (
         "Tổng dư nợ của bạn cộng khoản vay này vượt trần 400 triệu đồng trên toàn "
         "bộ nền tảng cho vay ngang hàng, theo Quyết định 2866/QĐ-NHNN."
-    ),
-    "AGE_AND_EXPERIENCE_INCONSISTENCY": (
-        "Thông tin tuổi và số năm làm việc trong hồ sơ mâu thuẫn nhau. Vui lòng "
-        "kiểm tra lại trước khi nộp."
     ),
 }
 
@@ -219,9 +211,8 @@ def sinh_dien_giai(ket_qua: dict, tom_tat: dict | None = None) -> dict:
     tóm tắt, lý do chính, và danh sách gợi ý cải thiện.
 
     `tom_tat` là phần `tom_tat` của `explainer.giai_thich_mo_hinh()` — dùng để xếp
-    thứ tự gợi ý theo mức ảnh hưởng thật của mô hình. Để `None` thì lùi về cách cũ
-    (xếp theo số điểm luật bị mất): `/score` không tính SHAP nên không có dữ liệu
-    này, và bắt nó tính thêm chỉ để sinh gợi ý là quá đắt.
+    thứ tự gợi ý theo mức ảnh hưởng thật của mô hình. Để `None` thì xếp theo số
+    điểm luật bị mất, dành cho chỗ gọi không có sẵn dữ liệu SHAP.
     """
     quyet_dinh = ket_qua["decision"]
     vi_pham: list[str] = ket_qua.get("rejection_reasons") or []
@@ -341,10 +332,7 @@ def _goi_y_theo_shap(tom_tat: dict, theo_ma: dict[str, dict]) -> list[str]:
 
 
 def _goi_y_theo_luat(vet: list[dict]) -> list[str]:
-    """Gợi ý xếp theo số điểm luật bị mất — dùng khi không có dữ liệu SHAP.
-
-    Giữ lại cho `/score` và cho các chỗ gọi `sinh_dien_giai()` không kèm `tom_tat`.
-    """
+    """Gợi ý xếp theo số điểm luật bị mất — dùng khi không có dữ liệu SHAP."""
     goi_y: list[str] = []
     thieu_diem = sorted(
         (t for t in vet if t["diem"] < t["toi_da"] and not t["thieu_du_lieu"]),

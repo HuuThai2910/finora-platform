@@ -21,7 +21,7 @@ luật mất ý nghĩa: bậc điểm không đơn điệu, ngưỡng không đ�
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
-from app.services.credit.product_config import reload, save
+from app.services.credit.product_config import get_legal_limits, reload, save
 from app.services.credit.rule_engine import (
     _DINH_NGHIA_LUAT,
     DIEM_TOI_DA_MOI_LUAT,
@@ -33,7 +33,14 @@ router = APIRouter()
 
 
 class GradeConfig(BaseModel):
-    grade: str
+    """Một hạng tín dụng.
+
+    `grade` để mở, không phải Literal cố định: bảng hạng là cấu hình động — admin
+    thêm/sửa/xoá hạng qua endpoint này mà không cần deploy lại. Ràng buộc dưới đây
+    chỉ chặn tên rác; tập hạng nào là hợp lệ do chính config quyết định.
+    """
+
+    grade: str = Field(min_length=1, max_length=8, pattern=r"^[A-Z][A-Z0-9+-]*$")
     min_score: int = Field(ge=0, le=100)
     max_score: int = Field(ge=0, le=100)
     limit: int = Field(ge=0)
@@ -76,6 +83,69 @@ async def get_product_config():
     return ProductConfigResponse(**config)
 
 
+def _kiem_tra_bang_hang(grades: list[GradeConfig]) -> None:
+    """Bảng hạng phải phủ kín 0-100, không hở, không chồng, tên không trùng.
+
+    Bảng hạng động thì lỗi cấu hình chuyển thành lỗi RUNTIME, nên phải chặn ngay
+    lúc lưu. Không kiểm ở đây thì admin lưu thành công rồi mọi request chấm điểm
+    rơi vào khoảng hở sẽ vỡ — mà lúc đó không còn manh mối nào chỉ về cái PUT này.
+    """
+    if not grades:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Phải có ít nhất một hạng.",
+        )
+
+    ten = [g.grade for g in grades]
+    trung = {t for t in ten if ten.count(t) > 1}
+    if trung:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Tên hạng bị trùng: {sorted(trung)}",
+        )
+
+    for g in grades:
+        if g.min_score >= g.max_score:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Hạng {g.grade}: min_score ({g.min_score}) phải nhỏ hơn max_score ({g.max_score}).",
+            )
+
+    # Trần pháp lý kiểm ngay lúc lưu. Trước đây `_build_bang_xep_hang()` mới raise,
+    # tức là lúc chấm điểm — API nhận 200 rồi mọi lần chấm sau đó trả 500.
+    tran = get_legal_limits()["max_platform_limit"]
+    for g in grades:
+        if g.limit > tran:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Hạng {g.grade}: hạn mức {g.limit:,} vượt trần "
+                    f"{tran:,} đồng/khách hàng/nền tảng (Quyết định 2866/QĐ-NHNN)."
+                ),
+            )
+
+    theo_diem = sorted(grades, key=lambda g: g.min_score)
+    if theo_diem[0].min_score != 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Hạng thấp nhất ({theo_diem[0].grade}) phải bắt đầu từ 0 điểm.",
+        )
+    if theo_diem[-1].max_score != 100:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Hạng cao nhất ({theo_diem[-1].grade}) phải kết thúc ở 100 điểm.",
+        )
+    for duoi, tren in zip(theo_diem, theo_diem[1:]):
+        if duoi.max_score != tren.min_score:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Khoảng điểm hở hoặc chồng giữa {duoi.grade} (đến {duoi.max_score}) "
+                    f"và {tren.grade} (từ {tren.min_score})."
+                ),
+            )
+
+
 @router.put("/product", response_model=ProductConfigResponse)
 async def update_product_config(body: ProductConfigUpdate):
     """Cập nhật khoảng điểm AI, ngưỡng duyệt và trọng số. Legal limits không đổi."""
@@ -84,6 +154,8 @@ async def update_product_config(body: ProductConfigUpdate):
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="auto_reject phải nhỏ hơn auto_approve",
         )
+
+    _kiem_tra_bang_hang(body.grades)
 
     if body.model_weights is not None:
         total = round(body.model_weights.pd_weight + body.model_weights.risk_weight, 4)

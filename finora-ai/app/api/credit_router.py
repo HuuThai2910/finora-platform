@@ -10,7 +10,7 @@ Luồng ra quyết định:
         ├──────────────────────────┬──────────────────────────┐
         ▼                          ▼                          │
     Mô hình XGBoost              Rule Engine 5C                │
-    (47 features, có CIC)→ PD    (4 yếu tố) → risk_score      │
+    (47 features, có CIC)→ PD    (5 luật) → risk_score        │
         └──────────────────────────┴──────────────────────────┘
                                   ▼
        evaluation_score = (1-PD)x100 x pd_weight + risk_score x risk_weight
@@ -21,12 +21,6 @@ Luồng ra quyết định:
 `/explain` là endpoint DUY NHẤT của luồng này: nó vừa chấm điểm, vừa giải thích
 quyết định bằng TreeSHAP (nửa ML) cộng rule trace 5C (nửa quy tắc) — xem
 `app/ml/credit/explainer.py`.
-
-`/score` đã bị bỏ 2026-09-04. Nó trả đúng phần điểm số của `/explain` và nhận
-cùng `CreditScoreRequest`, nên mọi thứ nó làm được `/explain` đều làm được; giữ
-hai đường cho cùng một quyết định chỉ tạo thêm chỗ để lệch nhau. Bên gọi cần lưu
-vết vì sao một hồ sơ bị từ chối — nghĩa vụ với hồ sơ tín dụng — bắt buộc phải
-qua `/explain`, vì `/score` không hề sinh ra phần diễn giải đó.
 
 TODO: /backtest.
 """
@@ -63,8 +57,7 @@ def lay_cic_client() -> CicClient:
 def _nap_bo_du_doan_hoac_503() -> BoDuDoan:
     """Nạp gói model, đổi lỗi nạp gói thành 503.
 
-    Dùng chung cho `/score` và `/explain`: cả hai đều phải từ chối phục vụ khi gói
-    model không tin cậy, và phải từ chối theo cùng một cách.
+    Từ chối phục vụ khi gói model không tin cậy, thay vì chấm bằng gói đáng ngờ.
     """
     try:
         return lay_bo_du_doan()
@@ -93,10 +86,9 @@ async def _tra_cic(ho_so: CreditScoreRequest) -> dict | None:
 async def explain_credit(ho_so: CreditScoreRequest) -> CreditExplainResponse:
     """Giải thích quyết định chấm điểm của một hồ sơ vay (C1.2).
 
-    Nhận đúng schema request của `/score` để người gọi giải thích được chính hồ sơ
-    vừa chấm mà không phải dựng lại dữ liệu. Endpoint tự chấm lại thay vì nhận
-    `pd_probability` từ client: mô hình là tất định, chấm lại rẻ, và nhận điểm từ
-    bên ngoài sẽ cho phép giải thích một con số mà mô hình chưa từng sinh ra.
+    Endpoint tự chấm điểm thay vì nhận `pd_probability` từ client: mô hình là tất
+    định nên chấm lại rẻ, còn nhận điểm từ bên ngoài sẽ cho phép giải thích một
+    con số mà mô hình chưa từng sinh ra.
     """
     bo_du_doan = _nap_bo_du_doan_hoac_503()
     cic_data = await _tra_cic(ho_so)
@@ -105,8 +97,6 @@ async def explain_credit(ho_so: CreditScoreRequest) -> CreditExplainResponse:
     if cic_data is not None:
         du_lieu = {**du_lieu, **cic_data}
 
-    # Chấm lại bằng đúng đường của `/score` để giải thích không bao giờ mô tả một
-    # quyết định khác với quyết định thật.
     ket_qua = bo_du_doan.du_doan(du_lieu)
 
     # Tính SHAP trước rồi truyền `tom_tat` sang `sinh_dien_giai`: thứ tự gợi ý phải

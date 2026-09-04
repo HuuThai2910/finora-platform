@@ -77,12 +77,6 @@ NHOM_NO_XAU_TOI_THIEU = 3
 # Chỉ kiểm trần thứ nhất là chưa đủ tuân thủ: bốn nền tảng mỗi nơi 100 triệu đều
 # hợp lệ riêng lẻ nhưng tổng 400 triệu đã chạm trần, khoản thứ năm phải bị chặn.
 
-# Trần tỷ lệ trả nợ trên thu nhập. Vượt ngưỡng này người vay không còn đủ sống.
-TRAN_TY_LE_TRA_NO = 0.50
-
-# Chênh lệch tuổi và thâm niên dưới mức này là hồ sơ khai sai (đi làm trước 10 tuổi).
-TUOI_TOI_THIEU_KHI_BAT_DAU_LAM = 10
-
 # Số luật tối thiểu phải có dữ liệu thật thì kết quả mới đáng tin.
 # Dưới ngưỡng này hồ sơ bị đẩy sang thẩm định viên thay vì để máy quyết.
 SO_LUAT_TOI_THIEU_CO_DU_LIEU = 3
@@ -181,27 +175,6 @@ def _lay_ty_le_tra_no_thang(f: dict) -> float | None:
 def _lay_on_dinh_cu_tru(f: dict) -> str | None:
     tinh_trang = f.get("home_ownership")
     return tinh_trang if tinh_trang in TINH_TRANG_NHA_O else None
-
-
-def _doc_tham_nien(emp_length) -> float | None:
-    """Đọc thâm niên từ chuỗi dạng LendingClub ("10+ years", "< 1 year")."""
-    if emp_length is None:
-        return None
-    chuoi = str(emp_length).strip()
-    if "10+" in chuoi:
-        return 10.0
-    if "< 1" in chuoi:
-        return 0.5
-    chu_so = "".join(c for c in chuoi if c.isdigit())
-    return float(chu_so) if chu_so else None
-
-
-def _tham_nien_nam(features: dict) -> float | None:
-    """Thâm niên việc làm tính theo năm, từ trường số hoặc chuỗi."""
-    nam = _so_hoac_none(features.get("emp_length_years"))
-    if nam is not None:
-        return nam
-    return _doc_tham_nien(features.get("emp_length"))
 
 
 # ── Đặc tả luật ───────────────────────────────────────────────────────────────
@@ -450,6 +423,11 @@ def kiem_tra_chot_chan_cung(features: dict) -> list[str]:
     Trả về DANH SÁCH mã vi phạm, rỗng nếu hồ sơ sạch. Trả về tất cả thay vì
     dừng ở lỗi đầu tiên: người vay sửa xong một lỗi mà vẫn bị từ chối vì lỗi
     thứ hai là trải nghiệm tệ và tốn thêm một vòng thẩm định.
+
+    Mọi luật ở đây đều dẫn được số hiệu văn bản pháp luật: vi phạm nghĩa là hợp
+    đồng vô hiệu, chứ không phải "rủi ro cao hơn". Chốt chặn có quyền phủ quyết
+    tuyệt đối — REJECTED bất kể điểm số — nên chỉ dành cho ràng buộc pháp lý,
+    không dành cho khẩu vị rủi ro. Khẩu vị rủi ro thuộc tầng điểm số.
     """
     legal = get_legal_limits()
     vi_pham: list[str] = []
@@ -468,17 +446,12 @@ def kiem_tra_chot_chan_cung(features: dict) -> list[str]:
     if ky_han is not None and ky_han > legal["max_term_months"]:
         vi_pham.append("TERM_EXCEEDS_LEGAL_LIMIT")
 
-    # 3. Áp lực trả nợ — vượt 50% thu nhập thì không còn đủ sống
-    ty_le_tra_no = _lay_ty_le_tra_no_thang(features)
-    if ty_le_tra_no is not None and ty_le_tra_no > TRAN_TY_LE_TRA_NO:
-        vi_pham.append("DEBT_SERVICE_RATIO_TOO_HIGH")
-
-    # 4. Nợ xấu CIC — Thông tư 11/2021/TT-NHNN
+    # 3. Nợ xấu CIC — Thông tư 11/2021/TT-NHNN
     nhom_no = _so_hoac_none(features.get("nhom_no_cao_nhat"))
     if nhom_no is not None and nhom_no >= NHOM_NO_XAU_TOI_THIEU:
         vi_pham.append("CIC_BAD_DEBT_GROUP")
 
-    # 4b. Trần tổng dư nợ 400 triệu trên TOÀN BỘ nền tảng thử nghiệm —
+    # 4. Trần tổng dư nợ 400 triệu trên TOÀN BỘ nền tảng thử nghiệm —
     # Quyết định 2866/QĐ-NHNN ngày 22/7/2025. Đây là trần thứ hai, độc lập với
     # trần 100 triệu/nền tảng đã áp ở `_build_bang_xep_hang()`: một người vay đủ
     # hạn mức ở bốn nền tảng khác nhau vẫn hợp lệ ở từng nơi nhưng vi phạm trần tổng.
@@ -498,16 +471,6 @@ def kiem_tra_chot_chan_cung(features: dict) -> list[str]:
         and du_no_hien_co + khoan_vay_moi > legal["max_total_debt_all_platforms"]
     ):
         vi_pham.append("TOTAL_DEBT_EXCEEDS_LEGAL_LIMIT")
-
-    # 5. Tuổi và thâm niên mâu thuẫn — hồ sơ khai sai
-    tuoi = _so_hoac_none(features.get("person_age"))
-    tham_nien = _tham_nien_nam(features)
-    if (
-        tuoi is not None
-        and tham_nien is not None
-        and tuoi - tham_nien < TUOI_TOI_THIEU_KHI_BAT_DAU_LAM
-    ):
-        vi_pham.append("AGE_AND_EXPERIENCE_INCONSISTENCY")
 
     return vi_pham
 

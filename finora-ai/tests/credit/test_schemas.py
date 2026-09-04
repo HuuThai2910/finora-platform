@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.schemas.credit import CreditScoreRequest, CreditScoreResponse
+from app.schemas.credit import CreditScoreRequest
 
 
 class TestCreditScoreRequestSoCccd:
@@ -66,20 +66,3 @@ class TestCreditScoreRequestFineract:
                 home_ownership="MORTGAGE",
                 term_months=25,
             )
-
-
-class TestCreditScoreResponseKhongCoCic:
-    """Response không chứa cic_score — CIC chỉ dùng nội bộ trong model."""
-
-    def test_response_khong_co_field_cic_score(self):
-        res = CreditScoreResponse(
-            pd_probability=0.12,
-            risk_score=65,
-            evaluation_score=72.5,
-            credit_grade="B",
-            suggested_limit=80_000_000,
-            decision="APPROVED",
-            rejection_reason=None,
-            model_version="13.0.0",
-        )
-        assert not hasattr(res, "cic_score")

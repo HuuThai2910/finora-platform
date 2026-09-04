@@ -154,7 +154,7 @@ Quy trình làm sạch và chuẩn bị dữ liệu trong RAM được cải ti�
 5. **Điền giá trị khuyết thiếu:** Điền trung vị (median) của tập huấn luyện cho các giá trị `NaN` ở các biến số học.
 6. **Mã hóa Target Encoding với Smoothing:** Target Encoding có làm mịn (smoothing factor $m=10.0$) cho **4** biến phân loại (`home_ownership`, `purpose_cat`, `verification_status`, `interest_method`). Bộ đặc trưng cuối cùng gồm **47 đặc trưng**.
 7. **Age Binning:** Phân nhóm độ tuổi thành các bins (`age_under_25`, v.v.).
-8. **Ràng buộc đơn điệu:** 7 đặc trưng bị ép quan hệ không giảm với PD (`installment`, `effective_apr`, `dti`, `so_lan_tre_han`, `tong_du_no`, `du_no_the_tin_dung`, `nhom_no_cao_nhat`) — xem `app/ml/credit/training.py`.
+8. **Ràng buộc đơn điệu:** 7 đặc trưng bị ép quan hệ không giảm với PD (`installment`, `ty_le_tra_no_thang`, `dti`, `so_lan_tre_han`, `tong_du_no`, `du_no_the_tin_dung`, `nhom_no_cao_nhat`) — xem `app/ml/credit/training.py`.
 9. **Đánh giá Out-of-time (OOT):** 3 fold trượt theo thời gian (2009-2012→2013, 2009-2013→2014, 2009-2014→2015), kèm 5 fold K-fold ngẫu nhiên để đối chiếu.
 10. **Huấn luyện mô hình cuối cùng:** Huấn luyện lại trên 100% dữ liệu đã lọc bằng XGBoost và lưu gói tự chứa (model + median + siêu tham số + công thức dẫn xuất + chỉ số từng fold).
 

@@ -71,8 +71,8 @@ def luu_mo_hinh(
     meta_path = _duong_dan_metadata(version, model_dir)
     # `encoding` bắt buộc: `ensure_ascii=False` ghi tiếng Việt thành byte UTF-8,
     # còn `write_text`/`read_text` không truyền encoding sẽ dùng locale máy. Trên
-    # Windows locale mặc định (cp1252) đọc lại là UnicodeDecodeError, và cả
-    # `/score` lẫn `/explain` chết theo vì không nạp được gói model.
+    # Windows locale mặc định (cp1252) đọc lại là UnicodeDecodeError và không nạp
+    # được gói model.
     meta_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
 
     return {
@@ -92,10 +92,3 @@ def tai_mo_hinh(version: str, model_dir: Path):
     metadata = json.loads(meta_path.read_text(encoding="utf-8"))
 
     return model, metadata
-
-
-# Đã bỏ `danh_sach_phien_ban()` và `phien_ban_moi_nhat()`: không nơi nào gọi, và
-# cách chọn "mới nhất" của chúng sai — `sorted()` so sánh tên file theo chuỗi nên
-# "model_v9.0.0.json" đứng sau "model_v16.0.0.json", tức trả về bản CŨ hơn. Phiên
-# bản đang dùng do `PHIEN_BAN_MAC_DINH` trong từng predictor quyết định; muốn tự
-# dò lại thì phải tách version thành tuple số để so sánh, đừng khôi phục bản cũ.

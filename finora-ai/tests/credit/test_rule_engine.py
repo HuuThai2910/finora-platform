@@ -302,10 +302,6 @@ class TestChotChanCung:
             {**HO_SO_TOT, "term_months": 36}
         )
 
-    def test_ty_le_tra_no_vuot_50_phan_tram(self):
-        ho_so = {**HO_SO_TOT, "annual_inc": 60_000_000, "installment": 4_000_000}
-        assert "DEBT_SERVICE_RATIO_TOO_HIGH" in kiem_tra_chot_chan_cung(ho_so)
-
     @pytest.mark.parametrize("nhom_no", [3, 4, 5])
     def test_no_xau_cic_bi_chan(self, nhom_no):
         """Nợ nhóm 3+ là nợ xấu theo Thông tư 11/2021/TT-NHNN."""
@@ -339,12 +335,6 @@ class TestChotChanCung:
         """CIC không tra được là sự cố hạ tầng, không phải bằng chứng vượt trần."""
         ho_so = {**HO_SO_TOT, "tong_du_no": None, "loan_amnt": 50_000_000}
         assert "TOTAL_DEBT_EXCEEDS_LEGAL_LIMIT" not in kiem_tra_chot_chan_cung(ho_so)
-
-    def test_tuoi_va_tham_nien_mau_thuan(self):
-        """25 tuổi mà 20 năm kinh nghiệm nghĩa là đi làm từ năm 5 tuổi."""
-        assert "AGE_AND_EXPERIENCE_INCONSISTENCY" in kiem_tra_chot_chan_cung(
-            {**HO_SO_TOT, "person_age": 25, "emp_length_years": 20}
-        )
 
     def test_tra_ve_TAT_CA_vi_pham_khong_dung_o_loi_dau(self):
         """Người vay phải thấy hết lỗi để sửa một lần, không quay lại nhiều vòng."""

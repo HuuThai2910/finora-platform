@@ -241,11 +241,10 @@ class TestTomTat:
         assert [y["ma_nhom"] for y in kq["bat_loi"]] == ["dti"]
 
     def test_ty_le_tra_no_thang_khong_bi_loai(self):
-        """`ty_le_tra_no_thang` thay `effective_apr` và KHÔNG mang leakage.
+        """`ty_le_tra_no_thang` KHÔNG mang leakage nên phải hiển thị được.
 
         Nó tính từ `installment` và `annual_inc` — dữ liệu hồ sơ thật — chứ không
-        suy ra từ `int_rate`, nên thuộc nhóm tiền trả hàng tháng và phải hiển thị
-        được cho người đọc, khác hẳn `effective_apr` trước đây.
+        suy ra từ `int_rate`, nên thuộc nhóm tiền trả hàng tháng.
         """
         assert NHOM_DAC_TRUNG["ty_le_tra_no_thang"][0] == "tra_hang_thang"
 
@@ -322,10 +321,8 @@ class TestEndpointExplain:
     def test_cham_lai_cung_ho_so_cho_ket_qua_giong_het(self, client):
         """Cùng hồ sơ phải ra cùng quyết định ở mọi lần gọi.
 
-        Trước đây test này so `/explain` với `/score`; `/score` đã bị bỏ nên nay
-        kiểm chứng tính tất định của chính `/explain`. Vẫn bắt được lỗi cũ: nếu
-        đường chấm điểm lẫn trạng thái giữa các request — cache config bị sửa tại
-        chỗ, hay bộ dự đoán giữ lại dữ liệu hồ sơ trước — hai lần gọi sẽ lệch.
+        Bắt lỗi lẫn trạng thái giữa các request: cache config bị sửa tại chỗ, hay
+        bộ dự đoán giữ lại dữ liệu hồ sơ trước, thì hai lần gọi sẽ lệch.
         """
         hs = _ho_so()
         lan_1 = client.post(DUONG_DAN, json=hs).json()
