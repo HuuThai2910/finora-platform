@@ -78,7 +78,7 @@ docker compose --env-file docker/.env -f docker/docker-compose.yml --profile loa
 
 ## 4. Các scope khác
 
-### Chạy AI v10 cho LN-007
+### Chạy AI v17 cho LN-007
 
 ```powershell
 docker compose --env-file docker/.env -f docker/docker-compose.yml --profile ai up -d --build ai
@@ -87,8 +87,9 @@ docker compose --env-file docker/.env -f docker/docker-compose.yml --profile ai 
 
 Health: `http://localhost:8000/health`; OpenAPI: `http://localhost:8000/docs`.
 
-Lần đầu Docker build image `finora/ai:10.0.0-local`. Container chạy non-root, chỉ copy source
-runtime và model v10, không copy CSV huấn luyện. Do có `restart: unless-stopped`, sau lần tạo đầu
+Lần đầu Docker build image `finora/ai:17.0.0-local`. Container chạy non-root, chỉ copy source,
+gói credit model v17, fraud model hiện hành và cấu hình policy runtime; không copy CSV huấn luyện.
+Do có `restart: unless-stopped`, sau lần tạo đầu
 chỉ cần mở Docker Desktop thì container tự chạy lại, trừ khi người dùng đã chủ động stop nó.
 AI không cần username/password hay database riêng.
 
@@ -377,7 +378,7 @@ Không dùng role `postgres` cho ứng dụng hoặc thao tác hằng ngày.
 | `docker/postgresql/init-service-user.sh` | Tạo runtime role PostgreSQL không có superuser |
 | `docker/postgresql/fineract/init-databases.sh` | Tạo hai database và runtime role riêng của Fineract |
 | `docker/smoke-fineract.ps1` | Kiểm tra health và tenant authentication, không bật Keycloak/Kafka |
-| `docker/Dockerfile.ai` | Đóng gói FINORA AI v10, không kèm CSV huấn luyện |
+| `docker/Dockerfile.ai` | Đóng gói FINORA AI v17 cùng model runtime/config, không kèm CSV huấn luyện |
 | `docker/smoke-infra.ps1` | Start/healthcheck/stop theo scope |
 | `finora-*/src/main/resources/application.yml` | Datasource mặc định local và environment override |
 | `finora-loan/postman/README.md` | Chạy và test Loan bằng Postman |

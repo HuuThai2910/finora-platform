@@ -15,7 +15,6 @@ from app.services.credit.truong_du_lieu import (
     TruongDuLieu,
     _lay_ty_le_tra_no_thang,
     _so_hoac_none,
-    _tinh_tien_tra_thang,
     mo_ta_danh_muc,
 )
 
@@ -169,45 +168,18 @@ class TestHamTienIch:
     def test_so_hoac_none_giu_gia_tri_hop_le(self, dau_vao, mong_doi):
         assert _so_hoac_none(dau_vao) == mong_doi
 
-    def test_tinh_tien_tra_thang_lai_suat_khong(self):
-        """Lãi 0% thì chia đều gốc, không được chia cho 0."""
-        tien = _tinh_tien_tra_thang(
-            {"loan_amnt": 12_000_000, "term_months": 12, "int_rate": 0}
-        )
-        assert tien == pytest.approx(1_000_000)
-
-    def test_tien_tra_thang_tang_dan_theo_lai_suat(self):
-        """Lãi suất cao hơn thì trả nhiều hơn — ở MỌI khoảng, kể cả quanh mốc 1,0."""
-        chung = {"loan_amnt": 12_000_000, "term_months": 12}
-        tien = [
-            _tinh_tien_tra_thang({**chung, "int_rate": ls})
-            for ls in (0.5, 1.0, 2.0, 5.0, 12.0, 18.0)
-        ]
-        assert tien == sorted(tien), f"tiền trả không tăng đơn điệu: {tien}"
-
-    def test_int_rate_luon_doc_la_phan_tram_nam(self):
-        """`int_rate` là %/năm đúng như schema khai, không đoán theo độ lớn."""
-        chung = {"loan_amnt": 12_000_000, "term_months": 12}
-        assert _tinh_tien_tra_thang({**chung, "int_rate": 12.0}) == pytest.approx(
-            1_066_185, rel=1e-4
-        )
-        assert _tinh_tien_tra_thang({**chung, "int_rate": 0.12}) == pytest.approx(
-            1_000_650, rel=1e-4
-        )
-
     def test_thieu_du_lieu_thi_khong_tinh_duoc(self):
-        assert _tinh_tien_tra_thang({"loan_amnt": 12_000_000}) is None
         assert _lay_ty_le_tra_no_thang({"installment": 1_000_000}) is None
 
-    def test_tu_tinh_khi_thieu_installment(self):
-        """Không có installment thì tính từ lãi suất và kỳ hạn."""
+    def test_khong_tu_tinh_khi_thieu_installment(self):
+        """AI không được thay Fineract suy ra khoản trả từ baseRate và kỳ hạn."""
         ho_so = {
             "annual_inc": 120_000_000,
             "loan_amnt": 12_000_000,
             "term_months": 12,
             "int_rate": 12.0,
         }
-        assert _lay_ty_le_tra_no_thang(ho_so) > 0
+        assert _lay_ty_le_tra_no_thang(ho_so) is None
 
     def test_thu_nhap_bang_khong_coi_la_thieu(self):
         """Chia cho 0 phải trả None, không được crash hay ra vô cực."""

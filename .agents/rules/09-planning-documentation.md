@@ -56,10 +56,23 @@ mở, lỗi làm chặn workflow nào và cách phục hồi.
 - Với integration/worker MUST mô tả trigger, command/event, trạng thái bền vững, retryable/non-retryable,
   timeout không chắc chắn, reconciliation, giới hạn attempt, restart và manual repair nếu có.
 
+## Pháp lý và chính sách nghiệp vụ
+
+- Chức năng liên quan lãi/phí, hợp đồng, dữ liệu cá nhân, quyết định tự động, thanh toán, KYC hoặc
+  giới hạn giao dịch MUST dẫn chiếu mã kiểm soát trong `../../docs/LEGAL-COMPLIANCE.md`.
+- Dẫn chiếu MUST có văn bản chính thức, điều/khoản, ngày kiểm tra và trạng thái
+  `CURRENT`, `NEEDS_LEGAL_REVIEW` hoặc `NEEDS_PRIMARY_SOURCE`; không dùng blog/báo làm nguồn kết luận cuối.
+- Plan MUST tách ba loại: yêu cầu pháp luật, policy kinh doanh cấu hình được và giới hạn kỹ thuật demo.
+  Không mô tả min rate, grade A–E hoặc mức điều chỉnh giá là “theo luật” nếu văn bản không quy định.
+- Mỗi kết luận pháp lý MUST chỉ ra tác động tới UI disclosure, API validation, domain invariant,
+  database constraint, audit/evidence và test. Link hỏng hoặc văn bản hết hiệu lực chặn production review.
+- Không sao chép toàn văn pháp lý vào từng service plan. Sổ trung tâm là nguồn duy nhất; plan chỉ dẫn mã
+  và giải thích tác động riêng của task để tránh nhiều phiên bản mâu thuẫn.
+
 ## Cổng duyệt
 
 Plan chưa đủ `APPROVED` nếu người đọc không thể trả lời: ai làm gì, dữ liệu nào đổi, quan hệ nào tồn tại,
-query/index nào cần, transaction/concurrency được bảo vệ ra sao và failure giữ trạng thái gì.
+query/index nào cần, transaction/concurrency được bảo vệ ra sao, failure giữ trạng thái gì và legal gate nào áp dụng.
 
 Plan chưa đủ `ACCEPTED` nếu thiếu bằng chứng test, bản đồ hàm thực tế, sai khác implementation, comment
 cho logic khó và cập nhật Service Design/roadmap/contract liên quan.

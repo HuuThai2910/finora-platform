@@ -35,8 +35,12 @@ RUN python -m pip install --no-index --find-links=/wheels --requirement requirem
 
 COPY finora-ai/main.py ./main.py
 COPY finora-ai/app ./app
-COPY finora-ai/models/model_v10.0.0.pkl ./models/model_v10.0.0.pkl
-COPY finora-ai/models/model_v10.0.0.json ./models/model_v10.0.0.json
+# Image chỉ mang gói model runtime hiện hành và cấu hình policy; CSV huấn luyện không đi vào image.
+COPY finora-ai/models/credit/model_v17.0.0.pkl ./models/credit/model_v17.0.0.pkl
+COPY finora-ai/models/credit/model_v17.0.0.json ./models/credit/model_v17.0.0.json
+COPY finora-ai/models/fraud/model_v1.1.0.pkl ./models/fraud/model_v1.1.0.pkl
+COPY finora-ai/models/fraud/model_v1.1.0.json ./models/fraud/model_v1.1.0.json
+COPY finora-ai/config/product_config.json ./config/product_config.json
 
 RUN useradd --create-home --uid 10001 finora \
     && chown -R finora:finora /app

@@ -121,8 +121,13 @@ class FinoraLoanApplicationIT {
         when(aiCreditScoringGateway.score(any(), anyString()))
                 .thenReturn(new AiCreditScoreResponse(
                         new BigDecimal("0.31000000"), 72, new BigDecimal("70.2000"), "B",
-                        new BigDecimal("50000000.00"), new BigDecimal("0.15"),
-                        AiRecommendation.PENDING_REVIEW, null, "10.0.0"));
+                        AiRecommendation.PENDING_REVIEW,
+                        objectMapper.createObjectNode().put("thong_diep", "Cần thẩm định"),
+                        objectMapper.createObjectNode().put("gia_tri_co_so", 0),
+                        objectMapper.createArrayNode(),
+                        List.of(),
+                        "17.0.0",
+                        "CREDIT_POLICY_V1"));
     }
 
     @Test
@@ -280,7 +285,7 @@ class FinoraLoanApplicationIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.data[0].status").value("SUCCEEDED"))
-                .andExpect(jsonPath("$.data[0].actualModelVersion").value("10.0.0"))
+                .andExpect(jsonPath("$.data[0].actualModelVersion").value("17.0.0"))
                 .andExpect(jsonPath("$.data[0].creditGrade").value("B"));
 
         String storedResponse = jdbcTemplate.queryForObject(
@@ -404,7 +409,7 @@ class FinoraLoanApplicationIT {
 
     @Test
     @EnabledIfSystemProperty(named = "finora.live.ai", matches = "true")
-    void dockerAiV10ScoresThroughLoanAndPersistsAssessment() throws Exception {
+    void dockerAiV17ScoresThroughLoanAndPersistsAssessment() throws Exception {
         // Dùng chính HTTP client production để ca live kiểm tra luôn timeout, contract và model version.
         AiCreditScoringGateway liveAi = new AiCreditScoringHttpClient(
                 aiCreditRestClient, aiCreditProperties, circuitBreakerFactory);
@@ -433,7 +438,7 @@ class FinoraLoanApplicationIT {
                         submitted.path("applicationNumber").asText()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].status").value("SUCCEEDED"))
-                .andExpect(jsonPath("$.data[0].actualModelVersion").value("10.0.0"));
+                .andExpect(jsonPath("$.data[0].actualModelVersion").value("17.0.0"));
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM credit_scoring_assessments WHERE status = 'SUCCEEDED'", Long.class))
                 .isEqualTo(1L);
@@ -463,9 +468,10 @@ class FinoraLoanApplicationIT {
         String createdBody = mockMvc.perform(post("/api/v1/admin/loan-products")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"code":"%s","name":"Sản phẩm tiêu chuẩn","description":"Lãi suất cố định",
+                                {"code":"%s","name":"Sản phẩm tiêu chuẩn","description":"Lãi suất theo rủi ro",
                                  "minAmount":10000000,"maxAmount":100000000,"minTermMonths":6,"maxTermMonths":24,
-                                 "annualInterestRate":12.5,"repaymentMethod":"ANNUITY"}
+                                 "minAnnualInterestRate":10.0,"annualInterestRate":12.5,
+                                 "maxAnnualInterestRate":15.0,"repaymentMethod":"ANNUITY"}
                                 """.formatted(code)))
                   .andExpect(status().isCreated())
                   .andReturn().getResponse().getContentAsString();

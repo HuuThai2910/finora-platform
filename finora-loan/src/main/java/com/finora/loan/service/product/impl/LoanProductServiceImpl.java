@@ -15,6 +15,7 @@ import com.finora.loan.exception.LoanBusinessException;
 import com.finora.loan.mapper.product.LoanProductMapper;
 import com.finora.loan.repository.product.LoanProductRepository;
 import com.finora.loan.service.product.LoanProductService;
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.function.Consumer;
@@ -54,7 +55,9 @@ public class LoanProductServiceImpl implements LoanProductService {
                 request.maxAmount(),
                 request.minTermMonths(),
                 request.maxTermMonths(),
+                rateOrBase(request.minAnnualInterestRate(), request.annualInterestRate()),
                 request.annualInterestRate(),
+                rateOrBase(request.maxAnnualInterestRate(), request.annualInterestRate()),
                 request.repaymentMethod(),
                 currentUser.adminUserId(),
                 Instant.now(clock)
@@ -81,7 +84,9 @@ public class LoanProductServiceImpl implements LoanProductService {
                 request.maxAmount(),
                 request.minTermMonths(),
                 request.maxTermMonths(),
+                rateOrBase(request.minAnnualInterestRate(), request.annualInterestRate()),
                 request.annualInterestRate(),
+                rateOrBase(request.maxAnnualInterestRate(), request.annualInterestRate()),
                 request.repaymentMethod(),
                 request.version(),
                 currentUser.adminUserId(),
@@ -182,5 +187,10 @@ public class LoanProductServiceImpl implements LoanProductService {
 
     private Instant now() {
         return Instant.now(clock);
+    }
+
+    /** Request cũ chỉ có annualInterestRate tiếp tục tạo Product fixed-rate (min = base = max). */
+    private BigDecimal rateOrBase(BigDecimal configuredRate, BigDecimal baseRate) {
+        return configuredRate == null ? baseRate : configuredRate;
     }
 }

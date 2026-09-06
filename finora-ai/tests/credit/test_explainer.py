@@ -311,6 +311,7 @@ class TestEndpointExplain:
         )
         assert body["rule_trace"]
         assert body["model_version"] == PHIEN_BAN
+        assert body["decision_policy_version"] == "CREDIT_POLICY_V1"
 
     def test_tra_ve_ban_gop_cho_tham_dinh_vien(self, client):
         body = client.post(DUONG_DAN, json=_ho_so()).json()

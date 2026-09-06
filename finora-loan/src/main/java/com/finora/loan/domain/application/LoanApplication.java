@@ -3,7 +3,9 @@ package com.finora.loan.domain.application;
 import com.finora.loan.domain.core.FineractProductMapping;
 import com.finora.loan.domain.product.LoanProduct;
 import com.finora.loan.domain.product.RepaymentMethod;
+import com.finora.loan.domain.scoring.AiRecommendation;
 import com.finora.loan.exception.LoanDomainException;
+import com.finora.loan.domain.pricing.RiskBasedPricingResult;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
@@ -93,6 +95,24 @@ public class LoanApplication {
     @Column(name = "annual_interest_rate_snapshot", nullable = false, precision = 7, scale = 4, updatable = false)
     private BigDecimal annualInterestRateSnapshot;
 
+    @Column(name = "min_annual_interest_rate_snapshot", nullable = false, precision = 7, scale = 4, updatable = false)
+    private BigDecimal minAnnualInterestRateSnapshot;
+
+    @Column(name = "max_annual_interest_rate_snapshot", nullable = false, precision = 7, scale = 4, updatable = false)
+    private BigDecimal maxAnnualInterestRateSnapshot;
+
+    @Column(name = "final_annual_interest_rate", precision = 7, scale = 4)
+    private BigDecimal finalAnnualInterestRate;
+
+    @Column(name = "pricing_credit_grade", length = 8)
+    private String pricingCreditGrade;
+
+    @Column(name = "pricing_adjustment_percentage_points", precision = 7, scale = 4)
+    private BigDecimal pricingAdjustmentPercentagePoints;
+
+    @Column(name = "pricing_policy_version", length = 50)
+    private String pricingPolicyVersion;
+
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(name = "repayment_method_snapshot", nullable = false, length = 30, updatable = false)
@@ -112,6 +132,9 @@ public class LoanApplication {
 
     @Column(name = "submission_calculation_snapshot_id")
     private Long submissionCalculationSnapshotId;
+
+    @Column(name = "final_calculation_snapshot_id")
+    private Long finalCalculationSnapshotId;
 
     @Column(name = "latest_credit_assessment_id")
     private Long latestCreditAssessmentId;
@@ -159,6 +182,17 @@ public class LoanApplication {
 
     @Column(name = "admin_decided_at")
     private Instant adminDecidedAt;
+
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "decision_source", length = 20)
+    private LoanDecisionSource decisionSource;
+
+    @Column(name = "automated_decision_policy_version", length = 50)
+    private String automatedDecisionPolicyVersion;
+
+    @Column(name = "automated_decided_at")
+    private Instant automatedDecidedAt;
 
     @Version
     @Column(nullable = false)
@@ -217,7 +251,9 @@ public class LoanApplication {
         application.productMaxAmountSnapshot = product.getMaxAmount();
         application.productMinTermMonthsSnapshot = product.getMinTermMonths();
         application.productMaxTermMonthsSnapshot = product.getMaxTermMonths();
+        application.minAnnualInterestRateSnapshot = product.getMinAnnualInterestRate();
         application.annualInterestRateSnapshot = product.getAnnualInterestRate();
+        application.maxAnnualInterestRateSnapshot = product.getMaxAnnualInterestRate();
         application.repaymentMethodSnapshot = product.getRepaymentMethod();
         application.fineractProductIdSnapshot = mapping.getFineractProductId();
         application.coreMappingIdSnapshot = mapping.getId();
@@ -264,10 +300,60 @@ public class LoanApplication {
         transitionTo(LoanApplicationStatus.SCORING_RETRY_PENDING, actorId, now);
     }
 
-    /** MVP luôn đưa kết quả AI cho admin review; AI không có quyền tự phê duyệt hồ sơ. */
+    /** Chuyển riêng nhánh AI yêu cầu thẩm định sang hàng chờ admin; nhánh tự duyệt/từ chối dùng completeScoring. */
     public void markPendingReview(String actorId, Instant now) {
         if (status != LoanApplicationStatus.SCORING && status != LoanApplicationStatus.SCORING_RETRY_PENDING) {
             throw invalidStatus(LoanApplicationStatus.PENDING_REVIEW);
+        }
+        transitionTo(LoanApplicationStatus.PENDING_REVIEW, actorId, now);
+    }
+
+    /**
+     * Gắn lãi suất/lịch cuối vào đúng assessment rồi mới chuyển trạng thái theo policy AI.
+     * APPROVED ở đây chỉ tạo quyền mời người vay xem và ký; chưa đồng nghĩa đã giải ngân.
+     */
+    public void completeScoring(
+            Long assessmentId,
+            AiRecommendation recommendation,
+            RiskBasedPricingResult pricing,
+            Long finalScheduleId,
+            String decisionPolicyVersion,
+            String actorId,
+            Instant now
+    ) {
+        if (status != LoanApplicationStatus.SCORING && status != LoanApplicationStatus.SCORING_RETRY_PENDING) {
+            throw invalidStatus(LoanApplicationStatus.PENDING_REVIEW);
+        }
+        if (assessmentId == null || !assessmentId.equals(latestCreditAssessmentId)) {
+            throw LoanDomainException.conflict(
+                    "CREDIT_ASSESSMENT_NOT_LATEST",
+                    "Chỉ assessment mới nhất mới được hoàn tất định giá"
+            );
+        }
+        if (recommendation == AiRecommendation.REJECTED) {
+            decisionSource = LoanDecisionSource.AI_POLICY;
+            automatedDecisionPolicyVersion = requireText(decisionPolicyVersion, "decisionPolicyVersion");
+            automatedDecidedAt = now;
+            transitionTo(LoanApplicationStatus.REJECTED, actorId, now);
+            return;
+        }
+        if (pricing == null) {
+            throw new IllegalArgumentException("pricing không được để trống khi hồ sơ không bị từ chối");
+        }
+        pricingCreditGrade = requireText(pricing.creditGrade(), "creditGrade");
+        pricingAdjustmentPercentagePoints = pricing.appliedAdjustmentPercentagePoints();
+        finalAnnualInterestRate = pricing.finalAnnualInterestRate();
+        pricingPolicyVersion = requireText(pricing.pricingPolicyVersion(), "pricingPolicyVersion");
+        if (finalScheduleId == null) {
+            throw new IllegalArgumentException("finalScheduleId không được để trống khi hồ sơ không bị từ chối");
+        }
+        finalCalculationSnapshotId = finalScheduleId;
+        if (recommendation == AiRecommendation.APPROVED) {
+            decisionSource = LoanDecisionSource.AI_POLICY;
+            automatedDecisionPolicyVersion = requireText(decisionPolicyVersion, "decisionPolicyVersion");
+            automatedDecidedAt = now;
+            transitionTo(LoanApplicationStatus.APPROVED, actorId, now);
+            return;
         }
         transitionTo(LoanApplicationStatus.PENDING_REVIEW, actorId, now);
     }
@@ -325,6 +411,7 @@ public class LoanApplication {
         }
         recordAdminDecision(reasonCode, reasonDetail, policyVersion, assessmentId,
                 decisionIdempotencyKey, decisionRequestHash, actorId, now);
+        decisionSource = LoanDecisionSource.ADMIN;
         transitionTo(LoanApplicationStatus.APPROVED, actorId, now);
     }
 
@@ -350,6 +437,7 @@ public class LoanApplication {
         }
         recordAdminDecision(reasonCode, reasonDetail, policyVersion, assessmentId,
                 decisionIdempotencyKey, decisionRequestHash, actorId, now);
+        decisionSource = LoanDecisionSource.ADMIN;
         transitionTo(LoanApplicationStatus.REJECTED, actorId, now);
     }
 

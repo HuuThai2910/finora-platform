@@ -53,7 +53,8 @@ class ContractDocumentRendererTest {
         assertThat(first)
                 .contains("HỢP ĐỒNG VAY FINORA")
                 .contains("Số tiền vay: 50.000.000 đồng")
-                .contains("Lãi suất cố định: 15%/năm")
+                .contains("Lãi suất cơ sở đã công bố: 15%/năm")
+                .contains("Lãi suất áp dụng cuối: 15%/năm")
                 .contains("Kỳ 1 — hạn 2026-09-20: gốc 4.000.000 đồng; lãi 500.000 đồng")
                 .contains("Phiên bản tài liệu: CLICK_WRAP_TEXT_V2")
                 .endsWith("\n");

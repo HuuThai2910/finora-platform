@@ -5,6 +5,7 @@ import com.finora.loan.config.MockCurrentUserProvider;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.application.LoanApplicationStatus;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
+import com.finora.loan.domain.core.ScheduleCalculationPurpose;
 import com.finora.loan.domain.scoring.BorrowerCreditProfile;
 import com.finora.loan.domain.scoring.BorrowerEligibilityCheck;
 import com.finora.loan.domain.scoring.CreditScoringAssessment;
@@ -92,9 +93,13 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
     @Transactional(readOnly = true)
     public AdminLoanReviewDetailResponse reviewDetail(String applicationNumber) {
         LoanApplication application = application(applicationNumber);
-        ScheduleCalculationSnapshot schedule = scheduleRepository.findByApplicationId(application.getId())
+        ScheduleCalculationSnapshot initialSchedule = scheduleRepository.findByApplicationIdAndPurpose(
+                        application.getId(), ScheduleCalculationPurpose.SUBMISSION_SCORING)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Schedule Calculation Snapshot", "applicationId", application.getId()));
+        ScheduleCalculationSnapshot finalSchedule = scheduleRepository.findByApplicationIdAndPurpose(
+                        application.getId(), ScheduleCalculationPurpose.CONTRACT)
+                .orElse(null);
         BorrowerEligibilityCheck eligibility = eligibilityRepository
                 .findFirstByApplicationIdOrderByCreatedAtDescIdDesc(application.getId())
                 .orElse(null);
@@ -111,7 +116,8 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
                                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))))
                 .map(applicationMapper::toHistoryResponse)
                 .getContent();
-        return mapper.toDetail(application, schedule, eligibility, creditProfile, assessment, history);
+        return mapper.toDetail(
+                application, initialSchedule, finalSchedule, eligibility, creditProfile, assessment, history);
     }
 
     @Override

@@ -57,8 +57,17 @@ public class LoanProduct {
     @Column(name = "max_term_months", nullable = false)
     private Integer maxTermMonths;
 
+    /** Lãi suất thấp nhất Product cho phép sau khi điều chỉnh theo rủi ro. */
+    @Column(name = "min_annual_interest_rate", nullable = false, precision = 7, scale = 4)
+    private BigDecimal minAnnualInterestRate;
+
+    /** Lãi suất cơ sở được công bố và dùng để tạo lịch trả nợ ban đầu. */
     @Column(name = "annual_interest_rate", nullable = false, precision = 7, scale = 4)
     private BigDecimal annualInterestRate;
+
+    /** Lãi suất cao nhất Product cho phép; FINORA còn chặn thêm trần tuân thủ toàn hệ thống. */
+    @Column(name = "max_annual_interest_rate", nullable = false, precision = 7, scale = 4)
+    private BigDecimal maxAnnualInterestRate;
 
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.VARCHAR)
@@ -108,7 +117,9 @@ public class LoanProduct {
             BigDecimal maxAmount,
             Integer minTermMonths,
             Integer maxTermMonths,
+            BigDecimal minAnnualInterestRate,
             BigDecimal annualInterestRate,
+            BigDecimal maxAnnualInterestRate,
             RepaymentMethod repaymentMethod,
             String actorId,
             Instant now
@@ -122,7 +133,9 @@ public class LoanProduct {
                 maxAmount,
                 minTermMonths,
                 maxTermMonths,
+                minAnnualInterestRate,
                 annualInterestRate,
+                maxAnnualInterestRate,
                 repaymentMethod
         );
         product.status = LoanProductStatus.DRAFT;
@@ -145,7 +158,9 @@ public class LoanProduct {
             BigDecimal maxAmount,
             Integer minTermMonths,
             Integer maxTermMonths,
+            BigDecimal minAnnualInterestRate,
             BigDecimal annualInterestRate,
+            BigDecimal maxAnnualInterestRate,
             RepaymentMethod repaymentMethod,
             long expectedVersion,
             String actorId,
@@ -171,7 +186,9 @@ public class LoanProduct {
                 maxAmount,
                 minTermMonths,
                 maxTermMonths,
+                minAnnualInterestRate,
                 annualInterestRate,
+                maxAnnualInterestRate,
                 repaymentMethod
         );
         coreSyncStatus = CoreSyncStatus.NOT_SYNCED;
@@ -304,7 +321,9 @@ public class LoanProduct {
             BigDecimal maxAmount,
             Integer minTermMonths,
             Integer maxTermMonths,
+            BigDecimal minAnnualInterestRate,
             BigDecimal annualInterestRate,
+            BigDecimal maxAnnualInterestRate,
             RepaymentMethod repaymentMethod
     ) {
         this.name = requireText(name, "LOAN_PRODUCT_NAME_REQUIRED", "Tên sản phẩm không được để trống");
@@ -315,17 +334,30 @@ public class LoanProduct {
         if (minAmount == null || maxAmount == null || minAmount.signum() <= 0 || maxAmount.compareTo(minAmount) < 0) {
             throw LoanDomainException.invalidInput("INVALID_LOAN_PRODUCT_AMOUNT_RANGE", "Khoảng số tiền sản phẩm không hợp lệ");
         }
-        if (minTermMonths == null || maxTermMonths == null || minTermMonths <= 0 || maxTermMonths < minTermMonths) {
-            throw LoanDomainException.invalidInput("INVALID_LOAN_PRODUCT_TERM_RANGE", "Khoảng kỳ hạn sản phẩm không hợp lệ");
+        if (minTermMonths == null || maxTermMonths == null || minTermMonths <= 0
+                || maxTermMonths < minTermMonths || maxTermMonths > 24) {
+            throw LoanDomainException.invalidInput(
+                    "INVALID_LOAN_PRODUCT_TERM_RANGE",
+                    "Khoảng kỳ hạn phải lớn hơn 0, min không vượt max và max không vượt 24 tháng"
+            );
         }
-        if (annualInterestRate == null || annualInterestRate.signum() <= 0) {
-            throw LoanDomainException.invalidInput("INVALID_LOAN_PRODUCT_RATE", "Lãi suất năm phải lớn hơn 0");
+        if (minAnnualInterestRate == null || annualInterestRate == null || maxAnnualInterestRate == null
+                || minAnnualInterestRate.signum() <= 0
+                || minAnnualInterestRate.compareTo(annualInterestRate) > 0
+                || annualInterestRate.compareTo(maxAnnualInterestRate) > 0
+                || maxAnnualInterestRate.compareTo(new BigDecimal("20.0000")) > 0) {
+            throw LoanDomainException.invalidInput(
+                    "INVALID_LOAN_PRODUCT_RATE_RANGE",
+                    "Lãi suất phải thỏa 0 < minRate <= baseRate <= maxRate <= 20%/năm"
+            );
         }
         this.minAmount = normalizeMoney(minAmount);
         this.maxAmount = normalizeMoney(maxAmount);
         this.minTermMonths = minTermMonths;
         this.maxTermMonths = maxTermMonths;
-        this.annualInterestRate = annualInterestRate.setScale(4, RoundingMode.HALF_UP);
+        this.minAnnualInterestRate = normalizeRate(minAnnualInterestRate);
+        this.annualInterestRate = normalizeRate(annualInterestRate);
+        this.maxAnnualInterestRate = normalizeRate(maxAnnualInterestRate);
         this.repaymentMethod = Objects.requireNonNull(repaymentMethod, "repaymentMethod");
     }
 
@@ -355,6 +387,10 @@ public class LoanProduct {
 
     private static BigDecimal normalizeMoney(BigDecimal value) {
         return value.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private static BigDecimal normalizeRate(BigDecimal value) {
+        return value.setScale(4, RoundingMode.HALF_UP);
     }
 
     private static String requireText(String value, String code, String message) {

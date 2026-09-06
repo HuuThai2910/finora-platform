@@ -198,7 +198,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.ai
-    image: finora/ai:10.0.0-local
+    image: finora/ai:17.0.0-local
     restart: unless-stopped
     container_name: finora-ai
     ports:

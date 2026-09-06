@@ -16,6 +16,7 @@ class TestChuanBiDacTrungV14:
             "loan_amnt": 50_000_000,
             "purpose": "debt_consolidation",
             "home_ownership": "MORTGAGE",
+            "installment": 4_500_000,
             "person_age": 30,
             "emp_length": "5 years",
             "dti": 15.5,
@@ -114,6 +115,7 @@ class TestDuDoanV14:
             "loan_amnt": 50_000_000,
             "purpose": "debt_consolidation",
             "home_ownership": "MORTGAGE",
+            "installment": 4_500_000,
         }
         ket_qua = bo.du_doan(ho_so)
         assert "pd_probability" in ket_qua

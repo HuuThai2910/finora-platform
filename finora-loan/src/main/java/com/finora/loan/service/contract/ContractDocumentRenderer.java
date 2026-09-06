@@ -39,7 +39,11 @@ public class ContractDocumentRenderer {
         line(document, "2. ĐIỀU KHOẢN KHOẢN VAY");
         line(document, "Số tiền vay: " + moneyText(application.getRequestedAmount()));
         line(document, "Thời hạn vay: " + application.getRequestedTermMonths() + " tháng");
-        line(document, "Lãi suất cố định: " + percentage(application.getAnnualInterestRateSnapshot()) + "%/năm");
+        line(document, "Lãi suất cơ sở đã công bố: " + percentage(application.getAnnualInterestRateSnapshot()) + "%/năm");
+        BigDecimal finalRate = application.getFinalAnnualInterestRate() == null
+                ? application.getAnnualInterestRateSnapshot()
+                : application.getFinalAnnualInterestRate();
+        line(document, "Lãi suất áp dụng cuối: " + percentage(finalRate) + "%/năm");
         line(document, "Phương thức trả nợ: " + repaymentMethodLabel(application));
         line(document, "Ngày giải ngân dự kiến: " + schedule.getExpectedDisbursementDate());
         line(document, "Tổng tiền lãi dự kiến: " + moneyText(schedule.getTotalInterest()));

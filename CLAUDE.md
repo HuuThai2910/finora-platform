@@ -25,5 +25,7 @@ Luật tối thiểu luôn áp dụng:
 - Không báo hoàn thành khi chưa chạy kiểm tra phù hợp; nếu không chạy được phải nói rõ.
 - Khi đổi luồng liên service, đồng bộ `08-cross-service-flows.md`, roadmap và plan service; vùng dùng chung phải được owner còn lại review trước merge.
 - Khi tạo/sửa/review plan, đọc `09-planning-documentation.md` và reference planning của skill; thuật ngữ phải đi cùng giải thích dễ hiểu, ERD/cardinality và bằng chứng code thực tế.
+- Khi chức năng chịu ràng buộc pháp luật Việt Nam, đọc `docs/LEGAL-COMPLIANCE.md`, dẫn đúng control ID/điều khoản/link chính thức và tách rõ luật với policy nghiệp vụ demo.
+- Khi chức năng chịu ràng buộc pháp luật Việt Nam, đọc `docs/LEGAL-COMPLIANCE.md`, dẫn đúng control ID/điều khoản/link chính thức và tách rõ luật với policy nghiệp vụ demo.
 
 Khi thay đổi hệ thống rule, cập nhật nguồn chuẩn trong `.agents/rules/`, entrypoint liên quan và skill liên quan trong cùng change; chạy `.agents/scripts/validate-rules.ps1` nếu script này tồn tại.

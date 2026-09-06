@@ -342,8 +342,8 @@ tệ nhất.
 | `emp_length` | chuỗi | `"10+ years"`, `"5 years"`, `"< 1 year"` |
 | `verification_status` | enum | `Verified` / `Source Verified` / `Not Verified` |
 | `dti` | `>= 0` | tỷ lệ nợ trên thu nhập (%) |
-| `installment` | `>= 0` | tiền trả hàng tháng — **client tính và gửi sang**; bỏ trống thì điền median |
-| `int_rate` | `0–100` | lãi suất danh nghĩa (%/năm) từ Fineract |
+| `installment` | `> 0`, bắt buộc | tiền trả hàng tháng — Loan lấy từ lịch Fineract và gửi sang; AI không tự tính lại |
+| `int_rate` | `0–100` | `baseRate` (%/năm) của điều kiện vay ban đầu do Loan gửi |
 | `term_months` | `1–24` | trần 24 tháng theo NĐ 94/2025 |
 | `interest_method` | enum | mặc định `DECLINING_BALANCE` |
 | `so_cccd` | regex `^\d{12}$` | khóa tra CIC; **không có thì bỏ qua CIC** |
@@ -447,9 +447,8 @@ rác và sẽ kéo giãn thang đo của mọi hồ sơ bình thường.
 Nó dùng `installment` như **dữ liệu thật** thay vì suy ngược ra lãi suất, nên không
 thừa hưởng target leakage của `int_rate`.
 
-> **Đặc trưng dẫn xuất PHẢI tính SAU khi điền median.** `installment` và `term_months`
-> đều nằm trong `COLUMNS_WITH_MISSING`. Tính trước thì giá trị thiếu lan lên cột dẫn
-> xuất mà không bị chặn.
+> `installment` bắt buộc có ở API. Pipeline huấn luyện vẫn xử lý median cho dữ liệu lịch sử
+> bị thiếu, sau đó mới tính đặc trưng dẫn xuất để không lan `NaN` sang các cột mới.
 
 ## 11. Sáu bước trong `du_doan()`
 
@@ -552,6 +551,23 @@ buộc pháp lý; khẩu vị rủi ro thuộc tầng điểm số.
 `evaluation_score` với `auto_approve` / `auto_reject`; **vi phạm chốt chặn thì luôn
 `REJECTED`** bất kể điểm.
 
+Hạng và ngưỡng quyết định cố ý độc lập vì phục vụ hai nghiệp vụ khác nhau:
+
+```text
+evaluation_score ──┬──> credit_grade ──> Loan điều chỉnh lãi suất
+                   └──> thresholds   ──> tự duyệt / admin thẩm định / từ chối
+```
+
+Ví dụ hạng B từ 69 đến dưới 84 nhưng `auto_approve = 75`: B từ 75 trở lên được tự
+duyệt, còn B từ 69 đến dưới 75 chờ admin; cả hai vẫn dùng cùng chính sách định giá
+của hạng B tại Loan. API cấu hình cho phép cách chia này nhưng chặn ngưỡng tự duyệt
+rơi xuống hạng thứ ba trở đi, đồng thời bắt buộc toàn bộ hạng thấp nhất nằm dưới
+ngưỡng từ chối tự động.
+
+Response trả đồng thời `model_version` và `decision_policy_version`. Trường thứ hai
+thay đổi mỗi khi admin cập nhật bảng hạng, ngưỡng, trọng số hoặc bộ rule, giúp Loan
+lưu đúng phiên bản chính sách đã tham gia vào quyết định.
+
 Đường ra quyết định **không cắt ngưỡng PD** — `tinh_diem_tong_hop()` nhận PD liên tục.
 `nguong_bao_cao` trong metadata chỉ dùng để tính recall/precision/F1 khi báo cáo.
 
@@ -614,7 +630,7 @@ trước tiên.
 > Trạng thái ghi nhận tại thời điểm model `v17.0.0`.
 
 Hiện tại `finora-loan` gọi sang sẽ **fail cứng**: cấu hình yêu cầu model `13.0.0` trong
-khi service phục vụ `16.0.0`, `validate()` ném `AI_MODEL_VERSION_MISMATCH` với
+khi service phục vụ `17.0.0`, `validate()` ném `AI_MODEL_VERSION_MISMATCH` với
 `retryable = false` — hồ sơ kẹt vĩnh viễn, không tự hồi phục.
 
 ### 14.1 Bốn việc bắt buộc
@@ -666,9 +682,8 @@ hai bên thống nhất quy ước đánh version trước.
 
 ### 14.5 Những gì KHÔNG cần đổi
 
-- **`installment`** — Loan tính từ `ScheduleCalculationSnapshot` của Fineract rồi gửi
-  sang; AI chỉ nhận, **không tự tính**. Bỏ trống thì AI điền median từ gói model — tức
-  mất một đặc trưng thật. Giữ nguyên cách Loan đang làm.
+- **`installment`** — Loan lấy từ `ScheduleCalculationSnapshot` của Fineract rồi gửi
+  sang; đây là trường bắt buộc và AI **không tự tính** khi thiếu.
 - **`ty_le_tra_no_thang`** — AI tự tính từ `installment` và `annual_inc`. Loan **không**
   được gửi: nó phải được tính sau bước điền median (mục 10).
 - **`suggested_rate`** trong `AiCreditScoreResponse` — AI không trả field này, Jackson map
@@ -680,7 +695,8 @@ hai bên thống nhất quy ước đánh version trước.
 
 1. `GET /health` trên `finora-ai` trả 200.
 2. Gọi thử `POST /api/v1/ai/credit/explain` với một hồ sơ có `so_cccd` hợp lệ; kiểm tra
-   `model_version` trong response khớp cấu hình Loan.
+   `model_version` trong response khớp cấu hình Loan và response có
+   `decision_policy_version`.
 3. Đối chiếu log `finora-ai`: dòng `cic-service tra_diem_cic ... result=success` xác nhận
    CIC được tra thật, không rơi vào fail-open.
 4. Chạy một hồ sơ vi phạm chốt chặn (ví dụ `int_rate` > 20) — phải nhận `decision`

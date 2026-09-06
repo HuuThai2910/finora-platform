@@ -1,6 +1,7 @@
 package com.finora.loan.dto.decision.response;
 
 import com.finora.loan.domain.application.LoanApplicationStatus;
+import com.finora.loan.domain.application.LoanDecisionSource;
 import com.finora.loan.domain.application.LoanPurpose;
 import com.finora.loan.domain.product.RepaymentMethod;
 import com.finora.loan.domain.scoring.BorrowerKycStatus;
@@ -24,9 +25,16 @@ public record AdminLoanReviewDetailResponse(
         LoanPurpose purposeCode,
         String purposeDetail,
         BigDecimal annualInterestRate,
+        BigDecimal finalAnnualInterestRate,
+        String pricingCreditGrade,
+        BigDecimal pricingAdjustmentPercentagePoints,
+        String pricingPolicyVersion,
+        LoanDecisionSource decisionSource,
         RepaymentMethod repaymentMethod,
         ApplicantFinancialResponse financialInformation,
         ScheduleCalculationSnapshotResponse schedule,
+        ScheduleCalculationSnapshotResponse initialSchedule,
+        ScheduleCalculationSnapshotResponse finalSchedule,
         EligibilityEvidence eligibility,
         CreditProfileEvidence creditProfile,
         AdminAssessmentEvidenceResponse assessment,

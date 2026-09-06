@@ -5,5 +5,11 @@
 !finora-ai/app/
 !finora-ai/app/**
 !finora-ai/models/
-!finora-ai/models/model_v10.0.0.pkl
-!finora-ai/models/model_v10.0.0.json
+!finora-ai/models/credit/
+!finora-ai/models/credit/model_v17.0.0.pkl
+!finora-ai/models/credit/model_v17.0.0.json
+!finora-ai/models/fraud/
+!finora-ai/models/fraud/model_v1.1.0.pkl
+!finora-ai/models/fraud/model_v1.1.0.json
+!finora-ai/config/
+!finora-ai/config/product_config.json

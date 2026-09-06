@@ -43,7 +43,7 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 
 **Trigger:** admin yêu cầu kích hoạt Product. **Orchestrator:** Loan.
 
-1. Loan validate fixed rate, amount/term range và repayment method.
+1. Loan validate min/base/max rate, trần 20%, amount/term range (tối đa 24 tháng) và repayment method.
 2. Loan tạo durable Fineract command với Product/version và external ID.
 3. Loan đọc template/config hợp lệ của tenant rồi tạo core loan product qua REST.
 4. Loan lưu `fineractProductId`, config/mapping version và sync status.
@@ -56,15 +56,18 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 ## F02 — Tạo hồ sơ và chấm điểm tín dụng
 
 **Trigger:** người vay đã đủ điều kiện gửi hồ sơ. **Orchestrator:** Loan.
+**Legal gates:** [`LEGAL-RATE-01`, `LEGAL-DISCLOSURE-01`, `LEGAL-AI-01`, `LEGAL-DATA-01`](../../docs/LEGAL-COMPLIANCE.md).
 
 1. Borrower gọi preview; Loan dùng Fineract `calculateLoanSchedule`, chuẩn hóa schedule để UI hiển thị nhưng chưa tạo Application.
 2. Khi borrower submit với idempotency key, Loan tạo thẳng Application `SUBMITTED` cùng immutable financial/Product/disclosure/Fineract-calculation snapshot; backend không tạo Draft.
 3. Loan xác minh identity/KYC qua provider contract. Local development MAY dùng một mock provider tập trung có source rõ.
-4. Loan chuyển `SCORING`, gọi AI credit v10 bằng immutable feature snapshot; `int_rate` lấy fixed Product rate và `installment` lấy Fineract calculation snapshot.
-5. `delinq_2yrs/pub_rec` lấy từ `BorrowerCreditProfile` projection nội bộ; người vay không tự khai. Proxy `pub_rec` MUST mang source/policy version và MUST NOT được mô tả là CIC/hồ sơ pháp lý thật.
-6. AI trả PD/score, grade, recommendation/reason và model/rule version. Nếu response còn `suggested_rate`, Loan MUST bỏ qua, không lưu vì pricing thuộc Product/Loan.
-7. Loan lưu scoring snapshot, áp policy nghiệp vụ và chuyển `PENDING_REVIEW` hoặc `REJECTED`.
-8. Loan phát `LoanApplicationScored`/`LoanApplicationRejected`; Notification consume nếu cần.
+4. Loan chuyển `SCORING`, gọi AI credit v17 `/api/v1/ai/credit/explain` bằng immutable snapshot; `int_rate` là base rate và `installment` lấy từ Fineract `SUBMISSION_SCORING` snapshot.
+5. AI v17 không nhận `delinq_2yrs/pub_rec/effective_apr/suggested_rate`; `BorrowerCreditProfile` vẫn là evidence nội bộ. `so_cccd` chỉ gửi khi User contract hợp lệ, Loan không lưu CCCD thô.
+6. AI trả PD/score, grade, decision, explanation và model/decision-policy version.
+7. Loan áp grade pricing có version, clamp final rate trong Product min/max và trần 20%. Principal/term không tự đổi.
+8. Nếu decision không phải `REJECTED`, Loan gọi Fineract ngoài transaction để tạo snapshot `CONTRACT` theo final rate.
+9. Loan lưu toàn bộ evidence và chuyển `APPROVED/PENDING_REVIEW/REJECTED`; auto-approved tạo Contract `PENDING_SIGNATURE`, chưa giải ngân.
+10. Loan phát event tương ứng sau local commit khi outbox của phase đó được triển khai.
 
 **Idempotency:** `loanApplicationId + scoringAttempt/version`; cùng feature snapshot và model version phải trả cùng artifact reference.
 
@@ -72,10 +75,11 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 
 ## F03 — Duyệt, ký hợp đồng và đưa khoản vay lên sàn
 
-**Trigger:** admin/Loan policy xử lý hồ sơ đang `PENDING_REVIEW`. **Orchestrator:** Loan.
+**Trigger:** AI auto-approve hoặc admin xử lý hồ sơ `PENDING_REVIEW`. **Orchestrator:** Loan.
+**Legal gates:** [`LEGAL-DISCLOSURE-01`, `LEGAL-CONTRACT-01`](../../docs/LEGAL-COMPLIANCE.md).
 
 1. Loan kiểm tra KYC/scoring snapshot, policy và optimistic version.
-2. Loan từ chối với reason hoặc tạo một `LoanContract PENDING_SIGNATURE` chứa exact amount/term/fixed Product rate/repayment method/Fineract schedule snapshot/fee/expiry; AI không định giá.
+2. Loan từ chối với reason hoặc tạo một `LoanContract PENDING_SIGNATURE` chứa exact amount/term/final rate/repayment method/Fineract `CONTRACT` schedule/fee/expiry. Auto/admin dùng chung contract creation service.
 3. Borrower đọc và ký hoặc từ chối chính LoanContract. Không tạo `LoanOffer` hoặc bước accept riêng. Contract `SIGNED` bất biến nhưng chỉ `EFFECTIVE` sau giải ngân.
 4. Chỉ sau Contract signed, Loan tạo listing intent, chuyển state phù hợp sang `ON_MARKET` và phát `LoanListed` chứa dữ liệu market tối thiểu, không chứa PII.
 5. Investment consume idempotently, tạo market listing projection.

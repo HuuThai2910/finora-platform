@@ -28,7 +28,7 @@ public class ScheduleCalculationSnapshot {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "application_id", nullable = false, unique = true, updatable = false)
+    @Column(name = "application_id", nullable = false, updatable = false)
     private Long applicationId;
 
     @Enumerated(EnumType.STRING)
@@ -137,6 +137,39 @@ public class ScheduleCalculationSnapshot {
         snapshot.updatedBy = snapshot.createdBy;
         snapshot.createdAt = now;
         snapshot.updatedAt = now;
+        return snapshot;
+    }
+
+    /**
+     * Đóng băng lịch cuối sau khi áp lãi suất theo rủi ro. Snapshot này là nguồn duy nhất
+     * để lập hợp đồng; lịch submission vẫn được giữ lại nhằm đối chiếu điều khoản ban đầu.
+     */
+    public static ScheduleCalculationSnapshot contract(
+            Long applicationId,
+            String requestId,
+            Long fineractProductId,
+            LocalDate expectedDisbursementDate,
+            String requestSnapshotJson,
+            String periodsSnapshotJson,
+            BigDecimal totalPrincipal,
+            BigDecimal totalInterest,
+            BigDecimal totalFees,
+            BigDecimal totalPenalties,
+            BigDecimal totalRepayment,
+            BigDecimal firstInstallment,
+            BigDecimal maximumInstallment,
+            String responseHash,
+            String calculationPolicyVersion,
+            String actorId,
+            Instant now
+    ) {
+        ScheduleCalculationSnapshot snapshot = submission(
+                applicationId, requestId, fineractProductId, expectedDisbursementDate,
+                requestSnapshotJson, periodsSnapshotJson, totalPrincipal, totalInterest,
+                totalFees, totalPenalties, totalRepayment, firstInstallment,
+                maximumInstallment, responseHash, calculationPolicyVersion, actorId, now
+        );
+        snapshot.purpose = ScheduleCalculationPurpose.CONTRACT;
         return snapshot;
     }
 

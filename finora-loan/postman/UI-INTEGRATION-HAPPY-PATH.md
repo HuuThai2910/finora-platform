@@ -10,7 +10,7 @@ Admin tạo Product
   → kích hoạt Product
   → borrower xem lịch trả dự kiến
   → borrower nộp hồ sơ
-  → worker kiểm tra điều kiện và gọi AI v10
+  → worker kiểm tra điều kiện và gọi AI v17
   → admin xem bằng chứng và phê duyệt
   → hệ thống tạo Contract
   → borrower xem đúng văn bản và ký
@@ -23,7 +23,7 @@ Khi toàn bộ happy path đạt kết quả mong đợi, UI có thể tích h�
 
 1. PostgreSQL của Loan: Neon hoặc `loan-postgres` local.
 2. `fineract-postgres` và `fineract` đang healthy.
-3. FINORA AI v10 tại `http://localhost:8000`.
+3. FINORA AI v17 tại `http://localhost:8000`.
 4. `FinoraLoanApplication` chạy bằng JDK 21, profile `local`, port `8081`.
 
 Không cần Keycloak, Kafka, Redis hoặc MongoDB cho luồng này. Profile local đang dùng mock identity:
@@ -65,15 +65,15 @@ không thuộc cùng một happy path.
 | 6 | `05 - Borrower xem lịch trả dự kiến` | 200 | Có tổng tiền và đủ kỳ thanh toán | Không |
 | 7 | `06 - Borrower nộp thẳng hồ sơ SUBMITTED` | 201 | Có `applicationNumber`, trạng thái ban đầu `SUBMITTED` | `applicationNumber`, `applicationVersion=version` |
 | 8 | `07 - Gửi lại cùng Idempotency-Key` | 201 | Trả cùng hồ sơ, không tạo bản ghi logic thứ hai | Không |
-| 9 | `08 - Borrower xem chi tiết hồ sơ` | 200 | Sau khi worker hoàn tất: `status=PENDING_REVIEW` | `applicationVersion=version` |
+| 9 | `08 - Borrower xem chi tiết hồ sơ` | 200 | Sau worker: `APPROVED`, `PENDING_REVIEW` hoặc `REJECTED` đúng AI fixture | `applicationVersion=version` |
 | 10 | `09 - Borrower xem danh sách hồ sơ` | 200 | `data` chứa đúng `applicationNumber` | Không |
-| 11 | `11 - Borrower xem lịch sử trạng thái` | 200 | Có chuỗi transition tới `PENDING_REVIEW` | Không |
+| 11 | `11 - Borrower xem lịch sử trạng thái` | 200 | Có chuỗi transition tới decision cuối hiện tại | Không |
 | 12 | `12 - Admin xem danh sách AI assessment` | 200 | Assessment mới nhất `SUCCEEDED` | `assessmentId=data[0].id` |
 | 13 | `13 - Admin xem chi tiết một AI assessment` | 200 | Có input, nguồn, model, output và hash đã lưu | Không |
 | 14A | `14A - Admin xem tất cả hồ sơ vay` | 200 | `data` chứa hồ sơ ở mọi trạng thái và vẫn được phân trang | Không |
-| 14 | `15 - Admin xem hàng đợi PENDING_REVIEW` | 200 | `data` chứa hồ sơ cần duyệt | Có thể cập nhật version từ đúng hồ sơ |
-| 15 | `16 - Admin xem đủ bằng chứng để duyệt` | 200 | Hồ sơ, lịch trả, eligibility và assessment nhất quán | `applicationVersion=version`, `assessmentId=assessment.assessmentId` |
-| 16 | `17A - Admin phê duyệt và tạo Contract` | 200 | Application `APPROVED`, Contract `PENDING_SIGNATURE` | `contractNumber`, `contractVersion`, `documentHash` |
+| 14 | `15 - Admin xem hàng đợi PENDING_REVIEW` | 200 | Chỉ bắt buộc chứa hồ sơ khi AI trả `PENDING_REVIEW` | Có thể cập nhật version từ đúng hồ sơ |
+| 15 | `16 - Admin xem đủ bằng chứng để duyệt` | 200 | Có base/final rate, initial/final schedule và assessment nhất quán | `applicationVersion`, `assessmentId` |
+| 16 | `17A - Admin phê duyệt và tạo Contract` | 200 | Chỉ chạy nhánh review; Application `APPROVED`, Contract `PENDING_SIGNATURE` | `contractNumber`, `contractVersion`, `documentHash` |
 | 17 | `18 - Borrower xem danh sách Contract` | 200 | Có Contract vừa tạo | Không |
 | 18 | `19 - Borrower xem nội dung Contract` | 200 | Nội dung/hash/version đúng văn bản sắp ký | Cập nhật lại `contractVersion`, `documentHash` |
 | 19 | `20 - Borrower xem lịch sử Contract` | 200 | Có transition tạo `PENDING_SIGNATURE` | Không |
@@ -135,10 +135,10 @@ code = IDEMPOTENCY_KEY_REUSED
 Worker xử lý bất đồng bộ theo chuỗi:
 
 ```text
-SUBMITTED
-  → ELIGIBILITY_PENDING
-  → SCORING
-  → PENDING_REVIEW
+SUBMITTED → ELIGIBILITY_PENDING → SCORING
+  ├── APPROVED → Contract PENDING_SIGNATURE
+  ├── PENDING_REVIEW → chờ admin
+  └── REJECTED → kết thúc, không Contract
 ```
 
 UI không được giả định request tạo hồ sơ sẽ chờ AI trả xong. UI nên poll request 08 với khoảng nghỉ hợp
@@ -149,16 +149,16 @@ Assessment thành công phải có:
 - `status=SUCCEEDED`;
 - `actualModelVersion` không rỗng và khớp model đang deploy;
 - `pdProbability` nằm trong khoảng `0..1`;
-- `riskScore`, `creditGrade`, `aiRecommendation` không rỗng;
+- `riskScore`, `creditGrade`, `aiRecommendation`, `decisionPolicyVersion` không rỗng;
 - `failureCode=null`.
 
 Không assert một điểm AI cố định. Request 13 phải chứng minh Loan đã lưu `inputSnapshot`,
 `inputSources`, `inputHash`, version model, kết quả, `responseSnapshot`, `responseHash` và policy version.
-`suggested_rate` từ AI không được dùng để thay đổi lãi suất Product.
+Request 08/16 phải có base/final rate và hai schedule khi decision không phải reject. Loan tự định giá theo grade; AI v17 không trả suggested rate.
 
 ### 5.5. Admin phê duyệt đúng bằng chứng
 
-Request 16 là nguồn chuẩn cho màn hình review của admin. Trước khi approve, kiểm tra:
+Request 16 là nguồn chuẩn cho màn hình review của admin. Chỉ với fixture `PENDING_REVIEW`, trước khi approve kiểm tra:
 
 ```text
 status = PENDING_REVIEW

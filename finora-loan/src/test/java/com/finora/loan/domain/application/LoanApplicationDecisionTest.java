@@ -1,8 +1,10 @@
 package com.finora.loan.domain.application;
 
 import com.finora.loan.domain.core.FineractProductMapping;
+import com.finora.loan.domain.pricing.RiskBasedPricingResult;
 import com.finora.loan.domain.product.LoanProduct;
 import com.finora.loan.domain.product.RepaymentMethod;
+import com.finora.loan.domain.scoring.AiRecommendation;
 import com.finora.loan.exception.LoanDomainException;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -57,6 +59,67 @@ class LoanApplicationDecisionTest {
         assertThat(application.getAdminDecidedBy()).isEqualTo("ADMIN-001");
     }
 
+    @Test
+    void aiPolicyApprovesAndPersistsFinalTermsWithoutChangingRequestedAmountOrTerm() {
+        LoanApplication application = scoringApplication(10L);
+
+        application.completeScoring(
+                10L, AiRecommendation.APPROVED, pricing("A", "12.0000", "-0.5000"),
+                99L, "AI_DECISION_V17", "SYSTEM", NOW.plusSeconds(3));
+
+        assertThat(application.getStatus()).isEqualTo(LoanApplicationStatus.APPROVED);
+        assertThat(application.getDecisionSource()).isEqualTo(LoanDecisionSource.AI_POLICY);
+        assertThat(application.getFinalAnnualInterestRate()).isEqualByComparingTo("12.0000");
+        assertThat(application.getFinalCalculationSnapshotId()).isEqualTo(99L);
+        assertThat(application.getRequestedAmount()).isEqualByComparingTo("50000000.00");
+        assertThat(application.getRequestedTermMonths()).isEqualTo(12);
+    }
+
+    @Test
+    void aiPolicyKeepsMiddleScoreForAdminReviewWithFinalTermsReady() {
+        LoanApplication application = scoringApplication(10L);
+
+        application.completeScoring(
+                10L, AiRecommendation.PENDING_REVIEW, pricing("C", "13.0000", "0.5000"),
+                100L, "AI_DECISION_V17", "SYSTEM", NOW.plusSeconds(3));
+
+        assertThat(application.getStatus()).isEqualTo(LoanApplicationStatus.PENDING_REVIEW);
+        assertThat(application.getDecisionSource()).isNull();
+        assertThat(application.getFinalAnnualInterestRate()).isEqualByComparingTo("13.0000");
+        assertThat(application.getFinalCalculationSnapshotId()).isEqualTo(100L);
+    }
+
+    @Test
+    void aiPolicyRejectsWithoutCreatingFinalSchedule() {
+        LoanApplication application = scoringApplication(10L);
+
+        application.completeScoring(
+                10L, AiRecommendation.REJECTED, null,
+                null, "AI_DECISION_V17", "SYSTEM", NOW.plusSeconds(3));
+
+        assertThat(application.getStatus()).isEqualTo(LoanApplicationStatus.REJECTED);
+        assertThat(application.getDecisionSource()).isEqualTo(LoanDecisionSource.AI_POLICY);
+        assertThat(application.getFinalAnnualInterestRate()).isNull();
+        assertThat(application.getFinalCalculationSnapshotId()).isNull();
+    }
+
+    private LoanApplication scoringApplication(Long assessmentId) {
+        LoanApplication application = submittedApplication();
+        application.startEligibility("SYSTEM", NOW.plusSeconds(1));
+        application.startScoring(assessmentId, "SYSTEM", NOW.plusSeconds(2));
+        return application;
+    }
+
+    private RiskBasedPricingResult pricing(String grade, String finalRate, String adjustment) {
+        return new RiskBasedPricingResult(
+                grade,
+                new BigDecimal(adjustment),
+                new BigDecimal(adjustment),
+                new BigDecimal(finalRate),
+                "RISK_GRADE_RATE_V1"
+        );
+    }
+
     private LoanApplication submittedApplication() {
         LoanProduct product = mock(LoanProduct.class);
         when(product.getId()).thenReturn(1L);
@@ -67,7 +130,9 @@ class LoanApplicationDecisionTest {
         when(product.getMaxAmount()).thenReturn(new BigDecimal("100000000.00"));
         when(product.getMinTermMonths()).thenReturn(6);
         when(product.getMaxTermMonths()).thenReturn(24);
+        when(product.getMinAnnualInterestRate()).thenReturn(new BigDecimal("8.0000"));
         when(product.getAnnualInterestRate()).thenReturn(new BigDecimal("12.5000"));
+        when(product.getMaxAnnualInterestRate()).thenReturn(new BigDecimal("20.0000"));
         when(product.getRepaymentMethod()).thenReturn(RepaymentMethod.ANNUITY);
         FineractProductMapping mapping = mock(FineractProductMapping.class);
         when(mapping.getId()).thenReturn(2L);

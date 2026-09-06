@@ -11,6 +11,7 @@ import com.finora.loan.domain.application.LoanApplicationStatusHistory;
 import com.finora.loan.domain.core.FineractMappingStatus;
 import com.finora.loan.domain.core.FineractProductMapping;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
+import com.finora.loan.domain.core.ScheduleCalculationPurpose;
 import com.finora.loan.domain.product.LoanProduct;
 import com.finora.loan.dto.application.request.CreateLoanApplicationRequest;
 import com.finora.loan.exception.LoanBusinessException;
@@ -159,9 +160,18 @@ public class LoanApplicationSubmissionStateService {
     /** Detail endpoint tải đúng một snapshot; list endpoint cố ý không gọi hàm này để tránh N+1. */
     @Transactional(readOnly = true)
     public ScheduleCalculationSnapshot getCalculation(Long applicationId) {
-        return calculationRepository.findByApplicationId(applicationId)
+        return calculationRepository.findByApplicationIdAndPurpose(
+                        applicationId, ScheduleCalculationPurpose.SUBMISSION_SCORING)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Schedule Calculation Snapshot", "applicationId", applicationId));
+    }
+
+    /** Final schedule chỉ xuất hiện sau scoring; Optional giúp hồ sơ đang xử lý vẫn đọc chi tiết bình thường. */
+    @Transactional(readOnly = true)
+    public ScheduleCalculationSnapshot getFinalCalculation(Long applicationId) {
+        return calculationRepository.findByApplicationIdAndPurpose(
+                        applicationId, ScheduleCalculationPurpose.CONTRACT)
+                .orElse(null);
     }
 
     private FineractProductMapping mapping(Long mappingId) {

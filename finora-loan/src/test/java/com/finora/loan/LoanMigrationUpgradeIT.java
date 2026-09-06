@@ -23,7 +23,7 @@ class LoanMigrationUpgradeIT {
             .withPassword("finora_test");
 
     @Test
-    void existingV4DatabaseUpgradesThroughV7WithoutRecreatingOldTables() throws Exception {
+    void existingV4DatabaseUpgradesThroughV8WithoutRecreatingOldTables() throws Exception {
         Flyway.configure()
                 .dataSource(POSTGRESQL.getJdbcUrl(), POSTGRESQL.getUsername(), POSTGRESQL.getPassword())
                 .locations("classpath:db/migration")
@@ -37,7 +37,7 @@ class LoanMigrationUpgradeIT {
                 .load();
         upgraded.migrate();
 
-        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("7");
+        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("8");
         assertThat(upgraded.info().pending()).isEmpty();
         try (Connection connection = POSTGRESQL.createConnection("");
              Statement statement = connection.createStatement();
@@ -65,6 +65,40 @@ class LoanMigrationUpgradeIT {
                      """)) {
             assertThat(result.next()).isTrue();
             assertThat(result.getInt(1)).isEqualTo(4);
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT COUNT(*)
+                     FROM information_schema.columns
+                     WHERE table_schema = 'public'
+                       AND (
+                           (table_name = 'loan_products'
+                            AND column_name IN ('min_annual_interest_rate', 'max_annual_interest_rate'))
+                           OR
+                           (table_name = 'loan_applications'
+                            AND column_name IN (
+                                'final_annual_interest_rate',
+                                'pricing_credit_grade',
+                                'pricing_policy_version',
+                                'final_calculation_snapshot_id',
+                                'decision_source'
+                            ))
+                       )
+                     """)) {
+            assertThat(result.next()).isTrue();
+            assertThat(result.getInt(1)).isEqualTo(7);
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT COUNT(*)
+                     FROM pg_indexes
+                     WHERE schemaname = 'public'
+                       AND indexname = 'uq_schedule_snapshot_application_purpose'
+                     """)) {
+            assertThat(result.next()).isTrue();
+            assertThat(result.getInt(1)).isEqualTo(1);
         }
     }
 }

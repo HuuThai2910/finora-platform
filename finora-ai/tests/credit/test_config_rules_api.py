@@ -15,6 +15,7 @@ from app.services.credit import product_config
 from main import app
 
 URL = "/api/v1/ai/config/rules"
+PRODUCT_URL = "/api/v1/ai/config/product"
 
 LUAT_TUOI = {
     "ma": "AGE_BRACKET",
@@ -81,6 +82,16 @@ def _body(client, sua=None) -> dict:
 
 def _tim(rules: list[dict], ma: str) -> dict:
     return next(r for r in rules if r["ma"] == ma)
+
+
+def _product_body(client) -> dict:
+    """Dựng body cập nhật Product từ cấu hình hiện tại, bỏ các trường chỉ đọc."""
+    current = client.get(PRODUCT_URL).json()
+    return {
+        "grades": current["grades"],
+        "approval_thresholds": current["approval_thresholds"],
+        "model_weights": current["model_weights"],
+    }
 
 
 class TestDocCauHinhLuat:
@@ -200,6 +211,7 @@ class TestLuuCauHinhHopLe:
         assert any(m["ma"] == "AGE_BRACKET" and m["diem"] == 20 for m in vet)
 
     def test_ghi_xuong_file_json_dung_dinh_dang(self, client):
+        phien_ban_truoc = client.get(URL).json()["decision_policy_version"]
         client.put(URL, json=_body(client, lambda rs: rs.append(LUAT_TUOI)))
         luu = json.loads(product_config._CONFIG_PATH.read_text(encoding="utf-8"))
         assert isinstance(luu["rules"], list)
@@ -208,11 +220,14 @@ class TestLuuCauHinhHopLe:
         ]
         # Không được làm mất các nhóm cấu hình khác.
         assert {
+            "decision_policy_version",
             "grades",
             "approval_thresholds",
             "model_weights",
             "legal_limits",
         } <= set(luu)
+        assert phien_ban_truoc == "CREDIT_POLICY_V1"
+        assert luu["decision_policy_version"] == "CREDIT_POLICY_V2"
 
 
 class TestChanCauHinhSai:
@@ -360,8 +375,38 @@ class TestKhongPhaEndpointCu:
         r = client.get("/api/v1/ai/config/product")
         assert r.status_code == 200
         assert {
+            "decision_policy_version",
             "grades",
             "approval_thresholds",
             "model_weights",
             "legal_limits",
         } <= set(r.json())
+
+
+class TestNguongQuyetDinhDocLapVoiHang:
+    def test_nguong_trong_hang_b_duoc_phep_chia_b_thanh_hai_luong(self, client):
+        """B điểm cao tự duyệt, B điểm thấp chờ admin nhưng cùng giữ một cách định giá."""
+        body = _product_body(client)
+        body["approval_thresholds"] = {"auto_approve": 75, "auto_reject": 65}
+
+        response = client.put(PRODUCT_URL, json=body)
+
+        assert response.status_code == 200, response.json()
+
+    def test_khong_cho_dat_auto_approve_trong_hang_c_tro_xuong(self, client):
+        body = _product_body(client)
+        body["approval_thresholds"] = {"auto_approve": 68, "auto_reject": 65}
+
+        response = client.put(PRODUCT_URL, json=body)
+
+        assert response.status_code == 422
+        assert "hai hạng cao nhất" in response.json()["detail"]
+
+    def test_toan_bo_hang_thap_nhat_phai_tu_dong_tu_choi(self, client):
+        body = _product_body(client)
+        body["approval_thresholds"] = {"auto_approve": 75, "auto_reject": 30}
+
+        response = client.put(PRODUCT_URL, json=body)
+
+        assert response.status_code == 422
+        assert "toàn bộ hạng thấp nhất" in response.json()["detail"]

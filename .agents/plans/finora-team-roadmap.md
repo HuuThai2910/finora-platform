@@ -108,19 +108,19 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P1-A01 | Loan | [LN-003: Product fixed rate + repayment method + Fineract mapping](../../finora-loan/plans/LN-003-loan-product.md) | Chỉ Product core-sync thành công mới ACTIVE; V1 được viết lại sau duyệt | `DONE` |
+| P1-A01 | Loan | [LN-003: Product min/base/max rate + repayment method + Fineract mapping](../../finora-loan/plans/LN-003-loan-product.md) | Chỉ Product core-sync thành công mới ACTIVE; rate đúng thứ tự và không quá 20% | `REVIEW` |
 | P1-A02 | Loan | [LN-004: Direct-submit Application + snapshots](../../finora-loan/plans/LN-004-loan-application.md) | Không backend Draft; không credit history tự khai; V2 được viết lại sau duyệt | `DONE` |
 | P1-A03 | Loan | [LN-005: Borrower profile/KYC provider](../../finora-loan/plans/LN-005-borrower-profile-kyc.md) | Không truy cập DB User; local dùng mock provider; JWT/User contract thật bắt buộc trước production | `DONE` |
-| P1-A04 | Loan | [LN-006: Fineract Product/Schedule adapter](../../finora-loan/plans/LN-006-fineract-product-schedule-integration.md) | Fixed Product rate làm `int_rate`; installment lấy từ Fineract | `DONE` |
-| P1-A05 | Loan | [LN-007: `BorrowerCreditProfile` + AI v10 assessment](../../finora-loan/plans/LN-007-credit-profile-ai-assessment.md) | Internal proxy source/version + input hash/model version; bỏ qua suggested rate | `DONE` |
-| P1-A06 | Loan | [LN-007: scoring orchestration/state](../../finora-loan/plans/LN-007-credit-profile-ai-assessment.md) | Retry/manual failure state; AI không tự quyết định cuối | `DONE` |
+| P1-A04 | Loan | [LN-006: Fineract Product/Schedule adapter](../../finora-loan/plans/LN-006-fineract-product-schedule-integration.md) | Base schedule cho submit/AI; final schedule cho Contract; external call ngoài transaction | `REVIEW` |
+| P1-A05 | Loan | [LN-007: AI v17 assessment và risk pricing](../../finora-loan/plans/LN-007-credit-profile-ai-assessment.md) | Contract `/explain`, input/output hash, grade pricing, final schedule | `REVIEW` |
+| P1-A06 | Loan | [LN-007: scoring orchestration/state](../../finora-loan/plans/LN-007-credit-profile-ai-assessment.md) | Retry có giới hạn; `APPROVED/PENDING_REVIEW/REJECTED`; auto-approve chỉ tạo Contract chờ ký | `REVIEW` |
 
 ### Điểm bắt tay P1
 
 - Hải cung cấp OpenAPI/example JSON cho KYC status và credit result trước khi Thái implement adapter.
 - Thái cung cấp loan feature request/schema và validation; Hải cung cấp JSON/OpenAPI response/error fixture v10 để khóa contract test.
 - Hai bên dùng cùng fixture version; không import DTO Java/Python của nhau qua `finora-common`.
-- Hai owner đã chốt model v10, Product fixed rate làm `int_rate`, installment từ Fineract, credit history projection nội bộ và Loan bỏ qua `suggested_rate`. Thái đã nghiệm thu phần Loan P1-A01–P1-A06 ngày 2026-08-08; fixture/contract thật của User/AI vẫn là cổng trước môi trường tích hợp, không mở lại thiết kế domain đã nghiệm thu nếu contract không đổi.
+- Baseline mới ngày 2026-09-05: AI v17 dùng installment/base rate từ Loan, trả grade + decision + explanation; Loan sở hữu min/base/max pricing, final Fineract schedule và Contract. User/CCCD contract, legal sign-off và fixture tích hợp sạch vẫn là cổng trước production.
 
 **Phase gate P1:** người dùng xác thực → KYC → tạo hồ sơ → AI scoring → Loan lưu snapshot → hồ sơ chờ duyệt/từ chối; AI timeout không tạo điểm giả; request/event trùng không tạo hồ sơ hoặc scoring artifact trùng.
 
@@ -132,7 +132,7 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P2-A01 | Loan | [LN-008: Admin decision + `LoanContract` + signature](../../finora-loan/plans/LN-008-approval-loan-contract.md) | Một Contract text/hash cần ký; dùng lại submission schedule; không gọi Fineract khi duyệt/ký | `REVIEW` |
+| P2-A01 | Loan | [LN-008: AI/admin decision + `LoanContract` + signature](../../finora-loan/plans/LN-008-approval-loan-contract.md) | Một Contract text/hash cần ký; dùng final schedule; không gọi Fineract khi duyệt/ký | `REVIEW` |
 | P2-A02 | Loan | [LN-009: Signed-Contract listing/outbox](../../finora-loan/plans/LN-009-market-listing-outbox.md) | Chỉ Contract `SIGNED`; outbox `LoanListed` v1 | `BACKLOG` |
 | P2-A03 | Loan | [LN-010: Consume fully-funded](../../finora-loan/plans/LN-010-fully-funded-consumer.md) | Loan tự đổi `FUNDED` | `BACKLOG` |
 
@@ -327,6 +327,7 @@ Thêm dòng mới, không sửa mất lịch sử đã dùng để triển khai.
 | 2026-08-08 | P0-A06/P0-B01/P0-C04 | Thái xác nhận Hải đồng ý chuyển User, Investment và Keycloak sang PostgreSQL; toàn bộ thành phần persistent dùng database/credential/volume riêng, không thêm database cho AI/Notification/Gateway khi chưa có nhu cầu lưu trữ; Maven verify và Docker smoke User/Investment/Keycloak đều pass | Thái + Hải | Có — đổi datasource và local infrastructure, không đổi REST/event contract | Review |
 | 2026-08-09 | Tài liệu mọi service/LN-003–LN-014 | Bổ sung rule 09 và planning skill dùng chung: mỗi plan phải có lớp nghiệp vụ dễ hiểu, ERD/cardinality hiện tại tách khỏi dự kiến, field impact, API→hàm, transaction/concurrency, query/index/N+1 và acceptance evidence | Thái | Không đổi REST/event contract; chuẩn hóa cách viết và review plan | Resolved |
 | 2026-08-09 | WEB-LOAN-001/MOBILE-LOAN-001 | Thái duyệt tích hợp frontend LN-003–LN-008; visual reference chuyển vào `docs/ui`, mobile bỏ gọi AI trực tiếp, web cần thêm admin Product list phân trang | Thái triển khai; Hải review `docs/` dùng chung trước merge | Thêm Loan read API local, không đổi contract AI/Fineract | In progress |
+| 2026-09-05 | P1-A01–P2-A01/F00–F03 | Chuyển Loan sang AI v17 và Product min/base/max; grade pricing, final Fineract schedule, ba decision branch và Contract chờ ký; thêm sổ đối chiếu pháp lý trung tâm | Thái triển khai/duyệt Loan; Hải review AI fixture và tài liệu chung | Có — AI request/response v17, Product/Loan API additive, Flyway V8 | Review |
 
 ## 15. Quy tắc cập nhật roadmap
 

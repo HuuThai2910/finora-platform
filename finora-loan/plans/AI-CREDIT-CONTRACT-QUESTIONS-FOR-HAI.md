@@ -7,7 +7,13 @@ updated_at: 2026-08-02
 related_task: LN-007
 ---
 
-# Hải xác nhận giúp contract AI v10 cho Loan
+# Biên bản câu hỏi AI v10 đã được thay thế
+
+> **Không dùng file này để triển khai.** Contract hiện hành là AI v17 và đã được hợp nhất vào
+> [LN-007](LN-007-credit-profile-ai-assessment.md). File này chỉ giữ lại bối cảnh trao đổi cũ để truy vết;
+> mọi nội dung `suggested_rate`, 13 feature v10 hoặc proxy `delinq_2yrs/pub_rec` bên dưới đã hết hiệu lực.
+
+# Hải xác nhận giúp contract AI v10 cho Loan (lịch sử)
 
 ## 1. Bối cảnh ngắn
 

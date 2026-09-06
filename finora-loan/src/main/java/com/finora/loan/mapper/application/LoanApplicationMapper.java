@@ -28,7 +28,8 @@ public class LoanApplicationMapper {
 
     public LoanApplicationResponse toResponse(
             LoanApplication application,
-            ScheduleCalculationSnapshot calculationSnapshot
+            ScheduleCalculationSnapshot calculationSnapshot,
+            ScheduleCalculationSnapshot finalCalculationSnapshot
     ) {
         return new LoanApplicationResponse(
                 application.getId(),
@@ -42,6 +43,12 @@ public class LoanApplicationMapper {
                 financial(application.getFinancialSnapshot()),
                 product(application),
                 scheduleMapper.toResponse(calculationSnapshot),
+                scheduleMapper.toResponse(finalCalculationSnapshot),
+                application.getFinalAnnualInterestRate(),
+                application.getPricingCreditGrade(),
+                application.getPricingAdjustmentPercentagePoints(),
+                application.getPricingPolicyVersion(),
+                application.getDecisionSource(),
                 application.getExpectedDisbursementDate(),
                 application.getPricingDisclosureVersionSnapshot(),
                 application.getPricingDisclosureAcceptedAt(),
@@ -56,6 +63,14 @@ public class LoanApplicationMapper {
                 application.getCreatedAt(),
                 application.getUpdatedAt()
         );
+    }
+
+    /** Giữ overload cho list/luồng cũ; final schedule chỉ tải ở endpoint chi tiết để tránh N+1. */
+    public LoanApplicationResponse toResponse(
+            LoanApplication application,
+            ScheduleCalculationSnapshot calculationSnapshot
+    ) {
+        return toResponse(application, calculationSnapshot, null);
     }
 
     private ApplicantFinancialResponse financial(ApplicantFinancialSnapshot snapshot) {
@@ -81,7 +96,9 @@ public class LoanApplicationMapper {
                 application.getProductMaxAmountSnapshot(),
                 application.getProductMinTermMonthsSnapshot(),
                 application.getProductMaxTermMonthsSnapshot(),
+                application.getMinAnnualInterestRateSnapshot(),
                 application.getAnnualInterestRateSnapshot(),
+                application.getMaxAnnualInterestRateSnapshot(),
                 application.getRepaymentMethodSnapshot(),
                 application.getFineractProductIdSnapshot(),
                 application.getCoreMappingIdSnapshot(),

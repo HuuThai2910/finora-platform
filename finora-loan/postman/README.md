@@ -10,7 +10,7 @@ Luồng LN-003 + LN-006 + LN-004 + LN-005 + LN-007 cần bốn thành phần:
 1. PostgreSQL Loan: Neon hoặc container `loan-postgres`;
 2. Apache Fineract + PostgreSQL riêng của Fineract;
 3. `FinoraLoanApplication` chạy bằng JDK 21, profile `local`.
-4. FINORA AI v10 chạy bằng Docker ở `localhost:8000`.
+4. FINORA AI v17 chạy bằng Docker ở `localhost:8000`.
 
 Không cần Keycloak, Kafka, Redis hay MongoDB cho bộ request này.
 
@@ -87,7 +87,7 @@ Hai điều kiện quan trọng:
   command `FAILED/FINERACT_REQUEST_REJECTED` dù container vẫn healthy.
 - Product chỉ activate sau khi `core-sync` trả `SUCCEEDED`;
 - nộp hồ sơ tạo thẳng `SUBMITTED`, không còn Draft backend;
-- worker tự xử lý `SUBMITTED → ELIGIBILITY_PENDING → SCORING → PENDING_REVIEW`;
-- response AI được lưu trong assessment nhưng `suggested_rate` bị loại khỏi Loan database/API.
+- worker tự xử lý `SUBMITTED → ELIGIBILITY_PENDING → SCORING → APPROVED/PENDING_REVIEW/REJECTED`;
+- Loan lưu response explain v17, áp grade pricing và tạo lịch `CONTRACT`; nhánh auto-approved tạo hợp đồng chờ ký.
 
 Swagger local: `http://localhost:8081/swagger-ui.html`.

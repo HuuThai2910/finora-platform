@@ -2,7 +2,7 @@
 set -eu
 
 # Fineract tách metadata tenant và dữ liệu tenant mặc định thành hai database.
-# Script chỉ chạy lần đầu khi volume PostgreSQL còn trống.
+# Script chỉ chạy một lần khi volume PostgreSQL còn trống; giữ file ở định dạng LF để Linux thực thi được.
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
   --set=fineract_user="$FINERACT_DB_USERNAME" \
   --set=fineract_password="$FINERACT_DB_PASSWORD" <<-'SQL'

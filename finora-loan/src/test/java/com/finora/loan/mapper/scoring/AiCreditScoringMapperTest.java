@@ -27,7 +27,7 @@ class AiCreditScoringMapperTest {
             new HashingService(new ObjectMapper()));
 
     @Test
-    void mapsThirteenFieldsAndUsesMaximumInstallmentForEqualPrincipal() {
+    void mapsAiV17ContractAndUsesMaximumInstallmentForEqualPrincipal() {
         LoanApplication application = mock(LoanApplication.class);
         ApplicantFinancialSnapshot financial = mock(ApplicantFinancialSnapshot.class);
         BorrowerEligibilityCheck eligibility = mock(BorrowerEligibilityCheck.class);
@@ -50,8 +50,6 @@ class AiCreditScoringMapperTest {
         when(eligibility.getProfileSource()).thenReturn(com.finora.loan.domain.scoring.BorrowerProfileSource.MOCK_USER_PROFILE);
         when(eligibility.getKycVersion()).thenReturn("MOCK-V1");
         when(eligibility.getPolicyVersion()).thenReturn("ELIGIBILITY-V1");
-        when(profile.getInternalDelinquenciesLast2Years()).thenReturn(2);
-        when(profile.getInternalDefaultedLoanCount()).thenReturn(1);
         when(profile.getSource()).thenReturn(com.finora.loan.domain.scoring.CreditProfileSource.FINERACT_INTERNAL);
         when(profile.getCalculationPolicyVersion()).thenReturn("INTERNAL-V1");
         when(schedule.getFirstInstallment()).thenReturn(new BigDecimal("4300000.00"));
@@ -62,9 +60,10 @@ class AiCreditScoringMapperTest {
 
         assertThat(input.request().installment()).isEqualByComparingTo("5000000.00");
         assertThat(input.request().employmentLength()).isEqualTo("5 years");
-        assertThat(input.request().delinquenciesLast2Years()).isEqualTo(2);
-        assertThat(input.request().publicRecordProxy()).isEqualTo(1);
+        assertThat(input.request().interestMethod()).isEqualTo("DECLINING_BALANCE");
+        assertThat(input.request().citizenIdentityNumber()).isNull();
         assertThat(input.sources().eligibilityPolicyVersion()).isEqualTo("ELIGIBILITY-V1");
         assertThat(input.inputJson()).contains("\"installment\":5000000.00");
+        assertThat(input.inputJson()).doesNotContain("delinq_2yrs").doesNotContain("pub_rec");
     }
 }

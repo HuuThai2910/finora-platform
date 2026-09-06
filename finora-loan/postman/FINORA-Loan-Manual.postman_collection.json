@@ -14,7 +14,7 @@
       "request": {
         "method": "POST",
         "header": [{"key": "Content-Type", "value": "application/json"}],
-        "body": {"mode": "raw", "raw": "{\n  \"code\": \"PERSONAL_STANDARD\",\n  \"name\": \"Vay tiêu dùng tiêu chuẩn\",\n  \"description\": \"Lãi suất cố định\",\n  \"minAmount\": 10000000,\n  \"maxAmount\": 100000000,\n  \"minTermMonths\": 6,\n  \"maxTermMonths\": 24,\n  \"annualInterestRate\": 12.5,\n  \"repaymentMethod\": \"ANNUITY\"\n}"},
+        "body": {"mode": "raw", "raw": "{\n  \"code\": \"PERSONAL_STANDARD\",\n  \"name\": \"Vay tiêu dùng tiêu chuẩn\",\n  \"description\": \"Lãi suất theo hạng rủi ro trong khung Product\",\n  \"minAmount\": 10000000,\n  \"maxAmount\": 100000000,\n  \"minTermMonths\": 6,\n  \"maxTermMonths\": 24,\n  \"minAnnualInterestRate\": 8.0,\n  \"annualInterestRate\": 12.5,\n  \"maxAnnualInterestRate\": 20.0,\n  \"repaymentMethod\": \"ANNUITY\"\n}"},
         "url": "{{baseUrl}}/api/v1/admin/loan-products"
       }
     },

@@ -33,6 +33,7 @@ from app.ml.credit.explainer import giai_thich_mo_hinh
 from app.ml.credit.predictor import BoDuDoan
 from app.schemas.credit import CreditExplainResponse, CreditScoreRequest
 from app.services.credit.cic_client import CicClient
+from app.services.credit.product_config import get_decision_policy_version
 
 router = APIRouter()
 
@@ -114,4 +115,5 @@ async def explain_credit(ho_so: CreditScoreRequest) -> CreditExplainResponse:
         rule_trace=ket_qua["rule_trace"],
         rejection_reasons=ket_qua["rejection_reasons"],
         model_version=ket_qua["model_version"],
+        decision_policy_version=get_decision_policy_version(),
     )

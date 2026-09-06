@@ -7,11 +7,13 @@
 
 1. Đọc code, migration, API/event contract và plan hiện hành; ghi rõ current state trước khi thiết kế.
 2. Viết lớp nghiệp vụ trước: actor, mục tiêu, luồng, dữ liệu người dùng thấy, failure và ví dụ.
-3. Viết lớp kỹ thuật bám từng bước nghiệp vụ; không tạo entity/index/cơ chế chỉ vì “best practice”.
-4. Vẽ ERD hiện hành từ migration/constraint, sau đó mới vẽ phần planned bằng nét/nhãn riêng.
-5. Chốt query, transaction, concurrency và external failure trước khi liệt kê file dự kiến.
-6. Sau khi code, đọc lại implementation và bổ sung đúng chuỗi hàm, transaction, state, test evidence.
-7. Dùng checklist cuối file; nếu câu trả lời phải suy đoán, giữ plan ở `DRAFT/CHANGES_REQUESTED`.
+3. Nếu task chịu ràng buộc pháp lý, đọc `../../../../docs/LEGAL-COMPLIANCE.md`, dẫn đúng control ID và
+   phân biệt quy định pháp luật với policy kinh doanh/giới hạn demo.
+4. Viết lớp kỹ thuật bám từng bước nghiệp vụ; không tạo entity/index/cơ chế chỉ vì “best practice”.
+5. Vẽ ERD hiện hành từ migration/constraint, sau đó mới vẽ phần planned bằng nét/nhãn riêng.
+6. Chốt query, transaction, concurrency và external failure trước khi liệt kê file dự kiến.
+7. Sau khi code, đọc lại implementation và bổ sung đúng chuỗi hàm, transaction, state, test evidence.
+8. Dùng checklist cuối file; nếu câu trả lời phải suy đoán, giữ plan ở `DRAFT/CHANGES_REQUESTED`.
 
 ## Khuôn task plan
 
@@ -61,7 +63,7 @@ Không bắt buộc giữ đúng số mục khi service đã có cấu trúc h�
 
 | Dữ liệu | Người dùng hiểu là gì | Ai/nguồn cung cấp | Dùng ở bước nào | Nếu thiếu/sai | Vì sao phải lưu |
 |---|---|---|---|---|---|
-| `annualInterestRate` | Lãi suất năm được công bố | Admin | Preview, hồ sơ, hợp đồng, core | Product không được kích hoạt | Giữ đúng điều khoản đã công bố |
+| `annualInterestRate` | Base rate được công bố trước thẩm định | Admin | Preview ban đầu, AI input | Product không được kích hoạt | Có mốc so sánh với final rate |
 
 ### Lớp kỹ thuật
 
@@ -138,5 +140,6 @@ backoff, điểm dừng và state cuối.
 - [ ] Có kịch bản concurrent cụ thể và response/state sau conflict.
 - [ ] Idempotency, timeout không chắc chắn, retry/reconcile/compensation có điểm dừng.
 - [ ] API/event ghi owner, version, auth, producer/consumer và dữ liệu nhạy cảm.
+- [ ] Chức năng chịu luật dẫn legal control ID, điều/khoản, nguồn chính thức và tác động code/test.
 - [ ] Test chứng minh happy, validation, duplicate, timeout, concurrency/restart theo rủi ro.
 - [ ] Sau code có bản đồ hàm, transaction, dữ liệu thay đổi, sai khác và evidence.

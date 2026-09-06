@@ -139,7 +139,11 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
                 application.getId(), LoanApplicationStatus.SUBMITTED, LoanApplicationStatus.WITHDRAWN,
                 "APPLICATION_WITHDRAWN", request.reason(), ActorType.BORROWER,
                 currentUser.borrowerUserId(), now));
-        return mapper.toResponse(application, submissionState.getCalculation(application.getId()));
+        return mapper.toResponse(
+                application,
+                submissionState.getCalculation(application.getId()),
+                submissionState.getFinalCalculation(application.getId())
+        );
     }
 
     @Override
@@ -148,7 +152,11 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
     public LoanApplicationResponse getMine(String applicationNumber) {
         LoanApplication application = getApplication(applicationNumber);
         application.requireOwner(currentUser.borrowerUserId());
-        return mapper.toResponse(application, submissionState.getCalculation(application.getId()));
+        return mapper.toResponse(
+                application,
+                submissionState.getCalculation(application.getId()),
+                submissionState.getFinalCalculation(application.getId())
+        );
     }
 
     /**
@@ -196,7 +204,11 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
                     "Idempotency-Key đã được dùng cho nội dung hồ sơ khác"
             );
         }
-        return mapper.toResponse(existing, submissionState.getCalculation(existing.getId()));
+        return mapper.toResponse(
+                existing,
+                submissionState.getCalculation(existing.getId()),
+                submissionState.getFinalCalculation(existing.getId())
+        );
     }
 
     private void validateDisclosure(CreateLoanApplicationRequest request) {

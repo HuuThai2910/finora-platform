@@ -19,6 +19,7 @@
 | Port, DB, topic, Keycloak, Fabric, hạ tầng | thêm `05-registry.md` |
 | Review, hoàn thành, chuẩn bị PR | thêm `06-quality-gates.md` |
 | Tạo/sửa/review Service Design hoặc task plan | thêm `09-planning-documentation.md`, skill `finora-engineering` và reference planning |
+| Chức năng chịu ràng buộc pháp luật Việt Nam | thêm `09-planning-documentation.md` và `../../docs/LEGAL-COMPLIANCE.md`; chỉ kết luận từ nguồn chính thức |
 | Lập kế hoạch, chọn task/giai đoạn hoặc phối hợp Thái–Hải | thêm `09-planning-documentation.md`, `../plans/finora-team-roadmap.md` |
 | Thay đổi rule/skill | đọc toàn bộ file trong `.agents/rules/` và skill liên quan |
 
@@ -41,3 +42,4 @@
 - `AGENTS.md`, `CLAUDE.md`: entrypoint tự phát hiện, không chứa bản sao luật chi tiết.
 - README/tài liệu khóa luận mô tả sản phẩm; không tự động trở thành luật code nếu chưa được đưa vào `.agents/rules/`.
 - `.agents/plans/finora-team-roadmap.md`: kế hoạch thực thi sống dành cho Thái, Hải và AI; cập nhật trạng thái theo tiến độ, không ghi đè rule kiến trúc/an toàn.
+- `docs/LEGAL-COMPLIANCE.md`: sổ đối chiếu pháp lý trung tâm; service plan chỉ dẫn control ID thay vì sao chép kết luận pháp lý thành nhiều bản.

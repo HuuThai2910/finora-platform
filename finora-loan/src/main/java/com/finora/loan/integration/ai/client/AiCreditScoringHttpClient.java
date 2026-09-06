@@ -43,7 +43,7 @@ public class AiCreditScoringHttpClient implements AiCreditScoringGateway {
         try {
             AiCreditScoreResponse response = circuitBreakerFactory.create("ai-credit").run(
                     () -> restClient.post()
-                            .uri("/api/v1/ai/credit/score")
+                            .uri("/api/v1/ai/credit/explain")
                             .header("X-Request-Id", requestId)
                             .contentType(MediaType.APPLICATION_JSON)
                             .body(request)
@@ -68,16 +68,19 @@ public class AiCreditScoringHttpClient implements AiCreditScoringGateway {
                 || response.riskScore() == null
                 || response.evaluationScore() == null
                 || response.creditGrade() == null
-                || response.suggestedLimit() == null
                 || response.decision() == null
-                || response.modelVersion() == null) {
+                || response.modelVersion() == null
+                || response.decisionPolicyVersion() == null
+                || response.borrowerExplanation() == null
+                || response.modelExplanation() == null
+                || response.ruleTrace() == null) {
             throw contractMismatch("AI trả response thiếu field bắt buộc");
         }
         if (response.pdProbability().compareTo(BigDecimal.ZERO) < 0
                 || response.pdProbability().compareTo(BigDecimal.ONE) > 0
                 || response.riskScore() < 0
                 || response.riskScore() > 100
-                || !java.util.Set.of("A", "B", "C", "D").contains(response.creditGrade())) {
+                || !response.creditGrade().matches("^[A-Z][A-Z0-9+\\-]{0,7}$")) {
             throw contractMismatch("AI trả score hoặc credit grade ngoài miền hợp lệ");
         }
         if (!properties.modelVersion().equals(response.modelVersion())) {

@@ -50,18 +50,19 @@ class CreditScoreRequest(BaseModel):
     dti: float | None = Field(
         default=None, ge=0, description="Tỷ lệ nợ trên thu nhập (%)"
     )
-    installment: float | None = Field(
-        default=None,
-        ge=0,
+    installment: float = Field(
+        gt=0,
         description=(
             "Số tiền phải trả hàng tháng (VNĐ). Do bên gọi tính (Loan lấy từ lịch trả "
-            "Fineract) rồi gửi sang — service KHÔNG tự tính. Bỏ trống thì điền median "
-            "từ gói model như mọi trường tùy chọn khác."
+            "Fineract) rồi gửi sang — AI không tự tính lại lịch trả nợ."
         ),
     )
     int_rate: float | None = Field(
         default=None, ge=0, le=100,
-        description="Lãi suất danh nghĩa (%/năm) từ sản phẩm Fineract",
+        description=(
+            "Lãi suất cơ sở baseRate (%/năm) do Loan gửi. AI dùng điều kiện ban đầu "
+            "này để chấm điểm; finalRate được Loan xác định sau khi nhận kết quả AI."
+        ),
     )
     term_months: int | None = Field(
         default=None, ge=1, le=24,
@@ -255,3 +256,8 @@ class CreditExplainResponse(BaseModel):
         description="Mã chốt chặn cứng bị vi phạm, nếu có.",
     )
     model_version: str
+    decision_policy_version: str = Field(
+        description=(
+            "Phiên bản bộ rule, ngưỡng hạng và ngưỡng quyết định đã dùng khi chấm hồ sơ."
+        )
+    )

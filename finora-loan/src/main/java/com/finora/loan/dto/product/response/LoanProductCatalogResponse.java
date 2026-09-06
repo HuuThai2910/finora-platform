@@ -12,7 +12,9 @@ public record LoanProductCatalogResponse(
         BigDecimal maxAmount,
         Integer minTermMonths,
         Integer maxTermMonths,
+        BigDecimal minAnnualInterestRate,
         BigDecimal annualInterestRate,
+        BigDecimal maxAnnualInterestRate,
         String interestRateUnit,
         RepaymentMethod repaymentMethod,
         String rateNotice

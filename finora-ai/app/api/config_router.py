@@ -50,8 +50,22 @@ class GradeConfig(BaseModel):
 
 
 class ApprovalThresholds(BaseModel):
-    auto_approve: int = Field(ge=0, le=100)
-    auto_reject: int = Field(ge=0, le=100)
+    auto_approve: int = Field(
+        ge=0,
+        le=100,
+        description=(
+            "Từ điểm này trở lên hồ sơ được tự duyệt. Ngưỡng có thể nằm trong "
+            "hạng cao nhất hoặc hạng cao thứ hai."
+        ),
+    )
+    auto_reject: int = Field(
+        ge=0,
+        le=100,
+        description=(
+            "Dưới điểm này hồ sơ bị từ chối tự động; vùng giữa hai ngưỡng được "
+            "chuyển cho admin thẩm định."
+        ),
+    )
 
 
 class ModelWeights(BaseModel):
@@ -67,6 +81,7 @@ class LegalLimits(BaseModel):
 
 
 class ProductConfigResponse(BaseModel):
+    decision_policy_version: str
     grades: list[GradeConfig]
     approval_thresholds: ApprovalThresholds
     model_weights: ModelWeights
@@ -149,16 +164,60 @@ def _kiem_tra_bang_hang(grades: list[GradeConfig]) -> None:
             )
 
 
-@router.put("/product", response_model=ProductConfigResponse)
-async def update_product_config(body: ProductConfigUpdate):
-    """Cập nhật khoảng điểm AI, ngưỡng duyệt và trọng số. Legal limits không đổi."""
-    if body.approval_thresholds.auto_reject >= body.approval_thresholds.auto_approve:
+def _tim_hang_theo_diem(grades: list[GradeConfig], score: int) -> GradeConfig:
+    """Tìm hạng theo đúng quy tắc min_score mà Rule Engine sử dụng lúc chấm."""
+    for grade in sorted(grades, key=lambda item: item.min_score, reverse=True):
+        if score >= grade.min_score:
+            return grade
+    return min(grades, key=lambda item: item.min_score)
+
+
+def _kiem_tra_nguong_quyet_dinh(
+    grades: list[GradeConfig], thresholds: ApprovalThresholds
+) -> None:
+    """Giữ ngưỡng duyệt độc lập với hạng nhưng chặn cấu hình trái nghiệp vụ.
+
+    Hạng dùng để định giá tại Loan, còn hai ngưỡng chọn luồng tự duyệt, thẩm định
+    hoặc từ chối. Vì độc lập, một hạng B có thể được chia thành phần điểm cao tự
+    duyệt và phần điểm thấp chờ admin; tuy nhiên không được tự duyệt hồ sơ thuộc
+    các hạng rủi ro thấp hơn hai hạng cao nhất và toàn bộ hạng thấp nhất phải bị
+    từ chối tự động.
+    """
+    if thresholds.auto_reject >= thresholds.auto_approve:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="auto_reject phải nhỏ hơn auto_approve",
         )
 
+    grades_desc = sorted(grades, key=lambda item: item.min_score, reverse=True)
+    top_grades = {grade.grade for grade in grades_desc[:2]}
+    approval_grade = _tim_hang_theo_diem(grades, thresholds.auto_approve)
+    if approval_grade.grade not in top_grades:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"auto_approve ({thresholds.auto_approve}) đang nằm trong hạng "
+                f"{approval_grade.grade}; ngưỡng tự duyệt phải thuộc một trong hai "
+                f"hạng cao nhất: {sorted(top_grades)}."
+            ),
+        )
+
+    lowest_grade = min(grades, key=lambda item: item.min_score)
+    if thresholds.auto_reject < lowest_grade.max_score:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"auto_reject phải từ {lowest_grade.max_score} trở lên để toàn bộ "
+                f"hạng thấp nhất {lowest_grade.grade} được từ chối tự động."
+            ),
+        )
+
+
+@router.put("/product", response_model=ProductConfigResponse)
+async def update_product_config(body: ProductConfigUpdate):
+    """Cập nhật khoảng điểm AI, ngưỡng duyệt và trọng số. Legal limits không đổi."""
     _kiem_tra_bang_hang(body.grades)
+    _kiem_tra_nguong_quyet_dinh(body.grades, body.approval_thresholds)
 
     if body.model_weights is not None:
         total = round(body.model_weights.pd_weight + body.model_weights.risk_weight, 4)
@@ -308,6 +367,7 @@ class TruongInfo(BaseModel):
 
 
 class RulesResponse(BaseModel):
+    decision_policy_version: str
     rules: list[RuleConfig]
     truong: list[TruongInfo]
     diem_toi_da_moi_luat: int = DIEM_TOI_DA_MOI_LUAT
@@ -319,8 +379,10 @@ class RulesUpdate(BaseModel):
 
 
 def _dung_rules_response() -> RulesResponse:
+    config = reload()
     return RulesResponse(
-        rules=[RuleConfig(**c) for c in reload()["rules"]],
+        decision_policy_version=config["decision_policy_version"],
+        rules=[RuleConfig(**c) for c in config["rules"]],
         truong=[TruongInfo(**t) for t in mo_ta_danh_muc()],
     )
 

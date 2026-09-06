@@ -73,7 +73,7 @@ public class CreditScoringAssessment {
     @Column(name = "evaluation_score", precision = 9, scale = 4)
     private BigDecimal evaluationScore;
 
-    @Column(name = "credit_grade", length = 5)
+    @Column(name = "credit_grade", length = 8)
     private String creditGrade;
 
     @Column(name = "suggested_limit", precision = 18, scale = 2)

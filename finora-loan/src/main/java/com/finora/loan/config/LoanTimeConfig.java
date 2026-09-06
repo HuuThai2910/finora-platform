@@ -8,7 +8,8 @@ import java.time.Clock;
 @Configuration
 @EnableConfigurationProperties({
         LoanPricingDisclosureProperties.class,
-        LoanContractProperties.class
+        LoanContractProperties.class,
+        RiskBasedPricingProperties.class
 })
 public class LoanTimeConfig {
 

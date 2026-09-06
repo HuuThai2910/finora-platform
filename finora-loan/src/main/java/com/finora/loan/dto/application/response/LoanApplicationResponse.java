@@ -1,6 +1,7 @@
 package com.finora.loan.dto.application.response;
 
 import com.finora.loan.domain.application.LoanApplicationStatus;
+import com.finora.loan.domain.application.LoanDecisionSource;
 import com.finora.loan.domain.application.LoanPurpose;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -18,6 +19,12 @@ public record LoanApplicationResponse(
         ApplicantFinancialResponse financialInformation,
         LoanProductSnapshotResponse productSnapshot,
         ScheduleCalculationSnapshotResponse calculationSnapshot,
+        ScheduleCalculationSnapshotResponse finalCalculationSnapshot,
+        BigDecimal finalAnnualInterestRate,
+        String pricingCreditGrade,
+        BigDecimal pricingAdjustmentPercentagePoints,
+        String pricingPolicyVersion,
+        LoanDecisionSource decisionSource,
         LocalDate expectedDisbursementDate,
         String pricingDisclosureVersion,
         Instant pricingDisclosureAcceptedAt,

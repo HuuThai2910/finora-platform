@@ -13,6 +13,24 @@ _CONFIG_PATH = Path(__file__).resolve().parent.parent.parent.parent / "config" /
 _cache: dict | None = None
 
 
+def _next_decision_policy_version(current: str) -> str:
+    """Tăng phiên bản chính sách sau mỗi lần admin thay đổi cấu hình quyết định."""
+    prefix = "CREDIT_POLICY_V"
+    if not current.startswith(prefix):
+        raise ValueError(
+            "decision_policy_version phải có dạng CREDIT_POLICY_V<so_nguyen_duong>"
+        )
+    try:
+        number = int(current.removeprefix(prefix))
+    except ValueError as exc:
+        raise ValueError(
+            "decision_policy_version phải có dạng CREDIT_POLICY_V<so_nguyen_duong>"
+        ) from exc
+    if number < 1:
+        raise ValueError("decision_policy_version phải bắt đầu từ CREDIT_POLICY_V1")
+    return f"{prefix}{number + 1}"
+
+
 def _load() -> dict:
     global _cache
     if _cache is None:
@@ -35,8 +53,12 @@ def save(config: dict) -> dict:
     `_CONFIG_PATH` trực tiếp sẽ bind đường dẫn ngay lúc import, nên test không
     trỏ được config sang file tạm và sẽ ghi đè lên file thật.
     """
+    config_to_save = dict(config)
+    config_to_save["decision_policy_version"] = _next_decision_policy_version(
+        config["decision_policy_version"]
+    )
     _CONFIG_PATH.write_text(
-        json.dumps(config, indent=2, ensure_ascii=False),
+        json.dumps(config_to_save, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
     return reload()
@@ -44,6 +66,11 @@ def save(config: dict) -> dict:
 
 def get_grades() -> list[dict]:
     return _load()["grades"]
+
+
+def get_decision_policy_version() -> str:
+    """Phiên bản bộ quy tắc dùng để giải trình và tái hiện quyết định."""
+    return _load()["decision_policy_version"]
 
 
 def get_approval_thresholds() -> dict:

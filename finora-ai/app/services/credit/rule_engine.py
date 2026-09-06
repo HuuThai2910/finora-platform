@@ -353,6 +353,10 @@ def quyet_dinh(
 ) -> str:
     """Quyết định tự động: REJECTED / PENDING_REVIEW / APPROVED.
 
+    Quyết định dựa trên ngưỡng điểm, độc lập với hạng tín dụng. Hạng A-E là đầu
+    vào để Loan định giá lãi suất; vì vậy một hồ sơ hạng B vẫn có thể chờ admin
+    nếu điểm chưa đạt `auto_approve` mà không làm thay đổi mức lãi của hạng B.
+
     Thứ tự ưu tiên:
       1. Vi phạm chốt chặn cứng           → REJECTED
       2. Thiếu dữ liệu để chấm đáng tin   → PENDING_REVIEW

@@ -15,9 +15,9 @@ Vì sao KHÔNG có int_rate
 ------------------------
 Lãi suất có sức phân biệt cao nhất trong dữ liệu (AUC 0,68) nhưng đó là target
 leakage: LendingClub gán lãi suất SAU KHI đã chấm rủi ro, nên nó là kết quả chứ
-không phải nguyên nhân. FINORA cũng tự quyết lãi suất theo hạng tín dụng mình chấm
-— dùng nó làm đầu vào là lập luận vòng tròn. int_rate chỉ dùng ở chốt chặn pháp lý
-(trần 20%/năm) và để tính ra số tiền phải trả hàng tháng (`_tinh_tien_tra_thang`).
+không phải nguyên nhân. FINORA truyền `int_rate` như baseRate của điều kiện vay ban
+đầu; trường này chỉ dùng ở chốt chặn pháp lý (trần 20%/năm), không dùng trong các
+luật cộng điểm và không dùng để tự tính tiền trả hàng tháng.
 Không đưa vào danh mục thì admin không thể vô tình tạo luật chấm theo lãi suất.
 """
 
@@ -62,36 +62,17 @@ def _ty_le_lai_nam(int_rate: float) -> float:
     return int_rate / 100.0
 
 
-def _tinh_tien_tra_thang(f: dict) -> float | None:
-    """Số tiền trả hàng tháng theo công thức niên kim, None nếu thiếu dữ liệu."""
-    goc = _so_hoac_none(f.get("loan_amnt"))
-    ky_han = _so_hoac_none(f.get("term_months"))
-    lai_nam = _so_hoac_none(f.get("int_rate"))
-    if goc is None or ky_han is None or ky_han <= 0 or lai_nam is None:
-        return None
-
-    lai_thang = _ty_le_lai_nam(lai_nam) / 12.0
-    so_ky = int(ky_han)
-    if lai_thang <= 0:
-        return goc / so_ky
-    luy_thua = (1 + lai_thang) ** so_ky
-    return goc * lai_thang * luy_thua / (luy_thua - 1)
-
-
 def _lay_ty_le_tra_no_thang(f: dict) -> float | None:
     """Tiền trả hàng tháng chia thu nhập tháng.
 
-    Ưu tiên `installment` do bên gọi đưa sang (Loan lấy từ lịch trả Fineract).
-    Thiếu thì tự tính từ lãi suất và kỳ hạn — dùng lãi suất ở đây là để ra số tiền
-    phải trả, không phải lấy nó làm thước đo rủi ro.
+    `installment` là dữ liệu bắt buộc do Loan lấy từ lịch trả Fineract. AI chỉ tính
+    tỷ lệ phục vụ chấm điểm, không tự tính lại khoản trả hoặc lịch trả nợ.
     """
     thu_nhap_nam = _so_hoac_none(f.get("annual_inc"))
     if not thu_nhap_nam or thu_nhap_nam <= 0:
         return None
 
     tra_thang = _so_hoac_none(f.get("installment"))
-    if tra_thang is None:
-        tra_thang = _tinh_tien_tra_thang(f)
     if tra_thang is None:
         return None
 

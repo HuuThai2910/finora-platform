@@ -1,18 +1,23 @@
 package com.finora.loan.integration.ai.contract;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.finora.loan.domain.scoring.AiRecommendation;
 import java.math.BigDecimal;
+import java.util.List;
 
-/** Snapshot allowlist để suggested_rate không được lưu trong JSON bằng chứng của Loan. */
+/** Snapshot allowlist của toàn bộ bằng chứng v17 cần cho người vay, thẩm định viên và kiểm toán. */
 public record StoredAiCreditResponse(
         BigDecimal pdProbability,
         Integer riskScore,
         BigDecimal evaluationScore,
         String creditGrade,
-        BigDecimal suggestedLimit,
         AiRecommendation recommendation,
-        String rejectionReason,
-        String modelVersion
+        JsonNode borrowerExplanation,
+        JsonNode modelExplanation,
+        JsonNode ruleTrace,
+        List<String> rejectionReasons,
+        String modelVersion,
+        String decisionPolicyVersion
 ) {
     public static StoredAiCreditResponse from(AiCreditScoreResponse response) {
         return new StoredAiCreditResponse(
@@ -20,10 +25,13 @@ public record StoredAiCreditResponse(
                 response.riskScore(),
                 response.evaluationScore(),
                 response.creditGrade(),
-                response.suggestedLimit(),
                 response.decision(),
-                response.rejectionReason(),
-                response.modelVersion()
+                response.borrowerExplanation(),
+                response.modelExplanation(),
+                response.ruleTrace(),
+                response.rejectionReasons() == null ? List.of() : List.copyOf(response.rejectionReasons()),
+                response.modelVersion(),
+                response.decisionPolicyVersion()
         );
     }
 }

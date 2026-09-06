@@ -1,10 +1,9 @@
 package com.finora.loan.integration.ai.contract;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.finora.loan.domain.application.HomeOwnership;
 import java.math.BigDecimal;
 
-/** Contract đúng 13 field runtime của AI v10; không chứa target huấn luyện hoặc FICO/CIC. */
+/** Contract request của AI v17; installment và base rate đều do Loan/Fineract cung cấp. */
 public record AiCreditScoreRequest(
         @JsonProperty("person_age") Integer personAge,
         @JsonProperty("emp_length") String employmentLength,
@@ -16,8 +15,8 @@ public record AiCreditScoreRequest(
         @JsonProperty("term_months") Integer termMonths,
         @JsonProperty("verification_status") String verificationStatus,
         BigDecimal dti,
-        @JsonProperty("delinq_2yrs") Integer delinquenciesLast2Years,
-        @JsonProperty("pub_rec") Integer publicRecordProxy,
-        BigDecimal installment
+        BigDecimal installment,
+        @JsonProperty("interest_method") String interestMethod,
+        @JsonProperty("so_cccd") String citizenIdentityNumber
 ) {
 }

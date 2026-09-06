@@ -1,0 +1,2 @@
+# Các script này chạy trong Linux container nên luôn phải dùng LF.
+*.sh text eol=lf

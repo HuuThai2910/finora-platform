@@ -1,17 +1,14 @@
 package com.finora.loan.service.decision;
 
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.common.logging.TraceContext;
 import com.finora.loan.config.LoanContractProperties;
 import com.finora.loan.domain.application.ActorType;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.application.LoanApplicationStatus;
 import com.finora.loan.domain.application.LoanApplicationStatusHistory;
 import com.finora.loan.domain.contract.LoanContract;
-import com.finora.loan.domain.contract.LoanContractStatus;
-import com.finora.loan.domain.contract.LoanContractStatusHistory;
-import com.finora.loan.domain.contract.LoanContractTerms;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
+import com.finora.loan.domain.core.ScheduleCalculationPurpose;
 import com.finora.loan.domain.decision.AdminDecisionReasonCode;
 import com.finora.loan.domain.scoring.CreditAssessmentStatus;
 import com.finora.loan.domain.scoring.CreditScoringAssessment;
@@ -21,12 +18,9 @@ import com.finora.loan.exception.LoanBusinessException;
 import com.finora.loan.repository.application.LoanApplicationRepository;
 import com.finora.loan.repository.application.LoanApplicationStatusHistoryRepository;
 import com.finora.loan.repository.contract.LoanContractRepository;
-import com.finora.loan.repository.contract.LoanContractStatusHistoryRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
 import com.finora.loan.repository.scoring.CreditScoringAssessmentRepository;
-import com.finora.loan.service.contract.ContractDocumentRenderer;
-import com.finora.loan.service.contract.ContractNumberGenerator;
-import com.finora.loan.support.HashingService;
+import com.finora.loan.service.contract.LoanContractCreationService;
 import java.time.Clock;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
@@ -42,10 +36,7 @@ public class AdminLoanDecisionStateService {
     private final CreditScoringAssessmentRepository assessmentRepository;
     private final ScheduleCalculationSnapshotRepository scheduleRepository;
     private final LoanContractRepository contractRepository;
-    private final LoanContractStatusHistoryRepository contractHistoryRepository;
-    private final ContractNumberGenerator contractNumberGenerator;
-    private final ContractDocumentRenderer documentRenderer;
-    private final HashingService hashingService;
+    private final LoanContractCreationService contractCreationService;
     private final LoanContractProperties properties;
     private final Clock clock;
 
@@ -83,12 +74,6 @@ public class AdminLoanDecisionStateService {
         }
         ScheduleCalculationSnapshot schedule = schedule(application);
         Instant expiresAt = expiry(request.contractExpiresAt(), now);
-        String contractNumber = contractNumberGenerator.next();
-        String documentContent = documentRenderer.render(
-                contractNumber, application, schedule, properties.termsVersion(),
-                properties.documentVersion(), expiresAt);
-        String documentHash = hashingService.sha256Text(documentContent);
-
         application.approveByAdmin(
                 request.applicationVersion(), request.assessmentId(), request.decisionReasonCode().name(),
                 request.decisionReasonDetail(), properties.decisionPolicyVersion(), idempotencyKey,
@@ -99,14 +84,8 @@ public class AdminLoanDecisionStateService {
                 request.decisionReasonCode().name(), request.decisionReasonDetail(),
                 ActorType.ADMIN, actorId, now));
 
-        LoanContract contract = LoanContract.create(
-                contractNumber, application.getId(), application.getBorrowerId(), terms(application, schedule),
-                properties.termsVersion(), properties.documentVersion(), documentContent, documentHash,
-                expiresAt, actorId, now);
-        contractRepository.saveAndFlush(contract);
-        contractHistoryRepository.saveAndFlush(LoanContractStatusHistory.create(
-                contract.getId(), null, LoanContractStatus.PENDING_SIGNATURE, "CONTRACT_CREATED",
-                ActorType.ADMIN, actorId, now, TraceContext.currentTraceIdOrCreate()));
+        LoanContract contract = contractCreationService.create(
+                application, schedule, expiresAt, ActorType.ADMIN, actorId, "CONTRACT_CREATED", now);
         return new AdminDecisionResult(application, contract);
     }
 
@@ -198,16 +177,17 @@ public class AdminLoanDecisionStateService {
     }
 
     private ScheduleCalculationSnapshot schedule(LoanApplication application) {
-        ScheduleCalculationSnapshot schedule = scheduleRepository.findByApplicationId(application.getId())
+        ScheduleCalculationSnapshot schedule = scheduleRepository.findByApplicationIdAndPurpose(
+                        application.getId(), ScheduleCalculationPurpose.CONTRACT)
                 .orElseThrow(() -> LoanBusinessException.conflict(
-                        "SUBMISSION_SCHEDULE_REQUIRED",
-                        "Hồ sơ chưa có schedule submission để tạo Contract"
+                        "FINAL_SCHEDULE_REQUIRED",
+                        "Hồ sơ chưa có lịch trả nợ cuối để tạo Contract"
                 ));
-        if (!schedule.getId().equals(application.getSubmissionCalculationSnapshotId())
+        if (!schedule.getId().equals(application.getFinalCalculationSnapshotId())
                 || schedule.getTotalPrincipal().compareTo(application.getRequestedAmount()) != 0) {
             throw LoanBusinessException.conflict(
-                    "SUBMISSION_SCHEDULE_MISMATCH",
-                    "Schedule submission không khớp exact terms của hồ sơ"
+                    "FINAL_SCHEDULE_MISMATCH",
+                    "Lịch trả nợ cuối không khớp exact terms của hồ sơ"
             );
         }
         return schedule;
@@ -224,13 +204,4 @@ public class AdminLoanDecisionStateService {
         return resolved;
     }
 
-    private LoanContractTerms terms(LoanApplication application, ScheduleCalculationSnapshot schedule) {
-        return new LoanContractTerms(
-                application.getRequestedAmount(), application.getRequestedTermMonths(),
-                application.getAnnualInterestRateSnapshot(), application.getRepaymentMethodSnapshot(),
-                schedule.getId(), schedule.getTotalInterest(), schedule.getTotalFees(),
-                schedule.getTotalPenalties(), schedule.getTotalRepayment(), schedule.getFirstInstallment(),
-                schedule.getMaximumInstallment(), schedule.getResponseHash(), schedule.getExpectedDisbursementDate()
-        );
-    }
 }

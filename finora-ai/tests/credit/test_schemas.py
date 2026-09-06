@@ -15,6 +15,7 @@ class TestCreditScoreRequestSoCccd:
             loan_amnt=50_000_000,
             purpose="debt_consolidation",
             home_ownership="MORTGAGE",
+            installment=4_500_000,
         )
         assert req.so_cccd is None
 
@@ -25,6 +26,7 @@ class TestCreditScoreRequestSoCccd:
             loan_amnt=50_000_000,
             purpose="debt_consolidation",
             home_ownership="MORTGAGE",
+            installment=4_500_000,
             so_cccd="012345678901",
         )
         assert req.so_cccd == "012345678901"
@@ -39,6 +41,7 @@ class TestCreditScoreRequestFineract:
             loan_amnt=50_000_000,
             purpose="debt_consolidation",
             home_ownership="MORTGAGE",
+            installment=4_500_000,
         )
         assert req.int_rate is None
         assert req.term_months is None
@@ -49,6 +52,7 @@ class TestCreditScoreRequestFineract:
             loan_amnt=50_000_000,
             purpose="debt_consolidation",
             home_ownership="MORTGAGE",
+            installment=4_500_000,
             int_rate=12.0,
             term_months=12,
         )
@@ -64,7 +68,20 @@ class TestCreditScoreRequestFineract:
                 loan_amnt=50_000_000,
                 purpose="debt_consolidation",
                 home_ownership="MORTGAGE",
+                installment=4_500_000,
                 term_months=25,
+            )
+
+    def test_installment_la_bat_buoc(self):
+        """AI không tự suy ra khoản trả; Loan phải gửi kết quả tính từ Fineract."""
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError):
+            CreditScoreRequest(
+                annual_inc=300_000_000,
+                loan_amnt=50_000_000,
+                purpose="debt_consolidation",
+                home_ownership="MORTGAGE",
             )
 
 

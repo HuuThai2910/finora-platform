@@ -13,11 +13,13 @@ class LoanProductTest {
     private static final Instant NOW = Instant.parse("2026-08-02T08:00:00Z");
 
     @Test
-    void shouldCreateFixedRateDraftNotSynced() {
+    void shouldCreateRiskBasedRateRangeDraftNotSynced() {
         LoanProduct product = product("personal_standard");
 
         assertThat(product.getCode()).isEqualTo("PERSONAL_STANDARD");
+        assertThat(product.getMinAnnualInterestRate()).isEqualByComparingTo("10.0000");
         assertThat(product.getAnnualInterestRate()).isEqualByComparingTo("12.5000");
+        assertThat(product.getMaxAnnualInterestRate()).isEqualByComparingTo("15.0000");
         assertThat(product.getRepaymentMethod()).isEqualTo(RepaymentMethod.ANNUITY);
         assertThat(product.getStatus()).isEqualTo(LoanProductStatus.DRAFT);
         assertThat(product.getCoreSyncStatus()).isEqualTo(CoreSyncStatus.NOT_SYNCED);
@@ -53,7 +55,8 @@ class LoanProductTest {
         return LoanProduct.create(
                 code, "Vay tiêu dùng tiêu chuẩn", "Mô tả",
                 new BigDecimal("10000000"), new BigDecimal("100000000"),
-                6, 24, new BigDecimal("12.5"), RepaymentMethod.ANNUITY,
+                6, 24, new BigDecimal("10"), new BigDecimal("12.5"), new BigDecimal("15"),
+                RepaymentMethod.ANNUITY,
                 "ADMIN-1", NOW);
     }
 }

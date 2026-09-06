@@ -1,4 +1,5 @@
 {
+  "decision_policy_version": "CREDIT_POLICY_V1",
   "grades": [
     {
       "grade": "A",
@@ -129,7 +130,7 @@
     {
       "ma": "CHARACTER_CIC_HISTORY",
       "mo_ta": "Điểm tín dụng CIC — lịch sử trả nợ tại các tổ chức tín dụng",
-      "truong": "emp_length_years",
+      "truong": "cic_score",
       "nghich_dao": false,
       "trong_so": 1.0,
       "bat": true,

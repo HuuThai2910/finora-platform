@@ -9,6 +9,6 @@ public record CreditScoringSourceSnapshot(
         String scheduleCalculationPolicyVersion,
         String internalCreditSource,
         String internalCreditPolicyVersion,
-        String publicRecordAdapterPolicy
+        String citizenIdentitySource
 ) {
 }
