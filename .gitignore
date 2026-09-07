@@ -36,3 +36,4 @@ docker/.env
 # === Docker volumes ===
 docker/mysql/data/
 docker/fabric-network/crypto-config/
+/finora-loan/plans/

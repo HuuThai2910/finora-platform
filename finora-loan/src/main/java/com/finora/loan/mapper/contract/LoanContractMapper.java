@@ -2,11 +2,13 @@ package com.finora.loan.mapper.contract;
 
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.contract.LoanContract;
+import com.finora.loan.domain.contract.LoanContractDocument;
 import com.finora.loan.domain.contract.LoanContractStatusHistory;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
 import com.finora.loan.dto.contract.response.LoanContractActionResponse;
 import com.finora.loan.dto.contract.response.LoanContractDetailResponse;
 import com.finora.loan.dto.contract.response.LoanContractHistoryResponse;
+import com.finora.loan.dto.contract.response.LoanContractPdfResponse;
 import com.finora.loan.dto.contract.response.LoanContractSummaryResponse;
 import com.finora.loan.mapper.core.ScheduleCalculationSnapshotMapper;
 import java.time.Instant;
@@ -32,7 +34,8 @@ public class LoanContractMapper {
     public LoanContractDetailResponse toDetail(
             LoanContract contract,
             LoanApplication application,
-            ScheduleCalculationSnapshot schedule
+            ScheduleCalculationSnapshot schedule,
+            LoanContractDocument pdfDocument
     ) {
         return new LoanContractDetailResponse(
                 contract.getContractNumber(), application.getApplicationNumber(), contract.getPrincipalAmount(),
@@ -42,10 +45,22 @@ public class LoanContractMapper {
                 contract.getExpectedDisbursementDate(), contract.getScheduleResponseHash(),
                 scheduleMapper.periods(schedule), contract.getTermsVersion(), contract.getDocumentVersion(),
                 contract.getDocumentContent(), contract.getDocumentContentType(), contract.getDocumentHash(),
+                toPdf(contract, pdfDocument),
                 contract.getStatus(), contract.getSignedBy(), contract.getSignedAt(), contract.getSignatureMethod(),
                 contract.getDeclinedBy(), contract.getDeclinedAt(), contract.getDeclineReasonCode(),
                 contract.getDeclineReasonDetail(), contract.getExpiresAt(), contract.getEffectiveAt(),
                 contract.getVersion(), contract.getCreatedAt(), contract.getUpdatedAt()
+        );
+    }
+
+    private LoanContractPdfResponse toPdf(LoanContract contract, LoanContractDocument document) {
+        if (document == null) {
+            return null;
+        }
+        return new LoanContractPdfResponse(
+                document.getArtifactType(), document.getDocumentVersion(), document.getContentType(),
+                document.getContentHash(), document.getContentLength(),
+                "/loan-contracts/" + contract.getContractNumber() + "/document"
         );
     }
 

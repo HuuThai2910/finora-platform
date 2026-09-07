@@ -31,6 +31,7 @@ public record LoanContractDetailResponse(
         String documentContent,
         String documentContentType,
         String documentHash,
+        LoanContractPdfResponse pdfDocument,
         LoanContractStatus status,
         String signedBy,
         Instant signedAt,

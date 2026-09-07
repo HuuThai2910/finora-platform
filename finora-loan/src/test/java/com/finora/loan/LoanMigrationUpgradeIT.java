@@ -23,7 +23,7 @@ class LoanMigrationUpgradeIT {
             .withPassword("finora_test");
 
     @Test
-    void existingV4DatabaseUpgradesThroughV8WithoutRecreatingOldTables() throws Exception {
+    void existingV4DatabaseUpgradesThroughV9WithoutRecreatingOldTables() throws Exception {
         Flyway.configure()
                 .dataSource(POSTGRESQL.getJdbcUrl(), POSTGRESQL.getUsername(), POSTGRESQL.getPassword())
                 .locations("classpath:db/migration")
@@ -37,7 +37,7 @@ class LoanMigrationUpgradeIT {
                 .load();
         upgraded.migrate();
 
-        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("8");
+        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("9");
         assertThat(upgraded.info().pending()).isEmpty();
         try (Connection connection = POSTGRESQL.createConnection("");
              Statement statement = connection.createStatement();
@@ -45,10 +45,14 @@ class LoanMigrationUpgradeIT {
                      SELECT COUNT(*)
                      FROM information_schema.tables
                      WHERE table_schema = 'public'
-                       AND table_name IN ('loan_contracts', 'loan_contract_status_histories')
+                       AND table_name IN (
+                           'loan_contracts',
+                           'loan_contract_status_histories',
+                           'loan_contract_documents'
+                       )
                      """)) {
             assertThat(result.next()).isTrue();
-            assertThat(result.getInt(1)).isEqualTo(2);
+            assertThat(result.getInt(1)).isEqualTo(3);
         }
         try (Connection connection = POSTGRESQL.createConnection("");
              Statement statement = connection.createStatement();

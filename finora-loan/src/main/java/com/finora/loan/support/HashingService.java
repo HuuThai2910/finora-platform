@@ -49,9 +49,14 @@ public class HashingService {
 
     /** Trả SHA-256 chữ thường dạng hexadecimal; không dùng hàm này để lưu mật khẩu. */
     public String sha256Text(String value) {
+        return sha256Bytes(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** Băm đúng bytes của artifact nhị phân để client đối chiếu file đã tải, không băm lại nội dung hiển thị. */
+    public String sha256Bytes(byte[] value) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(value.getBytes(StandardCharsets.UTF_8));
+                    .digest(value);
             return HexFormat.of().formatHex(digest);
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("JVM không hỗ trợ SHA-256", exception);

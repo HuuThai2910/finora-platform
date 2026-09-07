@@ -8,6 +8,7 @@ import com.finora.loan.dto.contract.response.LoanContractDetailResponse;
 import com.finora.loan.dto.contract.response.LoanContractHistoryResponse;
 import com.finora.loan.dto.contract.response.LoanContractSummaryResponse;
 import com.finora.loan.service.contract.LoanContractService;
+import com.finora.loan.service.contract.LoanContractPdfContent;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -23,6 +24,9 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseEntity;
 
 @RestController
 @RequestMapping("/api/v1/loan-contracts")
@@ -45,6 +49,21 @@ public class LoanContractController {
             @PathVariable @NotBlank @Size(max = 50) String contractNumber
     ) {
         return service.detail(contractNumber);
+    }
+
+    @GetMapping("/{contractNumber}/document")
+    public ResponseEntity<byte[]> document(
+            @PathVariable @NotBlank @Size(max = 50) String contractNumber
+    ) {
+        LoanContractPdfContent document = service.document(contractNumber);
+        byte[] content = document.content();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + document.fileName() + "\"")
+                .header(HttpHeaders.ETAG, "\"" + document.contentHash() + "\"")
+                .cacheControl(CacheControl.noStore())
+                .contentType(org.springframework.http.MediaType.parseMediaType(document.contentType()))
+                .contentLength(content.length)
+                .body(content);
     }
 
     @GetMapping("/{contractNumber}/history")

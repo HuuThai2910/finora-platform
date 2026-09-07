@@ -4,15 +4,23 @@ import com.finora.common.exception.ResourceNotFoundException;
 import com.finora.common.logging.TraceContext;
 import com.finora.loan.config.LoanContractProperties;
 import com.finora.loan.domain.application.ActorType;
+import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.contract.ConsentAction;
+import com.finora.loan.domain.contract.ContractPdfArtifactType;
 import com.finora.loan.domain.contract.LoanContract;
+import com.finora.loan.domain.contract.LoanContractDocument;
 import com.finora.loan.domain.contract.LoanContractStatus;
 import com.finora.loan.domain.contract.LoanContractStatusHistory;
+import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
 import com.finora.loan.dto.contract.request.DeclineLoanContractRequest;
 import com.finora.loan.dto.contract.request.SignLoanContractRequest;
 import com.finora.loan.exception.LoanBusinessException;
 import com.finora.loan.repository.contract.LoanContractRepository;
+import com.finora.loan.repository.contract.LoanContractDocumentRepository;
 import com.finora.loan.repository.contract.LoanContractStatusHistoryRepository;
+import com.finora.loan.repository.application.LoanApplicationRepository;
+import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
+import com.finora.loan.support.HashingService;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -26,7 +34,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class LoanContractStateService {
 
     private final LoanContractRepository contractRepository;
+    private final LoanContractDocumentRepository contractDocumentRepository;
     private final LoanContractStatusHistoryRepository historyRepository;
+    private final LoanApplicationRepository applicationRepository;
+    private final ScheduleCalculationSnapshotRepository scheduleRepository;
+    private final ContractPdfRenderer pdfRenderer;
+    private final HashingService hashingService;
     private final LoanContractProperties properties;
     private final Clock clock;
 
@@ -50,12 +63,49 @@ public class LoanContractStateService {
         if (expireDuringConsent(contract, now)) {
             return new ContractConsentResult(contract, true);
         }
+        LoanContractDocument signablePdf = contractDocumentRepository
+                .findByContractIdAndArtifactType(contract.getId(), ContractPdfArtifactType.SIGNABLE)
+                .orElse(null);
+        verifyPdfConsent(signablePdf, request.pdfDocumentHash());
         contract.sign(request.version(), request.documentHash(), request.signatureMethod(),
                 idempotencyKey, requestHash, actorId, now);
         contractRepository.saveAndFlush(contract);
+        if (signablePdf != null) {
+            LoanApplication application = applicationRepository.findById(contract.getApplicationId())
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "Loan Application", "id", contract.getApplicationId()));
+            ScheduleCalculationSnapshot schedule = scheduleRepository.findById(contract.getCalculationSnapshotId())
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "Schedule Calculation Snapshot", "id", contract.getCalculationSnapshotId()));
+            ContractPdfArtifact receipt = pdfRenderer.renderSignedReceipt(
+                    contract, application, schedule, signablePdf.getContentHash());
+            contractDocumentRepository.saveAndFlush(LoanContractDocument.create(
+                    contract.getId(), receipt.artifactType(), receipt.documentVersion(),
+                    receipt.contentHash(), receipt.content(), now
+            ));
+        }
         saveHistory(contract, LoanContractStatus.PENDING_SIGNATURE, LoanContractStatus.SIGNED,
                 "CONTRACT_SIGNED", ActorType.BORROWER, actorId, now);
         return new ContractConsentResult(contract, false);
+    }
+
+    private void verifyPdfConsent(LoanContractDocument signablePdf, String expectedPdfHash) {
+        if (signablePdf == null) {
+            return;
+        }
+        if (expectedPdfHash == null || expectedPdfHash.isBlank()
+                || !signablePdf.getContentHash().equals(expectedPdfHash)) {
+            throw LoanBusinessException.conflict(
+                    "CONTRACT_PDF_MISMATCH",
+                    "Bản PDF hợp đồng đã xem không khớp phiên bản cần ký"
+            );
+        }
+        if (!signablePdf.getContentHash().equals(hashingService.sha256Bytes(signablePdf.contentCopy()))) {
+            throw LoanBusinessException.conflict(
+                    "CONTRACT_PDF_INTEGRITY_FAILED",
+                    "Bản PDF hợp đồng lưu trữ không vượt qua kiểm tra toàn vẹn"
+            );
+        }
     }
 
     /** Decline là terminal transition riêng, không đổi ngược Application APPROVED. */
