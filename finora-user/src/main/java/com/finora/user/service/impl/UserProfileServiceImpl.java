@@ -3,9 +3,11 @@ package com.finora.user.service.impl;
 import com.finora.common.dto.PageResponse;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.exception.ResourceNotFoundException;
+import com.finora.user.domain.EkycStatus;
 import com.finora.user.domain.UserProfile;
 import com.finora.user.domain.UserRole;
 import com.finora.user.dto.response.UserProfileResponse;
+import com.finora.user.dto.response.UserStatsResponse;
 import com.finora.user.mapper.UserProfileMapper;
 import com.finora.user.repository.UserProfileRepository;
 import com.finora.user.service.KeycloakAdminService;
@@ -19,6 +21,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -51,12 +56,25 @@ public class UserProfileServiceImpl implements UserProfileService {
     // ── Quản trị (Admin) ────────────────────────────────────────────
 
     @Override
-    public PageResponse<UserProfileResponse> getAllUsers(Pageable pageable) {
-        Page<UserProfile> page = userProfileRepository.findAllByOrderByCreatedAtDesc(pageable);
+    public PageResponse<UserProfileResponse> getAllUsers(String role, String ekycStatus, Pageable pageable) {
+        UserRole roleFilter = parseRole(role);
+        EkycStatus ekycFilter = parseEkycStatus(ekycStatus);
+
+        Page<UserProfile> page;
+        if (roleFilter != null && ekycFilter != null) {
+            page = userProfileRepository
+                    .findByRoleAndEkycStatusOrderByCreatedAtDesc(roleFilter, ekycFilter, pageable);
+        } else if (roleFilter != null) {
+            page = userProfileRepository.findByRoleOrderByCreatedAtDesc(roleFilter, pageable);
+        } else if (ekycFilter != null) {
+            page = userProfileRepository.findByEkycStatusOrderByCreatedAtDesc(ekycFilter, pageable);
+        } else {
+            page = userProfileRepository.findAllByOrderByCreatedAtDesc(pageable);
+        }
 
         return PageResponse.<UserProfileResponse>builder()
                 .content(page.getContent().stream()
-                        .map(userProfileMapper::toResponse)
+                        .map(this::toAdminResponse)
                         .toList())
                 .page(page.getNumber())
                 .size(page.getSize())
@@ -64,6 +82,68 @@ public class UserProfileServiceImpl implements UserProfileService {
                 .totalPages(page.getTotalPages())
                 .last(page.isLast())
                 .build();
+    }
+
+    @Override
+    public UserStatsResponse getUserStats() {
+        return UserStatsResponse.builder()
+                .total(userProfileRepository.count())
+                .byRole(toCountMap(userProfileRepository.countGroupedByRole()))
+                .byEkycStatus(toCountMap(userProfileRepository.countGroupedByEkycStatus()))
+                .build();
+    }
+
+    /** Gom kết quả {@code [enum, count]} thành map khóa là tên enum. */
+    private Map<String, Long> toCountMap(List<Object[]> rows) {
+        Map<String, Long> result = new LinkedHashMap<>();
+        for (Object[] row : rows) {
+            if (row[0] != null) {
+                result.put(((Enum<?>) row[0]).name(), ((Number) row[1]).longValue());
+            }
+        }
+        return result;
+    }
+
+    /** Chuỗi rỗng, null hoặc "ALL" đều nghĩa là không lọc. */
+    private UserRole parseRole(String role) {
+        if (isNoFilter(role)) return null;
+        try {
+            return UserRole.valueOf(role.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "Vai trò không hợp lệ: " + role);
+        }
+    }
+
+    private EkycStatus parseEkycStatus(String status) {
+        if (isNoFilter(status)) return null;
+        try {
+            return EkycStatus.valueOf(status.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST,
+                    "Trạng thái eKYC không hợp lệ: " + status);
+        }
+    }
+
+    private boolean isNoFilter(String value) {
+        return value == null || value.isBlank() || "ALL".equalsIgnoreCase(value);
+    }
+
+    @Override
+    public UserProfileResponse getUserById(Long userId) {
+        return toAdminResponse(findByIdOrThrow(userId));
+    }
+
+    /**
+     * Map hồ sơ cho màn hình quản trị — kèm trạng thái khóa đọc từ Keycloak.
+     * <p>
+     * Keycloak mới là nguồn sự thật của việc bật/tắt tài khoản, DB service này
+     * không lưu cờ đó nên phải tra cứu thêm khi admin xem.
+     */
+    private UserProfileResponse toAdminResponse(UserProfile profile) {
+        UserProfileResponse response = userProfileMapper.toResponse(profile);
+        Boolean enabled = keycloakAdminService.isUserEnabled(profile.getKeycloakUserId().toString());
+        response.setLocked(enabled == null ? null : !enabled);
+        return response;
     }
 
     @Override

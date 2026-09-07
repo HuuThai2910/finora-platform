@@ -232,6 +232,20 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
     }
 
     @Override
+    public Boolean isUserEnabled(String keycloakUserId) {
+        try {
+            UserRepresentation user = getRealmResource().users().get(keycloakUserId).toRepresentation();
+            return user.isEnabled();
+
+        } catch (Exception e) {
+            // Không ném lỗi: danh sách người dùng vẫn phải hiển thị được khi Keycloak
+            // tạm thời không tra cứu được trạng thái khóa.
+            log.warn("Không đọc được trạng thái tài khoản Keycloak: keycloakUserId={}", keycloakUserId);
+            return null;
+        }
+    }
+
+    @Override
     public void assignRole(String keycloakUserId, String roleName) {
         try {
             RealmResource realmResource = getRealmResource();

@@ -2,6 +2,7 @@ package com.finora.user.service;
 
 import com.finora.common.dto.PageResponse;
 import com.finora.user.dto.response.UserProfileResponse;
+import com.finora.user.dto.response.UserStatsResponse;
 import org.springframework.data.domain.Pageable;
 
 import java.util.UUID;
@@ -16,7 +17,26 @@ public interface UserProfileService {
 
     UserProfileResponse getMyProfile(UUID keycloakUserId);
 
-    PageResponse<UserProfileResponse> getAllUsers(Pageable pageable);
+    /**
+     * Danh sách người dùng, lọc tùy chọn theo vai trò và trạng thái eKYC.
+     * <p>
+     * Lọc ở tầng DB để kết quả trải trên toàn bộ dữ liệu, không giới hạn trong
+     * trang đang tải.
+     *
+     * @param role       tên vai trò, {@code null} hoặc rỗng là không lọc
+     * @param ekycStatus tên trạng thái eKYC, {@code null} hoặc rỗng là không lọc
+     */
+    PageResponse<UserProfileResponse> getAllUsers(String role, String ekycStatus, Pageable pageable);
+
+    /** Thống kê tổng số người dùng theo vai trò và trạng thái eKYC. */
+    UserStatsResponse getUserStats();
+
+    /**
+     * Xem chi tiết hồ sơ một người dùng bất kỳ — dành cho admin.
+     *
+     * @param userId ID hồ sơ trong bảng {@code user_profiles}
+     */
+    UserProfileResponse getUserById(Long userId);
 
     /**
      * Khóa tài khoản — kiểm tra admin không tự khóa chính mình.
