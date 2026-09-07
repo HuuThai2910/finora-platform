@@ -46,7 +46,7 @@ ACCEPTED --(quyết định mới thay thế)--> SUPERSEDED
 | LN-005 | Borrower profile/KYC provider | LN-004; User contract hoặc mock provider | `ACCEPTED` | [LN-005](plans/LN-005-borrower-profile-kyc.md) |
 | LN-006 | Fineract Product/initial/final Schedule adapter | LN-003; Fineract fixture | `REVIEW` | [LN-006](plans/LN-006-fineract-product-schedule-integration.md) |
 | LN-007 | AI v17 assessment, risk pricing và automated decision | LN-004, LN-005, LN-006; AI v17 fixture | `REVIEW` | [LN-007](plans/LN-007-credit-profile-ai-assessment.md) |
-| LN-008 | Admin/AI decision, LoanContract, borrower signature | LN-007; consent policy | `REVIEW` | [LN-008](plans/LN-008-approval-loan-contract.md) |
+| LN-008 | Admin/AI decision, LoanContract, borrower signature | LN-007; consent policy | `IN_PROGRESS` | [LN-008](plans/LN-008-approval-loan-contract.md) |
 | LN-009 | Market listing và funding outbox | Contract `SIGNED`; Investment contract | `BACKLOG` | [LN-009](plans/LN-009-market-listing-outbox.md) |
 | LN-010 | Funding completion consumer | LN-009; Investment contract | `BACKLOG` | [LN-010](plans/LN-010-fully-funded-consumer.md) |
 | LN-011 | Disbursement saga và Fineract loan booking | LN-010; Payment/Fineract contract | `BACKLOG` | [LN-011](plans/LN-011-disbursement-fineract-booking-saga.md) |
@@ -142,3 +142,4 @@ Chỉ Thái đánh `ACCEPTED` sau khi đọc code, chạy thử và nghiệm thu
 | 2026-08-09 | Tài liệu Loan | Áp dụng rule 09/planning skill; bổ sung ERD hiện tại–dự kiến, cardinality, field impact và giải thích query/index/transaction/concurrency/worker cho Design và LN-003–LN-014 | Đã cập nhật, không đổi trạng thái task |
 | 2026-08-09 | LN-003 / Frontend | Bổ sung admin Product list phân trang, filter status/core sync và Flyway V6 để web không dùng nhầm catalog borrower | Đã triển khai, chờ Thái nghiệm thu cùng frontend |
 | 2026-09-05 | LN-003/004/006/007/008 | Chuyển Product sang min/base/max, AI v17, grade pricing, final schedule và auto decision; thêm sổ pháp lý trung tâm | Code/tài liệu ở `REVIEW`, chờ integration sạch và Thái/Hải review phần sở hữu |
+| 2026-09-07 | LN-008 / Mobile | Thái duyệt mở rộng Contract sang PDF server bất biến, hash khi consent và mobile mở/tải đúng artifact; SmartCA/nhà đầu tư thật vẫn thuộc task sau | `IN_PROGRESS`, đang kiểm thử migration/API/bundle |

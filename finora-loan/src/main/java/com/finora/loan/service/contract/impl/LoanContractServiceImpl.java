@@ -4,7 +4,10 @@ import com.finora.common.exception.ResourceNotFoundException;
 import com.finora.loan.security.CurrentUserProvider;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.contract.ConsentAction;
+import com.finora.loan.domain.contract.ContractPdfArtifactType;
 import com.finora.loan.domain.contract.LoanContract;
+import com.finora.loan.domain.contract.LoanContractDocument;
+import com.finora.loan.domain.contract.LoanContractStatus;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
 import com.finora.loan.dto.common.PageResponse;
 import com.finora.loan.dto.contract.request.DeclineLoanContractRequest;
@@ -17,10 +20,12 @@ import com.finora.loan.exception.LoanBusinessException;
 import com.finora.loan.mapper.contract.LoanContractMapper;
 import com.finora.loan.repository.application.LoanApplicationRepository;
 import com.finora.loan.repository.contract.LoanContractRepository;
+import com.finora.loan.repository.contract.LoanContractDocumentRepository;
 import com.finora.loan.repository.contract.LoanContractStatusHistoryRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
 import com.finora.loan.service.contract.ContractConsentResult;
 import com.finora.loan.service.contract.LoanContractService;
+import com.finora.loan.service.contract.LoanContractPdfContent;
 import com.finora.loan.service.contract.LoanContractStateService;
 import com.finora.loan.support.HashingService;
 import java.util.Map;
@@ -41,6 +46,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class LoanContractServiceImpl implements LoanContractService {
 
     private final LoanContractRepository contractRepository;
+    private final LoanContractDocumentRepository contractDocumentRepository;
     private final LoanContractStatusHistoryRepository historyRepository;
     private final LoanApplicationRepository applicationRepository;
     private final ScheduleCalculationSnapshotRepository scheduleRepository;
@@ -76,7 +82,23 @@ public class LoanContractServiceImpl implements LoanContractService {
         ScheduleCalculationSnapshot schedule = scheduleRepository.findById(contract.getCalculationSnapshotId())
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Schedule Calculation Snapshot", "id", contract.getCalculationSnapshotId()));
-        return mapper.toDetail(contract, application, schedule);
+        return mapper.toDetail(contract, application, schedule, currentPdf(contract));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public LoanContractPdfContent document(String contractNumber) {
+        LoanContract contract = contract(contractNumber);
+        contract.requireOwner(currentUser.borrowerUserId());
+        LoanContractDocument document = currentPdf(contract);
+        if (document == null) {
+            throw new ResourceNotFoundException(
+                    "Loan Contract PDF", "contractNumber", contractNumber);
+        }
+        return new LoanContractPdfContent(
+                contractNumber + ".pdf", document.getContentType(), document.getContentHash(),
+                document.contentCopy()
+        );
     }
 
     @Override
@@ -156,6 +178,22 @@ public class LoanContractServiceImpl implements LoanContractService {
         return contractRepository.findByContractNumber(contractNumber)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Loan Contract", "contractNumber", contractNumber));
+    }
+
+    private LoanContractDocument currentPdf(LoanContract contract) {
+        if (contract.getStatus() == LoanContractStatus.SIGNED
+                || contract.getStatus() == LoanContractStatus.EFFECTIVE
+                || contract.getStatus() == LoanContractStatus.COMPLETED) {
+            LoanContractDocument receipt = contractDocumentRepository
+                    .findByContractIdAndArtifactType(contract.getId(), ContractPdfArtifactType.SIGNED_RECEIPT)
+                    .orElse(null);
+            if (receipt != null) {
+                return receipt;
+            }
+        }
+        return contractDocumentRepository
+                .findByContractIdAndArtifactType(contract.getId(), ContractPdfArtifactType.SIGNABLE)
+                .orElse(null);
     }
 
     private record ConsentFingerprint(String action, Object request) {

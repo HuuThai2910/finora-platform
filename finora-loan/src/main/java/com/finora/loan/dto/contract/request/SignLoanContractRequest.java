@@ -9,6 +9,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 public record SignLoanContractRequest(
         @PositiveOrZero long version,
         @NotBlank @Pattern(regexp = "^[0-9a-f]{64}$") String documentHash,
+        @Pattern(regexp = "^[0-9a-f]{64}$") String pdfDocumentHash,
         @NotNull SignatureMethod signatureMethod
 ) {
 }

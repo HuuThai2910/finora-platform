@@ -2,7 +2,7 @@
 
 > Tài liệu dùng chung cho thiết kế, code review và viết báo cáo khóa luận. Đây là bản đối chiếu kỹ thuật, không thay thế ý kiến pháp lý của luật sư/cơ quan có thẩm quyền.
 
-- Ngày kiểm tra nguồn gần nhất: **2026-09-05**.
+- Ngày kiểm tra nguồn gần nhất: **2026-09-07**.
 - Chỉ coi một yêu cầu là “đã xác minh” khi có đường dẫn tới văn bản chính thức và chỉ rõ điều/khoản liên quan.
 - Mỗi service chỉ dẫn chiếu mã kiểm soát trong file này; không sao chép luật sang nhiều plan vì dễ lệch phiên bản.
 - Trước khi triển khai thật hoặc khi văn bản thay đổi, owner nghiệp vụ phải rà soát lại trạng thái hiệu lực.
@@ -63,7 +63,10 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 ### `LEGAL-CONTRACT-01` — Hợp đồng và xác nhận điện tử
 
 - Contract phải là tài liệu tiếng Việt dễ đọc, có thể xem/tải, chứa điều khoản cuối và dấu vết version/hash để phát hiện thay đổi.
-- `documentHash` là bằng chứng toàn vẹn kỹ thuật; không nên hiển thị như nội dung chính cho borrower và **không tự biến thao tác click thành chữ ký số**.
+- Loan sinh và lưu nguyên bytes PDF `SIGNABLE` trong cùng transaction tạo Contract; endpoint tải chỉ trả lại bytes đã lưu, không render lại theo thiết bị. Hash PDF được đối chiếu khi consent.
+- Sau click-wrap, Loan tạo thêm `SIGNED_RECEIPT` chứa bằng chứng actor/time/method; không ghi đè PDF `SIGNABLE` mà borrower đã đọc.
+- `documentHash` legacy và hash PDF là bằng chứng toàn vẹn kỹ thuật; chỉ đặt trong vùng đối chiếu, không dùng thay điều khoản chính và **không tự biến thao tác click thành chữ ký số**.
+- PDF thử nghiệm phải ghi rõ bên cho vay và SmartCA chưa tích hợp. Không được vẽ chữ ký hoặc mô tả nhà đầu tư giả lập như chữ ký có hiệu lực.
 - Cơ chế click-wrap hiện tại chỉ là MVP ghi nhận sự chấp thuận điện tử. Trước production phải được legal review về hình thức chữ ký phù hợp và tích hợp chữ ký điện tử/chữ ký số nếu loại hợp đồng hoặc mô hình vận hành yêu cầu.
 - Căn cứ đối chiếu: `LAW-CONSUMER-2023` Điều 23, 38 và `LAW-ELECTRONIC-2023` Điều 10, 11, 13, 22, 23, 38.
 
@@ -88,7 +91,7 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 | Catalog/preview/nộp hồ sơ | Loan + Web/Mobile | `LEGAL-DISCLOSURE-01` | Base rate và initial schedule snapshot; disclosure version | UI hiển thị đủ min/base/max, phí và câu chữ đã được duyệt |
 | Chấm điểm AI v17 | AI + Loan | `LEGAL-AI-01`, `LEGAL-DATA-01` | Versioned decision, snapshot/hash, bounded retry | User contract cho identity; retention/access review; kiểm thử fairness |
 | Định giá sau scoring | Loan + Fineract | `LEGAL-RATE-01`, `LEGAL-AI-01` | Grade adjustment, clamp, final schedule snapshot | Admin UI hiển thị so sánh base/final; quy trình phê duyệt policy |
-| Duyệt và ký | Loan + Web/Mobile | `LEGAL-DISCLOSURE-01`, `LEGAL-CONTRACT-01` | Contract version/hash/expiry và trạng thái ký; mobile có phòng đọc và PDF trình bày để lưu/chia sẻ | Legal review hình thức ký; artifact PDF bất biến phía server nếu loại hợp đồng yêu cầu |
+| Duyệt và ký | Loan + Web/Mobile | `LEGAL-DISCLOSURE-01`, `LEGAL-CONTRACT-01` | Contract version/hash/expiry; PDF `SIGNABLE`/`SIGNED_RECEIPT` bất biến phía server; mobile mở/tải đúng artifact | Legal review hình thức ký; identity/JWT; chữ ký bên cho vay và SmartCA production |
 | Giải ngân/trả nợ | Loan + Payment + Fineract | `LEGAL-PAYMENT-01` | Mới ở thiết kế saga | Đối tác tài khoản/ví được phép, reconciliation và bằng chứng giao dịch |
 
 ## 4. Quy tắc cập nhật nguồn pháp lý

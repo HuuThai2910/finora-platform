@@ -5,13 +5,17 @@ import com.finora.loan.config.LoanContractProperties;
 import com.finora.loan.domain.application.ActorType;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.contract.LoanContract;
+import com.finora.loan.domain.contract.LoanContractDocument;
 import com.finora.loan.domain.contract.LoanContractStatus;
 import com.finora.loan.domain.contract.LoanContractStatusHistory;
 import com.finora.loan.domain.contract.LoanContractTerms;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
 import com.finora.loan.repository.contract.LoanContractRepository;
+import com.finora.loan.repository.contract.LoanContractDocumentRepository;
 import com.finora.loan.repository.contract.LoanContractStatusHistoryRepository;
 import com.finora.loan.service.contract.ContractDocumentRenderer;
+import com.finora.loan.service.contract.ContractPdfArtifact;
+import com.finora.loan.service.contract.ContractPdfRenderer;
 import com.finora.loan.service.contract.ContractNumberGenerator;
 import com.finora.loan.service.contract.LoanContractCreationService;
 import com.finora.loan.support.HashingService;
@@ -25,9 +29,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class LoanContractCreationServiceImpl implements LoanContractCreationService {
 
     private final LoanContractRepository contractRepository;
+    private final LoanContractDocumentRepository contractDocumentRepository;
     private final LoanContractStatusHistoryRepository historyRepository;
     private final ContractNumberGenerator numberGenerator;
     private final ContractDocumentRenderer documentRenderer;
+    private final ContractPdfRenderer pdfRenderer;
     private final HashingService hashingService;
     private final LoanContractProperties properties;
 
@@ -59,6 +65,8 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
                 properties.documentVersion(),
                 expiresAt
         );
+        ContractPdfArtifact pdf = pdfRenderer.renderSignable(
+                contractNumber, application, finalSchedule, properties.termsVersion(), expiresAt);
         LoanContract contract = LoanContract.create(
                 contractNumber,
                 application.getId(),
@@ -73,6 +81,10 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
                 now
         );
         contractRepository.saveAndFlush(contract);
+        contractDocumentRepository.saveAndFlush(LoanContractDocument.create(
+                contract.getId(), pdf.artifactType(), pdf.documentVersion(), pdf.contentHash(),
+                pdf.content(), now
+        ));
         historyRepository.saveAndFlush(LoanContractStatusHistory.create(
                 contract.getId(), null, LoanContractStatus.PENDING_SIGNATURE, reasonCode,
                 actorType, actorId, now, TraceContext.currentTraceIdOrCreate()

@@ -57,6 +57,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
@@ -100,7 +101,7 @@ class FinoraLoanApplicationIT {
         // Mỗi test phải có dữ liệu độc lập; Spring giữ nguyên context và PostgreSQL
         // giữa các method nên không thể dựa vào thứ tự chạy hoặc ID của test trước.
         jdbcTemplate.execute("""
-                TRUNCATE TABLE loan_contract_status_histories, loan_contracts,
+                TRUNCATE TABLE loan_contract_documents, loan_contract_status_histories, loan_contracts,
                     credit_scoring_retry_requests, credit_scoring_assessments,
                     borrower_eligibility_checks, borrower_credit_profiles,
                     loan_application_status_histories, schedule_calculation_snapshots,
@@ -141,7 +142,7 @@ class FinoraLoanApplicationIT {
                 """, Long.class);
 
         assertThat(databaseVersion).startsWith("17.");
-        assertThat(businessTables).isEqualTo(12L);
+        assertThat(businessTables).isEqualTo(13L);
         assertThat(flyway.info().pending()).isEmpty();
     }
 
@@ -351,12 +352,22 @@ class FinoraLoanApplicationIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PENDING_SIGNATURE"))
                 .andExpect(jsonPath("$.documentContent").isNotEmpty())
+                .andExpect(jsonPath("$.pdfDocument.artifactType").value("SIGNABLE"))
+                .andExpect(jsonPath("$.pdfDocument.contentType").value("application/pdf"))
+                .andExpect(jsonPath("$.pdfDocument.contentHash")
+                        .value(org.hamcrest.Matchers.matchesPattern("[0-9a-f]{64}")))
                 .andExpect(jsonPath("$.principalAmount").value(50000000.0))
                 .andReturn().getResponse().getContentAsString());
+        byte[] pdf = mockMvc.perform(get("/api/v1/loan-contracts/{number}/document", contractNumber))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_PDF))
+                .andReturn().getResponse().getContentAsByteArray();
+        assertThat(new String(pdf, 0, 4, java.nio.charset.StandardCharsets.US_ASCII)).isEqualTo("%PDF");
         String signKey = "sign-" + UUID.randomUUID();
         String signJson = """
-                {"version":%d,"documentHash":"%s","signatureMethod":"CLICK_WRAP_MVP"}
-                """.formatted(contract.path("version").asLong(), contract.path("documentHash").asText());
+                {"version":%d,"documentHash":"%s","pdfDocumentHash":"%s","signatureMethod":"CLICK_WRAP_MVP"}
+                """.formatted(contract.path("version").asLong(), contract.path("documentHash").asText(),
+                contract.path("pdfDocument").path("contentHash").asText());
 
         mockMvc.perform(post("/api/v1/loan-contracts/{number}/sign", contractNumber)
                         .header("Idempotency-Key", signKey)
@@ -364,6 +375,9 @@ class FinoraLoanApplicationIT {
                         .content(signJson))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SIGNED"));
+        mockMvc.perform(get("/api/v1/loan-contracts/{number}", contractNumber))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pdfDocument.artifactType").value("SIGNED_RECEIPT"));
         mockMvc.perform(post("/api/v1/loan-contracts/{number}/sign", contractNumber)
                         .header("Idempotency-Key", signKey)
                         .contentType(MediaType.APPLICATION_JSON)
