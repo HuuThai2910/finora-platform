@@ -39,7 +39,10 @@ public record AdminLoanReviewDetailResponse(
         CreditProfileEvidence creditProfile,
         AdminAssessmentEvidenceResponse assessment,
         List<LoanApplicationHistoryResponse> recentHistory,
-        Instant submittedAt
+        Instant submittedAt,
+        /** ID quản trị viên đã duyệt hoặc từ chối; {@code null} khi hồ sơ chưa có quyết định. */
+        String adminDecidedBy,
+        Instant adminDecidedAt
 ) {
     public record EligibilityEvidence(
             Integer age,

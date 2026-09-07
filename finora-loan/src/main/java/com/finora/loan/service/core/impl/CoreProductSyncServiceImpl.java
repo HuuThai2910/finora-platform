@@ -8,7 +8,7 @@ import com.finora.loan.integration.fineract.client.FineractIntegrationException;
 import com.finora.loan.integration.fineract.client.FineractLoanProductGateway;
 import com.finora.loan.integration.fineract.contract.FineractProductCreationResult;
 import com.finora.loan.mapper.product.LoanProductMapper;
-import com.finora.loan.config.MockCurrentUserProvider;
+import com.finora.loan.security.CurrentUserProvider;
 import com.finora.loan.service.core.CoreProductSyncService;
 import com.finora.loan.service.core.CoreProductSyncStateService;
 import com.finora.loan.service.core.ProductSyncExecution;
@@ -27,7 +27,7 @@ public class CoreProductSyncServiceImpl implements CoreProductSyncService {
     private final CoreProductSyncStateService stateService;
     private final FineractLoanProductGateway gateway;
     private final LoanProductMapper productMapper;
-    private final MockCurrentUserProvider currentUser;
+    private final CurrentUserProvider currentUser;
 
     /**
      * Trả lại command cũ khi admin gửi trùng cùng business key. Command mới hoặc

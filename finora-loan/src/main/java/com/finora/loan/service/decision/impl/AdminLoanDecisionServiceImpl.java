@@ -1,7 +1,7 @@
 package com.finora.loan.service.decision.impl;
 
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.loan.config.MockCurrentUserProvider;
+import com.finora.loan.security.CurrentUserProvider;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.application.LoanApplicationStatus;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
@@ -56,7 +56,7 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
     private final AdminLoanDecisionMapper mapper;
     private final LoanApplicationMapper applicationMapper;
     private final HashingService hashingService;
-    private final MockCurrentUserProvider currentUser;
+    private final CurrentUserProvider currentUser;
 
     /**
      * Không truyền trạng thái nghĩa là xem tất cả hồ sơ, nhưng vẫn chỉ đọc một page có giới hạn.

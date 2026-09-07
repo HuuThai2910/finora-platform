@@ -3,7 +3,6 @@ package com.finora.loan.integration.profile.provider;
 import com.finora.loan.domain.scoring.BorrowerKycStatus;
 import com.finora.loan.domain.scoring.BorrowerProfileSource;
 import com.finora.loan.domain.scoring.IncomeVerificationStatus;
-import com.finora.loan.exception.LoanBusinessException;
 import com.finora.loan.integration.profile.contract.BorrowerProfileResult;
 import java.time.Clock;
 import java.time.Instant;
@@ -16,27 +15,27 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(name = "finora.borrower-profile.provider", havingValue = "mock")
 public class LocalMockBorrowerProfileProvider implements BorrowerProfileProvider {
 
-    private static final String MOCK_BORROWER_ID = "BORROWER-001";
     private final Clock clock;
 
     public LocalMockBorrowerProfileProvider(Clock clock) {
         this.clock = clock;
     }
 
+    /**
+     * Trả cùng một hồ sơ đạt điều kiện cho bất kỳ người vay nào.
+     *
+     * <p>Trước đây mock chỉ nhận đúng BORROWER-001 vì mọi request đều đến từ người vay
+     * giả đó. Từ khi danh tính lấy theo claim {@code user_id}, mỗi tài khoản có một ID
+     * riêng, nên ràng buộc cũ sẽ chặn chính người dùng thật ngay ở bước chấm điểm.</p>
+     */
     @Override
     public BorrowerProfileResult getBorrowerProfile(String borrowerId, LocalDate asOf) {
-        if (!MOCK_BORROWER_ID.equals(borrowerId)) {
-            throw LoanBusinessException.conflict(
-                    "MOCK_BORROWER_NOT_CONFIGURED",
-                    "Local mock chỉ được cấu hình cho BORROWER-001"
-            );
-        }
         return new BorrowerProfileResult(
                 borrowerId,
                 null,
                 30,
                 BorrowerKycStatus.VERIFIED,
-                "MOCK-KYC-BORROWER-001",
+                "MOCK-KYC-" + borrowerId,
                 "MOCK-V1",
                 IncomeVerificationStatus.NOT_VERIFIED,
                 BorrowerProfileSource.MOCK_USER_PROFILE,

@@ -1,7 +1,7 @@
 package com.finora.loan.service.application.impl;
 
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.loan.config.MockCurrentUserProvider;
+import com.finora.loan.security.CurrentUserProvider;
 import com.finora.loan.config.LoanPricingDisclosureProperties;
 import com.finora.loan.domain.application.ActorType;
 import com.finora.loan.domain.application.LoanApplication;
@@ -55,7 +55,7 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
     private final FineractScheduleGateway scheduleGateway;
     private final LoanApplicationMapper mapper;
     private final HashingService hashingService;
-    private final MockCurrentUserProvider currentUser;
+    private final CurrentUserProvider currentUser;
     private final LoanPricingDisclosureProperties disclosureProperties;
     private final Clock clock;
 

@@ -44,7 +44,9 @@ public class AdminLoanDecisionMapper {
                 application.getStatus(),
                 assessment(assessment),
                 application.getVersion(),
-                application.getSubmittedAt()
+                application.getSubmittedAt(),
+                application.getAdminDecidedBy(),
+                application.getAdminDecidedAt()
         );
     }
 
@@ -81,7 +83,9 @@ public class AdminLoanDecisionMapper {
                 creditProfile(creditProfile),
                 assessment(assessment),
                 recentHistory,
-                application.getSubmittedAt()
+                application.getSubmittedAt(),
+                application.getAdminDecidedBy(),
+                application.getAdminDecidedAt()
         );
     }
 

@@ -14,6 +14,18 @@ public interface KeycloakAdminService {
 
     AccessTokenResponse refreshToken(String refreshToken);
 
+    /**
+     * Ghi ID hồ sơ nội bộ lên user Keycloak dưới dạng attribute {@code user_id}.
+     * <p>
+     * Protocol mapper {@code user-id} của client đọc attribute này và phát thành
+     * claim {@code user_id} trong access token, nhờ đó các service khác biết
+     * request thuộc về người dùng nào mà không phải gọi ngược finora-user.
+     * <p>
+     * Phải gọi sau khi hồ sơ đã được lưu (đã có ID) và trước khi cấp token đầu
+     * tiên, nếu không token của phiên đăng ký sẽ thiếu claim.
+     */
+    void setUserIdAttribute(String keycloakUserId, Long userId);
+
     void resetPassword(String keycloakUserId, String newPassword);
 
     void disableUser(String keycloakUserId);

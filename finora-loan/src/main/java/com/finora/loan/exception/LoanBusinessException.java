@@ -13,6 +13,10 @@ public final class LoanBusinessException extends BusinessException {
         return new LoanBusinessException(HttpStatus.BAD_REQUEST, code, message);
     }
 
+    public static LoanBusinessException unauthorized(String code, String message) {
+        return new LoanBusinessException(HttpStatus.UNAUTHORIZED, code, message);
+    }
+
     public static LoanBusinessException forbidden(String code, String message) {
         return new LoanBusinessException(HttpStatus.FORBIDDEN, code, message);
     }

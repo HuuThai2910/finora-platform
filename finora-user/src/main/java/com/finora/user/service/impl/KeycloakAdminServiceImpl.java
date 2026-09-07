@@ -25,7 +25,9 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Triển khai dịch vụ tương tác với Keycloak Admin REST API — quản lý vòng đời tài khoản.
@@ -38,6 +40,9 @@ import java.util.List;
 @Slf4j
 @RequiredArgsConstructor
 public class KeycloakAdminServiceImpl implements KeycloakAdminService {
+
+    /** Tên attribute trên Keycloak, phải khớp {@code user.attribute} của protocol mapper "user-id". */
+    private static final String USER_ID_ATTRIBUTE = "user_id";
 
     private final KeycloakAdminProperties properties;
     private final RestTemplate restTemplate = new RestTemplate();
@@ -194,6 +199,33 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
             log.error("Lỗi đặt lại mật khẩu trên Keycloak: keycloakUserId={}", keycloakUserId, e);
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR,
                     "Không thể đổi mật khẩu, vui lòng thử lại sau");
+        }
+    }
+
+    @Override
+    public void setUserIdAttribute(String keycloakUserId, Long userId) {
+        try {
+            var userResource = getRealmResource().users().get(keycloakUserId);
+            UserRepresentation user = userResource.toRepresentation();
+
+            // Keycloak lưu attribute dạng danh sách chuỗi; giữ nguyên các attribute
+            // khác để không xoá dữ liệu do luồng nghiệp vụ khác ghi.
+            Map<String, List<String>> attributes = user.getAttributes() != null
+                    ? new HashMap<>(user.getAttributes())
+                    : new HashMap<>();
+            attributes.put(USER_ID_ATTRIBUTE, List.of(String.valueOf(userId)));
+            user.setAttributes(attributes);
+
+            userResource.update(user);
+
+            log.info("Đã gắn user_id vào Keycloak: keycloakUserId={}, userId={}",
+                    keycloakUserId, userId);
+
+        } catch (Exception e) {
+            log.error("Lỗi gắn user_id vào Keycloak: keycloakUserId={}, userId={}",
+                    keycloakUserId, userId, e);
+            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Không thể hoàn tất khởi tạo tài khoản, vui lòng thử lại sau");
         }
     }
 
