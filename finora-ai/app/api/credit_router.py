@@ -34,6 +34,7 @@ from app.ml.credit.predictor import BoDuDoan
 from app.schemas.credit import CreditExplainResponse, CreditScoreRequest
 from app.services.credit.cic_client import CicClient
 from app.services.credit.product_config import get_decision_policy_version
+from app.services.credit.user_client import UserClient
 
 router = APIRouter()
 
@@ -53,6 +54,12 @@ def lay_bo_du_doan() -> BoDuDoan:
 def lay_cic_client() -> CicClient:
     """CicClient singleton — cấu hình qua env CIC_SERVICE_URL."""
     return CicClient()
+
+
+@lru_cache(maxsize=1)
+def lay_user_client() -> UserClient:
+    """UserClient singleton — giữ lại token service account giữa các request."""
+    return UserClient()
 
 
 def _nap_bo_du_doan_hoac_503() -> BoDuDoan:
@@ -77,10 +84,20 @@ def _nap_bo_du_doan_hoac_503() -> BoDuDoan:
 
 
 async def _tra_cic(ho_so: CreditScoreRequest) -> dict | None:
-    """Tra dữ liệu CIC nếu hồ sơ có CCCD, None khi không có hoặc cic-service lỗi."""
-    if not ho_so.so_cccd:
+    """Tra dữ liệu CIC theo CCCD, None khi không xác định được hoặc service lỗi.
+
+    Bên gọi có hai cách cung cấp danh tính. Mobile và màn thử nghiệm gửi thẳng
+    `so_cccd`. Loan Service không được giữ PII đó nên chỉ gửi `borrower_id`, và AI
+    tự hỏi finora-user lấy CCCD — nếu không có bước này thì hồ sơ từ Loan luôn bị
+    chấm như người chưa có lịch sử tín dụng.
+    """
+    so_cccd = ho_so.so_cccd
+    if not so_cccd and ho_so.borrower_id:
+        so_cccd = await lay_user_client().tra_cccd(ho_so.borrower_id)
+
+    if not so_cccd:
         return None
-    return await lay_cic_client().tra_diem_cic(ho_so.so_cccd)
+    return await lay_cic_client().tra_diem_cic(so_cccd)
 
 
 @router.post("/explain", response_model=CreditExplainResponse)

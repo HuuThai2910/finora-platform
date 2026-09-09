@@ -4,6 +4,7 @@ import com.finora.loan.domain.application.LoanApplicationStatus;
 import com.finora.loan.dto.common.PageResponse;
 import com.finora.loan.dto.decision.request.ApproveLoanApplicationRequest;
 import com.finora.loan.dto.decision.request.RejectLoanApplicationRequest;
+import com.finora.loan.dto.decision.response.AdminAssessmentExplanationResponse;
 import com.finora.loan.dto.decision.response.AdminLoanDecisionResponse;
 import com.finora.loan.dto.decision.response.AdminLoanReviewDetailResponse;
 import com.finora.loan.dto.decision.response.AdminLoanReviewSummaryResponse;
@@ -46,6 +47,20 @@ public class AdminLoanDecisionController {
             @PathVariable @NotBlank @Size(max = 30) String applicationNumber
     ) {
         return service.reviewDetail(applicationNumber);
+    }
+
+    /**
+     * Phần giải thích của lần chấm điểm đã dùng để quyết định hồ sơ — SHAP, vết chấm
+     * luật và bản diễn giải cho người đọc.
+     *
+     * <p>Tách khỏi {@code /review} vì payload lớn và chỉ cần khi admin mở phần phân
+     * tích, không phải mỗi lần mở hồ sơ.</p>
+     */
+    @GetMapping("/{applicationNumber}/explanation")
+    public AdminAssessmentExplanationResponse assessmentExplanation(
+            @PathVariable @NotBlank @Size(max = 30) String applicationNumber
+    ) {
+        return service.assessmentExplanation(applicationNumber);
     }
 
     @PostMapping("/{applicationNumber}/approve")

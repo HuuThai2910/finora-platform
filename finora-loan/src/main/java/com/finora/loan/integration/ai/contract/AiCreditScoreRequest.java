@@ -17,6 +17,11 @@ public record AiCreditScoreRequest(
         BigDecimal dti,
         BigDecimal installment,
         @JsonProperty("interest_method") String interestMethod,
-        @JsonProperty("so_cccd") String citizenIdentityNumber
+        @JsonProperty("so_cccd") String citizenIdentityNumber,
+        /**
+         * ID hồ sơ người vay bên finora-user. AI Service dùng giá trị này để tự hỏi
+         * finora-user lấy CCCD rồi tra CIC, nhờ đó Loan không phải giữ PII.
+         */
+        @JsonProperty("borrower_id") String borrowerId
 ) {
 }

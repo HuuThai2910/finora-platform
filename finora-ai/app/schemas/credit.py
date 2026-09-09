@@ -86,6 +86,15 @@ class CreditScoreRequest(BaseModel):
         pattern=r"^\d{12}$",
         description="Số CCCD 12 chữ số. Có thì tra điểm CIC, không có thì bỏ qua.",
     )
+    borrower_id: str | None = Field(
+        default=None,
+        max_length=100,
+        description=(
+            "ID hồ sơ người vay bên finora-user. Dùng khi bên gọi không được giữ CCCD "
+            "(Loan Service): AI tự hỏi finora-user lấy CCCD rồi tra CIC. "
+            "Bỏ qua nếu đã truyền so_cccd."
+        ),
+    )
 
     model_config = {
         "json_schema_extra": {

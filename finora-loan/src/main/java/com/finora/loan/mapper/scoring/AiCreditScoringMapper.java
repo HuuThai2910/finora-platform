@@ -16,13 +16,18 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class AiCreditScoringMapper {
 
-    private static final String CITIZEN_IDENTITY_SOURCE = "NOT_AVAILABLE_UNTIL_USER_SERVICE_CONTRACT";
+    private static final String CITIZEN_IDENTITY_SOURCE = "RESOLVED_BY_AI_VIA_USER_SERVICE";
     private final HashingService hashingService;
 
     /**
      * Ánh xạ contract v17. Installment lấy từ Fineract snapshot: annuity dùng kỳ đầu,
      * gốc đều dùng kỳ lớn nhất để AI đánh giá theo nghĩa vụ trả nợ cao nhất.
-     * CCCD chưa có trong contract User Service nên chủ động gửi null, không tự tạo và không lưu PII giả.
+     *
+     * <p>{@code so_cccd} luôn gửi null: {@code BorrowerProfileResult} cố ý không mang CCCD
+     * sang Loan, nên Loan không có gì để gửi và cũng không được tự tạo PII giả. Thay vào đó
+     * Loan gửi {@code borrower_id} để AI tự hỏi finora-user lấy CCCD rồi tra CIC. Thiếu
+     * {@code borrower_id} thì AI không tra được CIC và chấm hồ sơ như người chưa có lịch sử
+     * tín dụng — thấp hơn thực chất khoảng 10 điểm đánh giá, đủ để tụt một bậc xếp hạng.</p>
      */
     public CreditScoringMapping map(
             LoanApplication application,
@@ -46,7 +51,8 @@ public class AiCreditScoringMapper {
                 application.getFinancialSnapshot().getDtiSnapshot(),
                 installment,
                 "DECLINING_BALANCE",
-                null
+                null,
+                application.getBorrowerId()
         );
         CreditScoringSourceSnapshot sources = new CreditScoringSourceSnapshot(
                 eligibility.getProfileSource().name(),

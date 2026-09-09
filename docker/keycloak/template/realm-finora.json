@@ -141,7 +141,12 @@
         "microprofile-jwt",
         "offline_access",
         "phone"
-      ]
+      ],
+      "serviceAccountClientRoles": {
+        "finora-user-client": [
+          "user:admin:read_all"
+        ]
+      }
     }
   ],
 
