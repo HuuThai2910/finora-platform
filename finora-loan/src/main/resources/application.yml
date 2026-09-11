@@ -23,6 +23,14 @@ spring:
     locations: classpath:db/migration
     validate-on-migrate: true
     clean-disabled: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Cùng realm với finora-user: token do service đó cấp phải được Loan Service
+          # chấp nhận. Chỉ cần khoá công khai để kiểm chữ ký, không cần client secret.
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/finora}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/finora/protocol/openid-connect/certs}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:

@@ -45,6 +45,7 @@ class AiCreditScoringMapperTest {
         when(financial.getHomeOwnership()).thenReturn(HomeOwnership.RENT);
         when(financial.getDtiSnapshot()).thenReturn(new BigDecimal("15.5000"));
         when(financial.getInformationSource()).thenReturn(CreditInformationSource.SELF_DECLARED);
+        when(application.getBorrowerId()).thenReturn("42");
         when(eligibility.getAge()).thenReturn(30);
         when(eligibility.getIncomeVerificationStatus()).thenReturn(IncomeVerificationStatus.NOT_VERIFIED);
         when(eligibility.getProfileSource()).thenReturn(com.finora.loan.domain.scoring.BorrowerProfileSource.MOCK_USER_PROFILE);
@@ -61,7 +62,11 @@ class AiCreditScoringMapperTest {
         assertThat(input.request().installment()).isEqualByComparingTo("5000000.00");
         assertThat(input.request().employmentLength()).isEqualTo("5 years");
         assertThat(input.request().interestMethod()).isEqualTo("DECLINING_BALANCE");
+        // CCCD không đi qua Loan, nhưng borrower_id thì có: thiếu nó là AI không tra
+        // được CIC và mọi hồ sơ bị chấm như người chưa có lịch sử tín dụng.
         assertThat(input.request().citizenIdentityNumber()).isNull();
+        assertThat(input.request().borrowerId()).isEqualTo("42");
+        assertThat(input.inputJson()).contains("\"borrower_id\":\"42\"");
         assertThat(input.sources().eligibilityPolicyVersion()).isEqualTo("ELIGIBILITY-V1");
         assertThat(input.inputJson()).contains("\"installment\":5000000.00");
         assertThat(input.inputJson()).doesNotContain("delinq_2yrs").doesNotContain("pub_rec");

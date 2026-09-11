@@ -168,6 +168,11 @@ public class AuthServiceImpl implements AuthService {
                     .role(pending.role())
                     .build());
 
+            // Gắn user_id lên Keycloak trước khi cấp token: protocol mapper đọc attribute
+            // này để phát claim user_id, nên nếu gắn sau thì token của chính phiên đăng ký
+            // sẽ thiếu claim trong khi token đăng nhập lần sau lại có.
+            keycloakAdminService.setUserIdAttribute(keycloakUserId, profile.getId());
+
             // Lấy token trước khi xoá bản ghi tạm vì đó là nơi duy nhất còn mật khẩu người dùng.
             // Nằm chung khối try với lưu DB: nếu cấp token hỏng thì giao dịch rollback hồ sơ,
             // nên user trên Keycloak cũng phải bị xoá, nếu không lần đăng ký lại sẽ vướng 409
@@ -211,6 +216,13 @@ public class AuthServiceImpl implements AuthService {
                     "Tài khoản tạm khóa, vui lòng thử lại sau 15 phút");
         }
 
+        // Tài khoản tạo trước khi có claim user_id thì trên Keycloak chưa có attribute
+        // tương ứng. Vá ngay tại đây, trước khi cấp token, để token của chính lần đăng
+        // nhập này đã mang claim — nếu vá sau thì người dùng cũ phải đăng nhập hai lần.
+        // Tra cứu bằng email không làm lộ tài khoản nào có thật vì thông điệp lỗi phía
+        // dưới vẫn dùng chung cho mọi trường hợp sai.
+        backfillUserIdAttribute(email);
+
         AccessTokenResponse tokenResponse;
         try {
             tokenResponse = keycloakAdminService.getUserToken(email, request.getPassword());
@@ -252,6 +264,25 @@ public class AuthServiceImpl implements AuthService {
                 List.of(profile.getRole().name()),
                 tokenResponse.getToken(),
                 tokenResponse.getRefreshToken());
+    }
+
+    /**
+     * Bảo đảm user trên Keycloak có attribute {@code user_id} trước khi cấp token.
+     * <p>
+     * Chỉ cần thiết cho tài khoản được tạo trước khi claim này ra đời; tài khoản mới
+     * đã được gắn ngay trong {@code verifyRegistration}. Lỗi ở bước này không được
+     * chặn đăng nhập — cùng lắm token thiếu claim và service phía sau từ chối, nên
+     * chỉ ghi log thay vì ném ngoại lệ.
+     */
+    private void backfillUserIdAttribute(String email) {
+        try {
+            userProfileRepository.findByEmail(email).ifPresent(profile ->
+                    keycloakAdminService.setUserIdAttribute(
+                            profile.getKeycloakUserId().toString(), profile.getId()));
+        } catch (Exception e) {
+            log.warn("Không gắn được user_id khi đăng nhập: email={}",
+                    PiiMasker.maskEmail(email), e);
+        }
     }
 
     // ── Làm mới token ───────────────────────────────────────────────

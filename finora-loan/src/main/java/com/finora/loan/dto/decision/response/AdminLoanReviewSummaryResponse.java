@@ -21,6 +21,9 @@ public record AdminLoanReviewSummaryResponse(
         LoanApplicationStatus status,
         AdminAssessmentEvidenceResponse assessment,
         Long version,
-        Instant submittedAt
+        Instant submittedAt,
+        /** ID quản trị viên đã duyệt hoặc từ chối; {@code null} khi hồ sơ chưa có quyết định. */
+        String adminDecidedBy,
+        Instant adminDecidedAt
 ) {
 }

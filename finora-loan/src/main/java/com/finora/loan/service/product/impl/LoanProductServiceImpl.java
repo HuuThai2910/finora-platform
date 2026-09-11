@@ -1,7 +1,7 @@
 package com.finora.loan.service.product.impl;
 
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.loan.config.MockCurrentUserProvider;
+import com.finora.loan.security.CurrentUserProvider;
 import com.finora.loan.domain.product.LoanProduct;
 import com.finora.loan.domain.product.LoanProductStatus;
 import com.finora.loan.domain.product.CoreSyncStatus;
@@ -36,7 +36,7 @@ public class LoanProductServiceImpl implements LoanProductService {
 
     private final LoanProductRepository repository;
     private final LoanProductMapper mapper;
-    private final MockCurrentUserProvider currentUser;
+    private final CurrentUserProvider currentUser;
     private final Clock clock;
 
     /** Tạo Product DRAFT/NOT_SYNCED; unique constraint vẫn là hàng rào cuối khi request cạnh tranh. */

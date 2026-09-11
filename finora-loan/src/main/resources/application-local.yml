@@ -6,5 +6,5 @@ springdoc:
 
 finora:
   borrower-profile:
-    # Mock cố định BORROWER-001/age 30/KYC VERIFIED; production không cấu hình provider này.
+    # Mock trả age 30/KYC VERIFIED cho mọi người vay; production không cấu hình provider này.
     provider: mock

@@ -1,6 +1,6 @@
 package com.finora.loan.service.core.impl;
 
-import com.finora.loan.config.MockCurrentUserProvider;
+import com.finora.loan.security.CurrentUserProvider;
 import com.finora.loan.domain.core.FineractCommandStatus;
 import com.finora.loan.domain.product.RepaymentMethod;
 import com.finora.loan.integration.fineract.client.FineractIntegrationException;
@@ -33,7 +33,7 @@ class CoreProductSyncServiceImplTest {
     @Mock CoreProductSyncStateService stateService;
     @Mock FineractLoanProductGateway gateway;
     @Mock LoanProductMapper productMapper;
-    @Mock MockCurrentUserProvider currentUser;
+    @Mock CurrentUserProvider currentUser;
 
     private CoreProductSyncServiceImpl service;
     private ProductSyncExecution execution;

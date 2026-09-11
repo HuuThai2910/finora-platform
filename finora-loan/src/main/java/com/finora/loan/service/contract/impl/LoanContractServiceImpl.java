@@ -1,7 +1,7 @@
 package com.finora.loan.service.contract.impl;
 
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.loan.config.MockCurrentUserProvider;
+import com.finora.loan.security.CurrentUserProvider;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.contract.ConsentAction;
 import com.finora.loan.domain.contract.ContractPdfArtifactType;
@@ -53,7 +53,7 @@ public class LoanContractServiceImpl implements LoanContractService {
     private final LoanContractStateService stateService;
     private final LoanContractMapper mapper;
     private final HashingService hashingService;
-    private final MockCurrentUserProvider currentUser;
+    private final CurrentUserProvider currentUser;
 
     /** Một page Contract + một batch Application; document lớn không được tải vào response summary. */
     @Override

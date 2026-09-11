@@ -3,7 +3,7 @@ package com.finora.loan;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.loan.config.AiCreditProperties;
-import com.finora.loan.config.MockCurrentUserProvider;
+import com.finora.loan.security.CurrentUserProvider;
 import com.finora.loan.domain.scoring.AiRecommendation;
 import com.finora.loan.domain.scoring.BorrowerKycStatus;
 import com.finora.loan.domain.scoring.BorrowerProfileSource;
@@ -64,7 +64,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "finora.ai.credit.worker-enabled=false",
         "finora.loan.contract.expiry-worker-enabled=false"
 })
-@AutoConfigureMockMvc
+// Tắt security filter: test này kiểm thử nghiệp vụ vay, còn danh tính người gọi đã
+// được thay bằng mock CurrentUserProvider. Phân quyền có test riêng ở tầng đơn vị.
+@AutoConfigureMockMvc(addFilters = false)
 @Testcontainers
 class FinoraLoanApplicationIT {
 
@@ -86,7 +88,7 @@ class FinoraLoanApplicationIT {
     @Autowired CircuitBreakerFactory<?, ?> circuitBreakerFactory;
     @Autowired @Qualifier("aiCreditRestClient") RestClient aiCreditRestClient;
 
-    @MockBean MockCurrentUserProvider currentUser;
+    @MockBean CurrentUserProvider currentUser;
     @MockBean FineractLoanProductGateway productGateway;
     @MockBean FineractScheduleGateway scheduleGateway;
     @MockBean BorrowerProfileProvider borrowerProfileProvider;
