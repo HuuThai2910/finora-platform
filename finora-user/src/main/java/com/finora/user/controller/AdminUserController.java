@@ -1,10 +1,10 @@
 package com.finora.user.controller;
 
 import com.finora.common.dto.PageResponse;
+import com.finora.common.security.SecurityUtils;
 import com.finora.user.dto.request.AssignRoleRequest;
 import com.finora.user.dto.response.UserProfileResponse;
 import com.finora.user.dto.response.UserStatsResponse;
-import com.finora.user.security.SecurityUtils;
 import com.finora.user.service.UserProfileService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;

@@ -3,6 +3,9 @@ package com.finora.investment;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
+/**
+ * Investment Service — sàn gọi vốn P2P, Notes và danh mục đầu tư.
+ */
 @SpringBootApplication(scanBasePackages = {"com.finora.investment", "com.finora.common"})
 public class FinoraInvestmentApplication {
 

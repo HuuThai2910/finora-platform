@@ -1,5 +1,8 @@
 package com.finora.user.domain;
 
+import com.finora.common.enums.user.EkycStatus;
+import com.finora.common.enums.user.Gender;
+import com.finora.common.enums.user.UserRole;
 import com.finora.user.support.CryptoConverter;
 import jakarta.persistence.*;
 import lombok.*;

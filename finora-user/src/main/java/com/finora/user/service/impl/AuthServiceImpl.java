@@ -4,7 +4,7 @@ import com.finora.common.exception.BusinessException;
 import com.finora.user.config.CryptoProperties;
 import com.finora.user.domain.PendingRegistration;
 import com.finora.user.domain.UserProfile;
-import com.finora.user.domain.UserRole;
+import com.finora.common.enums.user.UserRole;
 import com.finora.user.dto.request.LoginRequest;
 import com.finora.user.dto.request.RegisterRequest;
 import com.finora.user.dto.request.ResetPasswordRequest;

@@ -22,11 +22,20 @@ spring:
     locations: classpath:db/migration
     validate-on-migrate: true
     clean-disabled: true
-  kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
-    producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Cùng realm với finora-user và finora-loan: token do finora-user cấp phải
+          # được Investment Service chấp nhận. Chỉ cần khoá công khai để kiểm chữ ký.
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/finora}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/finora/protocol/openid-connect/certs}
 
 server:
   port: 8084
+
+logging:
+  level:
+    com.finora.investment: INFO
+
+

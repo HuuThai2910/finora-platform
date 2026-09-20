@@ -1,10 +1,10 @@
 package com.finora.user.controller;
 
 import com.finora.common.dto.BaseResponse;
+import com.finora.common.security.SecurityUtils;
 import com.finora.user.dto.request.EkycVerifyRequest;
 import com.finora.user.dto.response.EkycResultResponse;
 import com.finora.user.dto.response.UserProfileResponse;
-import com.finora.user.security.SecurityUtils;
 import com.finora.user.service.EkycVerificationService;
 import com.finora.user.service.UserProfileService;
 import jakarta.validation.Valid;

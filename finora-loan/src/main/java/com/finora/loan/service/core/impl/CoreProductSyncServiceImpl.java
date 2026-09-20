@@ -1,5 +1,6 @@
 package com.finora.loan.service.core.impl;
 
+import com.finora.common.security.SecurityUtils;
 import com.finora.loan.domain.core.FineractCommand;
 import com.finora.loan.domain.core.FineractCommandStatus;
 import com.finora.loan.domain.product.LoanProduct;
@@ -8,7 +9,6 @@ import com.finora.loan.integration.fineract.client.FineractIntegrationException;
 import com.finora.loan.integration.fineract.client.FineractLoanProductGateway;
 import com.finora.loan.integration.fineract.contract.FineractProductCreationResult;
 import com.finora.loan.mapper.product.LoanProductMapper;
-import com.finora.loan.security.CurrentUserProvider;
 import com.finora.loan.service.core.CoreProductSyncService;
 import com.finora.loan.service.core.CoreProductSyncStateService;
 import com.finora.loan.service.core.ProductSyncExecution;
@@ -27,7 +27,6 @@ public class CoreProductSyncServiceImpl implements CoreProductSyncService {
     private final CoreProductSyncStateService stateService;
     private final FineractLoanProductGateway gateway;
     private final LoanProductMapper productMapper;
-    private final CurrentUserProvider currentUser;
 
     /**
      * Trả lại command cũ khi admin gửi trùng cùng business key. Command mới hoặc
@@ -35,8 +34,9 @@ public class CoreProductSyncServiceImpl implements CoreProductSyncService {
      */
     @Override
     public CoreProductSyncResponse synchronize(long productId, long version) {
+        SecurityUtils.requireAdmin();
         // Commit command/mapping bền vững trước; tuyệt đối không giữ transaction khi gọi Fineract.
-        ProductSyncPreparation preparation = stateService.prepare(productId, version, currentUser.adminUserId());
+        ProductSyncPreparation preparation = stateService.prepare(productId, version, SecurityUtils.getCurrentUserId());
         if (preparation.executionRequired()) {
             execute(preparation.commandId());
         }

@@ -1,7 +1,7 @@
 package com.finora.user.dto.response;
 
-import com.finora.user.domain.EkycResultCode;
-import com.finora.user.domain.EkycStatus;
+import com.finora.common.enums.user.EkycResultCode;
+import com.finora.common.enums.user.EkycStatus;
 
 import java.util.List;
 

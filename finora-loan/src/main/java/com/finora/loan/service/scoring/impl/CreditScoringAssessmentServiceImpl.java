@@ -1,7 +1,7 @@
 package com.finora.loan.service.scoring.impl;
 
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.loan.security.CurrentUserProvider;
+import com.finora.common.security.SecurityUtils;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.scoring.CreditScoringAssessment;
 import com.finora.loan.dto.common.PageResponse;
@@ -29,7 +29,6 @@ public class CreditScoringAssessmentServiceImpl implements CreditScoringAssessme
     private final CreditScoringAssessmentRepository assessmentRepository;
     private final CreditScoringAssessmentMapper mapper;
     private final CreditScoringAdminStateService stateService;
-    private final CurrentUserProvider currentUser;
 
     /** Một query Application và một query assessment page; không tải history/snapshot khác theo từng dòng. */
     @Override
@@ -62,8 +61,9 @@ public class CreditScoringAssessmentServiceImpl implements CreditScoringAssessme
             String idempotencyKey,
             ScoringRetryRequest request
     ) {
+        SecurityUtils.requireAdmin();
         CreditScoringAssessment assessment = stateService.retry(
-                applicationNumber, idempotencyKey.trim(), request, currentUser.adminUserId());
+                applicationNumber, idempotencyKey.trim(), request, SecurityUtils.getCurrentUserId());
         return ScoringRetryAcceptedResponse.accepted(
                 assessment.getId(), assessment.getStatus(), applicationNumber);
     }

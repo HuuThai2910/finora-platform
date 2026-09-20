@@ -1,6 +1,6 @@
 package com.finora.user.service;
 
-import com.finora.user.domain.UserRole;
+import com.finora.common.enums.user.UserRole;
 import org.keycloak.representations.AccessTokenResponse;
 
 /**

@@ -1,5 +1,7 @@
 package com.finora.user.domain;
 
+import com.finora.common.enums.user.UserRole;
+
 /**
  * Thông tin đăng ký đang chờ xác thực OTP.
  * <p>

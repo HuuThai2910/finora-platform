@@ -2,9 +2,9 @@ package com.finora.user.service;
 
 import com.finora.user.client.AiEkycClient;
 import com.finora.user.config.CryptoProperties;
-import com.finora.user.domain.EkycResultCode;
-import com.finora.user.domain.EkycStatus;
-import com.finora.user.domain.Gender;
+import com.finora.common.enums.user.EkycResultCode;
+import com.finora.common.enums.user.EkycStatus;
+import com.finora.common.enums.user.Gender;
 import com.finora.user.domain.UserProfile;
 import com.finora.user.dto.request.EkycVerifyRequest;
 import com.finora.user.dto.response.EkycResultResponse;

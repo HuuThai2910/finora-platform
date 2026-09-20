@@ -1,8 +1,8 @@
 package com.finora.user.repository;
 
-import com.finora.user.domain.EkycStatus;
+import com.finora.common.enums.user.EkycStatus;
 import com.finora.user.domain.UserProfile;
-import com.finora.user.domain.UserRole;
+import com.finora.common.enums.user.UserRole;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;

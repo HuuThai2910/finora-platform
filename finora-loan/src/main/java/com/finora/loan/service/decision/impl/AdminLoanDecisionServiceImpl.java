@@ -1,7 +1,7 @@
 package com.finora.loan.service.decision.impl;
 
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.loan.security.CurrentUserProvider;
+import com.finora.common.security.SecurityUtils;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.application.LoanApplicationStatus;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
@@ -61,7 +61,6 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
     private final AdminLoanDecisionMapper mapper;
     private final LoanApplicationMapper applicationMapper;
     private final HashingService hashingService;
-    private final CurrentUserProvider currentUser;
     private final ObjectMapper objectMapper;
 
     /**
@@ -188,14 +187,16 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
             String idempotencyKey,
             ApproveLoanApplicationRequest request
     ) {
+        SecurityUtils.requireAdmin();
+        String adminId = SecurityUtils.getCurrentUserId();
         String normalizedKey = idempotencyKey.trim();
         String requestHash = hashingService.sha256(new DecisionFingerprint("APPROVE", request));
         AdminDecisionResult result = executeWithDuplicateRecovery(
                 applicationNumber, normalizedKey, requestHash,
                 () -> stateService.approve(
-                        applicationNumber, normalizedKey, requestHash, request, currentUser.adminUserId()));
+                        applicationNumber, normalizedKey, requestHash, request, adminId));
         log.info("Admin đã duyệt hồ sơ: applicationNumber={}, contractNumber={}, actorId={}",
-                applicationNumber, result.contract().getContractNumber(), currentUser.adminUserId());
+                applicationNumber, result.contract().getContractNumber(), adminId);
         return mapper.toDecision(result.application(), result.contract());
     }
 
@@ -205,14 +206,16 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
             String idempotencyKey,
             RejectLoanApplicationRequest request
     ) {
+        SecurityUtils.requireAdmin();
+        String adminId = SecurityUtils.getCurrentUserId();
         String normalizedKey = idempotencyKey.trim();
         String requestHash = hashingService.sha256(new DecisionFingerprint("REJECT", request));
         AdminDecisionResult result = executeWithDuplicateRecovery(
                 applicationNumber, normalizedKey, requestHash,
                 () -> stateService.reject(
-                        applicationNumber, normalizedKey, requestHash, request, currentUser.adminUserId()));
+                        applicationNumber, normalizedKey, requestHash, request, adminId));
         log.info("Admin đã từ chối hồ sơ: applicationNumber={}, reasonCode={}, actorId={}",
-                applicationNumber, request.reasonCode(), currentUser.adminUserId());
+                applicationNumber, request.reasonCode(), adminId);
         return mapper.toDecision(result.application(), null);
     }
 

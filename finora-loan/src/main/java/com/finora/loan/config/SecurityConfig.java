@@ -1,7 +1,7 @@
 package com.finora.loan.config;
 
-import com.finora.loan.security.DualBearerTokenResolver;
-import com.finora.loan.security.KeycloakRoleConverter;
+import com.finora.common.security.DualBearerTokenResolver;
+import com.finora.common.security.KeycloakJwtAuthenticationConverter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,7 +34,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final DualBearerTokenResolver bearerTokenResolver;
-    private final KeycloakRoleConverter keycloakRoleConverter;
+    private final KeycloakJwtAuthenticationConverter keycloakRoleConverter;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
