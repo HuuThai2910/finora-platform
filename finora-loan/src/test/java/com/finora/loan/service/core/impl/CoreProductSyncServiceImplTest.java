@@ -1,6 +1,5 @@
 package com.finora.loan.service.core.impl;
 
-import com.finora.loan.security.CurrentUserProvider;
 import com.finora.loan.domain.core.FineractCommandStatus;
 import com.finora.loan.domain.product.RepaymentMethod;
 import com.finora.loan.integration.fineract.client.FineractIntegrationException;
@@ -33,14 +32,13 @@ class CoreProductSyncServiceImplTest {
     @Mock CoreProductSyncStateService stateService;
     @Mock FineractLoanProductGateway gateway;
     @Mock LoanProductMapper productMapper;
-    @Mock CurrentUserProvider currentUser;
 
     private CoreProductSyncServiceImpl service;
     private ProductSyncExecution execution;
 
     @BeforeEach
     void setUp() {
-        service = new CoreProductSyncServiceImpl(stateService, gateway, productMapper, currentUser);
+        service = new CoreProductSyncServiceImpl(stateService, gateway, productMapper);
         FineractProductConfiguration configuration = new FineractProductConfiguration(
                 1L, 1L, "PERSONAL_STANDARD", "Vay tiêu dùng",
                 new BigDecimal("10000000.00"), new BigDecimal("100000000.00"),

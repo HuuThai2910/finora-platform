@@ -1,7 +1,7 @@
 package com.finora.loan.service.application.impl;
 
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.loan.security.CurrentUserProvider;
+import com.finora.common.security.SecurityUtils;
 import com.finora.loan.config.LoanPricingDisclosureProperties;
 import com.finora.loan.domain.application.ActorType;
 import com.finora.loan.domain.application.LoanApplication;
@@ -55,7 +55,6 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
     private final FineractScheduleGateway scheduleGateway;
     private final LoanApplicationMapper mapper;
     private final HashingService hashingService;
-    private final CurrentUserProvider currentUser;
     private final LoanPricingDisclosureProperties disclosureProperties;
     private final Clock clock;
 
@@ -68,7 +67,7 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
      */
     @Override
     public LoanApplicationResponse submit(CreateLoanApplicationRequest request, String idempotencyKey) {
-        String borrowerId = currentUser.borrowerUserId();
+        String borrowerId = SecurityUtils.getCurrentUserId();
         validateDisclosure(request);
         String normalizedKey = idempotencyKey.trim();
         String requestHash = hashingService.sha256(request);
@@ -133,12 +132,13 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
     public LoanApplicationResponse withdraw(String applicationNumber, WithdrawLoanApplicationRequest request) {
         LoanApplication application = getApplication(applicationNumber);
         Instant now = Instant.now(clock);
-        application.withdraw(request.version(), request.reason(), currentUser.borrowerUserId(), now);
+        String userId = SecurityUtils.getCurrentUserId();
+        application.withdraw(request.version(), request.reason(), userId, now);
         applicationRepository.saveAndFlush(application);
         historyRepository.save(LoanApplicationStatusHistory.create(
                 application.getId(), LoanApplicationStatus.SUBMITTED, LoanApplicationStatus.WITHDRAWN,
                 "APPLICATION_WITHDRAWN", request.reason(), ActorType.BORROWER,
-                currentUser.borrowerUserId(), now));
+                userId, now));
         return mapper.toResponse(
                 application,
                 submissionState.getCalculation(application.getId()),
@@ -151,7 +151,7 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
     /** Đọc chi tiết sau khi domain xác nhận borrower hiện tại sở hữu hồ sơ. */
     public LoanApplicationResponse getMine(String applicationNumber) {
         LoanApplication application = getApplication(applicationNumber);
-        application.requireOwner(currentUser.borrowerUserId());
+        application.requireOwner(SecurityUtils.getCurrentUserId());
         return mapper.toResponse(
                 application,
                 submissionState.getCalculation(application.getId()),
@@ -167,7 +167,7 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
     @Transactional(readOnly = true)
     public PageResponse<LoanApplicationResponse> listMine(int page, int size) {
         Page<LoanApplicationResponse> result = applicationRepository.findByBorrowerId(
-                        currentUser.borrowerUserId(),
+                        SecurityUtils.getCurrentUserId(),
                         PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))))
                 .map(application -> mapper.toResponse(application, null));
         return PageResponse.from(result);
@@ -178,7 +178,7 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
     /** Timeline luôn phân trang và kiểm tra ownership trước query để không lộ lịch sử người khác. */
     public PageResponse<LoanApplicationHistoryResponse> history(String applicationNumber, int page, int size) {
         LoanApplication application = getApplication(applicationNumber);
-        application.requireOwner(currentUser.borrowerUserId());
+        application.requireOwner(SecurityUtils.getCurrentUserId());
         Page<LoanApplicationHistoryResponse> result = historyRepository.findByLoanApplicationId(
                         application.getId(),
                         PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))))

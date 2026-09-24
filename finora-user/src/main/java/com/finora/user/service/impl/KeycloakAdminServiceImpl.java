@@ -2,7 +2,7 @@ package com.finora.user.service.impl;
 
 import com.finora.common.exception.BusinessException;
 import com.finora.user.config.KeycloakAdminProperties;
-import com.finora.user.domain.UserRole;
+import com.finora.common.enums.user.UserRole;
 import com.finora.user.service.KeycloakAdminService;
 import com.finora.user.support.PiiMasker;
 import jakarta.ws.rs.core.Response;

@@ -1,6 +1,6 @@
 package com.finora.user.dto.request;
 
-import com.finora.user.domain.UserRole;
+import com.finora.common.enums.user.UserRole;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;

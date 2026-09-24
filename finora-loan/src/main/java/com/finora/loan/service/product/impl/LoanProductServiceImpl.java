@@ -1,10 +1,11 @@
 package com.finora.loan.service.product.impl;
 
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.loan.security.CurrentUserProvider;
+import com.finora.common.security.SecurityUtils;
+import com.finora.loan.domain.product.LoanProduct;
+import com.finora.loan.domain.product.CoreSyncStatus;
 import com.finora.loan.domain.product.LoanProduct;
 import com.finora.loan.domain.product.LoanProductStatus;
-import com.finora.loan.domain.product.CoreSyncStatus;
 import com.finora.loan.domain.product.RepaymentMethod;
 import com.finora.loan.dto.common.PageResponse;
 import com.finora.loan.dto.product.request.CreateLoanProductRequest;
@@ -20,6 +21,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.function.Consumer;
 import java.util.Locale;
+import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -36,7 +38,6 @@ public class LoanProductServiceImpl implements LoanProductService {
 
     private final LoanProductRepository repository;
     private final LoanProductMapper mapper;
-    private final CurrentUserProvider currentUser;
     private final Clock clock;
 
     /** Tạo Product DRAFT/NOT_SYNCED; unique constraint vẫn là hàng rào cuối khi request cạnh tranh. */
@@ -59,7 +60,7 @@ public class LoanProductServiceImpl implements LoanProductService {
                 request.annualInterestRate(),
                 rateOrBase(request.maxAnnualInterestRate(), request.annualInterestRate()),
                 request.repaymentMethod(),
-                currentUser.adminUserId(),
+                actor(),
                 Instant.now(clock)
         );
         try {
@@ -68,7 +69,7 @@ public class LoanProductServiceImpl implements LoanProductService {
             throw LoanBusinessException.conflict("LOAN_PRODUCT_CODE_EXISTS", "Mã sản phẩm đã tồn tại");
         }
         log.info("Đã tạo Loan Product: productId={}, code={}, actorId={}",
-                product.getId(), product.getCode(), currentUser.adminUserId());
+                product.getId(), product.getCode(), actor());
         return mapper.toResponse(product);
     }
 
@@ -89,12 +90,12 @@ public class LoanProductServiceImpl implements LoanProductService {
                 rateOrBase(request.maxAnnualInterestRate(), request.annualInterestRate()),
                 request.repaymentMethod(),
                 request.version(),
-                currentUser.adminUserId(),
+                actor(),
                 Instant.now(clock)
         );
         repository.saveAndFlush(product);
         log.info("Đã cập nhật Loan Product: productId={}, configurationVersion={}, actorId={}",
-                id, product.getConfigurationVersion(), currentUser.adminUserId());
+                id, product.getConfigurationVersion(), actor());
         return mapper.toResponse(product);
     }
 
@@ -182,7 +183,8 @@ public class LoanProductServiceImpl implements LoanProductService {
     }
 
     private String actor() {
-        return currentUser.adminUserId();
+        SecurityUtils.requireAdmin();
+        return SecurityUtils.getCurrentUserId();
     }
 
     private Instant now() {

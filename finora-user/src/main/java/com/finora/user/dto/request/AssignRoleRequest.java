@@ -9,7 +9,7 @@ import lombok.Setter;
 /**
  * Yêu cầu gán vai trò mới cho một người dùng.
  *
- * @see com.finora.user.domain.UserRole giá trị hợp lệ: BORROWER, INVESTOR, ADMIN
+ * @see com.finora.common.enums.user.UserRole giá trị hợp lệ: BORROWER, INVESTOR, ADMIN
  */
 @Getter
 @Setter

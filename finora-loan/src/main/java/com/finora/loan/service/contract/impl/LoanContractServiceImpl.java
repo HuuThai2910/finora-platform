@@ -1,7 +1,7 @@
 package com.finora.loan.service.contract.impl;
 
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.loan.security.CurrentUserProvider;
+import com.finora.common.security.SecurityUtils;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.contract.ConsentAction;
 import com.finora.loan.domain.contract.ContractPdfArtifactType;
@@ -53,14 +53,13 @@ public class LoanContractServiceImpl implements LoanContractService {
     private final LoanContractStateService stateService;
     private final LoanContractMapper mapper;
     private final HashingService hashingService;
-    private final CurrentUserProvider currentUser;
 
     /** Một page Contract + một batch Application; document lớn không được tải vào response summary. */
     @Override
     @Transactional(readOnly = true)
     public PageResponse<LoanContractSummaryResponse> listMine(int page, int size) {
         Page<LoanContract> contracts = contractRepository.findByBorrowerId(
-                currentUser.borrowerUserId(),
+                SecurityUtils.getCurrentUserId(),
                 PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")))
         );
         Map<Long, LoanApplication> applications = applicationRepository
@@ -75,7 +74,7 @@ public class LoanContractServiceImpl implements LoanContractService {
     @Transactional(readOnly = true)
     public LoanContractDetailResponse detail(String contractNumber) {
         LoanContract contract = contract(contractNumber);
-        contract.requireOwner(currentUser.borrowerUserId());
+        contract.requireOwner(SecurityUtils.getCurrentUserId());
         LoanApplication application = applicationRepository.findById(contract.getApplicationId())
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Loan Application", "id", contract.getApplicationId()));
@@ -89,7 +88,7 @@ public class LoanContractServiceImpl implements LoanContractService {
     @Transactional(readOnly = true)
     public LoanContractPdfContent document(String contractNumber) {
         LoanContract contract = contract(contractNumber);
-        contract.requireOwner(currentUser.borrowerUserId());
+        contract.requireOwner(SecurityUtils.getCurrentUserId());
         LoanContractDocument document = currentPdf(contract);
         if (document == null) {
             throw new ResourceNotFoundException(
@@ -109,13 +108,14 @@ public class LoanContractServiceImpl implements LoanContractService {
     ) {
         String normalizedKey = idempotencyKey.trim();
         String requestHash = hashingService.sha256(new ConsentFingerprint("SIGN", request));
+        String userId = SecurityUtils.getCurrentUserId();
         ContractConsentResult result = executeWithDuplicateRecovery(
                 contractNumber, normalizedKey, requestHash, ConsentAction.SIGN,
                 () -> stateService.sign(
-                        contractNumber, normalizedKey, requestHash, request, currentUser.borrowerUserId()));
+                        contractNumber, normalizedKey, requestHash, request, userId));
         rejectExpired(result);
         log.info("Borrower đã ký Contract: contractNumber={}, actorId={}",
-                contractNumber, currentUser.borrowerUserId());
+                contractNumber, userId);
         return mapper.toAction(result.contract());
     }
 
@@ -127,13 +127,14 @@ public class LoanContractServiceImpl implements LoanContractService {
     ) {
         String normalizedKey = idempotencyKey.trim();
         String requestHash = hashingService.sha256(new ConsentFingerprint("DECLINE", request));
+        String userId = SecurityUtils.getCurrentUserId();
         ContractConsentResult result = executeWithDuplicateRecovery(
                 contractNumber, normalizedKey, requestHash, ConsentAction.DECLINE,
                 () -> stateService.decline(
-                        contractNumber, normalizedKey, requestHash, request, currentUser.borrowerUserId()));
+                        contractNumber, normalizedKey, requestHash, request, userId));
         rejectExpired(result);
         log.info("Borrower đã từ chối Contract: contractNumber={}, reasonCode={}, actorId={}",
-                contractNumber, request.reasonCode(), currentUser.borrowerUserId());
+                contractNumber, request.reasonCode(), userId);
         return mapper.toAction(result.contract());
     }
 
@@ -141,7 +142,7 @@ public class LoanContractServiceImpl implements LoanContractService {
     @Transactional(readOnly = true)
     public PageResponse<LoanContractHistoryResponse> history(String contractNumber, int page, int size) {
         LoanContract contract = contract(contractNumber);
-        contract.requireOwner(currentUser.borrowerUserId());
+        contract.requireOwner(SecurityUtils.getCurrentUserId());
         return PageResponse.from(historyRepository.findByContractId(
                         contract.getId(),
                         PageRequest.of(page, size,
@@ -160,7 +161,7 @@ public class LoanContractServiceImpl implements LoanContractService {
             return command.get();
         } catch (DataIntegrityViolationException conflict) {
             ContractConsentResult committed = stateService.findCommittedByKey(
-                    contractNumber, idempotencyKey, requestHash, action, currentUser.borrowerUserId());
+                    contractNumber, idempotencyKey, requestHash, action, SecurityUtils.getCurrentUserId());
             if (committed != null && committed.contract().getContractNumber().equals(contractNumber)) {
                 return committed;
             }

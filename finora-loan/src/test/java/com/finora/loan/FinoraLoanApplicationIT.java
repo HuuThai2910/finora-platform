@@ -3,7 +3,6 @@ package com.finora.loan;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.loan.config.AiCreditProperties;
-import com.finora.loan.security.CurrentUserProvider;
 import com.finora.loan.domain.scoring.AiRecommendation;
 import com.finora.loan.domain.scoring.BorrowerKycStatus;
 import com.finora.loan.domain.scoring.BorrowerProfileSource;
@@ -88,7 +87,6 @@ class FinoraLoanApplicationIT {
     @Autowired CircuitBreakerFactory<?, ?> circuitBreakerFactory;
     @Autowired @Qualifier("aiCreditRestClient") RestClient aiCreditRestClient;
 
-    @MockBean CurrentUserProvider currentUser;
     @MockBean FineractLoanProductGateway productGateway;
     @MockBean FineractScheduleGateway scheduleGateway;
     @MockBean BorrowerProfileProvider borrowerProfileProvider;
@@ -109,8 +107,23 @@ class FinoraLoanApplicationIT {
                 RESTART IDENTITY CASCADE
                 """);
         fineractIds.set(1000);
-        when(currentUser.adminUserId()).thenReturn("ADMIN-001");
-        when(currentUser.borrowerUserId()).thenReturn("BORROWER-001");
+        org.springframework.security.oauth2.jwt.Jwt mockJwt = org.springframework.security.oauth2.jwt.Jwt.withTokenValue("mock-token")
+                .header("alg", "RS256")
+                .subject("BORROWER-001")
+                .claim("user_id", "BORROWER-001")
+                .issuedAt(java.time.Instant.now())
+                .expiresAt(java.time.Instant.now().plusSeconds(3600))
+                .build();
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken(
+                        mockJwt,
+                        java.util.List.of(
+                                new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_BORROWER"),
+                                new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN")
+                        ),
+                        "BORROWER-001"
+                )
+        );
         when(productGateway.findProductByExternalId(anyString())).thenReturn(Optional.empty());
         when(productGateway.createProduct(any(), anyString()))
                 .thenAnswer(invocation -> new FineractProductCreationResult(fineractIds.incrementAndGet(), "{}"));

@@ -1,8 +1,8 @@
 package com.finora.user.dto.response;
 
-import com.finora.user.domain.EkycStatus;
-import com.finora.user.domain.Gender;
-import com.finora.user.domain.UserRole;
+import com.finora.common.enums.user.EkycStatus;
+import com.finora.common.enums.user.Gender;
+import com.finora.common.enums.user.UserRole;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;

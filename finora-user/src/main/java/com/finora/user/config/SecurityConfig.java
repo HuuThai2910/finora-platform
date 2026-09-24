@@ -1,7 +1,7 @@
 package com.finora.user.config;
 
-import com.finora.user.security.DualBearerTokenResolver;
-import com.finora.user.security.KeycloakJwtAuthenticationConverter;
+import com.finora.common.security.DualBearerTokenResolver;
+import com.finora.common.security.KeycloakJwtAuthenticationConverter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
