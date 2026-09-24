@@ -268,7 +268,7 @@ Các task có thể chạy song song theo ownership, nhưng mỗi task vẫn ph�
 | ID | Module | Chức năng | Phụ thuộc | Trạng thái |
 |---|---|---|---|---|
 | P7-B01 | Investment | Auto-invest | P3 | `BACKLOG` |
-| P7-B02 | Investment | Secondary market/Note transfer | P5 + payment settlement | `BACKLOG` |
+| P7-B02 | Investment | [INV-E1: Secondary market/Note transfer](../../finora-investment/plans/INV-E1-secondary-market-flow.md) | Backend xong 2026-09-22 (5 endpoint, `V2` migration, ví giả lập `transfer`); trần giá bán = dư nợ gốc, phí 5% trừ người bán, cho bán Note nợ xấu kèm cảnh báo. **Plan chưa được Thái duyệt**; chưa có UI, chưa có IT (thiếu Docker), chưa kiểm eKYC và trần 100tr/400tr; `PaymentClient.transfer` cần owner Payment review | `IN_PROGRESS` |
 | P7-B03 | AI | SHAP/XAI nâng cao | P1 | `DONE` — 2026-09-02: `POST /api/v1/ai/credit/explain` giải thích PD bằng TreeSHAP (`app/ml/credit/explainer.py`) gộp với rule trace 5C. `int_rate` vẫn hiển thị nhưng gắn cờ `la_leakage` kèm cảnh báo thay vì lọc bỏ, để giải thích mô tả trung thực mô hình. |
 | P7-B04 | AI | Champion/challenger + backtest | Model registry/dataset | `BACKLOG` |
 | P7-B05 | AI | Fraud detection | Payment behavior contract | `BACKLOG` |
