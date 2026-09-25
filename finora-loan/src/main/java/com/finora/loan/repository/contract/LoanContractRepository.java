@@ -34,11 +34,11 @@ public interface LoanContractRepository extends JpaRepository<LoanContract, Long
     /** Worker chỉ lấy ID đến hạn theo partial index rồi khóa từng Contract trong transaction riêng. */
     @Query("""
             select contract.id from LoanContract contract
-            where contract.status = :status and contract.expiresAt <= :now
+            where contract.status in :statuses and contract.expiresAt <= :now
             order by contract.expiresAt asc, contract.id asc
             """)
     List<Long> findDueIds(
-            @Param("status") LoanContractStatus status,
+            @Param("statuses") List<LoanContractStatus> statuses,
             @Param("now") Instant now,
             Pageable pageable
     );

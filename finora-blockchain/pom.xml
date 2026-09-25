@@ -53,7 +53,7 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- Kafka Consumer — Nghe event từ Loan và Payment -->
+        <!-- Kafka contract sẽ được bổ sung sau; listener hiện mặc định tắt. -->
         <dependency>
             <groupId>org.springframework.kafka</groupId>
             <artifactId>spring-kafka</artifactId>

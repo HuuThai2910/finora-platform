@@ -8,6 +8,7 @@ import com.finora.loan.dto.application.response.ApplicantFinancialResponse;
 import com.finora.loan.dto.application.response.LoanApplicationResponse;
 import com.finora.loan.dto.application.response.LoanApplicationHistoryResponse;
 import com.finora.loan.dto.application.response.LoanProductSnapshotResponse;
+import com.finora.loan.dto.application.response.TermsConfirmationResponse;
 import com.finora.loan.mapper.core.ScheduleCalculationSnapshotMapper;
 import org.springframework.stereotype.Component;
 
@@ -56,12 +57,28 @@ public class LoanApplicationMapper {
                 application.getSubmittedAt(),
                 application.getWithdrawnAt(),
                 application.getWithdrawalReason(),
+                termsConfirmation(application),
                 application.getLatestCreditAssessmentId(),
                 application.getVersion(),
                 application.getCreatedBy(),
                 application.getUpdatedBy(),
                 application.getCreatedAt(),
                 application.getUpdatedAt()
+        );
+    }
+
+    private TermsConfirmationResponse termsConfirmation(LoanApplication application) {
+        if (application.getTermsConfirmationStatus() == null) {
+            return null;
+        }
+        return new TermsConfirmationResponse(
+                application.getTermsConfirmationStatus(),
+                application.getTermsVersion(),
+                application.getTermsHash(),
+                application.getTermsExpiresAt(),
+                application.getTermsRespondedAt(),
+                application.getTermsDeclineReasonCode(),
+                application.getTermsDeclineReasonDetail()
         );
     }
 

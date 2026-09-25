@@ -84,6 +84,13 @@ public class LoanContractController {
         return service.sign(contractNumber, idempotencyKey, request);
     }
 
+    @PostMapping("/{contractNumber}/signature/refresh")
+    public LoanContractActionResponse refreshSignature(
+            @PathVariable @NotBlank @Size(max = 50) String contractNumber
+    ) {
+        return service.refreshSignature(contractNumber);
+    }
+
     @PostMapping("/{contractNumber}/decline")
     public LoanContractActionResponse decline(
             @PathVariable @NotBlank @Size(max = 50) String contractNumber,

@@ -59,7 +59,7 @@ public class ContractDocumentRenderer {
         blankLine(document);
         line(document, "4. XÁC NHẬN CỦA NGƯỜI VAY");
         line(document, "Người vay xác nhận đã đọc số tiền vay, lãi suất, thời hạn, tổng nghĩa vụ thanh toán và toàn bộ lịch trả nợ nêu trên.");
-        line(document, "Khi chọn \"Ký xác nhận\", FINORA ghi nhận sự đồng ý bằng hình thức click-wrap trong hệ thống; đây chưa phải chữ ký số SmartCA.");
+        line(document, "Khi chọn \"Ký xác nhận\", FINORA gửi hoặc ghi nhận yêu cầu theo phương thức ký đang được hệ thống công bố; hợp đồng chỉ được xem là đã ký khi có bằng chứng hoàn tất tương ứng.");
         line(document, "Hạn xác nhận hợp đồng: " + expiresAt);
         blankLine(document);
         line(document, "5. THÔNG TIN PHIÊN BẢN VÀ ĐỐI CHIẾU");

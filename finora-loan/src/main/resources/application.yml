@@ -35,7 +35,15 @@ spring:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        # Giới hạn cả thời gian chờ metadata trước khi KafkaTemplate trả future.
+        max.block.ms: ${LOAN_KAFKA_MAX_BLOCK_MS:5000}
+        request.timeout.ms: ${LOAN_KAFKA_REQUEST_TIMEOUT_MS:5000}
+        delivery.timeout.ms: ${LOAN_KAFKA_DELIVERY_TIMEOUT_MS:10000}
 
 server:
   port: 8081
@@ -66,11 +74,24 @@ management:
         include: health,info,metrics
 
 finora:
+  signature:
+    # MOCK giữ luồng click-wrap phát triển. Chỉ đổi sang VNPT_SMART_CA khi đã có certificate và API contract.
+    provider: ${FINORA_SIGNATURE_PROVIDER:MOCK}
+    vnpt-smart-ca:
+      # UAT Web API v1. Không đổi sang host production khi còn dùng fixed signer test.
+      base-url: ${VNPT_SMARTCA_BASE_URL:https://rmgateway.vnptit.vn/sca/sp769}
+      service-provider-id: ${VNPT_SMARTCA_SP_ID:}
+      service-provider-password: ${VNPT_SMARTCA_SP_PASSWORD:}
+      sandbox-fixed-signer-enabled: ${VNPT_SMARTCA_SANDBOX_FIXED_SIGNER_ENABLED:false}
+      sandbox-user-id: ${VNPT_SMARTCA_SANDBOX_USER_ID:}
+      sandbox-serial-number: ${VNPT_SMARTCA_SANDBOX_SERIAL_NUMBER:}
+      connect-timeout: ${VNPT_SMARTCA_CONNECT_TIMEOUT:3s}
+      read-timeout: ${VNPT_SMARTCA_READ_TIMEOUT:15s}
   loan:
     # Version này được snapshot khi borrower submit để đối chiếu đúng nội dung đã xác nhận.
-    pricing-disclosure-version: ${LOAN_PRICING_DISCLOSURE_VERSION:RATE_DISCLOSURE_V1}
+    pricing-disclosure-version: ${LOAN_PRICING_DISCLOSURE_VERSION:RATE_DISCLOSURE_V2}
     interest-rate-unit: PERCENT_PER_YEAR
-    rate-notice: "Lãi suất cơ sở dùng cho lịch ban đầu; lãi suất cuối có thể tăng hoặc giảm sau chấm điểm nhưng luôn nằm trong khoảng công bố. Người vay xem và xác nhận điều khoản cuối trước giải ngân."
+    rate-notice: "Lãi suất cơ sở dùng cho lịch ban đầu; lãi suất cuối có thể tăng hoặc giảm sau chấm điểm nhưng luôn nằm trong khoảng công bố. Nếu điều khoản cuối không bất lợi hơn, hồ sơ tự tiếp tục theo chấp thuận lúc nộp; nếu bất lợi hơn, người vay phải xác nhận lại trước khi lập hợp đồng."
     risk-pricing:
       policy-version: ${LOAN_RISK_PRICING_POLICY_VERSION:RISK_PRICING_V1}
       # Chốt an toàn cho mô hình P2P hiện tại; phạm vi pháp lý được giải thích trong docs/LEGAL-COMPLIANCE.md.
@@ -92,6 +113,21 @@ finora:
       expiry-batch-size: ${LOAN_CONTRACT_EXPIRY_BATCH_SIZE:100}
       expiry-worker-enabled: ${LOAN_CONTRACT_EXPIRY_WORKER_ENABLED:true}
       expiry-worker-delay: ${LOAN_CONTRACT_EXPIRY_WORKER_DELAY:60000}
+    outbox:
+      batch-size: ${LOAN_OUTBOX_BATCH_SIZE:100}
+      max-attempts: ${LOAN_OUTBOX_MAX_ATTEMPTS:10}
+      retry-backoff: ${LOAN_OUTBOX_RETRY_BACKOFF:5s}
+      maximum-backoff: ${LOAN_OUTBOX_MAXIMUM_BACKOFF:5m}
+      processing-lease: ${LOAN_OUTBOX_PROCESSING_LEASE:2m}
+      # Mặc định chỉ ghi local outbox. Chỉ bật sau khi routes bên dưới đã được producer/consumer duyệt.
+      publisher-enabled: ${LOAN_OUTBOX_PUBLISHER_ENABLED:false}
+      publisher-delay: ${LOAN_OUTBOX_PUBLISHER_DELAY:5000}
+      transport: ${LOAN_OUTBOX_TRANSPORT:none}
+    kafka:
+      publish-timeout: ${LOAN_KAFKA_PUBLISH_TIMEOUT:10s}
+      # Không thêm route mặc định: tránh vô tình phát event nội bộ thành contract liên service.
+      # Mỗi route phải gồm event-type, event-version và topic finora.loan.<past-event> đã đăng ký.
+      routes: []
   borrower-eligibility:
     minimum-age: ${BORROWER_MINIMUM_AGE:18}
     maximum-age: ${BORROWER_MAXIMUM_AGE:65}

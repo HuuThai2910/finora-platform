@@ -2,6 +2,7 @@ package com.finora.loan.dto.decision.response;
 
 import com.finora.loan.domain.application.LoanApplicationStatus;
 import com.finora.loan.domain.application.LoanDecisionSource;
+import com.finora.loan.domain.application.TermsConfirmationStatus;
 import com.finora.loan.domain.application.LoanPurpose;
 import com.finora.loan.domain.product.RepaymentMethod;
 import com.finora.loan.domain.scoring.BorrowerKycStatus;
@@ -39,6 +40,9 @@ public record AdminLoanReviewDetailResponse(
         CreditProfileEvidence creditProfile,
         AdminAssessmentEvidenceResponse assessment,
         List<LoanApplicationHistoryResponse> recentHistory,
+        TermsConfirmationStatus termsConfirmationStatus,
+        String termsVersion,
+        Instant termsExpiresAt,
         Instant submittedAt,
         /** ID quản trị viên đã duyệt hoặc từ chối; {@code null} khi hồ sơ chưa có quyết định. */
         String adminDecidedBy,

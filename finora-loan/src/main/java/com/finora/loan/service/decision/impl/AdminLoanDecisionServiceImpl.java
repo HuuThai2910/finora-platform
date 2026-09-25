@@ -195,8 +195,11 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
                 applicationNumber, normalizedKey, requestHash,
                 () -> stateService.approve(
                         applicationNumber, normalizedKey, requestHash, request, adminId));
-        log.info("Admin đã duyệt hồ sơ: applicationNumber={}, contractNumber={}, actorId={}",
-                applicationNumber, result.contract().getContractNumber(), adminId);
+        log.info("Admin đã duyệt hồ sơ: applicationNumber={}, contractNumber={}, termsConfirmationStatus={}, actorId={}",
+                applicationNumber,
+                result.contract() == null ? null : result.contract().getContractNumber(),
+                result.application().getTermsConfirmationStatus(),
+                adminId);
         return mapper.toDecision(result.application(), result.contract());
     }
 

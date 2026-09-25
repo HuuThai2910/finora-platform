@@ -24,13 +24,13 @@ spring:
     clean-disabled: true
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    listener:
+      auto-startup: ${PAYMENT_KAFKA_LISTENER_ENABLED:false}
     consumer:
       group-id: payment-group
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      properties:
-        spring.json.trusted.packages: "*"
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
@@ -39,6 +39,8 @@ spring:
       host: ${PAYMENT_REDIS_HOST:localhost}
       port: ${PAYMENT_REDIS_PORT:6380}
       password: ${PAYMENT_REDIS_PASSWORD}
+      repositories:
+        enabled: false
 
 server:
   port: 8082

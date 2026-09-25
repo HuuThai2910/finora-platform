@@ -1,6 +1,7 @@
 package com.finora.loan.domain.contract;
 
-/** LN-008 chỉ ghi nhận click-wrap consent, chưa phải chữ ký số SmartCA. */
+/** Hình thức bằng chứng được provider trả về; client không có quyền tự quyết định giá trị cuối. */
 public enum SignatureMethod {
-    CLICK_WRAP_MVP
+    CLICK_WRAP_MVP,
+    VNPT_SMART_CA
 }

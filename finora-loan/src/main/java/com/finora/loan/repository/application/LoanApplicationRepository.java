@@ -6,6 +6,7 @@ import jakarta.persistence.LockModeType;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -34,6 +35,16 @@ public interface LoanApplicationRepository extends JpaRepository<LoanApplication
     Optional<LoanApplication> findByBorrowerIdAndIdempotencyKey(String borrowerId, String idempotencyKey);
 
     Optional<LoanApplication> findByAdminDecisionIdempotencyKey(String adminDecisionIdempotencyKey);
+
+    Optional<LoanApplication> findByTermsConsentIdempotencyKey(String termsConsentIdempotencyKey);
+
+    @Query("""
+            select application.id from LoanApplication application
+            where application.termsConfirmationStatus = com.finora.loan.domain.application.TermsConfirmationStatus.PENDING
+              and application.termsExpiresAt <= :now
+            order by application.termsExpiresAt asc, application.id asc
+            """)
+    List<Long> findDueTermsConfirmationIds(@Param("now") Instant now, Pageable pageable);
 
     /**
      * Phân trang hồ sơ theo borrower. Entity chỉ chứa scalar/embedded snapshot nên

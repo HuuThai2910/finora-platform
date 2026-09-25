@@ -2,7 +2,7 @@
 
 > Tài liệu dùng chung cho thiết kế, code review và viết báo cáo khóa luận. Đây là bản đối chiếu kỹ thuật, không thay thế ý kiến pháp lý của luật sư/cơ quan có thẩm quyền.
 
-- Ngày kiểm tra nguồn gần nhất: **2026-09-07**.
+- Ngày kiểm tra nguồn gần nhất: **2026-09-16**.
 - Chỉ coi một yêu cầu là “đã xác minh” khi có đường dẫn tới văn bản chính thức và chỉ rõ điều/khoản liên quan.
 - Mỗi service chỉ dẫn chiếu mã kiểm soát trong file này; không sao chép luật sang nhiều plan vì dễ lệch phiên bản.
 - Trước khi triển khai thật hoặc khi văn bản thay đổi, owner nghiệp vụ phải rà soát lại trạng thái hiệu lực.
@@ -47,8 +47,10 @@
 
 - Catalog phải ghi rõ `minRate`, `baseRate`, `maxRate` và giải thích `baseRate` là mức dự kiến trước thẩm định, không phải cam kết lãi suất cuối.
 - Khi nộp hồ sơ, borrower xem lịch ban đầu tính theo `baseRate`. Sau AI, Loan tính `finalRate` rồi yêu cầu Fineract tạo lại lịch cuối.
+- Disclosure `RATE_DISCLOSURE_V2` ghi nhận trước rằng hồ sơ được tự tiếp tục **chỉ khi** điều khoản cuối không bất lợi hơn. Loan so sánh lãi suất, phí, phạt, tổng phải trả, kỳ đầu và kỳ cao nhất bằng immutable schedule snapshots; không suy diễn từ grade hoặc quyết định AI.
+- Nếu có bất kỳ chỉ tiêu bất lợi hơn, Loan lưu `PENDING` và phải có hành động chấp nhận rõ ràng của borrower gắn với `termsVersion + termsHash + expiry` trước khi tạo Contract. Im lặng/hết hạn không được xem là đồng ý.
 - Trước khi ký, borrower phải xem được lãi suất cuối, tổng gốc/lãi/phí, từng kỳ trả, điều khoản và quyền từ chối. Số tiền vay và kỳ hạn đã yêu cầu không được tự đổi trong luồng hiện tại.
-- Không tự giải ngân chỉ vì AI trả `APPROVED`; kết quả này chỉ tạo hợp đồng `PENDING_SIGNATURE` để borrower đọc và xác nhận.
+- Không tự giải ngân chỉ vì AI trả `APPROVED`, borrower chấp nhận điều khoản hoặc ký Contract.
 
 Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW-CONSUMER-2023`, đặc biệt yêu cầu thông tin chính xác/đầy đủ, hợp đồng rõ ràng và người dùng xem lại, tải hợp đồng trong giao dịch từ xa.
 
@@ -56,7 +58,7 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 
 - AI trả `evaluation_score`, `credit_grade`, `decision`, `model_version`, `decision_policy_version` và phần giải thích. Loan lưu immutable request/response snapshot và policy version.
 - Ngưỡng `auto_approve/auto_reject` thuộc policy cấu hình của AI; grade thuộc policy giá. Hai khái niệm không được nhập làm một.
-- `APPROVED` → Loan tính giá/lịch cuối, lưu nguồn quyết định `AI_POLICY`, tạo hợp đồng chờ chữ ký. `PENDING_REVIEW` → admin xem cả dữ liệu ban đầu, dữ liệu cuối và bằng chứng AI. `REJECTED` → đóng hồ sơ với bằng chứng policy; không tính final rate và không tạo lịch cuối/hợp đồng.
+- `APPROVED` → Loan tính giá/lịch cuối, lưu nguồn quyết định `AI_POLICY`, rồi áp cùng policy xác nhận điều khoản như nhánh admin. `PENDING_REVIEW` → admin xem cả dữ liệu ban đầu, dữ liệu cuối và bằng chứng AI. `REJECTED` → đóng hồ sơ với bằng chứng policy; không tính final rate và không tạo lịch cuối/hợp đồng.
 - A/B/C/D/E **không phải phân loại do pháp luật quy định**. Mức `-0.5/0/+0.5/+1.0/+1.0` điểm phần trăm là policy demo có version, phải được người có thẩm quyền nghiệp vụ phê duyệt trước production và kiểm tra nguy cơ phân biệt đối xử.
 - Principal/term không tự thay đổi theo grade. Nếu tương lai muốn đề nghị hạn mức hoặc kỳ hạn khác, phải tạo offer riêng và lấy lại sự đồng ý của borrower.
 
@@ -65,9 +67,14 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 - Contract phải là tài liệu tiếng Việt dễ đọc, có thể xem/tải, chứa điều khoản cuối và dấu vết version/hash để phát hiện thay đổi.
 - Loan sinh và lưu nguyên bytes PDF `SIGNABLE` trong cùng transaction tạo Contract; endpoint tải chỉ trả lại bytes đã lưu, không render lại theo thiết bị. Hash PDF được đối chiếu khi consent.
 - Sau click-wrap, Loan tạo thêm `SIGNED_RECEIPT` chứa bằng chứng actor/time/method; không ghi đè PDF `SIGNABLE` mà borrower đã đọc.
+- Loan lưu riêng `signatureProvider`, `signatureTransactionId` và `signatureEvidenceHash`. Với local/dev, provider phải ghi rõ `MOCK` và method `CLICK_WRAP_MVP`; không được hiển thị hoặc báo cáo nó như chữ ký số SmartCA.
+- Adapter VNPT SmartCA UAT chỉ đọc credential từ biến môi trường, kiểm tra chứng thư, gửi hash PDF và polling trạng thái. Contract chỉ thành `SIGNED` sau khi VNPT trả chữ ký đúng `transactionId + docId`; không lưu OTP/token/private key hoặc raw signature. Fixed signer bị khóa vào host UAT và không được bật production.
+- Receipt của adapter SmartCA hiện là bằng chứng chữ ký tách rời. Không được tuyên bố PDF đã có chữ ký PAdES nhúng cho tới khi tích hợp và kiểm chứng SDK/HashSigner chính thức tương thích. Cấu hình và giới hạn được ghi tại `docs/integrations/VNPT-SMARTCA-UAT.md`.
 - `documentHash` legacy và hash PDF là bằng chứng toàn vẹn kỹ thuật; chỉ đặt trong vùng đối chiếu, không dùng thay điều khoản chính và **không tự biến thao tác click thành chữ ký số**.
 - PDF thử nghiệm phải ghi rõ bên cho vay và SmartCA chưa tích hợp. Không được vẽ chữ ký hoặc mô tả nhà đầu tư giả lập như chữ ký có hiệu lực.
-- Cơ chế click-wrap hiện tại chỉ là MVP ghi nhận sự chấp thuận điện tử. Trước production phải được legal review về hình thức chữ ký phù hợp và tích hợp chữ ký điện tử/chữ ký số nếu loại hợp đồng hoặc mô hình vận hành yêu cầu.
+- Giai đoạn chuyển tiếp hiện tại vẫn tạo Contract/PDF demo sau khi điều khoản đã được tự cho phép hoặc borrower chấp nhận để kiểm thử các màn đọc/ký/từ chối. Không mock nhà đầu tư, không ghi chữ ký bên cho vay và không dùng artifact này để giải ngân production.
+- Khi Investment hoàn thiện, Contract song phương cuối chỉ được lập sau khi có bên cho vay xác định; dữ liệu phát triển cũ sẽ được reset/migrate có kiểm soát thay vì diễn giải PDF demo là hợp đồng song phương đã đủ chữ ký.
+- Cơ chế click-wrap vẫn là phương án mock local/dev; SmartCA hiện chỉ đủ cho UAT fixed signer. Trước production phải được legal review về hình thức ký, định danh đúng từng borrower/lender, quản trị chứng thư và bằng chứng kiểm tra chữ ký.
 - Căn cứ đối chiếu: `LAW-CONSUMER-2023` Điều 23, 38 và `LAW-ELECTRONIC-2023` Điều 10, 11, 13, 22, 23, 38.
 
 ### `LEGAL-DATA-01` — Dữ liệu hồ sơ và CCCD
@@ -76,11 +83,14 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 - Loan không lưu ảnh CCCD hoặc số CCCD thô, không ghi PII vào log. Khi User Service hoàn thiện, số định danh chỉ được cung cấp just-in-time qua contract được bảo vệ nếu AI thực sự cần `so_cccd`.
 - Local mock gửi `so_cccd=null`; không được tạo số CCCD giả trông như dữ liệu thật rồi lưu vào assessment.
 - Request/response AI, schedule và contract cần được phân loại dữ liệu, mã hóa khi lưu/truyền, giới hạn quyền đọc và có retention policy trước production.
+- Outbox Contract chỉ chứa business ID, hash/version, trạng thái ký và thời gian; không chứa CCCD, thu nhập, raw AI payload, OTP hoặc secret provider. Kafka adapter đã có allowlist theo exact event/version nhưng mặc định tắt và chưa có route/topic hoạt động; event listing chỉ được mở sau khi Loan–Investment duyệt payload tối thiểu.
+- Blockchain proof foundation chỉ lưu/gửi SHA-256, schema version và business reference; không nhận raw PDF, CCCD, AI payload hoặc dữ liệu thanh toán chi tiết. Receipt `MOCK` phải luôn được trình bày là dữ liệu demo, không phải bằng chứng đã ghi Hyperledger Fabric.
 
 ### `LEGAL-PAYMENT-01` — Giải ngân và thanh toán
 
 - Theo điểm b khoản 1 Điều 11 Nghị định 94, giải ngân và thanh toán khoản vay, lãi, phí phải đi qua tài khoản thanh toán tại tổ chức tín dụng/chi nhánh ngân hàng nước ngoài hoặc ví điện tử tại tổ chức trung gian thanh toán.
 - FINORA không triển khai “ví nội bộ tự giữ tiền” như tài khoản pháp lý độc lập. Payment/Fineract chỉ điều phối và đối soát với nhà cung cấp được phép.
+- Payment hiện có operational ledger local bất biến/cân bằng để kiểm thử invariant, nhưng không có public deposit/withdrawal API và không đại diện cho tiền đã đi qua tổ chức cung ứng dịch vụ thanh toán. Chỉ được ghi nhận tiền thật sau khi có provider reference, webhook/idempotency và reconciliation đã duyệt.
 - Đây là cổng bắt buộc trước khi bật giải ngân production; không ảnh hưởng demo Loan đến trạng thái `PENDING_SIGNATURE`.
 
 ## 3. Ma trận service và điểm kiểm soát
@@ -91,8 +101,9 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 | Catalog/preview/nộp hồ sơ | Loan + Web/Mobile | `LEGAL-DISCLOSURE-01` | Base rate và initial schedule snapshot; disclosure version | UI hiển thị đủ min/base/max, phí và câu chữ đã được duyệt |
 | Chấm điểm AI v17 | AI + Loan | `LEGAL-AI-01`, `LEGAL-DATA-01` | Versioned decision, snapshot/hash, bounded retry | User contract cho identity; retention/access review; kiểm thử fairness |
 | Định giá sau scoring | Loan + Fineract | `LEGAL-RATE-01`, `LEGAL-AI-01` | Grade adjustment, clamp, final schedule snapshot | Admin UI hiển thị so sánh base/final; quy trình phê duyệt policy |
-| Duyệt và ký | Loan + Web/Mobile | `LEGAL-DISCLOSURE-01`, `LEGAL-CONTRACT-01` | Contract version/hash/expiry; PDF `SIGNABLE`/`SIGNED_RECEIPT` bất biến phía server; mobile mở/tải đúng artifact | Legal review hình thức ký; identity/JWT; chữ ký bên cho vay và SmartCA production |
-| Giải ngân/trả nợ | Loan + Payment + Fineract | `LEGAL-PAYMENT-01` | Mới ở thiết kế saga | Đối tác tài khoản/ví được phép, reconciliation và bằng chứng giao dịch |
+| Duyệt, xác nhận điều khoản và ký | Loan + Web/Mobile | `LEGAL-DISCLOSURE-01`, `LEGAL-CONTRACT-01` | Outcome-based non-worsening gate; evidence version/hash/expiry; PDF bất biến; mock/provider evidence được phân biệt; Contract event ghi local outbox | Investment/lender identity; legal review hình thức ký; chữ ký hai bên; API/callback/chứng thư SmartCA production; Kafka transport |
+| Bằng chứng toàn vẹn | Blockchain + service nguồn | `LEGAL-CONTRACT-01`, `LEGAL-DATA-01` | Durable hash-only proof, idempotency/retry/DLT local; mock được phân biệt; Fabric fail-closed | Event contract đã duyệt, Fabric network/chaincode, access/retention và legal review cách trình bày bằng chứng |
+| Giải ngân/trả nợ | Loan + Payment + Fineract | `LEGAL-PAYMENT-01` | Immutable balanced local ledger, idempotency và chống số dư âm; chưa có API/provider | Đối tác tài khoản/ví được phép, webhook/reconciliation và bằng chứng giao dịch |
 
 ## 4. Quy tắc cập nhật nguồn pháp lý
 

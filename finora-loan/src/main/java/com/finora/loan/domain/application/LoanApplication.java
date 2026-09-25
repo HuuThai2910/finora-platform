@@ -194,6 +194,38 @@ public class LoanApplication {
     @Column(name = "automated_decided_at")
     private Instant automatedDecidedAt;
 
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "terms_confirmation_status", length = 30)
+    private TermsConfirmationStatus termsConfirmationStatus;
+
+    @Column(name = "terms_version", length = 50)
+    private String termsVersion;
+
+    @Column(name = "terms_hash", length = 64)
+    private String termsHash;
+
+    @Column(name = "terms_expires_at")
+    private Instant termsExpiresAt;
+
+    @Column(name = "terms_responded_by", length = 100)
+    private String termsRespondedBy;
+
+    @Column(name = "terms_responded_at")
+    private Instant termsRespondedAt;
+
+    @Column(name = "terms_decline_reason_code", length = 50)
+    private String termsDeclineReasonCode;
+
+    @Column(name = "terms_decline_reason_detail", length = 1000)
+    private String termsDeclineReasonDetail;
+
+    @Column(name = "terms_consent_idempotency_key", length = 150)
+    private String termsConsentIdempotencyKey;
+
+    @Column(name = "terms_consent_request_hash", length = 64)
+    private String termsConsentRequestHash;
+
     @Version
     @Column(nullable = false)
     private Long version;
@@ -451,6 +483,136 @@ public class LoanApplication {
     public boolean hasAdminDecisionKey(String decisionIdempotencyKey) {
         return adminDecisionIdempotencyKey != null
                 && adminDecisionIdempotencyKey.equals(decisionIdempotencyKey);
+    }
+
+    /**
+     * Đóng băng bản điều khoản cuối sau quyết định duyệt. AUTO_AUTHORIZED chỉ được dùng khi
+     * disclosure lúc submit đã cho phép tiếp tục và phép so sánh xác nhận điều khoản không bất lợi hơn.
+     */
+    public void prepareTermsConfirmation(
+            TermsConfirmationStatus confirmationStatus,
+            String resolvedTermsVersion,
+            String resolvedTermsHash,
+            Instant expiresAt,
+            String actorId,
+            Instant now
+    ) {
+        requireStatus(LoanApplicationStatus.APPROVED);
+        if (termsConfirmationStatus != null) {
+            throw LoanDomainException.conflict(
+                    "TERMS_ALREADY_PREPARED",
+                    "Điều khoản cuối của hồ sơ đã được chuẩn bị"
+            );
+        }
+        if (confirmationStatus != TermsConfirmationStatus.AUTO_AUTHORIZED
+                && confirmationStatus != TermsConfirmationStatus.PENDING) {
+            throw new IllegalArgumentException("Trạng thái khởi tạo điều khoản không hợp lệ");
+        }
+        if (expiresAt == null || !expiresAt.isAfter(now)) {
+            throw new IllegalArgumentException("Hạn xác nhận điều khoản phải ở tương lai");
+        }
+        termsConfirmationStatus = confirmationStatus;
+        termsVersion = requireText(resolvedTermsVersion, "termsVersion");
+        termsHash = requireText(resolvedTermsHash, "termsHash");
+        termsExpiresAt = expiresAt;
+        if (confirmationStatus == TermsConfirmationStatus.AUTO_AUTHORIZED) {
+            // Đây là pre-authorization đã ghi nhận lúc submit, không giả lập một cú click mới
+            // tại thời điểm AI/admin duyệt hồ sơ.
+            termsRespondedBy = borrowerId;
+            termsRespondedAt = pricingDisclosureAcceptedAt;
+        }
+        updatedBy = requireText(actorId, "actorId");
+        updatedAt = now;
+    }
+
+    public void acceptTerms(
+            long expectedVersion,
+            String expectedTermsVersion,
+            String expectedTermsHash,
+            String consentIdempotencyKey,
+            String consentRequestHash,
+            String actorId,
+            Instant now
+    ) {
+        validateTermsResponse(expectedVersion, expectedTermsVersion, expectedTermsHash, actorId, now);
+        recordTermsConsent(consentIdempotencyKey, consentRequestHash, actorId, now);
+        termsConfirmationStatus = TermsConfirmationStatus.ACCEPTED;
+    }
+
+    public void declineTerms(
+            long expectedVersion,
+            String expectedTermsVersion,
+            String expectedTermsHash,
+            String reasonCode,
+            String reasonDetail,
+            String consentIdempotencyKey,
+            String consentRequestHash,
+            String actorId,
+            Instant now
+    ) {
+        validateTermsResponse(expectedVersion, expectedTermsVersion, expectedTermsHash, actorId, now);
+        recordTermsConsent(consentIdempotencyKey, consentRequestHash, actorId, now);
+        termsDeclineReasonCode = requireText(reasonCode, "reasonCode");
+        termsDeclineReasonDetail = normalizeOptional(reasonDetail);
+        termsConfirmationStatus = TermsConfirmationStatus.DECLINED;
+    }
+
+    public boolean expireTerms(String actorId, Instant now) {
+        if (termsConfirmationStatus != TermsConfirmationStatus.PENDING
+                || termsExpiresAt == null || termsExpiresAt.isAfter(now)) {
+            return false;
+        }
+        termsConfirmationStatus = TermsConfirmationStatus.EXPIRED;
+        updatedBy = requireText(actorId, "actorId");
+        updatedAt = now;
+        return true;
+    }
+
+    public boolean isSameTermsConsent(String idempotencyKey, String requestHash) {
+        return termsConsentIdempotencyKey != null
+                && termsConsentIdempotencyKey.equals(idempotencyKey)
+                && termsConsentRequestHash.equals(requestHash);
+    }
+
+    private void validateTermsResponse(
+            long expectedVersion,
+            String expectedTermsVersion,
+            String expectedTermsHash,
+            String actorId,
+            Instant now
+    ) {
+        requireOwner(actorId);
+        requireVersion(expectedVersion);
+        requireStatus(LoanApplicationStatus.APPROVED);
+        if (termsConfirmationStatus != TermsConfirmationStatus.PENDING) {
+            throw LoanDomainException.conflict(
+                    "TERMS_CONFIRMATION_NOT_PENDING",
+                    "Hồ sơ không còn chờ xác nhận điều khoản"
+            );
+        }
+        if (termsExpiresAt == null || !termsExpiresAt.isAfter(now)) {
+            throw LoanDomainException.conflict("TERMS_CONFIRMATION_EXPIRED", "Thời hạn xác nhận điều khoản đã hết");
+        }
+        if (!termsVersion.equals(expectedTermsVersion) || !termsHash.equals(expectedTermsHash)) {
+            throw LoanDomainException.conflict(
+                    "TERMS_CONFIRMATION_OUTDATED",
+                    "Điều khoản đã thay đổi, vui lòng tải lại hồ sơ"
+            );
+        }
+    }
+
+    private void recordTermsConsent(
+            String idempotencyKey,
+            String requestHash,
+            String actorId,
+            Instant now
+    ) {
+        termsConsentIdempotencyKey = requireText(idempotencyKey, "termsConsentIdempotencyKey");
+        termsConsentRequestHash = requireText(requestHash, "termsConsentRequestHash");
+        termsRespondedBy = requireText(actorId, "actorId");
+        termsRespondedAt = now;
+        updatedBy = actorId;
+        updatedAt = now;
     }
 
     /** Chỉ cho rút trước eligibility/scoring để không bỏ dở side effect đã phát sinh ở hệ thống ngoài. */

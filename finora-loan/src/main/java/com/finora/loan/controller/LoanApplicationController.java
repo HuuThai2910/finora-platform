@@ -2,6 +2,8 @@ package com.finora.loan.controller;
 
 import com.finora.loan.dto.application.request.CreateLoanApplicationRequest;
 import com.finora.loan.dto.application.request.WithdrawLoanApplicationRequest;
+import com.finora.loan.dto.application.request.ConfirmLoanTermsRequest;
+import com.finora.loan.dto.application.request.DeclineLoanTermsRequest;
 import com.finora.loan.dto.application.response.LoanApplicationHistoryResponse;
 import com.finora.loan.dto.application.response.LoanApplicationResponse;
 import com.finora.loan.dto.common.PageResponse;
@@ -47,6 +49,24 @@ public class LoanApplicationController {
             @Valid @RequestBody WithdrawLoanApplicationRequest request
     ) {
         return service.withdraw(applicationNumber, request);
+    }
+
+    @PostMapping("/{applicationNumber}/terms/accept")
+    public LoanApplicationResponse acceptTerms(
+            @PathVariable String applicationNumber,
+            @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 150) String idempotencyKey,
+            @Valid @RequestBody ConfirmLoanTermsRequest request
+    ) {
+        return service.acceptTerms(applicationNumber, request, idempotencyKey);
+    }
+
+    @PostMapping("/{applicationNumber}/terms/decline")
+    public LoanApplicationResponse declineTerms(
+            @PathVariable String applicationNumber,
+            @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 150) String idempotencyKey,
+            @Valid @RequestBody DeclineLoanTermsRequest request
+    ) {
+        return service.declineTerms(applicationNumber, request, idempotencyKey);
     }
 
     @GetMapping("/{applicationNumber}")

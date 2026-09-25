@@ -4,7 +4,7 @@ services:
   # bang gia tri trong docker/.env. Nho vay secret khong nam trong file commit len Git.
   # Keycloak 23 khong tu thay placeholder trong file realm import nen phai render truoc.
   keycloak-realm-init:
-    profiles: ["core"]
+    profiles: ["core", "demo"]
     image: alpine:3.20
     container_name: finora-keycloak-realm-init
     environment:
@@ -26,11 +26,10 @@ services:
     networks:
       - finora-network
 
-  # Keycloak dung PostgreSQL cai san tren may host (khong chay container PostgreSQL).
-  # Container ket noi host qua host.docker.internal; Docker Desktop NAT ve loopback
-  # nen pg_hba.conf mac dinh (chi cho 127.0.0.1) van chap nhan ket noi.
+  # Keycloak dung PostgreSQL ngoai Compose: host local hoac Neon tuy docker/.env.
+  # Dung JDBC URL day du de khong tach host/port/database lap lai trong Compose.
   keycloak:
-    profiles: ["core"]
+    profiles: ["core", "demo"]
     image: quay.io/keycloak/keycloak:23.0
     restart: unless-stopped
     container_name: finora-keycloak
@@ -47,16 +46,31 @@ services:
       KEYCLOAK_ADMIN: "${KEYCLOAK_ADMIN}"
       KEYCLOAK_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD}"
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://${KEYCLOAK_DB_HOST:-host.docker.internal}:${KEYCLOAK_DB_PORT:-5432}/${KEYCLOAK_DB_NAME:-keycloak}
+      KC_DB_URL: "${KEYCLOAK_DB_URL}"
       KC_DB_USERNAME: ${KEYCLOAK_DB_USERNAME:-postgres}
       KC_DB_PASSWORD: "${KEYCLOAK_DB_PASSWORD}"
       KC_HEALTH_ENABLED: "true"
+      # Cố định issuer công khai để JWT không thay đổi theo hostname nội bộ
+      # (keycloak:8080) hay hostname phía host (localhost:8180).
+      KC_HOSTNAME_URL: "${KEYCLOAK_PUBLIC_URL:-http://localhost:8180}"
+      KC_HOSTNAME_STRICT: "true"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - keycloak-import:/opt/keycloak/data/import:ro
     ports:
       - "127.0.0.1:${KEYCLOAK_HOST_PORT:-8180}:8080"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8080;
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q '200 OK'"
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
     networks:
       - finora-network
 
@@ -194,15 +208,25 @@ services:
 
   # ============ AI CREDIT SCORING API ============
   ai:
-    profiles: ["ai"]
+    profiles: ["ai", "demo"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.ai
     image: finora/ai:17.0.0-local
     restart: unless-stopped
     container_name: finora-ai
+    environment:
+      CIC_SERVICE_URL: ${CIC_SERVICE_URL:-http://cic:9000}
+      USER_SERVICE_URL: ${AI_USER_SERVICE_URL:-http://user:8085}
+      KEYCLOAK_TOKEN_URL: ${AI_KEYCLOAK_TOKEN_URL:-http://keycloak:8080/realms/finora/protocol/openid-connect/token}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-finora-user-client}
+      KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_CLIENT_SECRET}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
     ports:
       - "127.0.0.1:${AI_HOST_PORT:-8000}:8000"
+    depends_on:
+      cic:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -292,8 +316,9 @@ services:
 
   # ============ USER OWNED CACHE (PostgreSQL nam tren host) ============
   user-redis:
-    profiles: ["user"]
+    profiles: ["user", "demo"]
     image: redis:7-alpine
+    restart: unless-stopped
     container_name: finora-user-redis
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${USER_REDIS_PASSWORD:-}"]
     environment:
@@ -311,6 +336,87 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    networks:
+      - finora-network
+
+  # ============ CIC MOCK SERVICE ============
+  # Source nam o repo ngang cap voi finora-platform. CIC dung database Neon
+  # rieng va Flyway cua chinh service; AI chi goi REST, khong doc DB CIC.
+  cic:
+    profiles: ["demo"]
+    build:
+      context: ../../cic-service
+      dockerfile: Dockerfile
+    image: finora/cic:demo
+    restart: unless-stopped
+    container_name: finora-cic
+    environment:
+      SPRING_DATASOURCE_URL: "${CIC_DB_URL}"
+      SPRING_DATASOURCE_USERNAME: "${CIC_DB_USERNAME}"
+      SPRING_DATASOURCE_PASSWORD: "${CIC_DB_PASSWORD}"
+      CIC_PORT: "9000"
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "127.0.0.1:${CIC_HOST_PORT:-9000}:9000"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    networks:
+      - finora-network
+
+  # ============ USER APPLICATION (DEMO INTEGRATION) ============
+  # Database nam ngoai Compose (Neon hoac PostgreSQL host). Profile `user` van
+  # chi bat Redis de khong thay doi workflow IntelliJ cu; profile `demo` moi
+  # dong goi va chay ca finora-user.
+  user:
+    profiles: ["demo"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.java-service
+      args:
+        SERVICE_MODULE: finora-user
+    image: finora/user:local
+    restart: unless-stopped
+    container_name: finora-user
+    environment:
+      USER_DB_URL: "${USER_DB_URL}"
+      USER_DB_USERNAME: "${USER_DB_USERNAME}"
+      USER_DB_PASSWORD: "${USER_DB_PASSWORD}"
+      USER_REDIS_HOST: user-redis
+      USER_REDIS_PORT: "6379"
+      USER_REDIS_PASSWORD: "${USER_REDIS_PASSWORD:-}"
+      KEYCLOAK_SERVER_URL: http://keycloak:8080
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-finora}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-finora-user-client}
+      KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_CLIENT_SECRET}"
+      # So khớp issuer công khai trong JWT; JWKS vẫn đi qua DNS nội bộ Docker.
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8180}/realms/${KEYCLOAK_REALM:-finora}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM:-finora}/protocol/openid-connect/certs
+      AI_SERVICE_URL: http://ai:8000
+      NOTIFICATION_SERVICE_URL: ${NOTIFICATION_SERVICE_URL:-http://host.docker.internal:8086}
+      FINORA_AES_SECRET: "${FINORA_AES_SECRET}"
+      FINORA_HMAC_SECRET: "${FINORA_HMAC_SECRET}"
+      AUTH_COOKIE_DOMAIN: ${AUTH_COOKIE_DOMAIN:-localhost}
+      AUTH_COOKIE_SECURE: "${AUTH_COOKIE_SECURE:-false}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${USER_HOST_PORT:-8085}:8085"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      user-redis:
+        condition: service_healthy
+    healthcheck:
+      # eclipse-temurin jammy co bash; /dev/tcp la tinh nang cua bash, khong phai dash.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8085'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
     networks:
       - finora-network
 
