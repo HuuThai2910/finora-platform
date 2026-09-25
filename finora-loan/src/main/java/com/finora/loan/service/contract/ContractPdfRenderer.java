@@ -64,7 +64,7 @@ public class ContractPdfRenderer {
     ) {
         byte[] content = render(html(
                 contract.getContractNumber(), application, schedule, contract.getTermsVersion(),
-                contract.getExpiresAt(), "ĐÃ XÁC NHẬN CLICK-WRAP",
+                contract.getExpiresAt(), receiptStatus(contract),
                 contract.getSignedBy(), contract.getSignedAt(),
                 contract.getSignatureMethod() == null ? null : contract.getSignatureMethod().name(),
                 signedDocumentHash
@@ -120,7 +120,7 @@ public class ContractPdfRenderer {
                 <html xmlns="http://www.w3.org/1999/xhtml" lang="vi">
                 <head><meta charset="UTF-8"/><style>%s</style></head>
                 <body>
-                  <div class="watermark">BẢN THỬ NGHIỆM - CLICK-WRAP MVP</div>
+                  <div class="watermark">BẢN THỬ NGHIỆM - KHÔNG DÙNG PRODUCTION</div>
                   <header class="national">
                     <div class="brand"><strong>FINORA</strong><span>Nền tảng kết nối cho vay ngang hàng</span></div>
                     <div class="country"><strong>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</strong><b>Độc lập - Tự do - Hạnh phúc</b><i>__________________</i></div>
@@ -128,7 +128,7 @@ public class ContractPdfRenderer {
                   <h1>HỢP ĐỒNG CHO VAY</h1>
                   <p class="center">Giao kết điện tử thông qua nền tảng FINORA</p>
                   <p class="center strong">Số: %s</p>
-                  <div class="notice"><b>LƯU Ý VỀ BẢN THỬ NGHIỆM</b><br/>Artifact này phục vụ kiểm thử luồng PDF và click-wrap. Bên cho vay/chữ ký số SmartCA phải được tích hợp và thẩm định pháp lý trước khi dùng production.</div>
+                  <div class="notice"><b>LƯU Ý VỀ BẢN THỬ NGHIỆM</b><br/>Artifact này phục vụ kiểm thử luồng PDF và xác nhận điện tử. Bên cho vay và hình thức ký phải được tích hợp, kiểm chứng và thẩm định pháp lý trước khi dùng production.</div>
                   <h2>CĂN CỨ GIAO KẾT</h2>
                   <p>Bộ luật Dân sự 91/2015/QH13; Luật Giao dịch điện tử 20/2023/QH15; Luật Bảo vệ quyền lợi người tiêu dùng 19/2023/QH15; Nghị định 94/2025/NĐ-CP và nhu cầu hợp pháp của các bên.</p>
                   <h2>ĐIỀU KHOẢN TÀI CHÍNH CỐT LÕI</h2>
@@ -157,7 +157,7 @@ public class ContractPdfRenderer {
                   <table class="signatures"><tr><th>BÊN CHO VAY</th><th>BÊN VAY</th></tr><tr><td><b>CHƯA TÍCH HỢP</b><br/>Investment Service/VNPT SmartCA chưa cung cấp bằng chứng ký.</td><td><b>%s</b><br/>%s</td></tr></table>
                   <h2>THÔNG TIN ĐỐI CHIẾU</h2>
                   <table class="info"><tr><th>Phiên bản điều khoản</th><td>%s</td></tr><tr><th>Phiên bản PDF</th><td>%s</td></tr><tr><th>Mã PDF đã xác nhận</th><td class="hash">%s</td></tr><tr><th>Hạn xác nhận</th><td>%s</td></tr><tr><th>Chính sách lịch trả</th><td>%s</td></tr><tr><th>Mã lịch trả</th><td class="hash">%s</td></tr></table>
-                  <div class="notice blue"><b>XÁC NHẬN CỦA HỆ THỐNG FINORA</b><br/>FINORA ghi nhận phiên bản, trạng thái và thời điểm thao tác. Bản ghi click-wrap không được gọi là chữ ký số SmartCA.</div>
+                  <div class="notice blue"><b>XÁC NHẬN CỦA HỆ THỐNG FINORA</b><br/>FINORA ghi nhận phiên bản, trạng thái, thời điểm và phương thức thao tác. Receipt này là bằng chứng hệ thống tách rời; không tự chứng minh chữ ký PAdES đã được nhúng vào PDF.</div>
                 </body></html>
                 """.formatted(
                 css(), escape(contractNumber), summary(application, schedule, finalRate),
@@ -216,6 +216,16 @@ public class ContractPdfRenderer {
         }
         return "Người xác nhận: " + escape(actor) + "<br/>Thời gian: " + dateTime(at)
                 + "<br/>Phương thức: " + escape(method);
+    }
+
+    private static String receiptStatus(LoanContract contract) {
+        if (contract.getSignatureMethod() == null) {
+            return "ĐÃ GHI NHẬN XÁC NHẬN";
+        }
+        return switch (contract.getSignatureMethod()) {
+            case CLICK_WRAP_MVP -> "ĐÃ XÁC NHẬN CLICK-WRAP";
+            case VNPT_SMART_CA -> "ĐÃ NHẬN BẰNG CHỨNG VNPT SMARTCA";
+        };
     }
 
     private static String purpose(LoanApplication application) {

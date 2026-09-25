@@ -17,16 +17,18 @@ Docker Compose giữ PostgreSQL riêng từng service để làm việc khi mấ
 | `loan` | `finora-loan-postgres` | `15433` | `loan-postgres-data` |
 | `fineract` | `finora-fineract-postgres` | `15432` | `fineract-postgres-data` |
 | `fineract` | `finora-fineract` | `18443` | không lưu DB trong app container |
-| `ai` | `finora-ai` | `8000` | model v10 nằm trong image, không có database |
+| `ai` | `finora-ai` | `8000` | model v17 nằm trong image, không có database |
 | `payment` | `finora-payment-postgres` | `15434` | `payment-postgres-data` |
 | `payment` | `finora-payment-redis` | `6380` | `payment-redis-data` |
 | `blockchain` | `finora-blockchain-postgres` | `15435` | `blockchain-postgres-data` |
 | `user` | `finora-user-redis` | `6381` | `user-redis-data` |
 | `investment` | `finora-investment-postgres` | `15437` | `investment-postgres-data` |
 | `core` | `finora-keycloak` | `8180` | `keycloak-import` (file realm đã render) |
+| `demo` | `finora-user` + Keycloak + Redis + AI + CIC | `8085`, `8180`, `6381`, `8000`, `9000` | Database User/Keycloak/CIC nằm ngoài Compose |
 | `mail` | `finora-mailpit` | `8025` UI, `1025` SMTP | không lưu trữ lâu dài (tối đa 500 thư) |
 
-Keycloak và PostgreSQL của `finora-user` KHÔNG còn chạy trong Docker: cả hai dùng PostgreSQL cài trực tiếp trên máy host. Xem mục 4.1.
+Database PostgreSQL của Keycloak và `finora-user` không nằm trong Compose; chúng có thể
+chạy trên máy host hoặc Neon. Container Keycloak vẫn chạy trong Docker. Xem mục 4.0 và 4.1.
 
 ## 2. Chuẩn bị Docker offline một lần
 
@@ -77,6 +79,37 @@ docker compose --env-file docker/.env -f docker/docker-compose.yml --profile loa
 ```
 
 ## 4. Các scope khác
+
+### Chạy bộ tích hợp User + Keycloak + AI + CIC
+
+Compose chuẩn dùng profile `demo`; không cần file compose thứ hai:
+
+```powershell
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo up -d --build
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo ps
+```
+
+Trước khi chạy, cập nhật `docker/.env` theo `docker/.env.example`:
+
+- `KEYCLOAK_DB_URL` là JDBC URL đầy đủ của database Keycloak; Neon cần
+  hậu tố `?sslmode=require`.
+- `USER_DB_URL`, `USER_DB_USERNAME`, `USER_DB_PASSWORD` trỏ tới database User.
+- `CIC_DB_URL`, `CIC_DB_USERNAME`, `CIC_DB_PASSWORD` trỏ tới database CIC.
+- `KEYCLOAK_CLIENT_SECRET` phải đúng client `finora-user-client` trong realm đang dùng.
+- `FINORA_AES_SECRET` và `FINORA_HMAC_SECRET` phải đúng với dữ liệu User hiện có.
+- `GEMINI_API_KEY` chỉ bắt buộc khi test OCR/eKYC.
+
+Health:
+
+```text
+Keycloak: http://localhost:8180/realms/finora/.well-known/openid-configuration
+User:     http://localhost:8085/actuator/health
+AI:       http://localhost:8000/health
+CIC:      http://localhost:9000/actuator/health
+```
+
+Compose build CIC từ repository ngang cấp `../cic-service` và AI gọi qua DNS nội bộ
+`http://cic:9000`. CIC sở hữu Flyway/database riêng; AI chỉ gọi REST và không đọc DB CIC.
 
 ### Chạy AI v17 cho LN-007
 

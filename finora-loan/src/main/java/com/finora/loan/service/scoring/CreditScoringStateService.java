@@ -30,7 +30,7 @@ import com.finora.loan.repository.application.LoanApplicationStatusHistoryReposi
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
 import com.finora.loan.repository.scoring.BorrowerCreditProfileRepository;
 import com.finora.loan.repository.scoring.CreditScoringAssessmentRepository;
-import com.finora.loan.service.contract.LoanContractCreationService;
+import com.finora.loan.service.application.LoanTermsConfirmationService;
 import com.finora.loan.domain.pricing.RiskBasedPricingResult;
 import com.finora.loan.service.pricing.RiskBasedPricingService;
 import com.finora.loan.support.HashingService;
@@ -58,7 +58,7 @@ public class CreditScoringStateService {
     private final CreditScoringAssessmentRepository assessmentRepository;
     private final AiCreditScoringMapper inputMapper;
     private final RiskBasedPricingService pricingService;
-    private final LoanContractCreationService contractCreationService;
+    private final LoanTermsConfirmationService termsConfirmationService;
     private final LoanContractProperties contractProperties;
     private final AiCreditProperties properties;
     private final HashingService hashingService;
@@ -285,7 +285,9 @@ public class CreditScoringStateService {
                 SYSTEM_ACTOR,
                 now
         );
-        applicationRepository.saveAndFlush(application);
+        // APPROVED còn phải gắn terms evidence trong cùng transaction. Không flush trạng thái
+        // trung gian trước terms gate vì DB chỉ chấp nhận APPROVED đã có evidence đầy đủ.
+        applicationRepository.save(application);
         String reasonCode = switch (response.decision()) {
             case APPROVED -> "AI_POLICY_AUTO_APPROVED";
             case PENDING_REVIEW -> "AI_POLICY_REQUIRES_REVIEW";
@@ -295,15 +297,16 @@ public class CreditScoringStateService {
                 application.getId(), from, application.getStatus(), reasonCode, rejectionSummary, now));
 
         if (response.decision() == com.finora.loan.domain.scoring.AiRecommendation.APPROVED) {
-            contractCreationService.create(
+            termsConfirmationService.prepareAfterApproval(
                     application,
                     finalSchedule,
                     now.plus(contractProperties.signatureWindow()),
                     ActorType.SYSTEM,
                     SYSTEM_ACTOR,
-                    "CONTRACT_CREATED_AFTER_AUTO_APPROVAL",
                     now
             );
+        } else {
+            applicationRepository.flush();
         }
     }
 

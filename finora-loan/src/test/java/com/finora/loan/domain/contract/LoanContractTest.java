@@ -19,10 +19,14 @@ class LoanContractTest {
         LoanContract contract = contract(NOW.plusSeconds(3600));
 
         contract.sign(0, "b".repeat(64), SignatureMethod.CLICK_WRAP_MVP,
+                SignatureProviderType.MOCK, "MOCK-TX-001", "e".repeat(64),
                 "sign-key", "c".repeat(64), "BORROWER-001", NOW.plusSeconds(10));
 
         assertThat(contract.getStatus()).isEqualTo(LoanContractStatus.SIGNED);
         assertThat(contract.getConsentAction()).isEqualTo(ConsentAction.SIGN);
+        assertThat(contract.getSignatureProvider()).isEqualTo(SignatureProviderType.MOCK);
+        assertThat(contract.getSignatureTransactionId()).isEqualTo("MOCK-TX-001");
+        assertThat(contract.getSignatureEvidenceHash()).isEqualTo("e".repeat(64));
         assertThat(contract.isSameConsent("sign-key", "c".repeat(64), ConsentAction.SIGN)).isTrue();
         assertThatThrownBy(() -> contract.decline(
                 0, ContractDeclineReasonCode.OTHER, null, "other-key", "d".repeat(64),
@@ -37,15 +41,75 @@ class LoanContractTest {
 
         assertThatThrownBy(() -> contract.sign(
                 0, "b".repeat(64), SignatureMethod.CLICK_WRAP_MVP,
+                SignatureProviderType.MOCK, "MOCK-TX-001", "e".repeat(64),
                 "sign-key", "c".repeat(64), "BORROWER-OTHER", NOW.plusSeconds(10)))
                 .isInstanceOf(LoanDomainException.class)
                 .extracting("code").isEqualTo("LOAN_CONTRACT_ACCESS_DENIED");
 
         assertThatThrownBy(() -> contract.sign(
                 0, "0".repeat(64), SignatureMethod.CLICK_WRAP_MVP,
+                SignatureProviderType.MOCK, "MOCK-TX-001", "e".repeat(64),
                 "sign-key", "c".repeat(64), "BORROWER-001", NOW.plusSeconds(10)))
                 .isInstanceOf(LoanDomainException.class)
                 .extracting("code").isEqualTo("CONTRACT_CONTENT_MISMATCH");
+    }
+
+    @Test
+    void providerAndMethodMustMatch() {
+        LoanContract contract = contract(NOW.plusSeconds(3600));
+
+        assertThatThrownBy(() -> contract.sign(
+                0, "b".repeat(64), SignatureMethod.VNPT_SMART_CA,
+                SignatureProviderType.MOCK, "MOCK-TX-001", "e".repeat(64),
+                "sign-key", "c".repeat(64), "BORROWER-001", NOW.plusSeconds(10)))
+                .isInstanceOf(LoanDomainException.class)
+                .extracting("code").isEqualTo("SIGNATURE_METHOD_PROVIDER_MISMATCH");
+    }
+
+    @Test
+    void smartCaSignatureCompletesOnlyForStoredTransactionAndDocument() {
+        LoanContract contract = contract(NOW.plusSeconds(3600));
+
+        contract.beginDigitalSignature(
+                0, "b".repeat(64), "FINORA-TX-001", "FINORA-DOC-001",
+                "sign-key", "c".repeat(64), "BORROWER-001", NOW.plusSeconds(10));
+
+        assertThat(contract.getStatus()).isEqualTo(LoanContractStatus.SIGNING);
+        assertThat(contract.getSignatureProvider()).isEqualTo(SignatureProviderType.VNPT_SMART_CA);
+        assertThat(contract.getSignatureDocumentId()).isEqualTo("FINORA-DOC-001");
+
+        assertThatThrownBy(() -> contract.completeDigitalSignature(
+                "FINORA-TX-OTHER", "FINORA-DOC-001", "e".repeat(64),
+                "BORROWER-001", NOW.plusSeconds(20)))
+                .isInstanceOf(LoanDomainException.class)
+                .extracting("code").isEqualTo("SIGNATURE_EVIDENCE_MISMATCH");
+
+        contract.completeDigitalSignature(
+                "FINORA-TX-001", "FINORA-DOC-001", "e".repeat(64),
+                "BORROWER-001", NOW.plusSeconds(20));
+
+        contract.completeDigitalSignature(
+                "FINORA-TX-001", "FINORA-DOC-001", "e".repeat(64),
+                "BORROWER-001", NOW.plusSeconds(30));
+
+        assertThat(contract.getStatus()).isEqualTo(LoanContractStatus.SIGNED);
+        assertThat(contract.getSignatureEvidenceHash()).isEqualTo("e".repeat(64));
+    }
+
+    @Test
+    void rejectedSmartCaAttemptReturnsToPendingWithoutKeepingAttemptIdentifiers() {
+        LoanContract contract = contract(NOW.plusSeconds(3600));
+        contract.beginDigitalSignature(
+                0, "b".repeat(64), "FINORA-TX-001", "FINORA-DOC-001",
+                "sign-key", "c".repeat(64), "BORROWER-001", NOW.plusSeconds(10));
+
+        contract.resetRejectedDigitalSignature("BORROWER-001", NOW.plusSeconds(20));
+
+        assertThat(contract.getStatus()).isEqualTo(LoanContractStatus.PENDING_SIGNATURE);
+        assertThat(contract.getSignatureProvider()).isNull();
+        assertThat(contract.getSignatureTransactionId()).isNull();
+        assertThat(contract.getSignatureDocumentId()).isNull();
+        assertThat(contract.getConsentIdempotencyKey()).isNull();
     }
 
     @Test

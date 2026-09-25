@@ -10,6 +10,7 @@ import com.finora.loan.domain.contract.LoanContractStatus;
 import com.finora.loan.domain.contract.LoanContractStatusHistory;
 import com.finora.loan.domain.contract.LoanContractTerms;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
+import com.finora.loan.messaging.event.LoanContractCreatedEventData;
 import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.contract.LoanContractDocumentRepository;
 import com.finora.loan.repository.contract.LoanContractStatusHistoryRepository;
@@ -18,6 +19,7 @@ import com.finora.loan.service.contract.ContractPdfArtifact;
 import com.finora.loan.service.contract.ContractPdfRenderer;
 import com.finora.loan.service.contract.ContractNumberGenerator;
 import com.finora.loan.service.contract.LoanContractCreationService;
+import com.finora.loan.service.outbox.OutboxService;
 import com.finora.loan.support.HashingService;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +38,7 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
     private final ContractPdfRenderer pdfRenderer;
     private final HashingService hashingService;
     private final LoanContractProperties properties;
+    private final OutboxService outboxService;
 
     /**
      * Dùng chung cho auto-approve và admin approve để hai luồng không tự dựng tài liệu khác nhau.
@@ -89,6 +92,20 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
                 contract.getId(), null, LoanContractStatus.PENDING_SIGNATURE, reasonCode,
                 actorType, actorId, now, TraceContext.currentTraceIdOrCreate()
         ));
+        outboxService.record(
+                "LoanContract",
+                contract.getContractNumber(),
+                "LoanContractCreated",
+                1,
+                new LoanContractCreatedEventData(
+                        contract.getContractNumber(),
+                        contract.getApplicationId(),
+                        contract.getDocumentHash(),
+                        pdf.contentHash(),
+                        contract.getTermsVersion(),
+                        contract.getExpiresAt()
+                )
+        );
         return contract;
     }
 

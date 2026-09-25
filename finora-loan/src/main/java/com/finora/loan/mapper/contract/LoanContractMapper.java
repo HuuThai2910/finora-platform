@@ -12,6 +12,8 @@ import com.finora.loan.dto.contract.response.LoanContractPdfResponse;
 import com.finora.loan.dto.contract.response.LoanContractSummaryResponse;
 import com.finora.loan.mapper.core.ScheduleCalculationSnapshotMapper;
 import java.time.Instant;
+import com.finora.loan.domain.contract.SignatureMethod;
+import com.finora.loan.domain.contract.SignatureProviderType;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -35,7 +37,9 @@ public class LoanContractMapper {
             LoanContract contract,
             LoanApplication application,
             ScheduleCalculationSnapshot schedule,
-            LoanContractDocument pdfDocument
+            LoanContractDocument pdfDocument,
+            SignatureProviderType availableSignatureProvider,
+            SignatureMethod availableSignatureMethod
     ) {
         return new LoanContractDetailResponse(
                 contract.getContractNumber(), application.getApplicationNumber(), contract.getPrincipalAmount(),
@@ -47,6 +51,10 @@ public class LoanContractMapper {
                 contract.getDocumentContent(), contract.getDocumentContentType(), contract.getDocumentHash(),
                 toPdf(contract, pdfDocument),
                 contract.getStatus(), contract.getSignedBy(), contract.getSignedAt(), contract.getSignatureMethod(),
+                contract.getSignatureProvider(), contract.getSignatureTransactionId(),
+                contract.getSignatureEvidenceHash(),
+                contract.getSignatureDocumentId(), contract.getSignatureRequestedAt(),
+                availableSignatureProvider, availableSignatureMethod,
                 contract.getDeclinedBy(), contract.getDeclinedAt(), contract.getDeclineReasonCode(),
                 contract.getDeclineReasonDetail(), contract.getExpiresAt(), contract.getEffectiveAt(),
                 contract.getVersion(), contract.getCreatedAt(), contract.getUpdatedAt()
@@ -69,7 +77,8 @@ public class LoanContractMapper {
         Instant actedAt = contract.getSignedAt() != null ? contract.getSignedAt() : contract.getDeclinedAt();
         return new LoanContractActionResponse(
                 contract.getContractNumber(), contract.getStatus(), contract.getVersion(),
-                contract.getDocumentHash(), actor, actedAt
+                contract.getDocumentHash(), contract.getSignatureProvider(), contract.getSignatureMethod(),
+                contract.getSignatureTransactionId(), contract.getSignatureEvidenceHash(), actor, actedAt
         );
     }
 

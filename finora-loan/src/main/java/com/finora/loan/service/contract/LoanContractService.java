@@ -19,6 +19,8 @@ public interface LoanContractService {
 
     LoanContractActionResponse sign(String contractNumber, String idempotencyKey, SignLoanContractRequest request);
 
+    LoanContractActionResponse refreshSignature(String contractNumber);
+
     LoanContractActionResponse decline(
             String contractNumber,
             String idempotencyKey,

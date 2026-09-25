@@ -103,6 +103,84 @@ class LoanApplicationDecisionTest {
         assertThat(application.getFinalCalculationSnapshotId()).isNull();
     }
 
+    @Test
+    void worseningTermsRequireExplicitBorrowerAcceptanceBoundToVersionAndHash() {
+        LoanApplication application = scoringApplication(10L);
+        application.completeScoring(
+                10L, AiRecommendation.APPROVED, pricing("C", "13.0000", "0.5000"),
+                101L, "AI_DECISION_V17", "SYSTEM", NOW.plusSeconds(3));
+        application.prepareTermsConfirmation(
+                TermsConfirmationStatus.PENDING, "LOAN_TERMS_V1", "d".repeat(64),
+                NOW.plusSeconds(3600), "SYSTEM", NOW.plusSeconds(4));
+
+        assertThatThrownBy(() -> application.acceptTerms(
+                0, "LOAN_TERMS_V1", "e".repeat(64), "accept-key", "f".repeat(64),
+                "BORROWER-001", NOW.plusSeconds(5)))
+                .isInstanceOf(LoanDomainException.class)
+                .extracting("code").isEqualTo("TERMS_CONFIRMATION_OUTDATED");
+
+        application.acceptTerms(
+                0, "LOAN_TERMS_V1", "d".repeat(64), "accept-key", "f".repeat(64),
+                "BORROWER-001", NOW.plusSeconds(5));
+
+        assertThat(application.getTermsConfirmationStatus()).isEqualTo(TermsConfirmationStatus.ACCEPTED);
+        assertThat(application.getTermsRespondedBy()).isEqualTo("BORROWER-001");
+        assertThat(application.isSameTermsConsent("accept-key", "f".repeat(64))).isTrue();
+    }
+
+    @Test
+    void nonWorseningTermsCanRecordSubmissionAuthorizationWithoutSecondPrompt() {
+        LoanApplication application = scoringApplication(10L);
+        application.completeScoring(
+                10L, AiRecommendation.APPROVED, pricing("A", "12.0000", "-0.5000"),
+                102L, "AI_DECISION_V17", "SYSTEM", NOW.plusSeconds(3));
+
+        application.prepareTermsConfirmation(
+                TermsConfirmationStatus.AUTO_AUTHORIZED, "LOAN_TERMS_V1", "a".repeat(64),
+                NOW.plusSeconds(3600), "SYSTEM", NOW.plusSeconds(4));
+
+        assertThat(application.getTermsConfirmationStatus()).isEqualTo(TermsConfirmationStatus.AUTO_AUTHORIZED);
+        assertThat(application.getTermsRespondedBy()).isEqualTo("BORROWER-001");
+        assertThat(application.getTermsRespondedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void borrowerCanDeclinePendingTermsAndEvidenceIsKept() {
+        LoanApplication application = scoringApplication(10L);
+        application.completeScoring(
+                10L, AiRecommendation.APPROVED, pricing("C", "13.0000", "0.5000"),
+                103L, "AI_DECISION_V17", "SYSTEM", NOW.plusSeconds(3));
+        application.prepareTermsConfirmation(
+                TermsConfirmationStatus.PENDING, "LOAN_TERMS_V1", "1".repeat(64),
+                NOW.plusSeconds(3600), "SYSTEM", NOW.plusSeconds(4));
+
+        application.declineTerms(
+                0, "LOAN_TERMS_V1", "1".repeat(64), "TERMS_NOT_ACCEPTED",
+                "Khoản trả mới chưa phù hợp", "decline-key", "2".repeat(64),
+                "BORROWER-001", NOW.plusSeconds(5));
+
+        assertThat(application.getTermsConfirmationStatus()).isEqualTo(TermsConfirmationStatus.DECLINED);
+        assertThat(application.getTermsDeclineReasonCode()).isEqualTo("TERMS_NOT_ACCEPTED");
+        assertThat(application.getTermsDeclineReasonDetail()).isEqualTo("Khoản trả mới chưa phù hợp");
+        assertThat(application.isSameTermsConsent("decline-key", "2".repeat(64))).isTrue();
+    }
+
+    @Test
+    void unansweredPendingTermsExpireWithoutInventingBorrowerConsent() {
+        LoanApplication application = scoringApplication(10L);
+        application.completeScoring(
+                10L, AiRecommendation.APPROVED, pricing("C", "13.0000", "0.5000"),
+                104L, "AI_DECISION_V17", "SYSTEM", NOW.plusSeconds(3));
+        application.prepareTermsConfirmation(
+                TermsConfirmationStatus.PENDING, "LOAN_TERMS_V1", "3".repeat(64),
+                NOW.plusSeconds(10), "SYSTEM", NOW.plusSeconds(4));
+
+        assertThat(application.expireTerms("LOAN_TERMS_EXPIRY_WORKER", NOW.plusSeconds(11))).isTrue();
+        assertThat(application.getTermsConfirmationStatus()).isEqualTo(TermsConfirmationStatus.EXPIRED);
+        assertThat(application.getTermsRespondedBy()).isNull();
+        assertThat(application.getTermsRespondedAt()).isNull();
+    }
+
     private LoanApplication scoringApplication(Long assessmentId) {
         LoanApplication application = submittedApplication();
         application.startEligibility("SYSTEM", NOW.plusSeconds(1));

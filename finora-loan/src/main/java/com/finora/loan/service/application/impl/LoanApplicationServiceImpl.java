@@ -12,6 +12,8 @@ import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
 import com.finora.loan.domain.product.RepaymentMethod;
 import com.finora.loan.dto.application.request.CreateLoanApplicationRequest;
 import com.finora.loan.dto.application.request.WithdrawLoanApplicationRequest;
+import com.finora.loan.dto.application.request.ConfirmLoanTermsRequest;
+import com.finora.loan.dto.application.request.DeclineLoanTermsRequest;
 import com.finora.loan.dto.application.response.LoanApplicationHistoryResponse;
 import com.finora.loan.dto.application.response.LoanApplicationResponse;
 import com.finora.loan.dto.application.response.LoanPurposeResponse;
@@ -28,6 +30,7 @@ import com.finora.loan.service.application.ApplicationPersistResult;
 import com.finora.loan.service.application.ApplicationSubmissionContext;
 import com.finora.loan.service.application.LoanApplicationService;
 import com.finora.loan.service.application.LoanApplicationSubmissionStateService;
+import com.finora.loan.service.application.LoanTermsConfirmationService;
 import com.finora.loan.support.HashingService;
 import java.time.Clock;
 import java.time.Instant;
@@ -54,6 +57,7 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
     private final LoanApplicationSubmissionStateService submissionState;
     private final FineractScheduleGateway scheduleGateway;
     private final LoanApplicationMapper mapper;
+    private final LoanTermsConfirmationService termsConfirmationService;
     private final HashingService hashingService;
     private final LoanPricingDisclosureProperties disclosureProperties;
     private final Clock clock;
@@ -144,6 +148,34 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
                 submissionState.getCalculation(application.getId()),
                 submissionState.getFinalCalculation(application.getId())
         );
+    }
+
+    @Override
+    public LoanApplicationResponse acceptTerms(
+            String applicationNumber,
+            ConfirmLoanTermsRequest request,
+            String idempotencyKey
+    ) {
+        try {
+            return termsConfirmationService.accept(applicationNumber, idempotencyKey, request);
+        } catch (DataIntegrityViolationException race) {
+            // Unique idempotency key là chốt chặn cross-application; lần gọi mới trả
+            // kết quả đã commit hoặc lỗi IDEMPOTENCY_KEY_REUSED có nghĩa.
+            return termsConfirmationService.accept(applicationNumber, idempotencyKey, request);
+        }
+    }
+
+    @Override
+    public LoanApplicationResponse declineTerms(
+            String applicationNumber,
+            DeclineLoanTermsRequest request,
+            String idempotencyKey
+    ) {
+        try {
+            return termsConfirmationService.decline(applicationNumber, idempotencyKey, request);
+        } catch (DataIntegrityViolationException race) {
+            return termsConfirmationService.decline(applicationNumber, idempotencyKey, request);
+        }
     }
 
     @Override

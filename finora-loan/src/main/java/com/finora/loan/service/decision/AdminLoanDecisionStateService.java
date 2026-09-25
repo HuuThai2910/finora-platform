@@ -20,7 +20,7 @@ import com.finora.loan.repository.application.LoanApplicationStatusHistoryReposi
 import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
 import com.finora.loan.repository.scoring.CreditScoringAssessmentRepository;
-import com.finora.loan.service.contract.LoanContractCreationService;
+import com.finora.loan.service.application.LoanTermsConfirmationService;
 import java.time.Clock;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
@@ -36,7 +36,7 @@ public class AdminLoanDecisionStateService {
     private final CreditScoringAssessmentRepository assessmentRepository;
     private final ScheduleCalculationSnapshotRepository scheduleRepository;
     private final LoanContractRepository contractRepository;
-    private final LoanContractCreationService contractCreationService;
+    private final LoanTermsConfirmationService termsConfirmationService;
     private final LoanContractProperties properties;
     private final Clock clock;
 
@@ -78,14 +78,16 @@ public class AdminLoanDecisionStateService {
                 request.applicationVersion(), request.assessmentId(), request.decisionReasonCode().name(),
                 request.decisionReasonDetail(), properties.decisionPolicyVersion(), idempotencyKey,
                 requestHash, actorId, now);
-        applicationRepository.saveAndFlush(application);
+        // Terms gate bên dưới sẽ flush APPROVED cùng evidence; tránh commit/flush một trạng thái
+        // APPROVED chưa xác định AUTO_AUTHORIZED hay PENDING.
+        applicationRepository.save(application);
         applicationHistoryRepository.save(LoanApplicationStatusHistory.create(
                 application.getId(), LoanApplicationStatus.PENDING_REVIEW, LoanApplicationStatus.APPROVED,
                 request.decisionReasonCode().name(), request.decisionReasonDetail(),
                 ActorType.ADMIN, actorId, now));
 
-        LoanContract contract = contractCreationService.create(
-                application, schedule, expiresAt, ActorType.ADMIN, actorId, "CONTRACT_CREATED", now);
+        LoanContract contract = termsConfirmationService.prepareAfterApproval(
+                application, schedule, expiresAt, ActorType.ADMIN, actorId, now);
         return new AdminDecisionResult(application, contract);
     }
 

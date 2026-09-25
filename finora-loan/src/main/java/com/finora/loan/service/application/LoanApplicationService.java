@@ -2,6 +2,8 @@ package com.finora.loan.service.application;
 
 import com.finora.loan.dto.application.request.CreateLoanApplicationRequest;
 import com.finora.loan.dto.application.request.WithdrawLoanApplicationRequest;
+import com.finora.loan.dto.application.request.ConfirmLoanTermsRequest;
+import com.finora.loan.dto.application.request.DeclineLoanTermsRequest;
 import com.finora.loan.dto.application.response.LoanApplicationHistoryResponse;
 import com.finora.loan.dto.application.response.LoanApplicationResponse;
 import com.finora.loan.dto.application.response.LoanPurposeResponse;
@@ -14,6 +16,18 @@ public interface LoanApplicationService {
     LoanApplicationResponse submit(CreateLoanApplicationRequest request, String idempotencyKey);
 
     LoanApplicationResponse withdraw(String applicationNumber, WithdrawLoanApplicationRequest request);
+
+    LoanApplicationResponse acceptTerms(
+            String applicationNumber,
+            ConfirmLoanTermsRequest request,
+            String idempotencyKey
+    );
+
+    LoanApplicationResponse declineTerms(
+            String applicationNumber,
+            DeclineLoanTermsRequest request,
+            String idempotencyKey
+    );
 
     LoanApplicationResponse getMine(String applicationNumber);
 

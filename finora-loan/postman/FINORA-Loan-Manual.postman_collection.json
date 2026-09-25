@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "FINORA Loan Manual - LN003 LN006 LN004",
-    "description": "Mở từng request và bấm Send. Collection không tự chạy và không tự sửa biến.",
+    "name": "FINORA Loan Manual - Product, Application, Terms, Contract",
+    "description": "Mở từng request và bấm Send. Nếu termsConfirmation.status=PENDING, chạy 17C hoặc 17D trước khi kiểm tra Contract. Collection không tự chạy và không tự sửa biến.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -64,7 +64,7 @@
           {"key": "Content-Type", "value": "application/json"},
           {"key": "Idempotency-Key", "value": "{{idempotencyKey}}"}
         ],
-        "body": {"mode": "raw", "raw": "{\n  \"loanProductId\": {{productId}},\n  \"requestedAmount\": 50000000,\n  \"requestedTermMonths\": 12,\n  \"purposeCode\": \"HOME_IMPROVEMENT\",\n  \"purposeDetail\": \"Sửa mái nhà\",\n  \"declaredMonthlyIncome\": 20000000,\n  \"employmentLengthMonths\": 60,\n  \"educationLevel\": \"UNIVERSITY\",\n  \"homeOwnership\": \"RENT\",\n  \"monthlyDebtObligations\": 3000000,\n  \"expectedDisbursementDate\": \"2026-08-10\",\n  \"pricingDisclosureVersion\": \"RATE_DISCLOSURE_V1\",\n  \"pricingDisclosureAccepted\": true\n}"},
+        "body": {"mode": "raw", "raw": "{\n  \"loanProductId\": {{productId}},\n  \"requestedAmount\": 50000000,\n  \"requestedTermMonths\": 12,\n  \"purposeCode\": \"HOME_IMPROVEMENT\",\n  \"purposeDetail\": \"Sửa mái nhà\",\n  \"declaredMonthlyIncome\": 20000000,\n  \"employmentLengthMonths\": 60,\n  \"educationLevel\": \"UNIVERSITY\",\n  \"homeOwnership\": \"RENT\",\n  \"monthlyDebtObligations\": 3000000,\n  \"expectedDisbursementDate\": \"2026-08-10\",\n  \"pricingDisclosureVersion\": \"RATE_DISCLOSURE_V2\",\n  \"pricingDisclosureAccepted\": true\n}"},
         "url": "{{baseUrl}}/api/v1/loan-applications"
       }
     },
@@ -76,7 +76,7 @@
           {"key": "Content-Type", "value": "application/json"},
           {"key": "Idempotency-Key", "value": "{{idempotencyKey}}"}
         ],
-        "body": {"mode": "raw", "raw": "{\n  \"loanProductId\": {{productId}},\n  \"requestedAmount\": 50000000,\n  \"requestedTermMonths\": 12,\n  \"purposeCode\": \"HOME_IMPROVEMENT\",\n  \"purposeDetail\": \"Sửa mái nhà\",\n  \"declaredMonthlyIncome\": 20000000,\n  \"employmentLengthMonths\": 60,\n  \"educationLevel\": \"UNIVERSITY\",\n  \"homeOwnership\": \"RENT\",\n  \"monthlyDebtObligations\": 3000000,\n  \"expectedDisbursementDate\": \"2026-08-10\",\n  \"pricingDisclosureVersion\": \"RATE_DISCLOSURE_V1\",\n  \"pricingDisclosureAccepted\": true\n}"},
+        "body": {"mode": "raw", "raw": "{\n  \"loanProductId\": {{productId}},\n  \"requestedAmount\": 50000000,\n  \"requestedTermMonths\": 12,\n  \"purposeCode\": \"HOME_IMPROVEMENT\",\n  \"purposeDetail\": \"Sửa mái nhà\",\n  \"declaredMonthlyIncome\": 20000000,\n  \"employmentLengthMonths\": 60,\n  \"educationLevel\": \"UNIVERSITY\",\n  \"homeOwnership\": \"RENT\",\n  \"monthlyDebtObligations\": 3000000,\n  \"expectedDisbursementDate\": \"2026-08-10\",\n  \"pricingDisclosureVersion\": \"RATE_DISCLOSURE_V2\",\n  \"pricingDisclosureAccepted\": true\n}"},
         "url": "{{baseUrl}}/api/v1/loan-applications"
       }
     },
@@ -134,7 +134,7 @@
       "request": {"method": "GET", "url": "{{baseUrl}}/api/v1/admin/loan-applications/{{applicationNumber}}/review"}
     },
     {
-      "name": "17A - Admin phê duyệt và tạo Contract",
+      "name": "17A - Admin phê duyệt điều khoản cuối",
       "request": {
         "method": "POST",
         "header": [
@@ -155,6 +155,30 @@
         ],
         "body": {"mode": "raw", "raw": "{\n  \"applicationVersion\": {{applicationVersion}},\n  \"assessmentId\": {{assessmentId}},\n  \"reasonCode\": \"INSUFFICIENT_REPAYMENT_CAPACITY\",\n  \"reasonDetail\": \"Khả năng trả nợ chưa đáp ứng chính sách\"\n}"},
         "url": "{{baseUrl}}/api/v1/admin/loan-applications/{{applicationNumber}}/reject"
+      }
+    },
+    {
+      "name": "17C - Borrower chấp nhận điều khoản bất lợi (khi PENDING)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Idempotency-Key", "value": "{{termsConsentIdempotencyKey}}"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"applicationVersion\": {{applicationVersion}},\n  \"termsVersion\": \"{{termsVersion}}\",\n  \"termsHash\": \"{{termsHash}}\"\n}"},
+        "url": "{{baseUrl}}/api/v1/loan-applications/{{applicationNumber}}/terms/accept"
+      }
+    },
+    {
+      "name": "17D - Borrower từ chối điều khoản bất lợi (dùng thay 17C)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {"key": "Content-Type", "value": "application/json"},
+          {"key": "Idempotency-Key", "value": "{{termsDeclineIdempotencyKey}}"}
+        ],
+        "body": {"mode": "raw", "raw": "{\n  \"applicationVersion\": {{applicationVersion}},\n  \"termsVersion\": \"{{termsVersion}}\",\n  \"termsHash\": \"{{termsHash}}\",\n  \"reasonCode\": \"TERMS_NOT_ACCEPTED\",\n  \"reasonDetail\": \"Không đồng ý với điều khoản sau thẩm định\"\n}"},
+        "url": "{{baseUrl}}/api/v1/loan-applications/{{applicationNumber}}/terms/decline"
       }
     },
     {

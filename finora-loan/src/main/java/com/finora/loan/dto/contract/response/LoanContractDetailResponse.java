@@ -3,6 +3,7 @@ package com.finora.loan.dto.contract.response;
 import com.finora.loan.domain.contract.ContractDeclineReasonCode;
 import com.finora.loan.domain.contract.LoanContractStatus;
 import com.finora.loan.domain.contract.SignatureMethod;
+import com.finora.loan.domain.contract.SignatureProviderType;
 import com.finora.loan.domain.product.RepaymentMethod;
 import com.finora.loan.dto.core.response.SchedulePeriodResponse;
 import java.math.BigDecimal;
@@ -36,6 +37,13 @@ public record LoanContractDetailResponse(
         String signedBy,
         Instant signedAt,
         SignatureMethod signatureMethod,
+        SignatureProviderType signatureProvider,
+        String signatureTransactionId,
+        String signatureEvidenceHash,
+        String signatureDocumentId,
+        Instant signatureRequestedAt,
+        SignatureProviderType availableSignatureProvider,
+        SignatureMethod availableSignatureMethod,
         String declinedBy,
         Instant declinedAt,
         ContractDeclineReasonCode declineReasonCode,

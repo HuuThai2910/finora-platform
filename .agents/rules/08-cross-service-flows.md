@@ -66,8 +66,9 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 6. AI trả PD/score, grade, decision, explanation và model/decision-policy version.
 7. Loan áp grade pricing có version, clamp final rate trong Product min/max và trần 20%. Principal/term không tự đổi.
 8. Nếu decision không phải `REJECTED`, Loan gọi Fineract ngoài transaction để tạo snapshot `CONTRACT` theo final rate.
-9. Loan lưu toàn bộ evidence và chuyển `APPROVED/PENDING_REVIEW/REJECTED`; auto-approved tạo Contract `PENDING_SIGNATURE`, chưa giải ngân.
-10. Loan phát event tương ứng sau local commit khi outbox của phase đó được triển khai.
+9. Loan lưu toàn bộ evidence và chuyển `APPROVED/PENDING_REVIEW/REJECTED`. Với `APPROVED`, Loan so sánh exact terms: không bất lợi hơn thì tiếp tục theo disclosure đã chấp thuận; bất lợi hơn thì đặt `termsConfirmation=PENDING` và chờ borrower phản hồi.
+10. Trong giai đoạn demo trước Investment, Loan chỉ tạo Contract/PDF sau khi gate điều khoản đã `AUTO_AUTHORIZED` hoặc `ACCEPTED`; chưa giải ngân và không giả lập nhà đầu tư/chữ ký bên cho vay.
+11. Loan phát event tương ứng sau local commit khi outbox của phase đó được triển khai.
 
 **Idempotency:** `loanApplicationId + scoringAttempt/version`; cùng feature snapshot và model version phải trả cùng artifact reference.
 
@@ -79,10 +80,12 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 **Legal gates:** [`LEGAL-DISCLOSURE-01`, `LEGAL-CONTRACT-01`](../../docs/LEGAL-COMPLIANCE.md).
 
 1. Loan kiểm tra KYC/scoring snapshot, policy và optimistic version.
-2. Loan từ chối với reason hoặc tạo một `LoanContract PENDING_SIGNATURE` chứa exact amount/term/final rate/repayment method/Fineract `CONTRACT` schedule/fee/expiry. Auto/admin dùng chung contract creation service.
-3. Borrower đọc và ký hoặc từ chối chính LoanContract. Không tạo `LoanOffer` hoặc bước accept riêng. Contract `SIGNED` bất biến nhưng chỉ `EFFECTIVE` sau giải ngân.
-4. Chỉ sau Contract signed, Loan tạo listing intent, chuyển state phù hợp sang `ON_MARKET` và phát `LoanListed` chứa dữ liệu market tối thiểu, không chứa PII.
-5. Investment consume idempotently, tạo market listing projection.
+2. Loan từ chối với reason hoặc chốt exact final terms từ hai schedule snapshots. Không tạo `LoanOffer`/bảng sao chép điều khoản.
+3. Nếu exact terms không bất lợi hơn, disclosure lúc submit cho phép tự tiếp tục. Nếu bất lợi hơn, borrower phải accept/decline trên Application theo version/hash/expiry; decline/expiry không tạo Contract.
+4. Giai đoạn demo hiện tại tạo `LoanContract PENDING_SIGNATURE` sau gate trên để tiếp tục kiểm thử PDF/click-wrap; đây không phải chữ ký nhà đầu tư và không mở giải ngân.
+5. Khi Investment hoàn thiện, target flow là đưa đề nghị đã được borrower cho phép lên sàn, xác định bên cho vay, rồi mới lập/ký Contract song phương cuối; event contract phải được Loan và Investment owner review trước khi thay luồng demo.
+
+**CURRENT STATE (2026-09-21):** Loan đã ghi các event vòng đời Contract vào transactional outbox local cùng transaction với aggregate/history. Relay có lease, claim token, retry giới hạn và dead-letter; Kafka adapter đã có broker acknowledgement, partition key theo aggregate, trace headers và allowlist theo exact event/version. Publisher vẫn mặc định tắt và chưa có route/topic hoạt động. Các event Contract nội bộ chưa phải event listing, chưa có consumer và không tự kích hoạt Investment.
 
 **Idempotency:** admin/sign command dùng key và optimistic version; một Application tối đa một Contract trong MVP; Investment unique theo `loanId + listingVersion`.
 
@@ -102,6 +105,8 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 **Idempotency:** `investmentOrderId` cho hold; unique commitment theo order; funded event unique theo `loanId + fundingRound`.
 
 **Failure/compensation:** Payment từ chối → order `REJECTED`; lỗi tạo commitment sau hold → Investment yêu cầu Payment release bằng reference hold; release được retry idempotently. Concurrent order MUST NOT làm overfund hoặc âm ví.
+
+**CURRENT STATE (2026-09-21):** Payment đã có local wallet và immutable balanced-ledger foundation: balance/entries commit cùng transaction, idempotency key có request hash, row lock chống debit cạnh tranh và PostgreSQL trigger chặn sửa/xóa ledger đã ghi. Chưa có public API, provider, Kafka hoặc hold/release/capture; các phần đó chỉ mở sau khi contract Investment được hai owner duyệt.
 
 ## F05 — Saga giải ngân
 
@@ -165,6 +170,8 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 **Idempotency:** unique theo `sourceEventId + proofType + schemaVersion`.
 
 **Failure:** Fabric unavailable → retry có backoff, DLT và cảnh báo; mismatch → điều tra/audit workflow, không overwrite bằng giá trị “khớp”.
+
+**CURRENT STATE (2026-09-21):** Blockchain đã có durable proof foundation local: PostgreSQL lưu duy nhất hash/version và business reference, idempotent theo source event, claim lease, bounded retry/dead-letter và mock receipt được đánh dấu rõ. Worker và Kafka listener mặc định tắt. Fabric adapter hiện fail-closed; chưa có Kafka topic/consumer hoặc chaincode submission thật cho tới khi contract P4 được hai owner duyệt và phase gate P3 đạt.
 
 ## F09 — Notification từ domain event
 

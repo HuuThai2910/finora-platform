@@ -20,6 +20,7 @@ import com.finora.loan.integration.fineract.contract.SchedulePeriod;
 import com.finora.loan.integration.profile.provider.BorrowerProfileProvider;
 import com.finora.loan.integration.profile.contract.BorrowerProfileResult;
 import com.finora.loan.service.scoring.CreditScoringOrchestrator;
+import com.finora.loan.service.application.LoanTermsConfirmationExpiryStateService;
 import jakarta.persistence.EntityManagerFactory;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
 import org.flywaydb.core.Flyway;
@@ -69,6 +70,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Testcontainers
 class FinoraLoanApplicationIT {
 
+    /** Ngày cố định đủ xa để test @FutureOrPresent không phụ thuộc ngày chạy CI. */
+    private static final LocalDate EXPECTED_DISBURSEMENT_DATE = LocalDate.of(2099, 8, 10);
+
     @Container
     @ServiceConnection
     static final PostgreSQLContainer<?> POSTGRESQL = new PostgreSQLContainer<>(
@@ -83,6 +87,7 @@ class FinoraLoanApplicationIT {
     @Autowired ObjectMapper objectMapper;
     @Autowired EntityManagerFactory entityManagerFactory;
     @Autowired CreditScoringOrchestrator scoringOrchestrator;
+    @Autowired LoanTermsConfirmationExpiryStateService termsExpiryStateService;
     @Autowired AiCreditProperties aiCreditProperties;
     @Autowired CircuitBreakerFactory<?, ?> circuitBreakerFactory;
     @Autowired @Qualifier("aiCreditRestClient") RestClient aiCreditRestClient;
@@ -99,7 +104,7 @@ class FinoraLoanApplicationIT {
         // Mỗi test phải có dữ liệu độc lập; Spring giữ nguyên context và PostgreSQL
         // giữa các method nên không thể dựa vào thứ tự chạy hoặc ID của test trước.
         jdbcTemplate.execute("""
-                TRUNCATE TABLE loan_contract_documents, loan_contract_status_histories, loan_contracts,
+                TRUNCATE TABLE loan_outbox_events, loan_contract_documents, loan_contract_status_histories, loan_contracts,
                     credit_scoring_retry_requests, credit_scoring_assessments,
                     borrower_eligibility_checks, borrower_credit_profiles,
                     loan_application_status_histories, schedule_calculation_snapshots,
@@ -155,7 +160,7 @@ class FinoraLoanApplicationIT {
                 """, Long.class);
 
         assertThat(databaseVersion).startsWith("17.");
-        assertThat(businessTables).isEqualTo(13L);
+        assertThat(businessTables).isEqualTo(14L);
         assertThat(flyway.info().pending()).isEmpty();
     }
 
@@ -387,7 +392,13 @@ class FinoraLoanApplicationIT {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(signJson))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("SIGNED"));
+                .andExpect(jsonPath("$.status").value("SIGNED"))
+                .andExpect(jsonPath("$.signatureProvider").value("MOCK"))
+                .andExpect(jsonPath("$.signatureMethod").value("CLICK_WRAP_MVP"))
+                .andExpect(jsonPath("$.signatureTransactionId")
+                        .value(org.hamcrest.Matchers.matchesPattern("MOCK-[0-9a-f]{32}")))
+                .andExpect(jsonPath("$.signatureEvidenceHash")
+                        .value(org.hamcrest.Matchers.matchesPattern("[0-9a-f]{64}")));
         mockMvc.perform(get("/api/v1/loan-contracts/{number}", contractNumber))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pdfDocument.artifactType").value("SIGNED_RECEIPT"));
@@ -398,12 +409,116 @@ class FinoraLoanApplicationIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SIGNED"));
 
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM loan_outbox_events
+                WHERE event_type = 'LoanContractCreated'
+                """, Long.class)).isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM loan_outbox_events
+                WHERE event_type = 'LoanContractSigned'
+                """, Long.class)).isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM loan_outbox_events
+                WHERE status = 'PENDING' AND attempt_count = 0
+                """, Long.class)).isEqualTo(2L);
+
         mockMvc.perform(get("/api/v1/loan-contracts/{number}/history", contractNumber))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(2));
         mockMvc.perform(get("/api/v1/loan-applications/{number}", applicationNumber))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("APPROVED"));
+    }
+
+    @Test
+    void worseningTermsWaitForBorrowerAndAcceptanceCreatesContract() throws Exception {
+        configureWorseningAiTerms();
+        JsonNode submitted = submitAndScoreApplication();
+        String applicationNumber = submitted.path("applicationNumber").asText();
+
+        JsonNode approved = approvePendingReview(applicationNumber);
+        assertThat(approved.path("applicationStatus").asText()).isEqualTo("APPROVED");
+        assertThat(approved.path("termsConfirmationStatus").asText()).isEqualTo("PENDING");
+        assertThat(approved.path("contractNumber").isNull()).isTrue();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM loan_contracts", Long.class))
+                .isZero();
+
+        JsonNode application = borrowerApplication(applicationNumber);
+        JsonNode terms = application.path("termsConfirmation");
+        String acceptJson = """
+                {"applicationVersion":%d,"termsVersion":"%s","termsHash":"%s"}
+                """.formatted(
+                application.path("version").asLong(),
+                terms.path("termsVersion").asText(),
+                terms.path("termsHash").asText());
+
+        mockMvc.perform(post("/api/v1/loan-applications/{number}/terms/accept", applicationNumber)
+                        .header("Idempotency-Key", "terms-accept-" + UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(acceptJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.termsConfirmation.status").value("ACCEPTED"));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM loan_contracts", Long.class))
+                .isEqualTo(1L);
+        mockMvc.perform(get("/api/v1/loan-contracts/me").queryParam("page", "0").queryParam("size", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.data[0].status").value("PENDING_SIGNATURE"));
+    }
+
+    @Test
+    void worseningTermsCanBeDeclinedWithoutCreatingContract() throws Exception {
+        configureWorseningAiTerms();
+        JsonNode submitted = submitAndScoreApplication();
+        String applicationNumber = submitted.path("applicationNumber").asText();
+        JsonNode approved = approvePendingReview(applicationNumber);
+        assertThat(approved.path("termsConfirmationStatus").asText()).isEqualTo("PENDING");
+
+        JsonNode application = borrowerApplication(applicationNumber);
+        JsonNode terms = application.path("termsConfirmation");
+        String declineJson = """
+                {"applicationVersion":%d,"termsVersion":"%s","termsHash":"%s",
+                 "reasonCode":"TERMS_NOT_ACCEPTED","reasonDetail":"Repayment terms are not suitable"}
+                """.formatted(
+                application.path("version").asLong(),
+                terms.path("termsVersion").asText(),
+                terms.path("termsHash").asText());
+
+        mockMvc.perform(post("/api/v1/loan-applications/{number}/terms/decline", applicationNumber)
+                        .header("Idempotency-Key", "terms-decline-" + UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(declineJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.termsConfirmation.status").value("DECLINED"))
+                .andExpect(jsonPath("$.termsConfirmation.declineReasonCode").value("TERMS_NOT_ACCEPTED"));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM loan_contracts", Long.class))
+                .isZero();
+    }
+
+    @Test
+    void unansweredWorseningTermsExpireWithoutCreatingContract() throws Exception {
+        configureWorseningAiTerms();
+        JsonNode submitted = submitAndScoreApplication();
+        String applicationNumber = submitted.path("applicationNumber").asText();
+        JsonNode approved = approvePendingReview(applicationNumber);
+        assertThat(approved.path("termsConfirmationStatus").asText()).isEqualTo("PENDING");
+
+        Long applicationId = jdbcTemplate.queryForObject(
+                "SELECT id FROM loan_applications WHERE application_number = ?",
+                Long.class,
+                applicationNumber);
+        jdbcTemplate.update(
+                "UPDATE loan_applications SET terms_expires_at = now() - interval '1 minute' WHERE id = ?",
+                applicationId);
+
+        assertThat(termsExpiryStateService.expireOne(applicationId)).isTrue();
+        mockMvc.perform(get("/api/v1/loan-applications/{number}", applicationNumber))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.termsConfirmation.status").value("EXPIRED"));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM loan_contracts", Long.class))
+                .isZero();
     }
 
     @Test
@@ -458,16 +573,24 @@ class FinoraLoanApplicationIT {
 
         scoringOrchestrator.processApplication(submitted.path("id").asLong());
 
-        mockMvc.perform(get("/api/v1/loan-applications/{number}", submitted.path("applicationNumber").asText()))
+        String applicationBody = mockMvc.perform(
+                        get("/api/v1/loan-applications/{number}", submitted.path("applicationNumber").asText()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("PENDING_REVIEW"))
-                .andExpect(jsonPath("$.latestCreditAssessmentId").isNumber());
+                .andExpect(jsonPath("$.latestCreditAssessmentId").isNumber())
+                .andReturn().getResponse().getContentAsString();
 
-        mockMvc.perform(get("/api/v1/admin/loan-applications/{number}/assessments",
-                        submitted.path("applicationNumber").asText()))
+        String assessmentsBody = mockMvc.perform(
+                        get("/api/v1/admin/loan-applications/{number}/assessments",
+                                submitted.path("applicationNumber").asText()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].status").value("SUCCEEDED"))
-                .andExpect(jsonPath("$.data[0].actualModelVersion").value("17.0.0"));
+                .andExpect(jsonPath("$.data[0].actualModelVersion").value("17.0.0"))
+                .andExpect(jsonPath("$.data[0].aiRecommendation").isNotEmpty())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode application = objectMapper.readTree(applicationBody);
+        JsonNode assessment = objectMapper.readTree(assessmentsBody).path("data").path(0);
+        assertThat(application.path("status").asText())
+                .isEqualTo(assessment.path("aiRecommendation").asText());
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM credit_scoring_assessments WHERE status = 'SUCCEEDED'", Long.class))
                 .isEqualTo(1L);
@@ -513,6 +636,49 @@ class FinoraLoanApplicationIT {
         return submitted;
     }
 
+    private void configureWorseningAiTerms() {
+        when(aiCreditScoringGateway.score(any(), anyString()))
+                .thenReturn(new AiCreditScoreResponse(
+                        new BigDecimal("0.42000000"), 68, new BigDecimal("66.0000"), "C",
+                        AiRecommendation.PENDING_REVIEW,
+                        objectMapper.createObjectNode().put("thong_diep", "Can tham dinh"),
+                        objectMapper.createObjectNode().put("gia_tri_co_so", 0),
+                        objectMapper.createArrayNode(),
+                        List.of(),
+                        "17.0.0",
+                        "CREDIT_POLICY_V1"));
+    }
+
+    private JsonNode approvePendingReview(String applicationNumber) throws Exception {
+        JsonNode review = objectMapper.readTree(mockMvc.perform(
+                        get("/api/v1/admin/loan-applications/{number}/review", applicationNumber))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING_REVIEW"))
+                .andReturn().getResponse().getContentAsString());
+        String approvalJson = """
+                {"applicationVersion":%d,"assessmentId":%d,
+                 "decisionReasonCode":"POLICY_APPROVED",
+                 "decisionReasonDetail":"Reviewed AI evidence and repayment capacity"}
+                """.formatted(
+                review.path("version").asLong(),
+                review.path("assessment").path("assessmentId").asLong());
+        String response = mockMvc.perform(
+                        post("/api/v1/admin/loan-applications/{number}/approve", applicationNumber)
+                                .header("Idempotency-Key", "approve-" + UUID.randomUUID())
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(approvalJson))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response);
+    }
+
+    private JsonNode borrowerApplication(String applicationNumber) throws Exception {
+        String response = mockMvc.perform(get("/api/v1/loan-applications/{number}", applicationNumber))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(response);
+    }
+
     private JsonNode submitApplication(JsonNode product, String idempotencyKey) throws Exception {
         String body = mockMvc.perform(post("/api/v1/loan-applications")
                         .header("Idempotency-Key", idempotencyKey)
@@ -529,9 +695,9 @@ class FinoraLoanApplicationIT {
                 {"loanProductId":%d,"requestedAmount":50000000,"requestedTermMonths":12,
                  "purposeCode":"%s","purposeDetail":%s,"declaredMonthlyIncome":20000000,
                  "employmentLengthMonths":60,"educationLevel":"UNIVERSITY","homeOwnership":"RENT",
-                 "monthlyDebtObligations":3000000,"expectedDisbursementDate":"2026-08-10",
-                 "pricingDisclosureVersion":"RATE_DISCLOSURE_V1","pricingDisclosureAccepted":true}
-                """.formatted(productId, purpose, purposeDetail);
+                 "monthlyDebtObligations":3000000,"expectedDisbursementDate":"%s",
+                 "pricingDisclosureVersion":"RATE_DISCLOSURE_V2","pricingDisclosureAccepted":true}
+                """.formatted(productId, purpose, purposeDetail, EXPECTED_DISBURSEMENT_DATE);
     }
 
     private ScheduleCalculationResult schedule(ScheduleCalculationRequest request) {

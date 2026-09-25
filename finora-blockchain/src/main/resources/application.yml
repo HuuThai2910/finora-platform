@@ -23,17 +23,30 @@ spring:
     validate-on-migrate: true
     clean-disabled: true
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    listener:
+      auto-startup: ${BLOCKCHAIN_KAFKA_LISTENER_ENABLED:false}
     consumer:
       group-id: blockchain-group
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      properties:
-        spring.json.trusted.packages: "*"
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
 server:
   port: 8083
+
+finora:
+  blockchain:
+    proof:
+      # MOCK chỉ phục vụ local/test và receipt luôn có tiền tố MOCK; Fabric thật fail-closed cho tới phase P4.
+      provider: ${BLOCKCHAIN_PROOF_PROVIDER:MOCK}
+      worker-enabled: ${BLOCKCHAIN_PROOF_WORKER_ENABLED:false}
+      worker-delay: ${BLOCKCHAIN_PROOF_WORKER_DELAY:5000}
+      batch-size: ${BLOCKCHAIN_PROOF_BATCH_SIZE:100}
+      max-attempts: ${BLOCKCHAIN_PROOF_MAX_ATTEMPTS:10}
+      retry-backoff: ${BLOCKCHAIN_PROOF_RETRY_BACKOFF:5s}
+      maximum-backoff: ${BLOCKCHAIN_PROOF_MAXIMUM_BACKOFF:5m}
+      processing-lease: ${BLOCKCHAIN_PROOF_PROCESSING_LEASE:2m}
 
 # Hyperledger Fabric
 fabric:

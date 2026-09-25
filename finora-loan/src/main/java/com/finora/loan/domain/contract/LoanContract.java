@@ -127,6 +127,23 @@ public class LoanContract {
     @Column(name = "signature_method", length = 30)
     private SignatureMethod signatureMethod;
 
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "signature_provider", length = 30)
+    private SignatureProviderType signatureProvider;
+
+    @Column(name = "signature_transaction_id", length = 150)
+    private String signatureTransactionId;
+
+    @Column(name = "signature_evidence_hash", length = 64)
+    private String signatureEvidenceHash;
+
+    @Column(name = "signature_document_id", length = 100)
+    private String signatureDocumentId;
+
+    @Column(name = "signature_requested_at")
+    private Instant signatureRequestedAt;
+
     @Column(name = "declined_by", length = 100)
     private String declinedBy;
 
@@ -218,12 +235,9 @@ public class LoanContract {
     }
 
     /** Server đối chiếu version, owner, expiry và hash để consent luôn gắn đúng văn bản borrower đã xem. */
-    public void sign(
+    public void validateSignature(
             long expectedVersion,
             String expectedDocumentHash,
-            SignatureMethod method,
-            String idempotencyKey,
-            String requestHash,
             String actorId,
             Instant now
     ) {
@@ -237,16 +251,123 @@ public class LoanContract {
                     "Nội dung hợp đồng đã xem không khớp phiên bản cần ký"
             );
         }
-        if (method != SignatureMethod.CLICK_WRAP_MVP) {
-            throw LoanDomainException.invalidInput("SIGNATURE_METHOD_UNSUPPORTED", "Phương thức ký chưa được hỗ trợ");
+    }
+
+    /** Chỉ commit sau khi provider đã trả bằng chứng và mọi invariant được kiểm tra lại dưới lock. */
+    public void sign(
+            long expectedVersion,
+            String expectedDocumentHash,
+            SignatureMethod method,
+            SignatureProviderType provider,
+            String providerTransactionId,
+            String evidenceHash,
+            String idempotencyKey,
+            String requestHash,
+            String actorId,
+            Instant now
+    ) {
+        validateSignature(expectedVersion, expectedDocumentHash, actorId, now);
+        signatureMethod = Objects.requireNonNull(method, "method");
+        signatureProvider = Objects.requireNonNull(provider, "provider");
+        if ((signatureProvider == SignatureProviderType.MOCK
+                && signatureMethod != SignatureMethod.CLICK_WRAP_MVP)
+                || (signatureProvider == SignatureProviderType.VNPT_SMART_CA
+                && signatureMethod != SignatureMethod.VNPT_SMART_CA)) {
+            throw LoanDomainException.invalidInput(
+                    "SIGNATURE_METHOD_PROVIDER_MISMATCH",
+                    "Phương thức ký không tương thích provider"
+            );
         }
+        signatureTransactionId = requireText(providerTransactionId, "providerTransactionId");
+        signatureEvidenceHash = requireHash(evidenceHash, "evidenceHash");
         status = LoanContractStatus.SIGNED;
         consentIdempotencyKey = requireText(idempotencyKey, "idempotencyKey");
         consentRequestHash = requireText(requestHash, "requestHash");
         consentAction = ConsentAction.SIGN;
         signedBy = actorId;
         signedAt = now;
-        signatureMethod = method;
+        updatedBy = actorId;
+        updatedAt = now;
+    }
+
+    /** Ghi yêu cầu SmartCA trước external call để retry luôn dùng lại cùng transaction/document. */
+    public void beginDigitalSignature(
+            long expectedVersion,
+            String expectedDocumentHash,
+            String providerTransactionId,
+            String documentId,
+            String idempotencyKey,
+            String requestHash,
+            String actorId,
+            Instant now
+    ) {
+        validateSignature(expectedVersion, expectedDocumentHash, actorId, now);
+        status = LoanContractStatus.SIGNING;
+        signatureMethod = SignatureMethod.VNPT_SMART_CA;
+        signatureProvider = SignatureProviderType.VNPT_SMART_CA;
+        signatureTransactionId = requireText(providerTransactionId, "providerTransactionId");
+        signatureDocumentId = requireText(documentId, "documentId");
+        signatureRequestedAt = now;
+        consentIdempotencyKey = requireText(idempotencyKey, "idempotencyKey");
+        consentRequestHash = requireHash(requestHash, "requestHash");
+        consentAction = ConsentAction.SIGN;
+        updatedBy = actorId;
+        updatedAt = now;
+    }
+
+    /** Hoàn tất đúng giao dịch đã lưu; không chấp nhận chữ ký trả cho document khác. */
+    public void completeDigitalSignature(
+            String providerTransactionId,
+            String documentId,
+            String evidenceHash,
+            String actorId,
+            Instant now
+    ) {
+        requireOwner(actorId);
+        if (status == LoanContractStatus.SIGNED
+                || status == LoanContractStatus.EFFECTIVE
+                || status == LoanContractStatus.COMPLETED) {
+            if (Objects.equals(signatureTransactionId, providerTransactionId)
+                    && Objects.equals(signatureDocumentId, documentId)
+                    && Objects.equals(signatureEvidenceHash, evidenceHash)) {
+                return;
+            }
+            throw LoanDomainException.conflict(
+                    "SIGNATURE_EVIDENCE_MISMATCH", "Bằng chứng chữ ký không khớp giao dịch đã hoàn tất");
+        }
+        if (status != LoanContractStatus.SIGNING) {
+            throw LoanDomainException.conflict(
+                    "INVALID_CONTRACT_TRANSITION", "Hợp đồng không ở trạng thái đang ký số");
+        }
+        if (!signatureTransactionId.equals(providerTransactionId)
+                || !signatureDocumentId.equals(documentId)) {
+            throw LoanDomainException.conflict(
+                    "SIGNATURE_EVIDENCE_MISMATCH", "Bằng chứng chữ ký không khớp yêu cầu đã gửi");
+        }
+        signatureEvidenceHash = requireHash(evidenceHash, "evidenceHash");
+        signedBy = actorId;
+        signedAt = now;
+        status = LoanContractStatus.SIGNED;
+        updatedBy = actorId;
+        updatedAt = now;
+    }
+
+    /** VNPT từ chối hoặc giao dịch hết hạn: trả về chờ ký và xóa attempt để borrower thử lại. */
+    public void resetRejectedDigitalSignature(String actorId, Instant now) {
+        requireOwner(actorId);
+        if (status != LoanContractStatus.SIGNING) {
+            return;
+        }
+        status = LoanContractStatus.PENDING_SIGNATURE;
+        consentIdempotencyKey = null;
+        consentRequestHash = null;
+        consentAction = null;
+        signatureMethod = null;
+        signatureProvider = null;
+        signatureTransactionId = null;
+        signatureDocumentId = null;
+        signatureRequestedAt = null;
+        signatureEvidenceHash = null;
         updatedBy = actorId;
         updatedAt = now;
     }
@@ -279,8 +400,20 @@ public class LoanContract {
 
     /** Expire là transition có điều kiện; worker chạy lại không tạo thêm history hoặc thay đổi terminal state. */
     public boolean expireIfDue(Instant now) {
-        if (status != LoanContractStatus.PENDING_SIGNATURE || expiresAt.isAfter(now)) {
+        if ((status != LoanContractStatus.PENDING_SIGNATURE && status != LoanContractStatus.SIGNING)
+                || expiresAt.isAfter(now)) {
             return false;
+        }
+        if (status == LoanContractStatus.SIGNING) {
+            consentIdempotencyKey = null;
+            consentRequestHash = null;
+            consentAction = null;
+            signatureMethod = null;
+            signatureProvider = null;
+            signatureTransactionId = null;
+            signatureDocumentId = null;
+            signatureRequestedAt = null;
+            signatureEvidenceHash = null;
         }
         status = LoanContractStatus.EXPIRED;
         updatedBy = "SYSTEM";
@@ -289,7 +422,8 @@ public class LoanContract {
     }
 
     public boolean isDueAt(Instant now) {
-        return status == LoanContractStatus.PENDING_SIGNATURE && !expiresAt.isAfter(now);
+        return (status == LoanContractStatus.PENDING_SIGNATURE || status == LoanContractStatus.SIGNING)
+                && !expiresAt.isAfter(now);
     }
 
     public boolean isSameConsent(String idempotencyKey, String requestHash, ConsentAction action) {
@@ -357,6 +491,14 @@ public class LoanContract {
             throw new IllegalArgumentException(field + " không được để trống");
         }
         return value.trim();
+    }
+
+    private static String requireHash(String value, String field) {
+        String hash = requireText(value, field);
+        if (!hash.matches("^[0-9a-f]{64}$")) {
+            throw new IllegalArgumentException(field + " phải là SHA-256 chữ thường");
+        }
+        return hash;
     }
 
     private static String normalizeOptional(String value) {

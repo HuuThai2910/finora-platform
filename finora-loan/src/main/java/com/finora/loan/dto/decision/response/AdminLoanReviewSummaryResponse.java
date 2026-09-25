@@ -2,6 +2,7 @@ package com.finora.loan.dto.decision.response;
 
 import com.finora.loan.domain.application.LoanApplicationStatus;
 import com.finora.loan.domain.application.LoanDecisionSource;
+import com.finora.loan.domain.application.TermsConfirmationStatus;
 import com.finora.loan.domain.product.RepaymentMethod;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -19,6 +20,7 @@ public record AdminLoanReviewSummaryResponse(
         LoanDecisionSource decisionSource,
         RepaymentMethod repaymentMethod,
         LoanApplicationStatus status,
+        TermsConfirmationStatus termsConfirmationStatus,
         AdminAssessmentEvidenceResponse assessment,
         Long version,
         Instant submittedAt,
