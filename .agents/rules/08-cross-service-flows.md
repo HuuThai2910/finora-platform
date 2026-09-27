@@ -121,19 +121,19 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 
 **Trigger:** Loan ở `FUNDED` và đủ điều kiện/chữ ký. **Orchestrator:** Loan.
 
-1. Loan tạo durable `DisbursementSaga`, chuyển `DISBURSING`.
-2. Loan yêu cầu Investment khóa/finalize commitments.
-3. Loan bảo đảm Fineract client mapping, submit core loan bằng `contractNumber` làm external ID và approve core loan idempotently.
-4. Loan yêu cầu Payment capture held funds và giải ngân cho borrower.
-5. Payment tạo ledger entries, phát `DisbursementCompleted` hoặc `DisbursementFailed`.
-6. Sau khi tiền đã chuyển, Loan ghi disbursement vào Fineract; response/event cập nhật core projection và official schedule.
-7. Loan yêu cầu/đợi Investment activate Notes theo kết quả tài chính.
+1. Khi tất cả các bên ký, Contract chuyển `EFFECTIVE`; trạng thái này chỉ nói hợp đồng có hiệu lực, chưa nói tiền đã chuyển.
+2. Loan tạo durable `DisbursementSaga`, phát `DisbursementRequested` và hiển thị `DISBURSING`.
+3. Payment capture các hold theo allocation snapshot và yêu cầu provider giải ngân cho borrower bằng cùng `sagaId`/idempotency key.
+4. Payment lưu reference/kết quả tài chính rồi phát `DisbursementCompleted` hoặc `DisbursementFailed` qua transactional outbox.
+5. Sau khi tiền đã chuyển, Loan reconcile theo `paymentReference`, bảo đảm Fineract Client/Loan bằng external ID, approve và ghi disbursement core idempotently.
+6. Loan chuyển saga `COMPLETED`, khoản vay nghiệp vụ thành `ACTIVE`, rồi phát `LoanDisbursed`.
+7. Investment consume `LoanDisbursed`, chuyển commitment `ACTIVE -> FINALIZED` và phát hành Notes idempotently.
 8. Loan phát audit event để Blockchain ghi proof; Blockchain phản hồi/reference bất đồng bộ.
-9. Loan chuyển `ACTIVE` và Contract `EFFECTIVE` khi các bước bắt buộc hoàn tất; Notification gửi kết quả.
+9. Notification gửi kết quả; lỗi thông báo/proof không đảo tiền hoặc hạ trạng thái Contract.
 
 **Correlation:** mọi command/event mang `sagaId`, `loanId`, `step`, `attempt`, `eventId`.
 
-**Failure/compensation:** finalize/core-approve lỗi → chưa capture tiền; capture/transfer lỗi → Payment tự bảo toàn ledger và Loan ra lệnh release/unfinalize thích hợp; tiền đã chuyển nhưng Fineract disburse lỗi → `CORE_DISBURSEMENT_REPAIR_REQUIRED`, retry/reconcile, không đánh ACTIVE giả hoặc tự đảo tiền; Note activation lỗi sau disbursement → Saga retry/repair; Fabric lỗi → retry/DLT/reconciliation và không rollback giải ngân.
+**Failure/compensation:** transfer lỗi trước khi provider xác nhận → Payment retry hoặc phát failed, không tạo Note; tiền đã chuyển nhưng Fineract disburse lỗi → `REPAIR_REQUIRED`, retry/reconcile và tuyệt đối không chuyển tiền lần hai; Note activation lỗi sau disbursement → consumer retry/DLT/repair, không đảo ledger; Fabric/Notification lỗi không rollback giải ngân. Contract đã đủ chữ ký vẫn `EFFECTIVE`; lỗi giải ngân được xử lý trên Saga riêng.
 
 **Restart:** Saga state phải durable; restart tiếp tục từ bước cuối đã xác nhận, không chạy lại side effect không idempotent.
 

@@ -12,13 +12,20 @@ import com.finora.investment.dto.response.ListingInvestorResponse;
 import com.finora.investment.dto.response.MarketListingResponse;
 import com.finora.investment.dto.response.OrderResponse;
 import com.finora.investment.exception.InvestmentDomainException;
+import com.finora.investment.messaging.event.InvestorSignatureRequestedEventData;
+import com.finora.investment.messaging.event.LoanContractActivatedEventData;
+import com.finora.investment.messaging.event.LoanDisbursedEventData;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
 import com.finora.investment.repository.InvestmentNoteRepository;
 import com.finora.investment.repository.InvestmentOutboxEventRepository;
 import com.finora.investment.repository.MarketListingRepository;
+import com.finora.investment.service.messaging.ContractLifecycleEventHandler;
+import com.finora.investment.service.messaging.LoanDisbursedEventHandler;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -82,6 +89,12 @@ class FundingFlowIT {
 
     @Autowired
     private InvestmentOutboxEventRepository outboxRepository;
+
+    @Autowired
+    private ContractLifecycleEventHandler contractLifecycleEventHandler;
+
+    @Autowired
+    private LoanDisbursedEventHandler loanDisbursedEventHandler;
 
     private static final AtomicInteger LOAN_SEQUENCE = new AtomicInteger(1000);
 
@@ -339,6 +352,49 @@ class FundingFlowIT {
         assertThat(notes).hasSize(10);
         assertThat(notes).allSatisfy(note ->
                 assertThat(note.getPrincipalAmount()).isEqualByComparingTo("1000000.00"));
+    }
+
+    @Test
+    @DisplayName("LoanDisbursed hợp lệ mới finalise vốn, phát hành Note và lưu bằng chứng")
+    void loanDisbursedFinalizesInvestmentExactlyOnce() {
+        actAs("INVESTOR-DISBURSE");
+        MarketListingResponse listingResponse = newListing("3000000.00", "1000000.00");
+        fundingService.placeOrder(listingResponse.listingId(), "key-disburse",
+                new PlaceOrderRequest(new BigDecimal("3000000.00")));
+
+        var listing = listingRepository.findById(listingResponse.listingId()).orElseThrow();
+        Instant now = Instant.parse("2026-09-27T10:00:00Z");
+        String contractNumber = "LC-TEST-" + listing.getLoanId();
+        String documentHash = "b".repeat(64);
+        String receiptHash = "c".repeat(64);
+
+        contractLifecycleEventHandler.handleSignatureRequested(UUID.randomUUID(), now,
+                new InvestorSignatureRequestedEventData(
+                        listing.getLoanId(), listing.getApplicationNumber(), listing.getId(), contractNumber,
+                        documentHash, documentHash, listing.getAllocationVersion(), listing.getAllocationHash(),
+                        1, now.plusSeconds(3600)));
+        contractLifecycleEventHandler.handleActivated(UUID.randomUUID(), now.plusSeconds(1),
+                new LoanContractActivatedEventData(
+                        listing.getLoanId(), listing.getApplicationNumber(), contractNumber, listing.getId(),
+                        documentHash, receiptHash, listing.getAllocationVersion(), listing.getAllocationHash(),
+                        now.plusSeconds(1)));
+
+        UUID sagaId = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        LoanDisbursedEventData event = new LoanDisbursedEventData(
+                sagaId, listing.getLoanId(), listing.getApplicationNumber(), contractNumber, listing.getId(),
+                "3000000.00", "VND", "MOCK-PAYMENT-1", 9001L, now.plusSeconds(2));
+        loanDisbursedEventHandler.handle(eventId, now.plusSeconds(2), event);
+        loanDisbursedEventHandler.handle(eventId, now.plusSeconds(2), event);
+
+        var completed = listingRepository.findById(listing.getId()).orElseThrow();
+        assertThat(completed.getContractStatus()).isEqualTo("EFFECTIVE");
+        assertThat(completed.getDisbursementSagaId()).isEqualTo(sagaId);
+        assertThat(completed.getPaymentReference()).isEqualTo("MOCK-PAYMENT-1");
+        assertThat(completed.getFineractLoanId()).isEqualTo(9001L);
+        assertThat(commitmentRepository.findByListingIdAndStatus(
+                listing.getId(), CommitmentStatus.FINALIZED)).hasSize(1);
+        assertThat(noteRepository.findByLoanIdAndStatus(listing.getLoanId(), NoteStatus.ACTIVE)).hasSize(3);
     }
 
     @Test

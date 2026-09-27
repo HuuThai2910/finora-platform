@@ -29,6 +29,7 @@ import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.contract.LoanContractDocumentRepository;
 import com.finora.loan.repository.contract.LoanContractStatusHistoryRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
+import com.finora.loan.repository.disbursement.DisbursementSagaRepository;
 import com.finora.loan.service.contract.ContractConsentResult;
 import com.finora.loan.service.contract.LoanContractService;
 import com.finora.loan.service.contract.LoanContractPdfContent;
@@ -59,6 +60,7 @@ public class LoanContractServiceImpl implements LoanContractService {
     private final LoanContractStatusHistoryRepository historyRepository;
     private final LoanApplicationRepository applicationRepository;
     private final ScheduleCalculationSnapshotRepository scheduleRepository;
+    private final DisbursementSagaRepository disbursementSagaRepository;
     private final LoanContractStateService stateService;
     private final LoanContractMapper mapper;
     private final HashingService hashingService;
@@ -93,6 +95,7 @@ public class LoanContractServiceImpl implements LoanContractService {
                         "Schedule Calculation Snapshot", "id", contract.getCalculationSnapshotId()));
         return mapper.toDetail(
                 contract, application, schedule, currentPdf(contract),
+                disbursementSagaRepository.findByContractNumber(contractNumber).orElse(null),
                 signatureProvider.type(), signatureProvider.method());
     }
 

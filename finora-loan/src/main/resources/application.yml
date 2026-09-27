@@ -136,6 +136,8 @@ finora:
     kafka:
       consumer-enabled: true
       fully-funded-topic: ${INVESTMENT_FULLY_FUNDED_TOPIC:finora.investment.loan-fully-funded}
+      disbursement-completed-topic: ${PAYMENT_DISBURSEMENT_COMPLETED_TOPIC:finora.payment.disbursement-completed}
+      disbursement-failed-topic: ${PAYMENT_DISBURSEMENT_FAILED_TOPIC:finora.payment.disbursement-failed}
       publish-timeout: ${LOAN_KAFKA_PUBLISH_TIMEOUT:10s}
       # Chỉ event có publishable=true và route đúng type/version mới được relay.
       routes:
@@ -151,6 +153,14 @@ finora:
         - event-type: LoanContractActivated
           event-version: 1
           topic: ${LOAN_CONTRACT_ACTIVATED_TOPIC:finora.loan.contract-activated}
+        - event-type: DisbursementRequested
+          event-version: 1
+          topic: ${LOAN_DISBURSEMENT_REQUESTED_TOPIC:finora.loan.disbursement-requested}
+        - event-type: LoanDisbursed
+          event-version: 1
+          topic: ${LOAN_DISBURSED_TOPIC:finora.loan.disbursed}
+    disbursement:
+      worker-delay: ${LOAN_DISBURSEMENT_WORKER_DELAY:5000}
   borrower-eligibility:
     minimum-age: ${BORROWER_MINIMUM_AGE:18}
     maximum-age: ${BORROWER_MAXIMUM_AGE:65}
@@ -168,6 +178,8 @@ finora:
       worker-enabled: ${AI_WORKER_ENABLED:true}
       processing-lease: ${AI_PROCESSING_LEASE:2m}
   fineract:
+    # mock cho demo local; đổi thành fineract khi đã chốt office/payment type và dữ liệu Client.
+    booking-provider: ${FINERACT_BOOKING_PROVIDER:mock}
     base-url: ${FINERACT_BASE_URL:http://localhost:18443/fineract-provider/api/v1}
     tenant-id: ${FINERACT_TENANT_ID:default}
     username: ${FINERACT_API_USERNAME}
@@ -181,6 +193,12 @@ finora:
     retry-batch-size: ${FINERACT_RETRY_BATCH_SIZE:20}
     # Lease cho phép worker khác tiếp quản command nếu instance dừng giữa lúc gọi Fineract.
     processing-lease: ${FINERACT_PROCESSING_LEASE:2m}
+    booking:
+      office-id: ${FINERACT_OFFICE_ID:}
+      payment-type-id: ${FINERACT_DISBURSEMENT_PAYMENT_TYPE_ID:}
+      transaction-processing-strategy-code: ${FINERACT_TRANSACTION_PROCESSING_STRATEGY_CODE:mifos-standard-strategy}
+      locale: en
+      date-format: yyyy-MM-dd
 
 resilience4j:
   circuitbreaker:
@@ -196,6 +214,15 @@ resilience4j:
         ignore-exceptions:
           - org.springframework.web.client.HttpClientErrorException
       fineract-schedule:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+      fineract-booking:
         sliding-window-size: 10
         minimum-number-of-calls: 5
         failure-rate-threshold: 50

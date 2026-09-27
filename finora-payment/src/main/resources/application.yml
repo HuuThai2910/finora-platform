@@ -25,7 +25,7 @@ spring:
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     listener:
-      auto-startup: ${PAYMENT_KAFKA_LISTENER_ENABLED:false}
+      auto-startup: ${PAYMENT_KAFKA_LISTENER_ENABLED:true}
     consumer:
       group-id: payment-group
       auto-offset-reset: earliest
@@ -33,7 +33,7 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
   data:
     redis:
       host: ${PAYMENT_REDIS_HOST:localhost}
@@ -44,3 +44,14 @@ spring:
 
 server:
   port: 8082
+
+finora:
+  payment:
+    provider: ${PAYMENT_PROVIDER:mock}
+    mock:
+      outcome: ${PAYMENT_MOCK_OUTCOME:success}
+    disbursement-requested-topic: ${LOAN_DISBURSEMENT_REQUESTED_TOPIC:finora.loan.disbursement-requested}
+    disbursement-completed-topic: ${PAYMENT_DISBURSEMENT_COMPLETED_TOPIC:finora.payment.disbursement-completed}
+    disbursement-failed-topic: ${PAYMENT_DISBURSEMENT_FAILED_TOPIC:finora.payment.disbursement-failed}
+    worker-delay: ${PAYMENT_DISBURSEMENT_WORKER_DELAY:3000}
+    outbox-delay: ${PAYMENT_OUTBOX_DELAY:3000}

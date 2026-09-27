@@ -41,7 +41,7 @@ import org.testcontainers.utility.DockerImageName;
 /**
  * Xác nhận Payment khởi động với đúng PostgreSQL 17 và Flyway không còn migration chờ chạy.
  */
-@SpringBootTest
+@SpringBootTest(properties = "spring.kafka.listener.auto-startup=false")
 @Testcontainers
 class FinoraPaymentApplicationIT {
 

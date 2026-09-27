@@ -5,6 +5,7 @@ import com.finora.loan.domain.contract.LoanContractStatus;
 import com.finora.loan.domain.contract.SignatureMethod;
 import com.finora.loan.domain.contract.SignatureProviderType;
 import com.finora.loan.domain.product.RepaymentMethod;
+import com.finora.loan.domain.disbursement.DisbursementSagaStatus;
 import com.finora.loan.dto.core.response.SchedulePeriodResponse;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -50,6 +51,10 @@ public record LoanContractDetailResponse(
         String declineReasonDetail,
         Instant expiresAt,
         Instant effectiveAt,
+        DisbursementSagaStatus disbursementStatus,
+        String paymentReference,
+        Long fineractLoanId,
+        Instant disbursedAt,
         Long version,
         Instant createdAt,
         Instant updatedAt

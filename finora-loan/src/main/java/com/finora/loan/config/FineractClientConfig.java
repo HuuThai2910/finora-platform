@@ -7,7 +7,7 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 @Configuration
-@EnableConfigurationProperties(FineractProperties.class)
+@EnableConfigurationProperties({FineractProperties.class, FineractBookingProperties.class})
 public class FineractClientConfig {
 
     @Bean

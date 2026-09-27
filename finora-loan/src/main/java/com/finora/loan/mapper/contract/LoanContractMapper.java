@@ -4,6 +4,7 @@ import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.contract.LoanContract;
 import com.finora.loan.domain.contract.LoanContractDocument;
 import com.finora.loan.domain.contract.LoanContractStatusHistory;
+import com.finora.loan.domain.disbursement.DisbursementSaga;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
 import com.finora.loan.dto.contract.response.LoanContractActionResponse;
 import com.finora.loan.dto.contract.response.LoanContractDetailResponse;
@@ -38,6 +39,7 @@ public class LoanContractMapper {
             LoanApplication application,
             ScheduleCalculationSnapshot schedule,
             LoanContractDocument pdfDocument,
+            DisbursementSaga disbursement,
             SignatureProviderType availableSignatureProvider,
             SignatureMethod availableSignatureMethod
     ) {
@@ -57,6 +59,10 @@ public class LoanContractMapper {
                 availableSignatureProvider, availableSignatureMethod,
                 contract.getDeclinedBy(), contract.getDeclinedAt(), contract.getDeclineReasonCode(),
                 contract.getDeclineReasonDetail(), contract.getExpiresAt(), contract.getEffectiveAt(),
+                disbursement == null ? null : disbursement.getStatus(),
+                disbursement == null ? null : disbursement.getPaymentReference(),
+                disbursement == null ? null : disbursement.getFineractLoanId(),
+                disbursement == null ? null : disbursement.getDisbursedAt(),
                 contract.getVersion(), contract.getCreatedAt(), contract.getUpdatedAt()
         );
     }

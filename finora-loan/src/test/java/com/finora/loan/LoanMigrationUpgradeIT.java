@@ -23,7 +23,7 @@ class LoanMigrationUpgradeIT {
             .withPassword("finora_test");
 
     @Test
-    void existingV4DatabaseUpgradesThroughV16WithoutRecreatingOldTables() throws Exception {
+    void existingV4DatabaseUpgradesThroughV17WithoutRecreatingOldTables() throws Exception {
         Flyway.configure()
                 .dataSource(POSTGRESQL.getJdbcUrl(), POSTGRESQL.getUsername(), POSTGRESQL.getPassword())
                 .locations("classpath:db/migration")
@@ -37,7 +37,7 @@ class LoanMigrationUpgradeIT {
                 .load();
         upgraded.migrate();
 
-        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("16");
+        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("17");
         assertThat(upgraded.info().pending()).isEmpty();
         try (Connection connection = POSTGRESQL.createConnection("");
              Statement statement = connection.createStatement();
@@ -50,11 +50,12 @@ class LoanMigrationUpgradeIT {
                            'loan_contract_status_histories',
                            'loan_contract_documents',
                            'loan_contract_parties',
-                           'loan_processed_events'
+                           'loan_processed_events',
+                           'loan_disbursement_sagas'
                        )
                      """)) {
             assertThat(result.next()).isTrue();
-            assertThat(result.getInt(1)).isEqualTo(5);
+            assertThat(result.getInt(1)).isEqualTo(6);
         }
         try (Connection connection = POSTGRESQL.createConnection("");
              Statement statement = connection.createStatement();

@@ -169,7 +169,7 @@ class FinoraLoanApplicationIT {
                 """, Long.class);
 
         assertThat(databaseVersion).startsWith("17.");
-        assertThat(businessTables).isEqualTo(16L);
+        assertThat(businessTables).isEqualTo(17L);
         assertThat(flyway.info().pending()).isEmpty();
     }
 

@@ -29,6 +29,7 @@ import com.finora.loan.repository.application.LoanApplicationRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
 import com.finora.loan.support.HashingService;
 import com.finora.loan.service.outbox.OutboxService;
+import com.finora.loan.service.disbursement.DisbursementSagaService;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -52,6 +53,7 @@ public class LoanContractStateService {
     private final LoanContractProperties properties;
     private final Clock clock;
     private final OutboxService outboxService;
+    private final DisbursementSagaService disbursementSagaService;
 
     /**
      * Kiểm tra nhanh trước external call; transaction commit vẫn kiểm tra lại dưới pessimistic lock.
@@ -322,6 +324,8 @@ public class LoanContractStateService {
                         contract.getContractNumber(), application.getInvestmentListingId(),
                         contract.getDocumentHash(), receipt.getContentHash(),
                         application.getAllocationVersion(), application.getAllocationHash(), now));
+        disbursementSagaService.start(contract, application,
+                partyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(contract.getId()), now);
     }
 
     private void verifyPdfConsent(LoanContractDocument signablePdf, String expectedPdfHash) {

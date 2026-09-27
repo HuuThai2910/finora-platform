@@ -49,7 +49,7 @@ ACCEPTED --(quyết định mới thay thế)--> SUPERSEDED
 | LN-008 | Admin/AI decision, LoanContract, borrower signature | LN-007; consent policy | `IN_PROGRESS` | [LN-008](plans/LN-008-approval-loan-contract.md) |
 | LN-009 | Terms-authorized listing và funding outbox | LN-008; Investment contract | `IN_PROGRESS` | [LN-009](plans/LN-009-funding-requested-v1.md) |
 | LN-010 | Allocation, hợp đồng nhiều bên và hai lượt ký | LN-009; Investment contract | `IN_PROGRESS` | [LN-010](plans/LN-010-multi-party-contract-v1.md) |
-| LN-011 | Disbursement saga và Fineract loan booking | LN-010; Payment/Fineract contract | `BACKLOG` | [LN-011](plans/LN-011-disbursement-fineract-booking-saga.md) |
+| LN-011 | Disbursement saga và Fineract loan booking | LN-010; Payment/Fineract contract | `IN_PROGRESS` | [LN-011](plans/LN-011-disbursement-fineract-booking-saga.md) |
 | LN-012 | Fineract servicing projection và reconciliation | LN-011; event/reconcile policy | `BACKLOG` | [LN-012](plans/LN-012-fineract-servicing-reconciliation.md) |
 | LN-013 | Repayment/read schedule API | LN-011, LN-012; Payment contract | `BACKLOG` | [LN-013](plans/LN-013-repayment-schedule-boundary.md) |
 | LN-014 | Delinquency/default và credit profile update | LN-012, LN-013; DPD policy | `BACKLOG` | [LN-014](plans/LN-014-delinquency-credit-profile.md) |

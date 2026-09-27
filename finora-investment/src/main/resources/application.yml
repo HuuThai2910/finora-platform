@@ -60,6 +60,7 @@ finora:
       fully-funded-topic: ${INVESTMENT_FULLY_FUNDED_TOPIC:finora.investment.loan-fully-funded}
       investor-signature-requested-topic: ${LOAN_INVESTOR_SIGNATURE_REQUESTED_TOPIC:finora.loan.investor-signature-requested}
       contract-activated-topic: ${LOAN_CONTRACT_ACTIVATED_TOPIC:finora.loan.contract-activated}
+      loan-disbursed-topic: ${LOAN_DISBURSED_TOPIC:finora.loan.disbursed}
       publish-timeout: ${INVESTMENT_KAFKA_PUBLISH_TIMEOUT:10s}
     outbox:
       publisher-delay: ${INVESTMENT_OUTBOX_PUBLISHER_DELAY:5000}
@@ -68,4 +69,3 @@ finora:
       retry-backoff: ${INVESTMENT_OUTBOX_RETRY_BACKOFF:5s}
       maximum-backoff: ${INVESTMENT_OUTBOX_MAXIMUM_BACKOFF:5m}
       processing-lease: ${INVESTMENT_OUTBOX_PROCESSING_LEASE:2m}
-

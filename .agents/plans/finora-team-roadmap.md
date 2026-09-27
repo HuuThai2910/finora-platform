@@ -185,8 +185,8 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P4-A01 | Loan | [LN-011: Fineract booking + Disbursement Saga](../../finora-loan/plans/LN-011-disbursement-fineract-booking-saga.md) | externalId contract, `sagaId`, step, attempt, timeout | `BACKLOG` |
-| P4-A02 | Payment | Capture commitments và disbursement ledger | Financial idempotency | `BACKLOG` |
+| P4-A01 | Loan | [LN-011: Fineract booking + Disbursement Saga](../../finora-loan/plans/LN-011-disbursement-fineract-booking-saga.md) | externalId contract, `sagaId`, step, attempt, timeout | `IN_PROGRESS` |
+| P4-A02 | Payment | Capture commitments và disbursement ledger | Financial idempotency | `IN_PROGRESS` |
 | P4-A03 | Loan | [LN-012: Fineract projection/reconciliation](../../finora-loan/plans/LN-012-fineract-servicing-reconciliation.md) | Không lặp side effect; repair khi tiền đã chuyển nhưng core lỗi | `BACKLOG` |
 | P4-A04 | Blockchain | Fabric adapter submit/query | Hash only, no PII | `BACKLOG` |
 | P4-A05 | Blockchain | Retry/DLT/submission status | Không rollback nghiệp vụ đã commit | `BACKLOG` |
@@ -195,8 +195,8 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P4-B01 | Investment | Finalize/lock commitments command | Idempotent + version check | `BACKLOG` |
-| P4-B02 | Investment | Activate Notes sau disbursement | Ownership snapshot/version | `BACKLOG` |
+| P4-B01 | Investment | Finalize commitments sau `LoanDisbursed` | Idempotent + version check | `READY_FOR_REVIEW` |
+| P4-B02 | Investment | Activate Notes sau disbursement | Ownership snapshot/version | `READY_FOR_REVIEW` |
 | P4-B03 | Investment | Repair Note activation | Không đảo ledger Payment | `BACKLOG` |
 | P4-B04 | Notification | Saga success/failure notification | Không rollback Saga | `BACKLOG` |
 

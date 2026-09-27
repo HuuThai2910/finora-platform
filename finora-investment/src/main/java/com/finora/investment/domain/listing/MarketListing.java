@@ -12,6 +12,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -53,6 +54,18 @@ public class MarketListing {
 
     @Column(name = "contract_activated_at")
     private Instant contractActivatedAt;
+
+    @Column(name = "disbursement_saga_id")
+    private UUID disbursementSagaId;
+
+    @Column(name = "payment_reference", length = 100)
+    private String paymentReference;
+
+    @Column(name = "fineract_loan_id")
+    private Long fineractLoanId;
+
+    @Column(name = "disbursed_at")
+    private Instant disbursedAt;
 
     @Column(name = "application_number", nullable = false, length = 30, updatable = false)
     private String applicationNumber;
