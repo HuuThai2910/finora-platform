@@ -30,6 +30,8 @@ public interface MarketListingRepository extends JpaRepository<MarketListing, Lo
 
     Optional<MarketListing> findByLoanId(Long loanId);
 
+    Optional<MarketListing> findByApplicationNumberAndFundingRound(String applicationNumber, Integer fundingRound);
+
     boolean existsByLoanId(Long loanId);
 
     Page<MarketListing> findByStatus(ListingStatus status, Pageable pageable);

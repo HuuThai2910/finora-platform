@@ -16,7 +16,10 @@ import com.finora.investment.mapper.InvestmentMapper;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
 import com.finora.investment.repository.InvestmentOrderRepository;
 import com.finora.investment.repository.MarketListingRepository;
+import com.finora.investment.messaging.event.LoanFullyFundedEventData;
 import com.finora.investment.service.OrderTransactionService;
+import com.finora.investment.service.messaging.AllocationSnapshotService;
+import com.finora.investment.service.outbox.InvestmentOutboxService;
 import java.math.BigDecimal;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +40,8 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
     private final InvestmentCommitmentRepository commitmentRepository;
     private final PaymentClient paymentClient;
     private final InvestmentMapper mapper;
+    private final AllocationSnapshotService allocationSnapshotService;
+    private final InvestmentOutboxService outboxService;
 
     @Override
     @Transactional
@@ -113,12 +118,7 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
         listing.setCommittedAmount(listing.getCommittedAmount().add(amount));
         listing.setUpdatedAt(now);
 
-        boolean fullyFunded = false;
-        if (listing.getCommittedAmount().compareTo(listing.getTargetAmount()) == 0) {
-            listing.setStatus(ListingStatus.FULLY_FUNDED);
-            listing.setFullyFundedAt(now);
-            fullyFunded = true;
-        }
+        boolean fullyFunded = listing.getCommittedAmount().compareTo(listing.getTargetAmount()) == 0;
         listingRepository.save(listing);
 
         order.setStatus(OrderStatus.COMMITTED);
@@ -131,7 +131,7 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
                 .multiply(BigDecimal.valueOf(100))
                 .divide(listing.getTargetAmount(), 6, java.math.RoundingMode.HALF_UP);
 
-        commitmentRepository.save(InvestmentCommitment.builder()
+        commitmentRepository.saveAndFlush(InvestmentCommitment.builder()
                 .orderId(order.getId())
                 .listingId(listing.getId())
                 .investorId(order.getInvestorId())
@@ -148,6 +148,33 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
                 .build());
 
         if (fullyFunded) {
+            var snapshot = allocationSnapshotService.snapshot(
+                    commitmentRepository.findByListingIdAndStatusOrderByIdAsc(
+                            listing.getId(), CommitmentStatus.ACTIVE));
+            long allocationVersion = 1L;
+            listing.setStatus(ListingStatus.FULLY_FUNDED);
+            listing.setFullyFundedAt(now);
+            listing.setAllocationVersion(allocationVersion);
+            listing.setAllocationHash(snapshot.hash());
+            listingRepository.saveAndFlush(listing);
+            outboxService.record(
+                    "MarketListing",
+                    listing.getApplicationNumber(),
+                    "LoanFullyFunded",
+                    1,
+                    new LoanFullyFundedEventData(
+                            listing.getLoanId(),
+                            listing.getApplicationNumber(),
+                            listing.getId(),
+                            listing.getFundingRound(),
+                            listing.getCommittedAmount().toPlainString(),
+                            "VND",
+                            allocationVersion,
+                            snapshot.hash(),
+                            now,
+                            snapshot.allocations()
+                    )
+            );
             log.info("Khoản vay đã gọi đủ vốn: loanId={}, listingId={}",
                     listing.getLoanId(), listing.getId());
         }
@@ -193,6 +220,13 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
         MarketListing listing = listingRepository.findByIdForUpdate(commitment.getListingId())
                 .orElseThrow();
 
+        if (listing.getStatus() == ListingStatus.FULLY_FUNDED) {
+            throw InvestmentDomainException.conflict(
+                    "FUNDED_ALLOCATION_LOCKED",
+                    "Danh sách phân bổ đã khóa để lập hợp đồng, không thể hủy trực tiếp"
+            );
+        }
+
         Instant now = Instant.now();
         commitment.setStatus(CommitmentStatus.CANCELLED);
         commitment.setCancelledAt(now);
@@ -202,10 +236,6 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
         order.setUpdatedAt(now);
 
         listing.setCommittedAmount(listing.getCommittedAmount().subtract(commitment.getAmount()));
-        if (listing.getStatus() == ListingStatus.FULLY_FUNDED && listing.getCommittedAmount().compareTo(listing.getTargetAmount()) < 0) {
-            listing.setStatus(ListingStatus.OPEN);
-            listing.setFullyFundedAt(null);
-        }
         listing.setUpdatedAt(now);
         listingRepository.save(listing);
 

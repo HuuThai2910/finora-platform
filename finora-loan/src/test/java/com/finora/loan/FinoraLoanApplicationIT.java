@@ -19,8 +19,12 @@ import com.finora.loan.integration.fineract.contract.ScheduleCalculationResult;
 import com.finora.loan.integration.fineract.contract.SchedulePeriod;
 import com.finora.loan.integration.profile.provider.BorrowerProfileProvider;
 import com.finora.loan.integration.profile.contract.BorrowerProfileResult;
+import com.finora.loan.messaging.event.FundingAllocationEventData;
+import com.finora.loan.messaging.event.LoanFullyFundedEventData;
 import com.finora.loan.service.scoring.CreditScoringOrchestrator;
 import com.finora.loan.service.application.LoanTermsConfirmationExpiryStateService;
+import com.finora.loan.service.funding.LoanFullyFundedHandler;
+import com.finora.loan.support.HashingService;
 import jakarta.persistence.EntityManagerFactory;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
 import org.flywaydb.core.Flyway;
@@ -44,6 +48,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -57,12 +62,14 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
         "finora.ai.credit.worker-enabled=false",
-        "finora.loan.contract.expiry-worker-enabled=false"
+        "finora.loan.contract.expiry-worker-enabled=false",
+        "spring.kafka.listener.auto-startup=false",
+        "finora.loan.outbox.publisher-delay=3600000",
+        "finora.signature.provider=mock"
 })
 // Tắt security filter: test này kiểm thử nghiệp vụ vay, còn danh tính người gọi đã
 // được thay bằng mock CurrentUserProvider. Phân quyền có test riêng ở tầng đơn vị.
@@ -88,6 +95,8 @@ class FinoraLoanApplicationIT {
     @Autowired EntityManagerFactory entityManagerFactory;
     @Autowired CreditScoringOrchestrator scoringOrchestrator;
     @Autowired LoanTermsConfirmationExpiryStateService termsExpiryStateService;
+    @Autowired LoanFullyFundedHandler fullyFundedHandler;
+    @Autowired HashingService hashingService;
     @Autowired AiCreditProperties aiCreditProperties;
     @Autowired CircuitBreakerFactory<?, ?> circuitBreakerFactory;
     @Autowired @Qualifier("aiCreditRestClient") RestClient aiCreditRestClient;
@@ -160,7 +169,7 @@ class FinoraLoanApplicationIT {
                 """, Long.class);
 
         assertThat(databaseVersion).startsWith("17.");
-        assertThat(businessTables).isEqualTo(14L);
+        assertThat(businessTables).isEqualTo(16L);
         assertThat(flyway.info().pending()).isEmpty();
     }
 
@@ -315,7 +324,7 @@ class FinoraLoanApplicationIT {
     }
 
     @Test
-    void adminApprovesAndBorrowerSignsExactGeneratedContractIdempotently() throws Exception {
+    void approvalRequestsFundingAndOnlyFullyFundedEventCreatesContractIdempotently() throws Exception {
         JsonNode submitted = submitAndScoreApplication();
         String applicationNumber = submitted.path("applicationNumber").asText();
 
@@ -340,10 +349,9 @@ class FinoraLoanApplicationIT {
                                 .content(approvalJson))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.applicationStatus").value("APPROVED"))
-                .andExpect(jsonPath("$.contractStatus").value("PENDING_SIGNATURE"))
-                .andExpect(jsonPath("$.documentHash").value(org.hamcrest.Matchers.matchesPattern("[0-9a-f]{64}")))
+                .andExpect(jsonPath("$.termsConfirmationStatus").value("AUTO_AUTHORIZED"))
+                .andExpect(jsonPath("$.contractNumber").doesNotExist())
                 .andReturn().getResponse().getContentAsString());
-        String contractNumber = approved.path("contractNumber").asText();
 
         mockMvc.perform(get("/api/v1/admin/loan-applications")
                         .queryParam("status", "APPROVED"))
@@ -355,83 +363,166 @@ class FinoraLoanApplicationIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(0));
 
-        // CÃ¹ng Idempotency-Key vÃ  cÃ¹ng payload khÃ´ng Ä‘Æ°á»£c táº¡o thÃªm há»£p Ä‘á»“ng.
+        // Cùng Idempotency-Key không được phát thêm yêu cầu huy động vốn.
         mockMvc.perform(post("/api/v1/admin/loan-applications/{number}/approve", applicationNumber)
                         .header("Idempotency-Key", approvalKey)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(approvalJson))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.contractNumber").value(contractNumber));
+                .andExpect(jsonPath("$.contractNumber").doesNotExist());
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM loan_contracts", Long.class))
-                .isEqualTo(1L);
-
-        JsonNode contract = objectMapper.readTree(mockMvc.perform(
-                        get("/api/v1/loan-contracts/{number}", contractNumber))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("PENDING_SIGNATURE"))
-                .andExpect(jsonPath("$.documentContent").isNotEmpty())
-                .andExpect(jsonPath("$.pdfDocument.artifactType").value("SIGNABLE"))
-                .andExpect(jsonPath("$.pdfDocument.contentType").value("application/pdf"))
-                .andExpect(jsonPath("$.pdfDocument.contentHash")
-                        .value(org.hamcrest.Matchers.matchesPattern("[0-9a-f]{64}")))
-                .andExpect(jsonPath("$.principalAmount").value(50000000.0))
-                .andReturn().getResponse().getContentAsString());
-        byte[] pdf = mockMvc.perform(get("/api/v1/loan-contracts/{number}/document", contractNumber))
-                .andExpect(status().isOk())
-                .andExpect(content().contentType(MediaType.APPLICATION_PDF))
-                .andReturn().getResponse().getContentAsByteArray();
-        assertThat(new String(pdf, 0, 4, java.nio.charset.StandardCharsets.US_ASCII)).isEqualTo("%PDF");
-        String signKey = "sign-" + UUID.randomUUID();
-        String signJson = """
-                {"version":%d,"documentHash":"%s","pdfDocumentHash":"%s","signatureMethod":"CLICK_WRAP_MVP"}
-                """.formatted(contract.path("version").asLong(), contract.path("documentHash").asText(),
-                contract.path("pdfDocument").path("contentHash").asText());
-
-        mockMvc.perform(post("/api/v1/loan-contracts/{number}/sign", contractNumber)
-                        .header("Idempotency-Key", signKey)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(signJson))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("SIGNED"))
-                .andExpect(jsonPath("$.signatureProvider").value("MOCK"))
-                .andExpect(jsonPath("$.signatureMethod").value("CLICK_WRAP_MVP"))
-                .andExpect(jsonPath("$.signatureTransactionId")
-                        .value(org.hamcrest.Matchers.matchesPattern("MOCK-[0-9a-f]{32}")))
-                .andExpect(jsonPath("$.signatureEvidenceHash")
-                        .value(org.hamcrest.Matchers.matchesPattern("[0-9a-f]{64}")));
-        mockMvc.perform(get("/api/v1/loan-contracts/{number}", contractNumber))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.pdfDocument.artifactType").value("SIGNED_RECEIPT"));
-        mockMvc.perform(post("/api/v1/loan-contracts/{number}/sign", contractNumber)
-                        .header("Idempotency-Key", signKey)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(signJson))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("SIGNED"));
+                .isZero();
 
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM loan_outbox_events
-                WHERE event_type = 'LoanContractCreated'
+                WHERE event_type = 'LoanFundingRequested' AND publishable = true
                 """, Long.class)).isEqualTo(1L);
-        assertThat(jdbcTemplate.queryForObject("""
-                SELECT COUNT(*) FROM loan_outbox_events
-                WHERE event_type = 'LoanContractSigned'
-                """, Long.class)).isEqualTo(1L);
-        assertThat(jdbcTemplate.queryForObject("""
-                SELECT COUNT(*) FROM loan_outbox_events
-                WHERE status = 'PENDING' AND attempt_count = 0
-                """, Long.class)).isEqualTo(2L);
-
-        mockMvc.perform(get("/api/v1/loan-contracts/{number}/history", contractNumber))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(2));
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT funding_status FROM loan_applications WHERE application_number = ?",
+                String.class, applicationNumber)).isEqualTo("REQUESTED");
         mockMvc.perform(get("/api/v1/loan-applications/{number}", applicationNumber))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("APPROVED"));
+                .andExpect(jsonPath("$.funding.status").value("REQUESTED"))
+                .andExpect(jsonPath("$.funding.investmentListingId").doesNotExist());
+
+        List<FundingAllocationEventData> allocations = List.of(
+                new FundingAllocationEventData(101L, "INVESTOR-001", "50000000.00", "100.000000"));
+        String allocationHash = hashingService.sha256Text(hashingService.toJson(allocations));
+        UUID fundedEventId = UUID.randomUUID();
+        LoanFullyFundedEventData funded = new LoanFullyFundedEventData(
+                submitted.path("id").asLong(), applicationNumber, 9001L, 1,
+                "50000000.00", "VND", 1L, allocationHash, Instant.now(), allocations);
+        fullyFundedHandler.handle(fundedEventId, Instant.now(), funded);
+        fullyFundedHandler.handle(fundedEventId, Instant.now(), funded);
+
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM loan_contracts", Long.class))
+                .isEqualTo(1L);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM loan_contracts", String.class))
+                .isEqualTo("PENDING_LENDER_SIGNATURES");
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM loan_outbox_events
+                WHERE event_type = 'InvestorSignatureRequested' AND publishable = true
+                """, Long.class)).isEqualTo(1L);
+
+        mockMvc.perform(get("/api/v1/loan-applications/{number}", applicationNumber))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPROVED"))
+                .andExpect(jsonPath("$.funding.status").value("FULLY_FUNDED"))
+                .andExpect(jsonPath("$.funding.investmentListingId").value(9001));
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT funding_status FROM loan_applications WHERE application_number = ?",
+                String.class, applicationNumber)).isEqualTo("FULLY_FUNDED");
+
+        org.springframework.security.oauth2.jwt.Jwt investorJwt =
+                org.springframework.security.oauth2.jwt.Jwt.withTokenValue("investor-token")
+                        .header("alg", "RS256")
+                        .subject("INVESTOR-001")
+                        .claim("user_id", "INVESTOR-001")
+                        .issuedAt(Instant.now())
+                        .expiresAt(Instant.now().plusSeconds(3600))
+                        .build();
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken(
+                        investorJwt,
+                        List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                                "ROLE_INVESTOR")),
+                        "INVESTOR-001"));
+
+        JsonNode investorContract = objectMapper.readTree(mockMvc.perform(
+                        get("/api/v1/investor/loan-contracts/me"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].partyStatus").value("PENDING_SIGNATURE"))
+                .andExpect(jsonPath("$[0].availableSignatureProvider").value("MOCK"))
+                .andReturn().getResponse().getContentAsString()).get(0);
+        String contractNumber = investorContract.path("contractNumber").asText();
+        String signJson = """
+                {"version":%d,"documentHash":"%s","pdfDocumentHash":"%s",
+                 "signatureMethod":"CLICK_WRAP_MVP"}
+                """.formatted(
+                investorContract.path("contractVersion").asLong(),
+                investorContract.path("documentHash").asText(),
+                investorContract.path("pdfDocumentHash").asText());
+
+        JsonNode signedInvestorContract = objectMapper.readTree(mockMvc.perform(
+                        post("/api/v1/investor/loan-contracts/{number}/sign", contractNumber)
+                        .header("Idempotency-Key", "investor-sign-" + UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(signJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.partyStatus").value("SIGNED"))
+                .andExpect(jsonPath("$.contractStatus").value("PENDING_BORROWER_SIGNATURE"))
+                .andReturn().getResponse().getContentAsString());
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM loan_outbox_events
+                WHERE event_type = 'BorrowerSignatureRequested' AND publishable = true
+                """, Long.class)).isEqualTo(1L);
+
+        org.springframework.security.oauth2.jwt.Jwt borrowerJwt =
+                org.springframework.security.oauth2.jwt.Jwt.withTokenValue("borrower-token")
+                        .header("alg", "RS256")
+                        .subject("BORROWER-001")
+                        .claim("user_id", "BORROWER-001")
+                        .issuedAt(Instant.now())
+                        .expiresAt(Instant.now().plusSeconds(3600))
+                        .build();
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken(
+                        borrowerJwt,
+                        List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                                "ROLE_BORROWER")),
+                        "BORROWER-001"));
+
+        JsonNode borrowerContract = objectMapper.readTree(mockMvc.perform(
+                        get("/api/v1/loan-contracts/{number}", contractNumber))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING_BORROWER_SIGNATURE"))
+                .andReturn().getResponse().getContentAsString());
+        String borrowerSignJson = """
+                {"version":%d,"documentHash":"%s","pdfDocumentHash":"%s",
+                 "signatureMethod":"CLICK_WRAP_MVP"}
+                """.formatted(
+                borrowerContract.path("version").asLong(),
+                borrowerContract.path("documentHash").asText(),
+                borrowerContract.path("pdfDocument").path("contentHash").asText());
+        mockMvc.perform(post("/api/v1/loan-contracts/{number}/sign", contractNumber)
+                        .header("Idempotency-Key", "borrower-sign-" + UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(borrowerSignJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("EFFECTIVE"));
+
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken(
+                        investorJwt,
+                        List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                                "ROLE_INVESTOR")),
+                        "INVESTOR-001"));
+        JsonNode completedInvestorContract = objectMapper.readTree(mockMvc.perform(
+                        get("/api/v1/investor/loan-contracts/{number}", contractNumber))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contractStatus").value("EFFECTIVE"))
+                .andReturn().getResponse().getContentAsString());
+        assertThat(completedInvestorContract.path("pdfDocumentHash").asText())
+                .isNotEqualTo(signedInvestorContract.path("pdfDocumentHash").asText());
+        byte[] investorReceipt = mockMvc.perform(
+                        get("/api/v1/investor/loan-contracts/{number}/document", contractNumber))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentType())
+                        .startsWith(MediaType.APPLICATION_PDF_VALUE))
+                .andReturn().getResponse().getContentAsByteArray();
+        try (org.apache.pdfbox.pdmodel.PDDocument pdf =
+                     org.apache.pdfbox.pdmodel.PDDocument.load(investorReceipt)) {
+            String receiptText = new org.apache.pdfbox.text.PDFTextStripper().getText(pdf);
+            assertThat(receiptText)
+                    .contains("ĐÃ KÝ")
+                    .contains("INVESTOR-001")
+                    .doesNotContain("CHƯA TÍCH HỢP");
+        }
     }
 
     @Test
-    void worseningTermsWaitForBorrowerAndAcceptanceCreatesContract() throws Exception {
+    void worseningTermsWaitForBorrowerAndAcceptanceRequestsFunding() throws Exception {
         configureWorseningAiTerms();
         JsonNode submitted = submitAndScoreApplication();
         String applicationNumber = submitted.path("applicationNumber").asText();
@@ -457,14 +548,18 @@ class FinoraLoanApplicationIT {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(acceptJson))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.termsConfirmation.status").value("ACCEPTED"));
+                .andExpect(jsonPath("$.termsConfirmation.status").value("ACCEPTED"))
+                .andExpect(jsonPath("$.funding.status").value("REQUESTED"));
 
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM loan_contracts", Long.class))
-                .isEqualTo(1L);
-        mockMvc.perform(get("/api/v1/loan-contracts/me").queryParam("page", "0").queryParam("size", "20"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.data[0].status").value("PENDING_SIGNATURE"));
+                .isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT funding_status FROM loan_applications WHERE application_number = ?",
+                String.class, applicationNumber)).isEqualTo("REQUESTED");
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM loan_outbox_events
+                WHERE event_type = 'LoanFundingRequested' AND publishable = true
+                """, Long.class)).isEqualTo(1L);
     }
 
     @Test

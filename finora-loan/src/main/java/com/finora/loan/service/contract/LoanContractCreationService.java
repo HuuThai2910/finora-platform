@@ -5,6 +5,7 @@ import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.contract.LoanContract;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
 import java.time.Instant;
+import java.util.List;
 
 public interface LoanContractCreationService {
 
@@ -16,6 +17,18 @@ public interface LoanContractCreationService {
             ActorType actorType,
             String actorId,
             String reasonCode,
+            Instant now
+    );
+
+    /** Tạo một Contract chung cho borrower và toàn bộ lender allocation đã khóa. */
+    LoanContract createFunded(
+            LoanApplication application,
+            ScheduleCalculationSnapshot finalSchedule,
+            List<FundedContractAllocation> allocations,
+            long allocationVersion,
+            String allocationHash,
+            Instant expiresAt,
+            String actorId,
             Instant now
     );
 }

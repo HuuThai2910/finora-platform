@@ -20,6 +20,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -225,6 +226,39 @@ public class LoanApplication {
 
     @Column(name = "terms_consent_request_hash", length = 64)
     private String termsConsentRequestHash;
+
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "funding_status", length = 30)
+    private LoanFundingStatus fundingStatus;
+
+    @Column(name = "funding_round")
+    private Integer fundingRound;
+
+    @Column(name = "listing_version")
+    private Integer listingVersion;
+
+    @Column(name = "funding_requested_at")
+    private Instant fundingRequestedAt;
+
+    @Column(name = "investment_listing_id")
+    private Long investmentListingId;
+
+    @Column(name = "funded_amount", precision = 18, scale = 2)
+    private BigDecimal fundedAmount;
+
+    @Column(name = "allocation_version")
+    private Long allocationVersion;
+
+    @Column(name = "allocation_hash", length = 64)
+    private String allocationHash;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "allocation_snapshot_json", columnDefinition = "jsonb")
+    private String allocationSnapshotJson;
+
+    @Column(name = "funding_completed_at")
+    private Instant fundingCompletedAt;
 
     @Version
     @Column(nullable = false)
@@ -537,6 +571,90 @@ public class LoanApplication {
         validateTermsResponse(expectedVersion, expectedTermsVersion, expectedTermsHash, actorId, now);
         recordTermsConsent(consentIdempotencyKey, consentRequestHash, actorId, now);
         termsConfirmationStatus = TermsConfirmationStatus.ACCEPTED;
+    }
+
+    /**
+     * Đánh dấu exact terms đã được phép đưa lên sàn trước khi ghi outbox trong cùng transaction.
+     * Gọi lại cùng application không được tạo một funding round mới ngoài ý muốn.
+     */
+    public boolean requestFunding(int requestedFundingRound, int requestedListingVersion, String actorId, Instant now) {
+        requireStatus(LoanApplicationStatus.APPROVED);
+        if (termsConfirmationStatus != TermsConfirmationStatus.AUTO_AUTHORIZED
+                && termsConfirmationStatus != TermsConfirmationStatus.ACCEPTED) {
+            throw LoanDomainException.conflict(
+                    "LOAN_TERMS_NOT_AUTHORIZED_FOR_FUNDING",
+                    "Điều khoản cuối chưa được người vay cho phép đưa lên sàn"
+            );
+        }
+        if (fundingStatus != null) {
+            return false;
+        }
+        if (requestedFundingRound < 1 || requestedListingVersion < 1) {
+            throw new IllegalArgumentException("Funding round và listing version phải dương");
+        }
+        fundingStatus = LoanFundingStatus.REQUESTED;
+        fundingRound = requestedFundingRound;
+        listingVersion = requestedListingVersion;
+        fundingRequestedAt = now;
+        updatedBy = requireText(actorId, "actorId");
+        updatedAt = now;
+        return true;
+    }
+
+    /** Loan chỉ ghi nhận kết quả; Investment vẫn là nguồn chuẩn của commitment/allocation. */
+    public boolean markFullyFunded(
+            Long listingId,
+            BigDecimal confirmedAmount,
+            long confirmedAllocationVersion,
+            String confirmedAllocationHash,
+            String allocationSnapshot,
+            Instant completedAt,
+            String actorId,
+            Instant now
+    ) {
+        BigDecimal normalizedAmount = Objects.requireNonNull(confirmedAmount, "confirmedAmount")
+                .setScale(2, RoundingMode.HALF_UP);
+        if (listingId == null || confirmedAllocationVersion < 1 || completedAt == null) {
+            throw new IllegalArgumentException("Thông tin hoàn tất gọi vốn không đầy đủ");
+        }
+        String normalizedHash = requireText(confirmedAllocationHash, "allocationHash");
+        String normalizedSnapshot = requireText(allocationSnapshot, "allocationSnapshotJson");
+        if (fundingStatus == LoanFundingStatus.FULLY_FUNDED) {
+            if (Objects.equals(investmentListingId, listingId)
+                    && fundedAmount != null && fundedAmount.compareTo(normalizedAmount) == 0
+                    && Objects.equals(allocationVersion, confirmedAllocationVersion)
+                    && Objects.equals(allocationHash, normalizedHash)
+                    && Objects.equals(allocationSnapshotJson, normalizedSnapshot)
+                    && Objects.equals(fundingCompletedAt, completedAt)) {
+                return false;
+            }
+            throw LoanDomainException.conflict(
+                    "CONFLICTING_FULLY_FUNDED_EVENT",
+                    "Hồ sơ đã chốt một allocation khác; không thể ghi đè kết quả gọi vốn"
+            );
+        }
+        if (fundingStatus != LoanFundingStatus.REQUESTED) {
+            throw LoanDomainException.conflict(
+                    "LOAN_FUNDING_NOT_REQUESTED",
+                    "Hồ sơ chưa ở trạng thái chờ gọi vốn"
+            );
+        }
+        if (normalizedAmount.compareTo(requestedAmount) != 0) {
+            throw LoanDomainException.conflict(
+                    "FUNDED_AMOUNT_MISMATCH",
+                    "Số vốn Investment xác nhận không khớp số tiền vay"
+            );
+        }
+        fundingStatus = LoanFundingStatus.FULLY_FUNDED;
+        investmentListingId = listingId;
+        fundedAmount = normalizedAmount;
+        allocationVersion = confirmedAllocationVersion;
+        allocationHash = normalizedHash;
+        allocationSnapshotJson = normalizedSnapshot;
+        fundingCompletedAt = completedAt;
+        updatedBy = requireText(actorId, "actorId");
+        updatedAt = now;
+        return true;
     }
 
     public void declineTerms(

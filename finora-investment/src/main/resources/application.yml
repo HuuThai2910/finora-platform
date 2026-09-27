@@ -4,8 +4,8 @@ spring:
   application:
     name: finora-investment
   datasource:
-    url: ${INVESTMENT_DB_URL:jdbc:postgresql://localhost:15437/finora_investment}
-    username: ${INVESTMENT_DB_USERNAME:finora_investment}
+    url: ${INVESTMENT_DB_URL}
+    username: ${INVESTMENT_DB_USERNAME}
     password: ${INVESTMENT_DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
   jpa:
@@ -30,6 +30,21 @@ spring:
           # được Investment Service chấp nhận. Chỉ cần khoá công khai để kiểm chữ ký.
           issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/finora}
           jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/finora/protocol/openid-connect/certs}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${INVESTMENT_LOAN_FUNDING_GROUP:investment-loan-funding}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
 
 server:
   port: 8084
@@ -38,4 +53,19 @@ logging:
   level:
     com.finora.investment: INFO
 
+finora:
+  investment:
+    kafka:
+      funding-requested-topic: ${LOAN_FUNDING_REQUESTED_TOPIC:finora.loan.funding-requested}
+      fully-funded-topic: ${INVESTMENT_FULLY_FUNDED_TOPIC:finora.investment.loan-fully-funded}
+      investor-signature-requested-topic: ${LOAN_INVESTOR_SIGNATURE_REQUESTED_TOPIC:finora.loan.investor-signature-requested}
+      contract-activated-topic: ${LOAN_CONTRACT_ACTIVATED_TOPIC:finora.loan.contract-activated}
+      publish-timeout: ${INVESTMENT_KAFKA_PUBLISH_TIMEOUT:10s}
+    outbox:
+      publisher-delay: ${INVESTMENT_OUTBOX_PUBLISHER_DELAY:5000}
+      batch-size: ${INVESTMENT_OUTBOX_BATCH_SIZE:100}
+      max-attempts: ${INVESTMENT_OUTBOX_MAX_ATTEMPTS:10}
+      retry-backoff: ${INVESTMENT_OUTBOX_RETRY_BACKOFF:5s}
+      maximum-backoff: ${INVESTMENT_OUTBOX_MAXIMUM_BACKOFF:5m}
+      processing-lease: ${INVESTMENT_OUTBOX_PROCESSING_LEASE:2m}
 

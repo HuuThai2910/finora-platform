@@ -43,6 +43,9 @@ public class OutboxEvent {
     @Column(name = "event_version", nullable = false, updatable = false)
     private Integer eventVersion;
 
+    @Column(nullable = false, updatable = false)
+    private boolean publishable;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "payload_json", nullable = false, columnDefinition = "jsonb", updatable = false)
     private String payloadJson;
@@ -96,6 +99,21 @@ public class OutboxEvent {
             String traceId,
             Instant now
     ) {
+        return create(eventId, aggregateType, aggregateId, eventType, eventVersion,
+                payloadJson, false, traceId, now);
+    }
+
+    public static OutboxEvent create(
+            UUID eventId,
+            String aggregateType,
+            String aggregateId,
+            String eventType,
+            int eventVersion,
+            String payloadJson,
+            boolean publishable,
+            String traceId,
+            Instant now
+    ) {
         if (eventVersion < 1) {
             throw new IllegalArgumentException("eventVersion phải dương");
         }
@@ -105,6 +123,7 @@ public class OutboxEvent {
         event.aggregateId = requireText(aggregateId, "aggregateId");
         event.eventType = requireText(eventType, "eventType");
         event.eventVersion = eventVersion;
+        event.publishable = publishable;
         event.payloadJson = requireText(payloadJson, "payloadJson");
         event.status = OutboxEventStatus.PENDING;
         event.attemptCount = 0;

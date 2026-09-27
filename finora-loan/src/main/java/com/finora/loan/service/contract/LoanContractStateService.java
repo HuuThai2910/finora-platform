@@ -6,6 +6,8 @@ import com.finora.loan.config.LoanContractProperties;
 import com.finora.loan.domain.application.ActorType;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.contract.ConsentAction;
+import com.finora.loan.domain.contract.ContractParty;
+import com.finora.loan.domain.contract.ContractPartyType;
 import com.finora.loan.domain.contract.ContractPdfArtifactType;
 import com.finora.loan.domain.contract.LoanContract;
 import com.finora.loan.domain.contract.LoanContractDocument;
@@ -18,7 +20,9 @@ import com.finora.loan.exception.LoanBusinessException;
 import com.finora.loan.integration.signature.SignatureEvidence;
 import com.finora.loan.messaging.event.LoanContractClosedWithoutSignatureEventData;
 import com.finora.loan.messaging.event.LoanContractSignedEventData;
+import com.finora.loan.messaging.event.LoanContractActivatedEventData;
 import com.finora.loan.repository.contract.LoanContractRepository;
+import com.finora.loan.repository.contract.ContractPartyRepository;
 import com.finora.loan.repository.contract.LoanContractDocumentRepository;
 import com.finora.loan.repository.contract.LoanContractStatusHistoryRepository;
 import com.finora.loan.repository.application.LoanApplicationRepository;
@@ -38,6 +42,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class LoanContractStateService {
 
     private final LoanContractRepository contractRepository;
+    private final ContractPartyRepository partyRepository;
     private final LoanContractDocumentRepository contractDocumentRepository;
     private final LoanContractStatusHistoryRepository historyRepository;
     private final LoanApplicationRepository applicationRepository;
@@ -96,9 +101,11 @@ public class LoanContractStateService {
                 .findByContractIdAndArtifactType(contract.getId(), ContractPdfArtifactType.SIGNABLE)
                 .orElse(null);
         verifyPdfConsent(signablePdf, request.pdfDocumentHash());
+        LoanContractStatus previousStatus = contract.getStatus();
         contract.sign(request.version(), request.documentHash(), evidence.method(), evidence.provider(),
                 evidence.providerTransactionId(), evidence.evidenceHash(),
                 idempotencyKey, requestHash, actorId, now);
+        recordBorrowerPartySignature(contract, idempotencyKey, requestHash, actorId, now);
         contractRepository.saveAndFlush(contract);
         if (signablePdf != null) {
             LoanApplication application = applicationRepository.findById(contract.getApplicationId())
@@ -107,14 +114,14 @@ public class LoanContractStateService {
             ScheduleCalculationSnapshot schedule = scheduleRepository.findById(contract.getCalculationSnapshotId())
                     .orElseThrow(() -> new ResourceNotFoundException(
                             "Schedule Calculation Snapshot", "id", contract.getCalculationSnapshotId()));
-            ContractPdfArtifact receipt = pdfRenderer.renderSignedReceipt(
+            ContractPdfArtifact receipt = signedReceipt(
                     contract, application, schedule, signablePdf.getContentHash());
             contractDocumentRepository.saveAndFlush(LoanContractDocument.create(
                     contract.getId(), receipt.artifactType(), receipt.documentVersion(),
                     receipt.contentHash(), receipt.content(), now
             ));
         }
-        saveHistory(contract, LoanContractStatus.PENDING_SIGNATURE, LoanContractStatus.SIGNED,
+        saveHistory(contract, previousStatus, LoanContractStatus.SIGNED,
                 "CONTRACT_SIGNED", ActorType.BORROWER, actorId, now);
         outboxService.record(
                 "LoanContract",
@@ -132,6 +139,7 @@ public class LoanContractStateService {
                         contract.getSignedAt()
                 )
         );
+        activateMultiParty(contract, actorId, now);
         return new ContractConsentResult(contract, false);
     }
 
@@ -161,11 +169,12 @@ public class LoanContractStateService {
                 .findByContractIdAndArtifactType(contract.getId(), ContractPdfArtifactType.SIGNABLE)
                 .orElse(null);
         verifyPdfConsent(signablePdf, request.pdfDocumentHash());
+        LoanContractStatus previousStatus = contract.getStatus();
         contract.beginDigitalSignature(
                 request.version(), request.documentHash(), providerTransactionId, documentId,
                 idempotencyKey, requestHash, actorId, now);
         contractRepository.saveAndFlush(contract);
-        saveHistory(contract, LoanContractStatus.PENDING_SIGNATURE, LoanContractStatus.SIGNING,
+        saveHistory(contract, previousStatus, LoanContractStatus.SIGNING,
                 "SMARTCA_SIGNATURE_REQUESTED", ActorType.BORROWER, actorId, now);
         return new ContractConsentResult(contract, false);
     }
@@ -187,8 +196,12 @@ public class LoanContractStateService {
         if (alreadyCompleted) {
             return contract;
         }
+        Instant now = clock.instant();
+        recordBorrowerPartySignature(
+                contract, contract.getConsentIdempotencyKey(), contract.getConsentRequestHash(), actorId, now);
         contractRepository.saveAndFlush(contract);
-        createSignedReceiptAndEvent(contract, LoanContractStatus.SIGNING, actorId, clock.instant());
+        createSignedReceiptAndEvent(contract, LoanContractStatus.SIGNING, actorId, now);
+        activateMultiParty(contract, actorId, now);
         return contract;
     }
 
@@ -199,7 +212,10 @@ public class LoanContractStateService {
         contract.resetRejectedDigitalSignature(actorId, clock.instant());
         if (previous == LoanContractStatus.SIGNING) {
             contractRepository.saveAndFlush(contract);
-            saveHistory(contract, LoanContractStatus.SIGNING, LoanContractStatus.PENDING_SIGNATURE,
+            LoanContractStatus pendingStatus = contract.isMultiParty()
+                    ? LoanContractStatus.PENDING_BORROWER_SIGNATURE
+                    : LoanContractStatus.PENDING_SIGNATURE;
+            saveHistory(contract, LoanContractStatus.SIGNING, pendingStatus,
                     "SMARTCA_SIGNATURE_REJECTED", ActorType.BORROWER, actorId, clock.instant());
         }
         return contract;
@@ -221,7 +237,7 @@ public class LoanContractStateService {
             ScheduleCalculationSnapshot schedule = scheduleRepository.findById(contract.getCalculationSnapshotId())
                     .orElseThrow(() -> new ResourceNotFoundException(
                             "Schedule Calculation Snapshot", "id", contract.getCalculationSnapshotId()));
-            ContractPdfArtifact receipt = pdfRenderer.renderSignedReceipt(
+            ContractPdfArtifact receipt = signedReceipt(
                     contract, application, schedule, signablePdf.getContentHash());
             contractDocumentRepository.saveAndFlush(LoanContractDocument.create(
                     contract.getId(), receipt.artifactType(), receipt.documentVersion(),
@@ -236,6 +252,76 @@ public class LoanContractStateService {
                         contract.getSignatureProvider(), contract.getSignatureMethod(),
                         contract.getSignatureTransactionId(), contract.getSignatureEvidenceHash(),
                         contract.getSignedAt()));
+    }
+
+    private ContractPdfArtifact signedReceipt(
+            LoanContract contract,
+            LoanApplication application,
+            ScheduleCalculationSnapshot schedule,
+            String signedDocumentHash
+    ) {
+        if (!contract.isMultiParty()) {
+            return pdfRenderer.renderSignedReceipt(contract, application, schedule, signedDocumentHash);
+        }
+        return pdfRenderer.renderSignedReceipt(
+                contract, application, schedule, signedDocumentHash,
+                partyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(contract.getId()));
+    }
+
+    private void recordBorrowerPartySignature(
+            LoanContract contract,
+            String idempotencyKey,
+            String requestHash,
+            String actorId,
+            Instant now
+    ) {
+        if (!contract.isMultiParty()) {
+            return;
+        }
+        List<ContractParty> parties = partyRepository.findForUpdate(
+                contract.getId(), ContractPartyType.BORROWER, actorId);
+        if (parties.size() != 1) {
+            throw LoanBusinessException.conflict(
+                    "BORROWER_CONTRACT_PARTY_MISSING",
+                    "Không tìm thấy đúng một bên vay trong hợp đồng nhiều bên");
+        }
+        if (contract.getSignatureProvider()
+                == com.finora.loan.domain.contract.SignatureProviderType.VNPT_SMART_CA) {
+            parties.getFirst().recordCompletedDigitalSignature(
+                    contract.getSignatureTransactionId(), contract.getSignatureDocumentId(),
+                    contract.getSignatureRequestedAt(), contract.getSignatureEvidenceHash(),
+                    idempotencyKey, requestHash, actorId, now);
+        } else {
+            parties.getFirst().recordSignature(
+                    contract.getSignatureMethod(), contract.getSignatureProvider(),
+                    contract.getSignatureTransactionId(), contract.getSignatureEvidenceHash(),
+                    idempotencyKey, requestHash, actorId, now);
+        }
+        partyRepository.saveAndFlush(parties.getFirst());
+    }
+
+    private void activateMultiParty(LoanContract contract, String actorId, Instant now) {
+        if (!contract.isMultiParty()) {
+            return;
+        }
+        contract.activateAfterAllSignatures(actorId, now);
+        contractRepository.saveAndFlush(contract);
+        saveHistory(contract, LoanContractStatus.SIGNED, LoanContractStatus.EFFECTIVE,
+                "ALL_PARTIES_SIGNED", ActorType.SYSTEM, "SYSTEM-CONTRACT-ACTIVATION", now);
+        LoanApplication application = applicationRepository.findById(contract.getApplicationId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Loan Application", "id", contract.getApplicationId()));
+        LoanContractDocument receipt = contractDocumentRepository
+                .findByContractIdAndArtifactType(contract.getId(), ContractPdfArtifactType.SIGNED_RECEIPT)
+                .orElseThrow(() -> LoanBusinessException.conflict(
+                        "SIGNED_RECEIPT_MISSING", "Không tìm thấy receipt sau khi đủ chữ ký"));
+        outboxService.recordForPublication(
+                "LoanContract", contract.getContractNumber(), "LoanContractActivated", 1,
+                new LoanContractActivatedEventData(
+                        contract.getApplicationId(), application.getApplicationNumber(),
+                        contract.getContractNumber(), application.getInvestmentListingId(),
+                        contract.getDocumentHash(), receipt.getContentHash(),
+                        application.getAllocationVersion(), application.getAllocationHash(), now));
     }
 
     private void verifyPdfConsent(LoanContractDocument signablePdf, String expectedPdfHash) {
@@ -277,10 +363,11 @@ public class LoanContractStateService {
         if (expireDuringConsent(contract, now)) {
             return new ContractConsentResult(contract, true);
         }
+        LoanContractStatus previousStatus = contract.getStatus();
         contract.decline(request.version(), request.reasonCode(), request.reasonDetail(),
                 idempotencyKey, requestHash, actorId, now);
         contractRepository.saveAndFlush(contract);
-        saveHistory(contract, LoanContractStatus.PENDING_SIGNATURE, LoanContractStatus.DECLINED,
+        saveHistory(contract, previousStatus, LoanContractStatus.DECLINED,
                 request.reasonCode().name(), ActorType.BORROWER, actorId, now);
         recordClosedWithoutSignature(contract, request.reasonCode().name(), now);
         return new ContractConsentResult(contract, false);
@@ -308,7 +395,11 @@ public class LoanContractStateService {
     @Transactional(readOnly = true)
     public List<Long> dueIds() {
         return contractRepository.findDueIds(
-                List.of(LoanContractStatus.PENDING_SIGNATURE, LoanContractStatus.SIGNING),
+                List.of(
+                        LoanContractStatus.PENDING_LENDER_SIGNATURES,
+                        LoanContractStatus.PENDING_BORROWER_SIGNATURE,
+                        LoanContractStatus.PENDING_SIGNATURE,
+                        LoanContractStatus.SIGNING),
                 clock.instant(),
                 PageRequest.of(0, properties.expiryBatchSize())
         );

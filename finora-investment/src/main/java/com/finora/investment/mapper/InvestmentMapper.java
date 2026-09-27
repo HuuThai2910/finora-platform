@@ -40,6 +40,8 @@ public class InvestmentMapper {
                 listing.getNoteDenomination().toPlainString(),
                 listing.getMinInvestmentAmount().toPlainString(),
                 listing.getStatus().name(),
+                listing.getContractNumber(),
+                listing.getContractStatus(),
                 listing.getFundingClosesAt()
         );
     }

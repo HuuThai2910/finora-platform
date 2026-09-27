@@ -31,6 +31,21 @@ render lúc chạy từ `KEYCLOAK_CLIENT_SECRET` trong `docker/.env`, không com
 
 Consumer group hiện có: `payment-group`, `blockchain-group`, `notification-group`.
 
+Contract Loan–Investment đã được Thái chấp thuận triển khai ngày 2026-09-26; Hải phải review
+phần Investment trước merge:
+
+| Topic | Producer | Consumer group | Tác dụng |
+|---|---|---|---|
+| `finora.loan.funding-requested` | Loan | `investment-loan-funding` | Tạo market listing từ exact terms đã được borrower cho phép |
+| `finora.investment.loan-fully-funded` | Investment | `loan-investment-funding` | Trả allocation bất biến để Loan lập hợp đồng nhiều bên |
+| `finora.loan.investor-signature-requested` | Loan | `investment-loan-funding` | Gắn Contract/PDF chung vào listing; Notification consumer bổ sung sau |
+| `finora.loan.borrower-signature-requested` | Loan | Chưa đăng ký | Báo tất cả lender đã ký; Notification consumer bổ sung sau |
+| `finora.loan.contract-activated` | Loan | `investment-loan-funding` | Investment cập nhật Contract có hiệu lực; Payment/Blockchain bổ sung sau |
+
+Payload và consumer hiện có được mô tả tại
+[`docs/integrations/LOAN-INVESTMENT-EVENTS.md`](../../docs/integrations/LOAN-INVESTMENT-EVENTS.md).
+Notification, Payment và Blockchain chưa được coi là consumer chỉ vì topic đã tồn tại.
+
 CURRENT STATE: Keycloak và `finora-user` dùng PostgreSQL cài trực tiếp trên máy host
 (`localhost:5432`, database `keycloak` và `finora_user`); Docker chỉ còn chạy Keycloak và
 `user-redis` cho luồng auth. Đăng ký / đăng nhập / quên mật khẩu đã smoke pass end-to-end

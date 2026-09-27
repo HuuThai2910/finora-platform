@@ -19,7 +19,7 @@ import com.finora.loan.repository.application.LoanApplicationRepository;
 import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
 import com.finora.loan.service.application.LoanTermsConfirmationService;
-import com.finora.loan.service.contract.LoanContractCreationService;
+import com.finora.loan.service.funding.LoanFundingRequestService;
 import com.finora.loan.support.HashingService;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -32,12 +32,10 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class LoanTermsConfirmationServiceImpl implements LoanTermsConfirmationService {
 
-    private static final String BORROWER_ACCEPTED_REASON = "CONTRACT_CREATED_AFTER_TERMS_ACCEPTANCE";
-
     private final LoanApplicationRepository applicationRepository;
     private final ScheduleCalculationSnapshotRepository scheduleRepository;
     private final LoanContractRepository contractRepository;
-    private final LoanContractCreationService contractCreationService;
+    private final LoanFundingRequestService fundingRequestService;
     private final LoanApplicationMapper mapper;
     private final LoanContractProperties contractProperties;
     private final LoanPricingDisclosureProperties disclosureProperties;
@@ -77,9 +75,8 @@ public class LoanTermsConfirmationServiceImpl implements LoanTermsConfirmationSe
         if (!autoAuthorized) {
             return null;
         }
-        return contractCreationService.create(
-                application, finalSchedule, termsExpiresAt, actorType, actorId,
-                "CONTRACT_CREATED_AFTER_NON_WORSENING_TERMS", now);
+        fundingRequestService.request(application, now);
+        return null;
     }
 
     @Override
@@ -104,9 +101,7 @@ public class LoanTermsConfirmationServiceImpl implements LoanTermsConfirmationSe
         applicationRepository.saveAndFlush(application);
         ScheduleCalculationSnapshot finalSchedule = schedule(application, ScheduleCalculationPurpose.CONTRACT);
         validateFinalSchedule(application, finalSchedule);
-        contractCreationService.create(
-                application, finalSchedule, now.plus(contractProperties.signatureWindow()),
-                ActorType.BORROWER, borrowerId, BORROWER_ACCEPTED_REASON, now);
+        fundingRequestService.request(application, now);
         return response(application);
     }
 

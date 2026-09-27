@@ -33,6 +33,7 @@ public record LoanApplicationResponse(
         Instant withdrawnAt,
         String withdrawalReason,
         TermsConfirmationResponse termsConfirmation,
+        LoanFundingResponse funding,
         Long latestCreditAssessmentId,
         Long version,
         String createdBy,

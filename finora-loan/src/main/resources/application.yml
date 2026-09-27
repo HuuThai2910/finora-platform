@@ -33,6 +33,12 @@ spring:
           jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/finora/protocol/openid-connect/certs}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${LOAN_INVESTMENT_FUNDING_GROUP:loan-investment-funding}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: false
+      auto-offset-reset: earliest
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -113,21 +119,38 @@ finora:
       expiry-batch-size: ${LOAN_CONTRACT_EXPIRY_BATCH_SIZE:100}
       expiry-worker-enabled: ${LOAN_CONTRACT_EXPIRY_WORKER_ENABLED:true}
       expiry-worker-delay: ${LOAN_CONTRACT_EXPIRY_WORKER_DELAY:60000}
+    investment:
+      # Mọi hồ sơ đã qua gate điều khoản đều phải huy động vốn trước khi lập Contract.
+      funding-round: ${LOAN_INVESTMENT_FUNDING_ROUND:1}
+      listing-version: ${LOAN_INVESTMENT_LISTING_VERSION:1}
     outbox:
       batch-size: ${LOAN_OUTBOX_BATCH_SIZE:100}
       max-attempts: ${LOAN_OUTBOX_MAX_ATTEMPTS:10}
       retry-backoff: ${LOAN_OUTBOX_RETRY_BACKOFF:5s}
       maximum-backoff: ${LOAN_OUTBOX_MAXIMUM_BACKOFF:5m}
       processing-lease: ${LOAN_OUTBOX_PROCESSING_LEASE:2m}
-      # Mặc định chỉ ghi local outbox. Chỉ bật sau khi routes bên dưới đã được producer/consumer duyệt.
-      publisher-enabled: ${LOAN_OUTBOX_PUBLISHER_ENABLED:false}
+      # Kafka là bắt buộc: Loan không còn nhánh demo tạo Contract trước khi đủ vốn.
+      publisher-enabled: true
       publisher-delay: ${LOAN_OUTBOX_PUBLISHER_DELAY:5000}
-      transport: ${LOAN_OUTBOX_TRANSPORT:none}
+      transport: kafka
     kafka:
+      consumer-enabled: true
+      fully-funded-topic: ${INVESTMENT_FULLY_FUNDED_TOPIC:finora.investment.loan-fully-funded}
       publish-timeout: ${LOAN_KAFKA_PUBLISH_TIMEOUT:10s}
-      # Không thêm route mặc định: tránh vô tình phát event nội bộ thành contract liên service.
-      # Mỗi route phải gồm event-type, event-version và topic finora.loan.<past-event> đã đăng ký.
-      routes: []
+      # Chỉ event có publishable=true và route đúng type/version mới được relay.
+      routes:
+        - event-type: LoanFundingRequested
+          event-version: 1
+          topic: ${LOAN_FUNDING_REQUESTED_TOPIC:finora.loan.funding-requested}
+        - event-type: InvestorSignatureRequested
+          event-version: 1
+          topic: ${LOAN_INVESTOR_SIGNATURE_REQUESTED_TOPIC:finora.loan.investor-signature-requested}
+        - event-type: BorrowerSignatureRequested
+          event-version: 1
+          topic: ${LOAN_BORROWER_SIGNATURE_REQUESTED_TOPIC:finora.loan.borrower-signature-requested}
+        - event-type: LoanContractActivated
+          event-version: 1
+          topic: ${LOAN_CONTRACT_ACTIVATED_TOPIC:finora.loan.contract-activated}
   borrower-eligibility:
     minimum-age: ${BORROWER_MINIMUM_AGE:18}
     maximum-age: ${BORROWER_MAXIMUM_AGE:65}

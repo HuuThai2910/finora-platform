@@ -29,6 +29,8 @@ public record MarketListingResponse(
         String noteDenomination,
         String minInvestmentAmount,
         String status,
+        String contractNumber,
+        String contractStatus,
         Instant fundingClosesAt
 ) {
 }

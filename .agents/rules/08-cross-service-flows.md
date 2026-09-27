@@ -67,8 +67,8 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 7. Loan áp grade pricing có version, clamp final rate trong Product min/max và trần 20%. Principal/term không tự đổi.
 8. Nếu decision không phải `REJECTED`, Loan gọi Fineract ngoài transaction để tạo snapshot `CONTRACT` theo final rate.
 9. Loan lưu toàn bộ evidence và chuyển `APPROVED/PENDING_REVIEW/REJECTED`. Với `APPROVED`, Loan so sánh exact terms: không bất lợi hơn thì tiếp tục theo disclosure đã chấp thuận; bất lợi hơn thì đặt `termsConfirmation=PENDING` và chờ borrower phản hồi.
-10. Trong giai đoạn demo trước Investment, Loan chỉ tạo Contract/PDF sau khi gate điều khoản đã `AUTO_AUTHORIZED` hoặc `ACCEPTED`; chưa giải ngân và không giả lập nhà đầu tư/chữ ký bên cho vay.
-11. Loan phát event tương ứng sau local commit khi outbox của phase đó được triển khai.
+10. Sau khi gate điều khoản đã `AUTO_AUTHORIZED` hoặc `ACCEPTED`, Loan luôn yêu cầu Investment huy động vốn; không tạo Contract/PDF sớm và không giả lập nhà đầu tư/chữ ký bên cho vay.
+11. Loan phát event tương ứng qua transactional outbox sau local commit.
 
 **Idempotency:** `loanApplicationId + scoringAttempt/version`; cùng feature snapshot và model version phải trả cùng artifact reference.
 
@@ -82,8 +82,14 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 1. Loan kiểm tra KYC/scoring snapshot, policy và optimistic version.
 2. Loan từ chối với reason hoặc chốt exact final terms từ hai schedule snapshots. Không tạo `LoanOffer`/bảng sao chép điều khoản.
 3. Nếu exact terms không bất lợi hơn, disclosure lúc submit cho phép tự tiếp tục. Nếu bất lợi hơn, borrower phải accept/decline trên Application theo version/hash/expiry; decline/expiry không tạo Contract.
-4. Giai đoạn demo hiện tại tạo `LoanContract PENDING_SIGNATURE` sau gate trên để tiếp tục kiểm thử PDF/click-wrap; đây không phải chữ ký nhà đầu tư và không mở giải ngân.
-5. Khi Investment hoàn thiện, target flow là đưa đề nghị đã được borrower cho phép lên sàn, xác định bên cho vay, rồi mới lập/ký Contract song phương cuối; event contract phải được Loan và Investment owner review trước khi thay luồng demo.
+4. Loan ghi outbox `LoanFundingRequested.v1` sau
+   `AUTO_AUTHORIZED/ACCEPTED`; Investment tạo projection listing idempotent, xác định lender và phát
+   `LoanFullyFunded.v1` cùng allocation bất biến. Loan chỉ lập Contract/PDF chung sau event này.
+5. Nhà đầu tư ký cùng document hash trước; khi đủ chữ ký lender, Loan yêu cầu borrower ký một lần.
+   Loan phát `LoanContractActivated.v1` sau khi mọi party đã ký; event này không đồng nghĩa đã giải ngân.
+
+**Contract chuẩn:** xem
+[`docs/integrations/LOAN-INVESTMENT-EVENTS.md`](../../docs/integrations/LOAN-INVESTMENT-EVENTS.md).
 
 **CURRENT STATE (2026-09-21):** Loan đã ghi các event vòng đời Contract vào transactional outbox local cùng transaction với aggregate/history. Relay có lease, claim token, retry giới hạn và dead-letter; Kafka adapter đã có broker acknowledgement, partition key theo aggregate, trace headers và allowlist theo exact event/version. Publisher vẫn mặc định tắt và chưa có route/topic hoạt động. Các event Contract nội bộ chưa phải event listing, chưa có consumer và không tự kích hoạt Investment.
 
@@ -99,8 +105,11 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 2. Investment yêu cầu Payment hold với `orderId` và idempotency key.
 3. Payment khóa/cập nhật wallet an toàn, tạo ledger + hold transaction, trả `paymentTransactionId`.
 4. Investment tạo commitment, chuyển order `COMMITTED`, phát `InvestmentCommitted`.
-5. Nếu tổng valid commitments đạt target, Investment đóng listing và phát `LoanFullyFunded` đúng một lần.
-6. Loan consume và tự chuyển `ON_MARKET → FUNDED` nếu version/state hợp lệ.
+5. Nếu tổng valid commitments đạt target, Investment khóa allocation, ghi outbox và phát
+   `LoanFullyFunded.v1` đúng một lần. Event mang logical investor/commitment ID và amount/share,
+   không mang PII.
+6. Loan consume, đối chiếu exact amount/hash/version, lưu funding snapshot và tự mở bước tạo
+   Contract nhiều bên. `FUNDED` không có nghĩa đã giải ngân.
 
 **Idempotency:** `investmentOrderId` cho hold; unique commitment theo order; funded event unique theo `loanId + fundingRound`.
 

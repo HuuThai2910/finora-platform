@@ -12,6 +12,8 @@ public interface InvestmentCommitmentRepository extends JpaRepository<Investment
 
     List<InvestmentCommitment> findByListingIdAndStatus(Long listingId, CommitmentStatus status);
 
+    List<InvestmentCommitment> findByListingIdAndStatusOrderByIdAsc(Long listingId, CommitmentStatus status);
+
     /**
      * Toàn bộ phần vốn của một khoản vay, mới nhất trước.
      *

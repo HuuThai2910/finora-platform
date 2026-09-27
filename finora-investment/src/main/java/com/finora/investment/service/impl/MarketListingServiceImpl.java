@@ -52,8 +52,11 @@ public class MarketListingServiceImpl implements MarketListingService {
     @Transactional
     public MarketListingResponse createListingFrom(CreateListingRequest request) {
         return listingRepository
-                .findByLoanId(request.getLoanId())
-                .map(mapper::toListingResponse)
+                .findByApplicationNumberAndFundingRound(request.getApplicationNumber(), request.getFundingRound())
+                .map(existing -> {
+                    requireSameSnapshot(existing, request);
+                    return mapper.toListingResponse(existing);
+                })
                 .orElseGet(() -> mapper.toListingResponse(persistListing(request)));
     }
 
@@ -61,11 +64,16 @@ public class MarketListingServiceImpl implements MarketListingService {
         Instant now = Instant.now();
         BigDecimal denomination = settingsService.currentNoteDenomination();
         int fundingDays = settingsService.currentFundingDays();
-        BigDecimal targetAmount = floorToDenomination(request.getTargetAmount(), denomination);
+        BigDecimal targetAmount = requireExactTarget(request.getTargetAmount(), denomination);
+        requireAnnualRate(request.getAnnualInterestRate());
 
         MarketListing listing = MarketListing.builder()
                 .loanId(request.getLoanId())
                 .contractNumber(request.getContractNumber())
+                .applicationNumber(requireText(request.getApplicationNumber(), "applicationNumber"))
+                .listingVersion(requirePositive(request.getListingVersion(), "listingVersion"))
+                .termsVersion(requireText(request.getTermsVersion(), "termsVersion"))
+                .termsHash(requireText(request.getTermsHash(), "termsHash"))
                 .productCode(request.getProductCode())
                 .purpose(request.getPurpose())
                 .region(request.getRegion())
@@ -79,7 +87,7 @@ public class MarketListingServiceImpl implements MarketListingService {
                 .noteDenomination(denomination)
                 .minInvestmentAmount(settingsService.currentMinInvestment())
                 .status(ListingStatus.OPEN)
-                .fundingRound(1)
+                .fundingRound(requirePositive(request.getFundingRound(), "fundingRound"))
                 .fundingOpenedAt(now)
                 .fundingClosesAt(now.plus(Duration.ofDays(fundingDays)))
                 .createdBy(SYSTEM_ACTOR)
@@ -91,12 +99,58 @@ public class MarketListingServiceImpl implements MarketListingService {
         return listingRepository.save(listing);
     }
 
-    private BigDecimal floorToDenomination(BigDecimal amount, BigDecimal denomination) {
-        if (amount == null || denomination == null || denomination.signum() <= 0) {
-            return amount;
+    private BigDecimal requireExactTarget(BigDecimal amount, BigDecimal denomination) {
+        if (amount == null || amount.signum() <= 0) {
+            throw InvestmentDomainException.invalidInput(
+                    "LISTING_TARGET_INVALID", "Số tiền cần huy động phải lớn hơn 0");
         }
-        BigDecimal floored = amount.subtract(amount.remainder(denomination));
-        return floored.signum() > 0 ? floored : denomination;
+        BigDecimal normalized = amount.setScale(2, RoundingMode.HALF_UP);
+        if (denomination == null || denomination.signum() <= 0
+                || normalized.remainder(denomination).signum() != 0) {
+            throw InvestmentDomainException.invalidInput(
+                    "LISTING_TARGET_NOT_DIVISIBLE",
+                    "Số tiền Loan yêu cầu không chia hết cho mệnh giá Note hiện hành"
+            );
+        }
+        return normalized;
+    }
+
+    private void requireAnnualRate(BigDecimal rate) {
+        if (rate == null || rate.signum() <= 0 || rate.compareTo(new BigDecimal("20.0000")) > 0) {
+            throw InvestmentDomainException.invalidInput(
+                    "LISTING_RATE_INVALID", "Lãi suất phải theo điểm phần trăm/năm và không vượt 20%"
+            );
+        }
+    }
+
+    private void requireSameSnapshot(MarketListing existing, CreateListingRequest request) {
+        boolean same = existing.getListingVersion().equals(request.getListingVersion())
+                && existing.getTargetAmount().compareTo(request.getTargetAmount()) == 0
+                && existing.getAnnualInterestRate().compareTo(request.getAnnualInterestRate()) == 0
+                && existing.getTermMonths().equals(request.getTermMonths())
+                && existing.getTermsHash().equals(request.getTermsHash());
+        if (!same) {
+            throw InvestmentDomainException.conflict(
+                    "LISTING_SNAPSHOT_CONFLICT",
+                    "Hồ sơ gọi vốn đã tồn tại nhưng exact terms không trùng khớp"
+            );
+        }
+    }
+
+    private int requirePositive(Integer value, String field) {
+        if (value == null || value < 1) {
+            throw InvestmentDomainException.invalidInput(
+                    "LISTING_VERSION_INVALID", field + " phải là số dương");
+        }
+        return value;
+    }
+
+    private String requireText(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw InvestmentDomainException.invalidInput(
+                    "LISTING_SNAPSHOT_INVALID", field + " không được để trống");
+        }
+        return value.trim();
     }
 
     /** Danh sách khoản vay đang mở gọi vốn, có lọc và phân trang. */

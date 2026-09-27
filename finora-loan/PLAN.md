@@ -47,8 +47,8 @@ ACCEPTED --(quyết định mới thay thế)--> SUPERSEDED
 | LN-006 | Fineract Product/initial/final Schedule adapter | LN-003; Fineract fixture | `REVIEW` | [LN-006](plans/LN-006-fineract-product-schedule-integration.md) |
 | LN-007 | AI v17 assessment, risk pricing và automated decision | LN-004, LN-005, LN-006; AI v17 fixture | `REVIEW` | [LN-007](plans/LN-007-credit-profile-ai-assessment.md) |
 | LN-008 | Admin/AI decision, LoanContract, borrower signature | LN-007; consent policy | `IN_PROGRESS` | [LN-008](plans/LN-008-approval-loan-contract.md) |
-| LN-009 | Market listing và funding outbox | Contract `SIGNED`; Investment contract | `BACKLOG` | [LN-009](plans/LN-009-market-listing-outbox.md) |
-| LN-010 | Funding completion consumer | LN-009; Investment contract | `BACKLOG` | [LN-010](plans/LN-010-fully-funded-consumer.md) |
+| LN-009 | Terms-authorized listing và funding outbox | LN-008; Investment contract | `IN_PROGRESS` | [LN-009](plans/LN-009-funding-requested-v1.md) |
+| LN-010 | Allocation, hợp đồng nhiều bên và hai lượt ký | LN-009; Investment contract | `IN_PROGRESS` | [LN-010](plans/LN-010-multi-party-contract-v1.md) |
 | LN-011 | Disbursement saga và Fineract loan booking | LN-010; Payment/Fineract contract | `BACKLOG` | [LN-011](plans/LN-011-disbursement-fineract-booking-saga.md) |
 | LN-012 | Fineract servicing projection và reconciliation | LN-011; event/reconcile policy | `BACKLOG` | [LN-012](plans/LN-012-fineract-servicing-reconciliation.md) |
 | LN-013 | Repayment/read schedule API | LN-011, LN-012; Payment contract | `BACKLOG` | [LN-013](plans/LN-013-repayment-schedule-boundary.md) |
@@ -56,7 +56,7 @@ ACCEPTED --(quyết định mới thay thế)--> SUPERSEDED
 | LN-015 | Early settlement | LN-013, LN-014 | `BACKLOG` | Chưa tạo |
 | LN-016 | Restructuring | LN-013, LN-014; consent policy | `BACKLOG` | Chưa tạo |
 | LN-017 | NPL policy/dashboard | LN-013, LN-014 | `BACKLOG` | Chưa tạo |
-| LN-018 | SmartCA adapter | LN-008; sandbox/contract | `BACKLOG` | Chưa tạo |
+| LN-018 | SmartCA UAT adapter và state ký bất đồng bộ | LN-008; credential/chứng thư UAT | `IN_PROGRESS` | [LN-018](plans/LN-018-vnpt-smartca-adapter.md) |
 
 Mỗi task chỉ có một file hiện hành. Implementation Product/Application thử nghiệm trước đây không còn là task riêng; LN-003 và LN-004 đã chứa toàn bộ thiết kế mới nhất.
 
@@ -143,3 +143,7 @@ Chỉ Thái đánh `ACCEPTED` sau khi đọc code, chạy thử và nghiệm thu
 | 2026-08-09 | LN-003 / Frontend | Bổ sung admin Product list phân trang, filter status/core sync và Flyway V6 để web không dùng nhầm catalog borrower | Đã triển khai, chờ Thái nghiệm thu cùng frontend |
 | 2026-09-05 | LN-003/004/006/007/008 | Chuyển Product sang min/base/max, AI v17, grade pricing, final schedule và auto decision; thêm sổ pháp lý trung tâm | Code/tài liệu ở `REVIEW`, chờ integration sạch và Thái/Hải review phần sở hữu |
 | 2026-09-07 | LN-008 / Mobile | Thái duyệt mở rộng Contract sang PDF server bất biến, hash khi consent và mobile mở/tải đúng artifact; SmartCA/nhà đầu tư thật vẫn thuộc task sau | `IN_PROGRESS`, đang kiểm thử migration/API/bundle |
+| 2026-09-17 | LN-008 / LN-018 | Tách signature provider: local dùng `MOCK + CLICK_WRAP_MVP`, lưu transaction/evidence; VNPT adapter fail-closed tới khi có certificate/serial và API contract chính thức | Khung hoàn tất trong LN-008; tích hợp thật vẫn `BACKLOG` LN-018 |
+| 2026-09-17 | Loan event reliability | Thêm transactional outbox dùng chung cho event Contract, claim token/lease/retry/dead-letter; Kafka publisher mặc định tắt tới bước messaging | Local persistence/relay framework đã kiểm thử; chưa phát event liên service |
+| 2026-09-21 | Loan Kafka transport | Thêm publisher chờ broker acknowledgement, envelope chuẩn, aggregate partition key, trace headers và allowlist exact event/version | Adapter/test đã hoàn tất; mặc định tắt, chưa có route/topic listing cho tới khi Hải duyệt contract Investment |
+| 2026-09-21 | LN-018 | Thái yêu cầu tích hợp SmartCA ngay sau khi `get_certificate` UAT trả chứng thư `VALID`; dùng polling trước, không nhận webhook chưa xác thực và không gọi detached signature là PAdES | `IN_PROGRESS` |

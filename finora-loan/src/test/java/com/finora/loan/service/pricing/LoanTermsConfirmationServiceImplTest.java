@@ -13,7 +13,7 @@ import com.finora.loan.repository.application.LoanApplicationRepository;
 import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
 import com.finora.loan.service.application.impl.LoanTermsConfirmationServiceImpl;
-import com.finora.loan.service.contract.LoanContractCreationService;
+import com.finora.loan.service.funding.LoanFundingRequestService;
 import com.finora.loan.support.HashingService;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -40,7 +40,7 @@ class LoanTermsConfirmationServiceImplTest {
     @Mock private LoanApplicationRepository applicationRepository;
     @Mock private ScheduleCalculationSnapshotRepository scheduleRepository;
     @Mock private LoanContractRepository contractRepository;
-    @Mock private LoanContractCreationService contractCreationService;
+    @Mock private LoanFundingRequestService fundingRequestService;
     @Mock private LoanApplicationMapper mapper;
     @Mock private LoanContractProperties contractProperties;
     @Mock private LoanPricingDisclosureProperties disclosureProperties;
@@ -49,7 +49,6 @@ class LoanTermsConfirmationServiceImplTest {
     @Mock private LoanApplication application;
     @Mock private ScheduleCalculationSnapshot initialSchedule;
     @Mock private ScheduleCalculationSnapshot finalSchedule;
-    @Mock private LoanContract contract;
 
     private LoanTermsConfirmationServiceImpl service;
 
@@ -57,7 +56,7 @@ class LoanTermsConfirmationServiceImplTest {
     void setUp() {
         service = new LoanTermsConfirmationServiceImpl(
                 applicationRepository, scheduleRepository, contractRepository,
-                contractCreationService, mapper, contractProperties,
+                fundingRequestService, mapper, contractProperties,
                 disclosureProperties, hashingService, clock);
         when(application.getId()).thenReturn(10L);
         when(application.getApplicationNumber()).thenReturn("LA-001");
@@ -88,25 +87,19 @@ class LoanTermsConfirmationServiceImplTest {
     }
 
     @Test
-    void createsDemoContractImmediatelyOnlyWhenEveryComparedTermIsNonWorsening() {
+    void requestsFundingImmediatelyOnlyWhenEveryComparedTermIsNonWorsening() {
         when(finalSchedule.getTotalInterest()).thenReturn(new BigDecimal("350000.00"));
         when(finalSchedule.getTotalRepayment()).thenReturn(new BigDecimal("10350000.00"));
         when(finalSchedule.getFirstInstallment()).thenReturn(new BigDecimal("1725000.00"));
         when(finalSchedule.getMaximumInstallment()).thenReturn(new BigDecimal("1726000.00"));
-        when(contractCreationService.create(
-                eq(application), eq(finalSchedule), eq(EXPIRES_AT), eq(ActorType.SYSTEM),
-                eq("SYSTEM"), eq("CONTRACT_CREATED_AFTER_NON_WORSENING_TERMS"), eq(NOW)))
-                .thenReturn(contract);
-
-        service.prepareAfterApproval(
+        LoanContract result = service.prepareAfterApproval(
                 application, finalSchedule, EXPIRES_AT, ActorType.SYSTEM, "SYSTEM", NOW);
 
+        org.assertj.core.api.Assertions.assertThat(result).isNull();
         verify(application).prepareTermsConfirmation(
                 TermsConfirmationStatus.AUTO_AUTHORIZED, "LOAN_TERMS_V1", "c".repeat(64),
                 EXPIRES_AT, "SYSTEM", NOW);
-        verify(contractCreationService).create(
-                application, finalSchedule, EXPIRES_AT, ActorType.SYSTEM, "SYSTEM",
-                "CONTRACT_CREATED_AFTER_NON_WORSENING_TERMS", NOW);
+        verify(fundingRequestService).request(application, NOW);
     }
 
     @Test
@@ -122,7 +115,7 @@ class LoanTermsConfirmationServiceImplTest {
         verify(application).prepareTermsConfirmation(
                 TermsConfirmationStatus.PENDING, "LOAN_TERMS_V1", "c".repeat(64),
                 EXPIRES_AT, "ADMIN-001", NOW);
-        verify(contractCreationService, never()).create(
-                any(), any(), any(), any(), any(), any(), any());
+        verify(fundingRequestService, never()).request(any(), any());
     }
+
 }

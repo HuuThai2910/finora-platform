@@ -1,0 +1,212 @@
+# Hợp đồng sự kiện Loan – Investment
+
+> **Trạng thái:** `READY_FOR_REVIEW` — Thái đã chấp thuận triển khai ngày 2026-09-26; Hải phải review
+> phần Investment và tài liệu dùng chung trước khi merge.
+
+Tài liệu này là nguồn chung cho luồng từ hồ sơ vay đã được phép đưa lên sàn đến khi hợp đồng đủ
+chữ ký. Nó giải thích cả ý nghĩa nghiệp vụ lẫn contract Kafka để Loan, Investment, Notification,
+Payment và Blockchain không suy diễn trạng thái của nhau.
+
+## 1. Cách dùng REST và Kafka
+
+- **REST GET** trả dữ liệu hiện tại để mobile/web hiển thị. Ví dụ nhà đầu tư tải danh sách listing từ
+  Investment và tải PDF hợp đồng từ Loan.
+- **Kafka event** thông báo một việc đã commit để service khác thực hiện đúng một bước tiếp theo.
+  Ví dụ Loan đã cho phép gọi vốn thì Investment tạo listing đúng một lần.
+- Kafka không được dùng để gửi PDF, CCCD, hồ sơ KYC, thu nhập, OTP hoặc chữ ký thô. Event chỉ mang
+  business ID, exact terms tối thiểu, hash/version và trạng thái cần phối hợp.
+- Producer ghi event vào **transactional outbox** trong cùng transaction với state nguồn. Outbox là
+  bảng chờ gửi: database đã commit thì event không mất dù Kafka tạm dừng.
+- Consumer ghi `processed_events` trong cùng transaction với side effect. Đây là dấu đã xử lý để
+  Kafka giao lại cùng `eventId` cũng không tạo listing, hợp đồng hoặc trạng thái lần hai.
+
+## 2. Ranh giới dữ liệu
+
+| Dữ liệu | System of Record | Bản sao được phép |
+|---|---|---|
+| Application, exact terms, Contract, PDF, trạng thái chữ ký | Loan | Investment chỉ giữ reference/trạng thái hiển thị tối thiểu |
+| Listing, order, commitment, allocation, Note | Investment | Loan giữ funding/allocation snapshot bất biến để lập hợp đồng |
+| Profile/KYC/định danh pháp lý | User | Loan lấy snapshot tối thiểu qua API nội bộ có bảo vệ; không đưa PII lên Kafka |
+| Delivery notification | Notification | Service nguồn chỉ giữ event/reference nếu cần |
+| Tiền, hold/capture/ledger | Payment | Service khác chỉ giữ transaction/reference |
+| Hash/proof Fabric | Blockchain | Loan giữ proof reference; blockchain không nhận raw PDF |
+
+Investment lưu `market_listings` trong database của Investment. Mobile/web gọi REST Investment để
+xem listing; Investment không gọi Loan mỗi lần người dùng mở màn hình. PDF và chữ ký lại thuộc Loan,
+nên màn nhà đầu tư gọi REST Loan khi xem hoặc ký hợp đồng.
+
+## 3. Envelope và quy ước chung
+
+```json
+{
+  "eventId": "8cbcb833-a674-4ed4-94ae-71619d65e0d8",
+  "occurredAt": "2026-09-26T10:00:00Z",
+  "version": 1,
+  "data": {}
+}
+```
+
+- Tiền truyền bằng chuỗi decimal VND, ví dụ `"50000000.00"`.
+- Lãi suất truyền theo **điểm phần trăm/năm**: `"15.0000"` nghĩa là `15%/năm`, không phải `0.15%`.
+- Thời gian dùng ISO-8601 UTC.
+- Partition key dùng aggregate public ID (`applicationNumber` hoặc `contractNumber`) để giữ thứ tự.
+- Event type ở header `finora-event-type`; version ở `finora-event-version`; payload không lặp lại
+  `eventId/occurredAt/version` bên trong `data`.
+
+## 4. Bảng event đầy đủ
+
+| Event / topic | Producer → consumer | Phát khi nào | Tác dụng và REST liên quan | Idempotency |
+|---|---|---|---|---|
+| `LoanFundingRequested` v1 / `finora.loan.funding-requested` | Loan → Investment | Exact terms đã `AUTO_AUTHORIZED` hoặc borrower `ACCEPTED`; local transaction đã ghi funding request | Investment tạo một `MarketListing` từ snapshot. Nhà đầu tư sau đó GET `/api/v1/market/listings`; event không thay GET | `eventId` trong `processed_events`; unique `loanId + fundingRound` |
+| `LoanFullyFunded` v1 / `finora.investment.loan-fully-funded` | Investment → Loan | Tổng commitment hợp lệ bằng đúng target và allocation đã bị khóa | Loan đối chiếu số tiền/hash, lưu allocation snapshot rồi tạo một Contract/PDF chung | `eventId`; transition listing `OPEN → FULLY_FUNDED` chỉ xảy ra một lần; Loan kiểm `allocationVersion` |
+| `InvestorSignatureRequested` v1 / `finora.loan.investor-signature-requested` | Loan → Investment; Notification là consumer kế tiếp | PDF signable đã lưu bất biến và các lender parties đã được tạo | Investment cập nhật projection để UI biết Contract; Notification báo từng investor khi module đó được nối. App gọi GET Loan để tải đúng PDF/hash rồi ký | Investment dùng `eventId`; Notification sẽ dùng `sourceEventId + recipientId + channel + templateVersion` |
+| `BorrowerSignatureRequested` v1 / `finora.loan.borrower-signature-requested` | Loan → Notification (chưa nối consumer) | Tất cả lender parties đã ký đúng cùng `documentVersion/documentHash` | App hiện đọc lại Contract từ Loan; consumer Notification sẽ báo borrower ở phase nối thông báo | Như event notification ở trên |
+| `LoanContractActivated` v1 / `finora.loan.contract-activated` | Loan → Investment; Payment/Blockchain/Notification là consumer kế tiếp | Tất cả lender và borrower đã ký; Contract chuyển `EFFECTIVE` | Investment đánh dấu khoản đầu tư có hiệu lực. Payment chỉ được bắt đầu Saga giải ngân và Blockchain ghi hash sau khi consumer tương ứng được triển khai; không được hiểu là đã giải ngân | `eventId`; mỗi consumer có `processed_events`; side effect tài chính có idempotency key riêng |
+
+`LoanContractActivated` chỉ xác nhận hợp đồng có hiệu lực. Việc chuyển tiền thành công phải phát sự
+kiện riêng như `DisbursementCompleted`; không được đánh đồng hai mốc này.
+
+## 5. Payload v1 đã chốt cho lát tích hợp đầu tiên
+
+### 5.1 `LoanFundingRequested` v1
+
+```json
+{
+  "loanApplicationId": 123,
+  "applicationNumber": "LA-2026-000123",
+  "listingVersion": 1,
+  "fundingRound": 1,
+  "productCode": "PERSONAL-01",
+  "purpose": "Chi phí giáo dục",
+  "borrowerRegion": null,
+  "creditGrade": "B",
+  "creditScore": 720,
+  "targetAmount": "50000000.00",
+  "annualInterestRate": "15.0000",
+  "termMonths": 12,
+  "repaymentMethod": "ANNUITY",
+  "termsVersion": "LOAN_TERMS_V1",
+  "termsHash": "sha256-hex"
+}
+```
+
+- `loanApplicationId` hiện là khóa tương quan nội bộ giữa hai service trong môi trường demo;
+  `applicationNumber` là business/public ID dùng hiển thị, log và partition key.
+- `borrowerRegion` là optional. Investment hiển thị “Không công bố” nếu Loan chưa có public region;
+  không tự lấy địa chỉ KYC để điền.
+- `creditScore` là optional; `creditGrade` và final rate mới là snapshot chính cần cho listing.
+- Investment không tự thay `targetAmount`, `annualInterestRate`, `termMonths` hoặc `repaymentMethod`.
+
+### 5.2 `LoanFullyFunded` v1
+
+```json
+{
+  "loanApplicationId": 123,
+  "applicationNumber": "LA-2026-000123",
+  "listingId": 456,
+  "fundingRound": 1,
+  "fundedAmount": "50000000.00",
+  "currency": "VND",
+  "allocationVersion": 1,
+  "allocationHash": "sha256-hex",
+  "fundingCompletedAt": "2026-09-26T10:30:00Z",
+  "allocations": [
+    {
+      "commitmentId": 1001,
+      "investorId": "keycloak-user-id",
+      "amount": "30000000.00",
+      "sharePercent": "60.000000"
+    },
+    {
+      "commitmentId": 1002,
+      "investorId": "keycloak-user-id-2",
+      "amount": "20000000.00",
+      "sharePercent": "40.000000"
+    }
+  ]
+}
+```
+
+- `allocations` được sắp theo `commitmentId` trước khi hash để producer và consumer đối chiếu cùng
+  một canonical snapshot.
+- `investorId` là logical identity reference, không phải họ tên/CCCD. Bản hiện tại hiển thị mã tham
+  chiếu này và không bịa định danh pháp lý. Batch API User để snapshot họ tên/định danh vào PDF là
+  dependency trước production; không gọi User theo từng investor.
+- Sau khi event này được commit, allocation không được sửa âm thầm. Investor từ chối/hết hạn ký
+  phải đi qua flow thay thế allocation và tạo `documentVersion` mới (phase sau).
+
+## 6. Luồng và trạng thái mục tiêu
+
+```text
+Loan APPROVED + exact terms được phép
+  → FUNDING_REQUESTED
+  → Investment OPEN
+  → Investment FULLY_FUNDED + allocation frozen
+  → Loan tạo Contract PENDING_LENDER_SIGNATURES
+  → PENDING_BORROWER_SIGNATURE
+  → FULLY_SIGNED/EFFECTIVE
+  → Disbursement Saga
+```
+
+Luồng Investment là bắt buộc. Loan không tạo Contract ngay sau terms consent;
+Loan luôn ghi `LoanFundingRequested` và chỉ tạo Contract sau `LoanFullyFunded` hợp lệ.
+
+## 7. Failure, retry và DLT
+
+- Broker lỗi sau local commit: outbox retry có backoff; không tạo event mới với business key khác.
+- Kafka giao trùng: consumer trả thành công sau khi thấy `processed_events`, không chạy lại side effect.
+- Payload sai schema/rate/amount: fail closed và chuyển DLT/manual review; không tạo listing “gần đúng”.
+- Target không chia hết mệnh giá Note hiện hành: Investment từ chối listing có mã lỗi rõ, tuyệt đối
+  không làm tròn giảm tiền vay. Phase sau có thể hỗ trợ partial Note bằng contract mới.
+- Loan nhận funded amount/hash sai: giữ trạng thái cũ và đưa event vào retry/DLT; không tạo Contract.
+- Notification lỗi không rollback trạng thái Contract; Notification tự retry theo delivery history.
+
+## 8. Bản đồ tham chiếu
+
+- Luồng chuẩn toàn hệ thống: [08-cross-service-flows.md](../../.agents/rules/08-cross-service-flows.md),
+  F03 và F04.
+- Ownership/SoR: [07-service-boundaries.md](../../.agents/rules/07-service-boundaries.md).
+- Loan producer: [LN-009](../../finora-loan/plans/LN-009-funding-requested-v1.md).
+- Loan consumer và Contract nhiều bên: [LN-010](../../finora-loan/plans/LN-010-multi-party-contract-v1.md).
+- Pháp lý/hợp đồng/dữ liệu: [`LEGAL-CONTRACT-01`, `LEGAL-DATA-01`, `LEGAL-PAYMENT-01`](../LEGAL-COMPLIANCE.md).
+
+## 9. Chạy local để test end-to-end
+
+Khởi động broker bằng Compose (profile `demo` đã bao gồm Kafka):
+
+```powershell
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo up -d kafka
+```
+
+Loan và Investment chạy trực tiếp từ IntelliJ cùng dùng `localhost:9092` và cần các biến sau:
+
+```dotenv
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+FINORA_SIGNATURE_PROVIDER=VNPT_SMART_CA
+```
+
+`docker/.env` chỉ được Docker Compose đọc. Khi Loan/Investment chạy trực tiếp từ IntelliJ, mỗi service
+đọc file `.env` trong **working directory của chính service**. Chỉ cần khai báo địa chỉ broker nếu
+khác `localhost:9092`; consumer và outbox của cả Loan lẫn Investment luôn hoạt động,
+không cò cờ bật/tắt. Loan fail-fast nếu cấu hình messaging bị ghi đè thành nửa vời.
+
+Các hồ sơ cũ đã tạo Contract theo code demo không tự chuyển ngược thành listing vì Contract
+và history đã là bằng chứng bất biến. Muốn kiểm tra luồng mới phải tạo hồ sơ mới sau
+khi restart. Mốc đúng là:
+
+1. Sau terms consent: Loan có `funding_status=REQUESTED`, chưa có `loan_contracts`.
+2. Outbox Loan có `LoanFundingRequested`, `publishable=true`, sau đó chuyển `PUBLISHED`.
+3. Investment có `market_listings` tương ứng; chỉ sau `LoanFullyFunded` Loan mới tạo Contract
+   `PENDING_LENDER_SIGNATURES`.
+
+`LoanApplicationResponse.funding` là projection cho mobile/web: `REQUESTED` hiển thị “Đang gọi vốn”,
+`FULLY_FUNDED` cho phép client bắt đầu tra Contract. Client không được suy đoán “APPROVED = đã có Contract”.
+
+`MOCK` chỉ dành cho local/dev. Khi dùng `VNPT_SMART_CA`, Loan lưu một giao dịch async riêng cho mỗi
+investor, mobile poll endpoint refresh có giới hạn và chỉ mở lượt borrower sau khi mọi lender đã ký.
+Môi trường UAT hiện dùng signer test cố định từ secret cấu hình; production phải ánh xạ signer theo
+danh tính người dùng thay vì dùng chung signer cố định. Mobile gọi mọi REST qua Gateway; route
+`/api/v1/investor/loan-contracts/**` thuộc Loan, còn Market/Portfolio thuộc Investment.
+
+Tài liệu này là đặc tả kỹ thuật cho khóa luận, không thay thế phê duyệt pháp lý về mẫu hợp đồng hoặc
+hình thức chữ ký của từng bên trước production.

@@ -18,6 +18,11 @@ import lombok.Setter;
 public class CreateListingRequest {
     private Long loanId;
     private String contractNumber;
+    private String applicationNumber;
+    private Integer listingVersion;
+    private Integer fundingRound;
+    private String termsVersion;
+    private String termsHash;
     private String productCode;
     private String purpose;
     private String region;

@@ -3,7 +3,10 @@ package com.finora.loan.service.contract;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.application.LoanPurpose;
+import com.finora.loan.domain.contract.ContractParty;
 import com.finora.loan.domain.contract.ContractPdfArtifactType;
+import com.finora.loan.domain.contract.LoanContract;
+import com.finora.loan.domain.contract.SignatureMethod;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
 import com.finora.loan.domain.product.RepaymentMethod;
 import com.finora.loan.support.HashingService;
@@ -13,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.Test;
@@ -53,6 +57,44 @@ class ContractPdfRendererTest {
                     .contains("13.5%/năm")
                     .contains("LỊCH TRẢ NỢ DỰ KIẾN")
                     .contains("CHƯA TÍCH HỢP");
+        }
+    }
+
+    @Test
+    void signedMultiPartyReceiptShowsCompletedLenderEvidence() throws Exception {
+        HashingService hashing = new HashingService(new ObjectMapper().findAndRegisterModules());
+        ContractPdfRenderer renderer = new ContractPdfRenderer(
+                new ObjectMapper().findAndRegisterModules(), hashing);
+        LoanContract contract = mock(LoanContract.class);
+        when(contract.getContractNumber()).thenReturn("LC-MULTI-PARTY-001");
+        when(contract.getTermsVersion()).thenReturn("LOAN_TERMS_V1");
+        when(contract.getExpiresAt()).thenReturn(Instant.parse("2026-10-08T10:00:00Z"));
+        when(contract.getSignedBy()).thenReturn("BORROWER-001");
+        when(contract.getSignedAt()).thenReturn(Instant.parse("2026-10-01T10:00:00Z"));
+        when(contract.getSignatureMethod()).thenReturn(SignatureMethod.VNPT_SMART_CA);
+
+        ContractParty lender = mock(ContractParty.class);
+        when(lender.getPartyType()).thenReturn(com.finora.loan.domain.contract.ContractPartyType.LENDER);
+        when(lender.getPartyId()).thenReturn("INVESTOR-001");
+        when(lender.getAllocationAmount()).thenReturn(new BigDecimal("10000000.00"));
+        when(lender.getStatus()).thenReturn(com.finora.loan.domain.contract.ContractPartyStatus.SIGNED);
+        when(lender.getSignatureProvider()).thenReturn(
+                com.finora.loan.domain.contract.SignatureProviderType.VNPT_SMART_CA);
+        when(lender.getSignatureMethod()).thenReturn(SignatureMethod.VNPT_SMART_CA);
+        when(lender.getSignedAt()).thenReturn(Instant.parse("2026-10-01T09:00:00Z"));
+        when(lender.getSignatureEvidenceHash()).thenReturn("c".repeat(64));
+
+        ContractPdfArtifact artifact = renderer.renderSignedReceipt(
+                contract, application(), schedule(), "b".repeat(64), List.of(lender));
+
+        try (PDDocument pdf = PDDocument.load(artifact.content())) {
+            String text = new PDFTextStripper().getText(pdf);
+            assertThat(text)
+                    .contains("ĐÃ KÝ")
+                    .contains("INVESTOR-001")
+                    .contains("VNPT_SMART_CA")
+                    .contains("BẰNG CHỨNG CHỮ KÝ CÁC BÊN CHO VAY")
+                    .doesNotContain("CHƯA TÍCH HỢP");
         }
     }
 

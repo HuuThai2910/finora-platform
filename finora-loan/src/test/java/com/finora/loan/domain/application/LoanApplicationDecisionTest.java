@@ -181,6 +181,35 @@ class LoanApplicationDecisionTest {
         assertThat(application.getTermsRespondedAt()).isNull();
     }
 
+    @Test
+    void fullyFundedSnapshotIsIdempotentButCannotBeSilentlyReplaced() {
+        LoanApplication application = scoringApplication(10L);
+        application.completeScoring(
+                10L, AiRecommendation.APPROVED, pricing("A", "12.0000", "-0.5000"),
+                105L, "AI_DECISION_V17", "SYSTEM", NOW.plusSeconds(3));
+        application.prepareTermsConfirmation(
+                TermsConfirmationStatus.AUTO_AUTHORIZED, "LOAN_TERMS_V1", "a".repeat(64),
+                NOW.plusSeconds(3600), "SYSTEM", NOW.plusSeconds(4));
+        assertThat(application.requestFunding(1, 1, "SYSTEM", NOW.plusSeconds(5))).isTrue();
+
+        Instant completedAt = NOW.plusSeconds(6);
+        assertThat(application.markFullyFunded(
+                20L, new BigDecimal("50000000.00"), 1L,
+                "b".repeat(64), "[{\"commitmentId\":1}]", completedAt,
+                "SYSTEM", NOW.plusSeconds(7))).isTrue();
+        assertThat(application.markFullyFunded(
+                20L, new BigDecimal("50000000.00"), 1L,
+                "b".repeat(64), "[{\"commitmentId\":1}]", completedAt,
+                "SYSTEM", NOW.plusSeconds(8))).isFalse();
+
+        assertThatThrownBy(() -> application.markFullyFunded(
+                20L, new BigDecimal("50000000.00"), 2L,
+                "c".repeat(64), "[{\"commitmentId\":2}]", completedAt,
+                "SYSTEM", NOW.plusSeconds(9)))
+                .isInstanceOf(LoanDomainException.class)
+                .extracting("code").isEqualTo("CONFLICTING_FULLY_FUNDED_EVENT");
+    }
+
     private LoanApplication scoringApplication(Long assessmentId) {
         LoanApplication application = submittedApplication();
         application.startEligibility("SYSTEM", NOW.plusSeconds(1));

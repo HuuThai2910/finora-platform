@@ -16,8 +16,9 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, Long> 
 
     @Query("""
             select event.id from OutboxEvent event
-            where (event.status = :pending and event.availableAt <= :now)
-               or (event.status = :processing and event.processingStartedAt <= :leaseExpiredBefore)
+            where event.publishable = true
+              and ((event.status = :pending and event.availableAt <= :now)
+               or (event.status = :processing and event.processingStartedAt <= :leaseExpiredBefore))
             order by event.availableAt asc, event.id asc
             """)
     List<Long> findDueIds(

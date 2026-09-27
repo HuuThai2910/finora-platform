@@ -14,7 +14,10 @@ import org.testcontainers.utility.DockerImageName;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Xác nhận Investment chỉ khởi động với PostgreSQL 17 và không còn phụ thuộc MongoDB. */
-@SpringBootTest
+@SpringBootTest(properties = {
+        "spring.kafka.listener.auto-startup=false",
+        "finora.investment.outbox.publisher-delay=3600000"
+})
 @Testcontainers
 class FinoraInvestmentApplicationIT {
 

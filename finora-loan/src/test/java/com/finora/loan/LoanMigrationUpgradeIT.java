@@ -23,7 +23,7 @@ class LoanMigrationUpgradeIT {
             .withPassword("finora_test");
 
     @Test
-    void existingV4DatabaseUpgradesThroughV13WithoutRecreatingOldTables() throws Exception {
+    void existingV4DatabaseUpgradesThroughV16WithoutRecreatingOldTables() throws Exception {
         Flyway.configure()
                 .dataSource(POSTGRESQL.getJdbcUrl(), POSTGRESQL.getUsername(), POSTGRESQL.getPassword())
                 .locations("classpath:db/migration")
@@ -37,7 +37,7 @@ class LoanMigrationUpgradeIT {
                 .load();
         upgraded.migrate();
 
-        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("13");
+        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("16");
         assertThat(upgraded.info().pending()).isEmpty();
         try (Connection connection = POSTGRESQL.createConnection("");
              Statement statement = connection.createStatement();
@@ -48,11 +48,25 @@ class LoanMigrationUpgradeIT {
                        AND table_name IN (
                            'loan_contracts',
                            'loan_contract_status_histories',
-                           'loan_contract_documents'
+                           'loan_contract_documents',
+                           'loan_contract_parties',
+                           'loan_processed_events'
                        )
                      """)) {
             assertThat(result.next()).isTrue();
-            assertThat(result.getInt(1)).isEqualTo(3);
+            assertThat(result.getInt(1)).isEqualTo(5);
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT COUNT(*)
+                     FROM information_schema.columns
+                     WHERE table_schema = 'public'
+                       AND table_name = 'loan_contract_parties'
+                       AND column_name IN ('signature_document_id', 'signature_requested_at')
+                     """)) {
+            assertThat(result.next()).isTrue();
+            assertThat(result.getInt(1)).isEqualTo(2);
         }
         try (Connection connection = POSTGRESQL.createConnection("");
              Statement statement = connection.createStatement();

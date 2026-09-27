@@ -14,6 +14,7 @@ import com.finora.investment.dto.response.OrderResponse;
 import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
 import com.finora.investment.repository.InvestmentNoteRepository;
+import com.finora.investment.repository.InvestmentOutboxEventRepository;
 import com.finora.investment.repository.MarketListingRepository;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -46,7 +47,10 @@ import org.testcontainers.utility.DockerImageName;
  * <p>Trọng tâm là những thứ chỉ sai khi chạy thật: khóa bi quan chống overfund giữa nhiều
  * luồng, idempotency của lệnh đặt vốn, và việc xé nhỏ vốn thành Note sau giải ngân.</p>
  */
-@SpringBootTest
+@SpringBootTest(properties = {
+        "spring.kafka.listener.auto-startup=false",
+        "finora.investment.outbox.publisher-delay=3600000"
+})
 @Testcontainers
 class FundingFlowIT {
 
@@ -75,6 +79,9 @@ class FundingFlowIT {
 
     @Autowired
     private InvestmentNoteRepository noteRepository;
+
+    @Autowired
+    private InvestmentOutboxEventRepository outboxRepository;
 
     private static final AtomicInteger LOAN_SEQUENCE = new AtomicInteger(1000);
 
@@ -160,20 +167,41 @@ class FundingFlowIT {
     }
 
     private MarketListingResponse createListing(String target, String denomination) {
+        return createListing(target, denomination, 700);
+    }
+
+    private MarketListingResponse createListing(String target, String denomination, Integer creditScore) {
         long loanId = LOAN_SEQUENCE.incrementAndGet();
         return listingService.createListingFrom(CreateListingRequest.builder()
                 .loanId(loanId)
-                .contractNumber("HD-" + loanId)
+                .applicationNumber("LA-TEST-" + loanId)
+                .listingVersion(1)
+                .fundingRound(1)
+                .termsVersion("LOAN_TERMS_V1")
+                .termsHash("a".repeat(64))
+                .contractNumber(null)
                 .productCode("SP-01")
                 .purpose("Vốn kinh doanh")
                 .region("TP.HCM")
                 .creditGrade("B")
-                .creditScore(700)
+                .creditScore(creditScore)
                 .targetAmount(new BigDecimal(target))
-                .annualInterestRate(new BigDecimal("0.1500"))
+                .annualInterestRate(new BigDecimal("15.0000"))
                 .termMonths(12)
                 .repaymentMethod("ANNUITY")
                 .build());
+    }
+
+    @Test
+    @DisplayName("Credit score chưa có vẫn tạo listing, không tự bịa điểm mặc định")
+    void createsListingWithoutOptionalCreditScore() {
+        actAs("ADMIN-OPTIONAL-SCORE", "ROLE_ADMIN");
+
+        MarketListingResponse listing = createListing("10000000.00", "1000000.00", null);
+
+        assertThat(listing.creditScore()).isNull();
+        assertThat(listingRepository.findById(listing.listingId()).orElseThrow().getCreditScore())
+                .isNull();
     }
 
     @Test
@@ -194,6 +222,11 @@ class FundingFlowIT {
         var saved = listingRepository.findById(listing.listingId()).orElseThrow();
         assertThat(saved.getStatus()).isEqualTo(ListingStatus.FULLY_FUNDED);
         assertThat(saved.getCommittedAmount()).isEqualByComparingTo("10000000.00");
+        assertThat(outboxRepository.findAll().stream()
+                .filter(event -> saved.getApplicationNumber().equals(event.getAggregateId()))
+                .toList())
+                .singleElement()
+                .satisfies(event -> assertThat(event.getEventType()).isEqualTo("LoanFullyFunded"));
     }
 
     @Test
@@ -309,8 +342,8 @@ class FundingFlowIT {
     }
 
     @Test
-    @DisplayName("Hủy lệnh trả vốn về sàn và mở lại khoản vay đã đủ vốn")
-    void cancelReleasesCapitalAndReopensListing() {
+    @DisplayName("Allocation đã gọi đủ vốn bị khóa và không thể hủy trực tiếp")
+    void fullyFundedAllocationCannotBeCancelledDirectly() {
         actAs("INVESTOR-CANCEL");
         MarketListingResponse listing = newListing("3000000.00", "1000000.00");
 
@@ -320,11 +353,13 @@ class FundingFlowIT {
         assertThat(listingRepository.findById(listing.listingId()).orElseThrow().getStatus())
                 .isEqualTo(ListingStatus.FULLY_FUNDED);
 
-        fundingService.cancelOrder(order.orderReference());
+        assertThatThrownBy(() -> fundingService.cancelOrder(order.orderReference()))
+                .isInstanceOf(InvestmentDomainException.class)
+                .hasMessageContaining("khóa");
 
         var saved = listingRepository.findById(listing.listingId()).orElseThrow();
-        assertThat(saved.getStatus()).isEqualTo(ListingStatus.OPEN);
-        assertThat(saved.getCommittedAmount()).isEqualByComparingTo("0.00");
+        assertThat(saved.getStatus()).isEqualTo(ListingStatus.FULLY_FUNDED);
+        assertThat(saved.getCommittedAmount()).isEqualByComparingTo("3000000.00");
     }
 
     @Test

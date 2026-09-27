@@ -8,6 +8,7 @@ import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.util.List;
 import org.springframework.stereotype.Component;
 
 /** Render văn bản dễ đọc nhưng vẫn xác định để cùng điều khoản luôn sinh cùng bytes UTF-8 và SHA-256. */
@@ -67,6 +68,31 @@ public class ContractDocumentRenderer {
         line(document, "Phiên bản tài liệu: " + documentVersion);
         line(document, "Phiên bản chính sách tính lịch trả nợ: " + schedule.getCalculationPolicyVersion());
         line(document, "Mã đối chiếu lịch trả nợ: " + schedule.getResponseHash());
+        return document.toString();
+    }
+
+    public String renderFunded(
+            String contractNumber,
+            LoanApplication application,
+            ScheduleCalculationSnapshot schedule,
+            String termsVersion,
+            String documentVersion,
+            Instant expiresAt,
+            List<FundedContractAllocation> allocations,
+            long allocationVersion,
+            String allocationHash
+    ) {
+        StringBuilder document = new StringBuilder(render(
+                contractNumber, application, schedule, termsVersion, documentVersion, expiresAt));
+        blankLine(document);
+        line(document, "6. DANH SÁCH BÊN CHO VAY VÀ PHÂN BỔ ĐÃ KHÓA");
+        line(document, "Phiên bản phân bổ: " + allocationVersion);
+        line(document, "Mã đối chiếu phân bổ: " + allocationHash);
+        allocations.forEach(allocation -> line(document, String.format(
+                "Commitment %d — nhà đầu tư %s: %s (%s%%).",
+                allocation.commitmentId(), allocation.investorId(), moneyText(allocation.amount()),
+                percentage(allocation.sharePercent()))));
+        line(document, "Tất cả bên cho vay ký cùng phiên bản tài liệu này trước khi mở lượt ký cho người vay.");
         return document.toString();
     }
 

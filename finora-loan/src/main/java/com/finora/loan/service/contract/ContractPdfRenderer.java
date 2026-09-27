@@ -6,6 +6,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.contract.ContractPdfArtifactType;
 import com.finora.loan.domain.contract.LoanContract;
+import com.finora.loan.domain.contract.ContractParty;
+import com.finora.loan.domain.contract.ContractPartyStatus;
+import com.finora.loan.domain.contract.ContractPartyType;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
 import com.finora.loan.support.HashingService;
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
@@ -18,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import org.springframework.stereotype.Component;
 
 /**
@@ -56,6 +60,44 @@ public class ContractPdfRenderer {
         return artifact(ContractPdfArtifactType.SIGNABLE, content);
     }
 
+    public ContractPdfArtifact renderFundedSignable(
+            String contractNumber,
+            LoanApplication application,
+            ScheduleCalculationSnapshot schedule,
+            String termsVersion,
+            Instant expiresAt,
+            List<FundedContractAllocation> allocations,
+            long allocationVersion,
+            String allocationHash
+    ) {
+        String base = html(
+                contractNumber, application, schedule, termsVersion, expiresAt,
+                "CHỜ CÁC BÊN KÝ", null, null, null, null);
+        String lenderRows = allocations.stream()
+                .map(allocation -> "<tr><td>" + allocation.commitmentId() + "</td><td>"
+                        + escape(allocation.investorId()) + "</td><td>"
+                        + money(allocation.amount()) + "</td><td>"
+                        + percentage(allocation.sharePercent()) + "%</td></tr>")
+                .collect(java.util.stream.Collectors.joining());
+        String appendix = """
+                <div class="page-break"></div>
+                <h1 class="appendix">PHỤ LỤC 02</h1>
+                <h2 class="center">DANH SÁCH BÊN CHO VAY VÀ PHÂN BỔ ĐÃ KHÓA</h2>
+                <table class="info"><tr><th>Commitment</th><th>Mã nhà đầu tư</th><th>Số tiền</th><th>Tỷ lệ</th></tr>%s</table>
+                <table class="info"><tr><th>Phiên bản phân bổ</th><td>%d</td></tr><tr><th>Mã đối chiếu phân bổ</th><td class="hash">%s</td></tr></table>
+                <div class="notice blue">Mỗi nhà đầu tư trong danh sách ký trên cùng PDF/hash. Người vay chỉ được ký sau khi toàn bộ bên cho vay hoàn tất.</div>
+                """.formatted(lenderRows, allocationVersion, escape(allocationHash));
+        String funded = base
+                .replace("Chưa xác lập trong LN-008; không giả mạo nhà đầu tư hoặc chữ ký SmartCA",
+                        allocations.size() + " nhà đầu tư theo Phụ lục 02; danh sách đã khóa từ Investment Service")
+                .replace("<b>CHƯA TÍCH HỢP</b><br/>Investment Service/VNPT SmartCA chưa cung cấp bằng chứng ký.",
+                        "<b>CHỜ KÝ</b><br/>" + allocations.size()
+                                + " bên cho vay ký cùng PDF/hash trước người vay.")
+                .replace("</body></html>", appendix + "</body></html>");
+        byte[] content = render(funded);
+        return artifact(ContractPdfArtifactType.SIGNABLE, content);
+    }
+
     public ContractPdfArtifact renderSignedReceipt(
             LoanContract contract,
             LoanApplication application,
@@ -70,6 +112,73 @@ public class ContractPdfRenderer {
                 signedDocumentHash
         ));
         return artifact(ContractPdfArtifactType.SIGNED_RECEIPT, content);
+    }
+
+    public ContractPdfArtifact renderSignedReceipt(
+            LoanContract contract,
+            LoanApplication application,
+            ScheduleCalculationSnapshot schedule,
+            String signedDocumentHash,
+            List<ContractParty> parties
+    ) {
+        List<ContractParty> lenders = parties.stream()
+                .filter(party -> party.getPartyType() == ContractPartyType.LENDER)
+                .toList();
+        String base = html(
+                contract.getContractNumber(), application, schedule, contract.getTermsVersion(),
+                contract.getExpiresAt(), receiptStatus(contract), contract.getSignedBy(),
+                contract.getSignedAt(),
+                contract.getSignatureMethod() == null ? null : contract.getSignatureMethod().name(),
+                signedDocumentHash)
+                .replace("Chưa xác lập trong LN-008; không giả mạo nhà đầu tư hoặc chữ ký SmartCA",
+                        lenders.size() + " nhà đầu tư theo Phụ lục bằng chứng chữ ký")
+                .replace("<b>CHƯA TÍCH HỢP</b><br/>Investment Service/VNPT SmartCA chưa cung cấp bằng chứng ký.",
+                        lenderSignatureSummary(lenders));
+        String rows = lenders.stream()
+                .map(party -> "<tr><td>" + escape(party.getPartyId()) + "</td><td>"
+                        + money(party.getAllocationAmount()) + "</td><td>"
+                        + escape(partyStatusLabel(party.getStatus())) + "</td><td>"
+                        + escape(signatureMethodLabel(party)) + "</td><td>"
+                        + dateTime(party.getSignedAt()) + "</td><td class=\"hash\">"
+                        + escape(party.getSignatureEvidenceHash() == null
+                        ? "Chưa ký" : party.getSignatureEvidenceHash()) + "</td></tr>")
+                .collect(java.util.stream.Collectors.joining());
+        String evidence = """
+                <div class="page-break"></div>
+                <h1>BẰNG CHỨNG CHỮ KÝ CÁC BÊN CHO VAY</h1>
+                <table class="info"><tr><th>Mã nhà đầu tư</th><th>Phần vốn</th><th>Trạng thái</th><th>Phương thức</th><th>Thời điểm ký</th><th>Evidence hash</th></tr>%s</table>
+                """.formatted(rows);
+        byte[] content = render(base.replace("</body></html>", evidence + "</body></html>"));
+        return artifact(ContractPdfArtifactType.SIGNED_RECEIPT, content);
+    }
+
+    private static String lenderSignatureSummary(List<ContractParty> lenders) {
+        long signed = lenders.stream()
+                .filter(party -> party.getStatus() == ContractPartyStatus.SIGNED)
+                .count();
+        if (!lenders.isEmpty() && signed == lenders.size()) {
+            return "<b>ĐÃ KÝ</b><br/>" + signed
+                    + " bên cho vay đã hoàn tất ký; xem bằng chứng chi tiết tại phụ lục cuối tài liệu.";
+        }
+        return "<b>CHƯA HOÀN TẤT</b><br/>Đã ký " + signed + "/" + lenders.size()
+                + " bên cho vay; xem bằng chứng chi tiết tại phụ lục cuối tài liệu.";
+    }
+
+    private static String partyStatusLabel(ContractPartyStatus status) {
+        return switch (status) {
+            case SIGNED -> "Đã ký";
+            case SIGNING -> "Đang chờ SmartCA";
+            case PENDING_SIGNATURE -> "Chờ ký";
+            case DECLINED -> "Đã từ chối";
+            case EXPIRED -> "Đã hết hạn";
+        };
+    }
+
+    private static String signatureMethodLabel(ContractParty party) {
+        if (party.getSignatureProvider() == null || party.getSignatureMethod() == null) {
+            return "Chưa có";
+        }
+        return party.getSignatureProvider().name() + " / " + party.getSignatureMethod().name();
     }
 
     private ContractPdfArtifact artifact(ContractPdfArtifactType type, byte[] content) {

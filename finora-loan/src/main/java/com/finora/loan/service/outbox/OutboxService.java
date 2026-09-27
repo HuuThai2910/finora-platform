@@ -29,6 +29,29 @@ public class OutboxService {
             int eventVersion,
             Object payload
     ) {
+        return record(aggregateType, aggregateId, eventType, eventVersion, payload, false);
+    }
+
+    /** Chỉ event contract liên service đã duyệt mới được relay ra Kafka. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public UUID recordForPublication(
+            String aggregateType,
+            String aggregateId,
+            String eventType,
+            int eventVersion,
+            Object payload
+    ) {
+        return record(aggregateType, aggregateId, eventType, eventVersion, payload, true);
+    }
+
+    private UUID record(
+            String aggregateType,
+            String aggregateId,
+            String eventType,
+            int eventVersion,
+            Object payload,
+            boolean publishable
+    ) {
         Instant now = clock.instant();
         UUID eventId = UUID.randomUUID();
         repository.save(OutboxEvent.create(
@@ -38,6 +61,7 @@ public class OutboxService {
                 eventType,
                 eventVersion,
                 hashingService.toJson(payload),
+                publishable,
                 TraceContext.currentTraceIdOrCreate(),
                 now
         ));

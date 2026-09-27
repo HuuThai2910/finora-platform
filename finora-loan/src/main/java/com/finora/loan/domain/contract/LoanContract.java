@@ -43,6 +43,9 @@ public class LoanContract {
     @Column(name = "borrower_id", nullable = false, length = 100, updatable = false)
     private String borrowerId;
 
+    @Column(name = "multi_party", nullable = false, updatable = false)
+    private boolean multiParty;
+
     @Column(name = "principal_amount", nullable = false, precision = 18, scale = 2, updatable = false)
     private BigDecimal principalAmount;
 
@@ -202,6 +205,7 @@ public class LoanContract {
         contract.contractNumber = requireText(contractNumber, "contractNumber");
         contract.applicationId = Objects.requireNonNull(applicationId, "applicationId");
         contract.borrowerId = requireText(borrowerId, "borrowerId");
+        contract.multiParty = false;
         contract.principalAmount = money(terms.principalAmount(), "principalAmount");
         if (contract.principalAmount.signum() == 0) {
             throw new IllegalArgumentException("principalAmount phải dương");
@@ -232,6 +236,44 @@ public class LoanContract {
         contract.createdAt = now;
         contract.updatedAt = now;
         return contract;
+    }
+
+    /** Chuyển Contract mới tạo sang chuỗi ký lender trước, borrower sau. */
+    public void initializeMultiParty() {
+        if (id != null || status != LoanContractStatus.PENDING_SIGNATURE || consentAction != null) {
+            throw LoanDomainException.conflict(
+                    "MULTI_PARTY_CONTRACT_ALREADY_INITIALIZED",
+                    "Chỉ Contract mới chưa lưu mới được khởi tạo chuỗi ký nhiều bên"
+            );
+        }
+        multiParty = true;
+        status = LoanContractStatus.PENDING_LENDER_SIGNATURES;
+    }
+
+    public void markBorrowerSignatureReady(String actorId, Instant now) {
+        if (!multiParty || status != LoanContractStatus.PENDING_LENDER_SIGNATURES) {
+            throw LoanDomainException.conflict(
+                    "LENDER_SIGNATURES_NOT_PENDING",
+                    "Hợp đồng không ở bước chờ chữ ký nhà đầu tư"
+            );
+        }
+        status = LoanContractStatus.PENDING_BORROWER_SIGNATURE;
+        updatedBy = requireText(actorId, "actorId");
+        updatedAt = now;
+    }
+
+    /** EFFECTIVE chỉ mang nghĩa đủ chữ ký; giải ngân là một state/event khác của Payment. */
+    public void activateAfterAllSignatures(String actorId, Instant now) {
+        if (!multiParty || status != LoanContractStatus.SIGNED) {
+            throw LoanDomainException.conflict(
+                    "CONTRACT_NOT_READY_FOR_ACTIVATION",
+                    "Hợp đồng chưa có đủ chữ ký để kích hoạt"
+            );
+        }
+        status = LoanContractStatus.EFFECTIVE;
+        effectiveAt = now;
+        updatedBy = requireText(actorId, "actorId");
+        updatedAt = now;
     }
 
     /** Server đối chiếu version, owner, expiry và hash để consent luôn gắn đúng văn bản borrower đã xem. */
@@ -358,7 +400,9 @@ public class LoanContract {
         if (status != LoanContractStatus.SIGNING) {
             return;
         }
-        status = LoanContractStatus.PENDING_SIGNATURE;
+        status = multiParty
+                ? LoanContractStatus.PENDING_BORROWER_SIGNATURE
+                : LoanContractStatus.PENDING_SIGNATURE;
         consentIdempotencyKey = null;
         consentRequestHash = null;
         consentAction = null;
@@ -400,7 +444,10 @@ public class LoanContract {
 
     /** Expire là transition có điều kiện; worker chạy lại không tạo thêm history hoặc thay đổi terminal state. */
     public boolean expireIfDue(Instant now) {
-        if ((status != LoanContractStatus.PENDING_SIGNATURE && status != LoanContractStatus.SIGNING)
+        if ((status != LoanContractStatus.PENDING_SIGNATURE
+                && status != LoanContractStatus.PENDING_LENDER_SIGNATURES
+                && status != LoanContractStatus.PENDING_BORROWER_SIGNATURE
+                && status != LoanContractStatus.SIGNING)
                 || expiresAt.isAfter(now)) {
             return false;
         }
@@ -422,7 +469,10 @@ public class LoanContract {
     }
 
     public boolean isDueAt(Instant now) {
-        return (status == LoanContractStatus.PENDING_SIGNATURE || status == LoanContractStatus.SIGNING)
+        return (status == LoanContractStatus.PENDING_SIGNATURE
+                || status == LoanContractStatus.PENDING_LENDER_SIGNATURES
+                || status == LoanContractStatus.PENDING_BORROWER_SIGNATURE
+                || status == LoanContractStatus.SIGNING)
                 && !expiresAt.isAfter(now);
     }
 
@@ -447,7 +497,8 @@ public class LoanContract {
     }
 
     private void requirePending() {
-        if (status != LoanContractStatus.PENDING_SIGNATURE) {
+        if (status != LoanContractStatus.PENDING_SIGNATURE
+                && status != LoanContractStatus.PENDING_BORROWER_SIGNATURE) {
             throw LoanDomainException.conflict(
                     "INVALID_CONTRACT_TRANSITION",
                     "Hợp đồng không còn ở trạng thái chờ ký"

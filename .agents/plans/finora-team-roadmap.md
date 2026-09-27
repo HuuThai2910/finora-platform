@@ -133,22 +133,22 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
 | P2-A01 | Loan | [LN-008: AI/admin decision + `LoanContract` + signature](../../finora-loan/plans/LN-008-approval-loan-contract.md) | Một Contract text/hash cần ký; dùng final schedule; không gọi Fineract khi duyệt/ký | `REVIEW` |
-| P2-A02 | Loan | [LN-009: Signed-Contract listing/outbox](../../finora-loan/plans/LN-009-market-listing-outbox.md) | Chỉ Contract `SIGNED`; outbox `LoanListed` v1 | `BACKLOG` |
-| P2-A03 | Loan | [LN-010: Consume fully-funded](../../finora-loan/plans/LN-010-fully-funded-consumer.md) | Loan tự đổi `FUNDED` | `BACKLOG` |
+| P2-A02 | Loan | [LN-009: Terms-authorized listing/outbox](../../finora-loan/plans/LN-009-funding-requested-v1.md) | Event v1 + outbox + Investment consumer đã triển khai; chờ Hải review | `IN_PROGRESS` |
+| P2-A03 | Loan | [LN-010: Allocation và Contract nhiều bên](../../finora-loan/plans/LN-010-multi-party-contract-v1.md) | Một PDF chung, lender ký trước, borrower ký sau; chờ E2E Kafka | `IN_PROGRESS` |
 
 ### Hải
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P2-B01 | Investment | Consume `LoanListed`, tạo market projection | Unique `loanId + listingVersion` | `BACKLOG` |
+| P2-B01 | Investment | Consume event listing v1 đã cùng Loan duyệt, tạo market projection | Unique business listing key + `listingVersion` | `BACKLOG` |
 | P2-B02 | Investment | Market query/filter/pagination/WebSocket nếu cần | Index + không N+1/unbounded | `BACKLOG` |
 | P2-B03 | Investment | Investment order state machine | Validation và concurrency rule | `BACKLOG` |
 | P2-B04 | Investment | Matching engine partial/full | Deterministic, test concurrent order | `BACKLOG` |
 | P2-B05 | Investment | Funding aggregation | Chống overfund, funded-once | `BACKLOG` |
 
-**Contract phải chốt:** `LoanListed` v1, listing expiry/cancel, amount/interest/term/grade, `LoanFullyFunded` v1, partition key `loanId`.
+**Contract phải chốt:** tên/schema event listing v1 sau `AUTO_AUTHORIZED/ACCEPTED`, business listing key, listing expiry/cancel, amount/interest/term/grade, `LoanFullyFunded` v1 và partition key. Kafka adapter không được tự route event Contract nội bộ thay cho contract này.
 
-**Phase gate P2:** admin approve tạo Contract → borrower xem exact terms và ký → market projection xuất hiện → nhiều lệnh được match chính xác → tổng vốn không vượt target → `LoanFullyFunded` phát đúng một lần → Loan tự chuyển `FUNDED`.
+**Phase gate P2:** AI/admin chốt exact terms → borrower auto-authorize hoặc chủ động accept → market projection xuất hiện → xác định bên cho vay và lập Contract song phương cuối → nhiều lệnh được match chính xác → tổng vốn không vượt target → `LoanFullyFunded` phát đúng một lần → Loan tự chuyển `FUNDED`.
 
 ## 8. P3 — Wallet, hold tiền và commitment
 
@@ -158,10 +158,10 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P3-A01 | Payment | Wallet + immutable ledger schema | Constraint/index/audit fields | `BACKLOG` |
+| P3-A01 | Payment | Wallet + immutable ledger schema | Constraint/index/audit fields | `REVIEW` — PM-001 local foundation, chưa có provider |
 | P3-A02 | Payment | Deposit sandbox/mock adapter | Webhook signature/idempotency | `BACKLOG` |
 | P3-A03 | Payment | Hold/release/capture API | `@Version`/lock + unique key | `BACKLOG` |
-| P3-A04 | Payment | Balance invariant/concurrency tests | Không âm ví/double hold | `BACKLOG` |
+| P3-A04 | Payment | Balance invariant/concurrency tests | Không âm ví/double hold | `IN_PROGRESS` — phần balance PM-001, double-hold chờ PM-003 |
 | P3-A05 | Payment | Financial event outbox | Reference transaction ID | `BACKLOG` |
 
 ### Hải
@@ -328,6 +328,11 @@ Thêm dòng mới, không sửa mất lịch sử đã dùng để triển khai.
 | 2026-08-09 | Tài liệu mọi service/LN-003–LN-014 | Bổ sung rule 09 và planning skill dùng chung: mỗi plan phải có lớp nghiệp vụ dễ hiểu, ERD/cardinality hiện tại tách khỏi dự kiến, field impact, API→hàm, transaction/concurrency, query/index/N+1 và acceptance evidence | Thái | Không đổi REST/event contract; chuẩn hóa cách viết và review plan | Resolved |
 | 2026-08-09 | WEB-LOAN-001/MOBILE-LOAN-001 | Thái duyệt tích hợp frontend LN-003–LN-008; visual reference chuyển vào `docs/ui`, mobile bỏ gọi AI trực tiếp, web cần thêm admin Product list phân trang | Thái triển khai; Hải review `docs/` dùng chung trước merge | Thêm Loan read API local, không đổi contract AI/Fineract | In progress |
 | 2026-09-05 | P1-A01–P2-A01/F00–F03 | Chuyển Loan sang AI v17 và Product min/base/max; grade pricing, final Fineract schedule, ba decision branch và Contract chờ ký; thêm sổ đối chiếu pháp lý trung tâm | Thái triển khai/duyệt Loan; Hải review AI fixture và tài liệu chung | Có — AI request/response v17, Product/Loan API additive, Flyway V8 | Review |
+| 2026-09-21 | P2-A02/F03 | Loan hoàn tất Kafka transport cho outbox với ack/allowlist/trace nhưng giữ mặc định tắt; không phát event Contract thành listing. Tên/schema/topic listing sau terms authorization vẫn chờ Thái–Hải duyệt | Thái triển khai Loan; Hải review contract/vùng chung | Chưa mở contract liên service; không đăng ký topic mới | In progress |
+| 2026-09-21 | P4-A04/P4-A05/F08 | Hoàn tất BC-001 proof foundation độc lập: PostgreSQL hash-only, idempotent register, lease/retry/dead-letter, mock receipt phân biệt và Fabric fail-closed. Kafka consumer/Fabric thật vẫn backlog tới khi P3 gate và contract P4 được duyệt | Thái triển khai Blockchain; Hải review contract/vùng chung | Không đăng ký topic/event mới; chưa có giao dịch on-chain | Review |
+| 2026-09-21 | P3-A01/P3-A04/F04 | Hoàn tất PM-001 local wallet/immutable balanced ledger: idempotent posting, row lock, số dư không âm và PostgreSQL trigger chặn sửa/xóa bút toán. Không có API/provider/Kafka hoặc hold/capture khi Investment contract chưa duyệt | Thái triển khai Payment; Hải review contract/vùng chung | Không đổi API/event liên service; double-hold vẫn chờ PM-003 | Review |
+| 2026-09-26 | P2-A02/P2-A03/F03–F04 | Triển khai LoanFundingRequested → LoanFullyFunded → một Contract/PDF nhiều lender → borrower ký → LoanContractActivated; REST đọc state, Kafka chuyển state; mobile nối API thật | Thái triển khai; Hải review Investment và tài liệu chung | Có — 5 event v1, Loan V14–V15, Investment V3–V4 | In progress |
+| 2026-09-27 | P2-A02/P2-A03/F03–F04 | Bỏ nhánh Contract demo và cờ rollout: Loan luôn ghi `LoanFundingRequested`, Investment luôn consume/publish qua Kafka; Contract chỉ sinh sau `LoanFullyFunded`. Investment tách V4 legacy và nâng schema tương thích qua V5–V6 | Thái triển khai; Hải review migration Investment và tài liệu chung trước merge | Không đổi payload/topic; xóa toggle runtime, messaging trở thành luồng bắt buộc | Review |
 
 ## 15. Quy tắc cập nhật roadmap
 

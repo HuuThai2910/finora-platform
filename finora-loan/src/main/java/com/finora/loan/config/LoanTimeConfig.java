@@ -11,6 +11,7 @@ import java.time.Clock;
         LoanContractProperties.class,
         RiskBasedPricingProperties.class,
         SignatureProviderProperties.class,
+        InvestmentIntegrationProperties.class,
         OutboxProperties.class
 })
 public class LoanTimeConfig {

@@ -122,6 +122,29 @@ class LoanContractTest {
         assertThat(contract.getStatus()).isEqualTo(LoanContractStatus.EXPIRED);
     }
 
+    @Test
+    void multiPartyContractRequiresLendersBeforeBorrowerAndActivatesAfterBorrower() {
+        LoanContract contract = contract(NOW.plusSeconds(3600));
+        contract.initializeMultiParty();
+
+        assertThat(contract.getStatus()).isEqualTo(LoanContractStatus.PENDING_LENDER_SIGNATURES);
+        assertThatThrownBy(() -> contract.sign(
+                0, "b".repeat(64), SignatureMethod.CLICK_WRAP_MVP,
+                SignatureProviderType.MOCK, "MOCK-TX-001", "e".repeat(64),
+                "sign-key", "c".repeat(64), "BORROWER-001", NOW.plusSeconds(10)))
+                .isInstanceOf(LoanDomainException.class)
+                .extracting("code").isEqualTo("INVALID_CONTRACT_TRANSITION");
+
+        contract.markBorrowerSignatureReady("SYSTEM-LENDER-SIGNATURES", NOW.plusSeconds(20));
+        contract.sign(0, "b".repeat(64), SignatureMethod.CLICK_WRAP_MVP,
+                SignatureProviderType.MOCK, "MOCK-TX-001", "e".repeat(64),
+                "sign-key", "c".repeat(64), "BORROWER-001", NOW.plusSeconds(30));
+        contract.activateAfterAllSignatures("SYSTEM-CONTRACT-ACTIVATION", NOW.plusSeconds(30));
+
+        assertThat(contract.getStatus()).isEqualTo(LoanContractStatus.EFFECTIVE);
+        assertThat(contract.getEffectiveAt()).isEqualTo(NOW.plusSeconds(30));
+    }
+
     private LoanContract contract(Instant expiresAt) {
         return LoanContract.create(
                 "LC-ABCDEF0123456789ABCD",

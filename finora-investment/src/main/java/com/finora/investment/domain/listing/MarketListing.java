@@ -39,8 +39,32 @@ public class MarketListing {
     @Column(name = "loan_id", nullable = false, updatable = false)
     private Long loanId;
 
-    @Column(name = "contract_number", nullable = false, length = 50, updatable = false)
+    @Column(name = "contract_number", length = 50)
     private String contractNumber;
+
+    @Column(name = "contract_status", length = 40)
+    private String contractStatus;
+
+    @Column(name = "contract_document_hash", length = 64)
+    private String contractDocumentHash;
+
+    @Column(name = "contract_receipt_hash", length = 64)
+    private String contractReceiptHash;
+
+    @Column(name = "contract_activated_at")
+    private Instant contractActivatedAt;
+
+    @Column(name = "application_number", nullable = false, length = 30, updatable = false)
+    private String applicationNumber;
+
+    @Column(name = "listing_version", nullable = false, updatable = false)
+    private Integer listingVersion;
+
+    @Column(name = "terms_version", nullable = false, length = 50, updatable = false)
+    private String termsVersion;
+
+    @Column(name = "terms_hash", nullable = false, length = 64, updatable = false)
+    private String termsHash;
 
     @Column(name = "product_code", nullable = false, length = 50, updatable = false)
     private String productCode;
@@ -54,7 +78,7 @@ public class MarketListing {
     @Column(name = "credit_grade", nullable = false, length = 5, updatable = false)
     private String creditGrade;
 
-    @Column(name = "credit_score", nullable = false, updatable = false)
+    @Column(name = "credit_score", updatable = false)
     private Integer creditScore;
 
     @Column(name = "target_amount", nullable = false, precision = 18, scale = 2, updatable = false)
@@ -95,6 +119,12 @@ public class MarketListing {
 
     @Column(name = "fully_funded_at")
     private Instant fullyFundedAt;
+
+    @Column(name = "allocation_version")
+    private Long allocationVersion;
+
+    @Column(name = "allocation_hash", length = 64)
+    private String allocationHash;
 
     @Version
     @Column(nullable = false)

@@ -7,6 +7,7 @@ import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
 import com.finora.loan.dto.application.response.ApplicantFinancialResponse;
 import com.finora.loan.dto.application.response.LoanApplicationResponse;
 import com.finora.loan.dto.application.response.LoanApplicationHistoryResponse;
+import com.finora.loan.dto.application.response.LoanFundingResponse;
 import com.finora.loan.dto.application.response.LoanProductSnapshotResponse;
 import com.finora.loan.dto.application.response.TermsConfirmationResponse;
 import com.finora.loan.mapper.core.ScheduleCalculationSnapshotMapper;
@@ -58,12 +59,28 @@ public class LoanApplicationMapper {
                 application.getWithdrawnAt(),
                 application.getWithdrawalReason(),
                 termsConfirmation(application),
+                funding(application),
                 application.getLatestCreditAssessmentId(),
                 application.getVersion(),
                 application.getCreatedBy(),
                 application.getUpdatedBy(),
                 application.getCreatedAt(),
                 application.getUpdatedAt()
+        );
+    }
+
+    private LoanFundingResponse funding(LoanApplication application) {
+        if (application.getFundingStatus() == null) {
+            return null;
+        }
+        return new LoanFundingResponse(
+                application.getFundingStatus(),
+                application.getFundingRound(),
+                application.getListingVersion(),
+                application.getFundingRequestedAt(),
+                application.getInvestmentListingId(),
+                application.getFundedAmount(),
+                application.getFundingCompletedAt()
         );
     }
 

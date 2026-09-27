@@ -31,7 +31,7 @@ class MarketListingTest {
                 .creditScore(700)
                 .targetAmount(TARGET)
                 .committedAmount(BigDecimal.ZERO)
-                .annualInterestRate(new BigDecimal("0.1500"))
+                .annualInterestRate(new BigDecimal("15.0000"))
                 .termMonths(12)
                 .repaymentMethod("ANNUITY")
                 .noteDenomination(DENOMINATION)
