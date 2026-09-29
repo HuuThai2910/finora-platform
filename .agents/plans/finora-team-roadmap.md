@@ -146,7 +146,7 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 | P2-B04 | Investment | Matching engine partial/full | Deterministic, test concurrent order | `BACKLOG` |
 | P2-B05 | Investment | Funding aggregation | Chống overfund, funded-once | `BACKLOG` |
 
-**Contract phải chốt:** tên/schema event listing v1 sau `AUTO_AUTHORIZED/ACCEPTED`, business listing key, listing expiry/cancel, amount/interest/term/grade, `LoanFullyFunded` v1 và partition key. Kafka adapter không được tự route event Contract nội bộ thay cho contract này.
+**Contract phải chốt:** tên/schema event listing v1 sau `AUTO_AUTHORIZED/ACCEPTED`, business listing key, listing expiry/cancel, amount/interest/term/grade, `LoanFullyFunded` v2 và partition key. Kafka adapter không được tự route event Contract nội bộ thay cho contract này.
 
 **Phase gate P2:** AI/admin chốt exact terms → borrower auto-authorize hoặc chủ động accept → market projection xuất hiện → xác định bên cho vay và lập Contract song phương cuối → nhiều lệnh được match chính xác → tổng vốn không vượt target → `LoanFullyFunded` phát đúng một lần → Loan tự chuyển `FUNDED`.
 
@@ -158,19 +158,19 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P3-A01 | Payment | Wallet + immutable ledger schema | Constraint/index/audit fields | `REVIEW` — PM-001 local foundation, chưa có provider |
-| P3-A02 | Payment | Deposit sandbox/mock adapter | Webhook signature/idempotency | `BACKLOG` |
-| P3-A03 | Payment | Hold/release/capture API | `@Version`/lock + unique key | `BACKLOG` |
+| P3-A01 | Payment | Wallet + immutable ledger schema | Constraint/index/audit fields | `REVIEW` — API số dư/lịch sử và mobile đã nối |
+| P3-A02 | Payment | Deposit sandbox/mock adapter | Webhook signature/idempotency | `REVIEW` — mock + ZaloPay create/callback HMAC |
+| P3-A03 | Payment | Hold/release/capture API | `@Version`/lock + unique key | `REVIEW` — Investment HTTP adapter đã dùng thật |
 | P3-A04 | Payment | Balance invariant/concurrency tests | Không âm ví/double hold | `IN_PROGRESS` — phần balance PM-001, double-hold chờ PM-003 |
-| P3-A05 | Payment | Financial event outbox | Reference transaction ID | `BACKLOG` |
+| P3-A05 | Payment | Financial event outbox | Reference transaction ID | `REVIEW` — disbursement completed/failed outbox |
 
 ### Hải
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P3-B01 | Investment | Payment client/adapter cho hold/release | Timeout và duplicate response | `BACKLOG` |
-| P3-B02 | Investment | Commitment sau hold thành công | Unique order/commitment | `BACKLOG` |
-| P3-B03 | Investment | Compensation release khi commitment lỗi | Retry idempotent | `BACKLOG` |
+| P3-B01 | Investment | Payment client/adapter cho hold/release | Timeout và duplicate response | `REVIEW` — HTTP mặc định, stub chỉ test |
+| P3-B02 | Investment | Commitment sau hold thành công | Unique order/commitment | `REVIEW` |
+| P3-B03 | Investment | Compensation release khi commitment lỗi | Retry idempotent | `REVIEW` |
 | P3-B04 | Investment | Reconcile order/hold reference | Repair flow, không sửa Payment DB | `BACKLOG` |
 
 **Contract phải chốt:** hold/release/capture request-response, error code, idempotency key, `paymentTransactionId`, timeout ownership và reconciliation endpoint/event.
@@ -186,7 +186,7 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
 | P4-A01 | Loan | [LN-011: Fineract booking + Disbursement Saga](../../finora-loan/plans/LN-011-disbursement-fineract-booking-saga.md) | externalId contract, `sagaId`, step, attempt, timeout | `IN_PROGRESS` |
-| P4-A02 | Payment | Capture commitments và disbursement ledger | Financial idempotency | `IN_PROGRESS` |
+| P4-A02 | Payment | Capture commitments và disbursement ledger | Financial idempotency | `REVIEW` — capture theo hold reference, cần E2E restart |
 | P4-A03 | Loan | [LN-012: Fineract projection/reconciliation](../../finora-loan/plans/LN-012-fineract-servicing-reconciliation.md) | Không lặp side effect; repair khi tiền đã chuyển nhưng core lỗi | `BACKLOG` |
 | P4-A04 | Blockchain | Fabric adapter submit/query | Hash only, no PII | `BACKLOG` |
 | P4-A05 | Blockchain | Retry/DLT/submission status | Không rollback nghiệp vụ đã commit | `BACKLOG` |
@@ -333,6 +333,8 @@ Thêm dòng mới, không sửa mất lịch sử đã dùng để triển khai.
 | 2026-09-21 | P3-A01/P3-A04/F04 | Hoàn tất PM-001 local wallet/immutable balanced ledger: idempotent posting, row lock, số dư không âm và PostgreSQL trigger chặn sửa/xóa bút toán. Không có API/provider/Kafka hoặc hold/capture khi Investment contract chưa duyệt | Thái triển khai Payment; Hải review contract/vùng chung | Không đổi API/event liên service; double-hold vẫn chờ PM-003 | Review |
 | 2026-09-26 | P2-A02/P2-A03/F03–F04 | Triển khai LoanFundingRequested → LoanFullyFunded → một Contract/PDF nhiều lender → borrower ký → LoanContractActivated; REST đọc state, Kafka chuyển state; mobile nối API thật | Thái triển khai; Hải review Investment và tài liệu chung | Có — 5 event v1, Loan V14–V15, Investment V3–V4 | In progress |
 | 2026-09-27 | P2-A02/P2-A03/F03–F04 | Bỏ nhánh Contract demo và cờ rollout: Loan luôn ghi `LoanFundingRequested`, Investment luôn consume/publish qua Kafka; Contract chỉ sinh sau `LoanFullyFunded`. Investment tách V4 legacy và nâng schema tương thích qua V5–V6 | Thái triển khai; Hải review migration Investment và tài liệu chung trước merge | Không đổi payload/topic; xóa toggle runtime, messaging trở thành luồng bắt buộc | Review |
+| 2026-09-28 | P3/P4/F04–F05 | Nối Payment thật cho Investment, thêm top-up mock/ZaloPay sandbox, truyền `paymentHoldReference` xuyên allocation/Contract/Saga, capture ledger rồi giải ngân; mobile dùng ví thật và hiển thị trạng thái giải ngân | Thái triển khai; Hải đã cho phép cập nhật Investment, vẫn cần review trước merge | Có — nâng `LoanFullyFunded` và `DisbursementRequested` lên v2 vì thêm trường bắt buộc | Review |
+| 2026-09-28 | P3/F05 | Sửa bút toán giải ngân ví: sau capture phải ghi có `borrower AVAILABLE`; worker bù idempotent các giao dịch `COMPLETED` legacy còn nằm ở clearing, không sửa ledger cũ | Thái triển khai; Hải review luồng Investment–Payment trước merge | Không đổi event version/payload | Review |
 
 ## 15. Quy tắc cập nhật roadmap
 

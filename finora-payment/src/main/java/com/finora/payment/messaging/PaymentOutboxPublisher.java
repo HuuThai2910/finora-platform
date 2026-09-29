@@ -8,12 +8,15 @@ import java.time.Clock;
 import java.time.Duration;
 import lombok.RequiredArgsConstructor;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.core.env.Environment;
-@Component @RequiredArgsConstructor
+@Component
+@ConditionalOnProperty(prefix="finora.payment",name="scheduling-enabled",havingValue="true",matchIfMissing=true)
+@RequiredArgsConstructor
 public class PaymentOutboxPublisher{
  private final PaymentOutboxEventRepository repository;private final KafkaTemplate<String,String> kafka;
  private final ObjectMapper mapper;private final Clock clock;

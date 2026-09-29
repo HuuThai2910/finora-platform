@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(prefix = "finora.investment.payment", name = "mode", havingValue = "stub")
 public class StubPaymentClient implements PaymentClient {
 
     /** Hạn mức giả định cho mỗi nhà đầu tư khi gặp lần đầu. */

@@ -19,5 +19,21 @@ public interface PaymentDisbursementRepository extends JpaRepository<PaymentDisb
     Optional<PaymentDisbursement> findByIdForUpdate(@Param("id") Long id);
     @Query("select d.id from PaymentDisbursement d where d.status in :statuses and d.nextAttemptAt<=:now order by d.nextAttemptAt,d.id")
     List<Long> findDueIds(@Param("statuses") List<PaymentDisbursementStatus> statuses,@Param("now") Instant now, Pageable page);
-}
 
+    /**
+     * Tìm các giao dịch legacy đã capture tiền nhà đầu tư vào clearing nhưng chưa ghi có ví người vay.
+     * Khóa idempotency của ledger giúp worker sửa đúng một lần mà không sửa/xóa bút toán cũ.
+     */
+    @Query(value = """
+            select d.id
+            from payment_disbursements d
+            where d.status = 'COMPLETED'
+              and not exists (
+                select 1
+                from payment_ledger_transactions t
+                where t.idempotency_key = 'BORROWER_CREDIT:' || cast(d.saga_id as text)
+              )
+            order by d.id
+            """, nativeQuery = true)
+    List<Long> findCompletedAwaitingBorrowerCreditIds(Pageable page);
+}

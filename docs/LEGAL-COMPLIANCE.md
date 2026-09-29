@@ -90,7 +90,10 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 
 - Theo điểm b khoản 1 Điều 11 Nghị định 94, giải ngân và thanh toán khoản vay, lãi, phí phải đi qua tài khoản thanh toán tại tổ chức tín dụng/chi nhánh ngân hàng nước ngoài hoặc ví điện tử tại tổ chức trung gian thanh toán.
 - FINORA không triển khai “ví nội bộ tự giữ tiền” như tài khoản pháp lý độc lập. Payment/Fineract chỉ điều phối và đối soát với nhà cung cấp được phép.
-- Payment hiện có operational ledger local bất biến/cân bằng để kiểm thử invariant, nhưng không có public deposit/withdrawal API và không đại diện cho tiền đã đi qua tổ chức cung ứng dịch vụ thanh toán. Chỉ được ghi nhận tiền thật sau khi có provider reference, webhook/idempotency và reconciliation đã duyệt.
+- Payment có operational ledger local bất biến/cân bằng, API nạp tiền và hold/capture. Provider `mock`
+  chỉ mô phỏng tiền sandbox; adapter ZaloPay chỉ ghi có sau callback HMAC hợp lệ. Ledger này không phải
+  tài khoản pháp lý giữ tiền và ZaloPay sandbox không chứng minh readiness tiền thật. Production vẫn
+  cần hợp đồng với tổ chức cung ứng dịch vụ thanh toán, callback/reconciliation và quy trình vận hành được duyệt.
 - Đây là cổng bắt buộc trước khi bật giải ngân production; không ảnh hưởng demo Loan đến trạng thái `PENDING_SIGNATURE`.
 
 ## 3. Ma trận service và điểm kiểm soát
@@ -103,7 +106,7 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 | Định giá sau scoring | Loan + Fineract | `LEGAL-RATE-01`, `LEGAL-AI-01` | Grade adjustment, clamp, final schedule snapshot | Admin UI hiển thị so sánh base/final; quy trình phê duyệt policy |
 | Duyệt, xác nhận điều khoản và ký | Loan + Web/Mobile | `LEGAL-DISCLOSURE-01`, `LEGAL-CONTRACT-01` | Outcome-based non-worsening gate; evidence version/hash/expiry; PDF bất biến; mock/provider evidence được phân biệt; Contract event ghi local outbox | Investment/lender identity; legal review hình thức ký; chữ ký hai bên; API/callback/chứng thư SmartCA production; Kafka transport |
 | Bằng chứng toàn vẹn | Blockchain + service nguồn | `LEGAL-CONTRACT-01`, `LEGAL-DATA-01` | Durable hash-only proof, idempotency/retry/DLT local; mock được phân biệt; Fabric fail-closed | Event contract đã duyệt, Fabric network/chaincode, access/retention và legal review cách trình bày bằng chứng |
-| Giải ngân/trả nợ | Loan + Payment + Fineract | `LEGAL-PAYMENT-01` | Immutable balanced local ledger, idempotency và chống số dư âm; chưa có API/provider | Đối tác tài khoản/ví được phép, webhook/reconciliation và bằng chứng giao dịch |
+| Giải ngân/trả nợ | Loan + Payment + Fineract | `LEGAL-PAYMENT-01` | Wallet/top-up/hold/capture API, immutable balanced ledger, idempotency, ZaloPay top-up sandbox và disbursement mock | Đối tác tài khoản/ví được phép, API disbursement thật, reconciliation và bằng chứng giao dịch |
 
 ## 4. Quy tắc cập nhật nguồn pháp lý
 

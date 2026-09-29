@@ -21,7 +21,7 @@ import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.SerializationException;
 import org.springframework.kafka.core.KafkaTemplate;
 
-/** Publisher duy nhất của Investment hiện chỉ cho phép `LoanFullyFunded.v1`. */
+/** Publisher duy nhất của Investment hiện chỉ cho phép `LoanFullyFunded.v2`. */
 public class InvestmentKafkaOutboxPublisher implements InvestmentOutboxPublisher {
 
     static final String EVENT_ID_HEADER = "finora-event-id";
@@ -45,7 +45,7 @@ public class InvestmentKafkaOutboxPublisher implements InvestmentOutboxPublisher
 
     @Override
     public void publish(InvestmentOutboxMessage message) {
-        if (!"LoanFullyFunded".equals(message.eventType()) || message.eventVersion() != 1) {
+        if (!"LoanFullyFunded".equals(message.eventType()) || message.eventVersion() != 2) {
             throw failure("KAFKA_EVENT_ROUTE_MISSING",
                     "Event/version chưa có Kafka route được duyệt", false, null);
         }

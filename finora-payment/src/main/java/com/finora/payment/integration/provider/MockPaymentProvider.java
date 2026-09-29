@@ -5,7 +5,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Value;
 @Component
-@ConditionalOnProperty(name="finora.payment.provider",havingValue="mock",matchIfMissing=true)
+@ConditionalOnProperty(name="finora.payment.disbursement.provider",havingValue="mock",matchIfMissing=true)
 public class MockPaymentProvider implements PaymentProvider{
  private final String outcome;
  public MockPaymentProvider(@Value("${finora.payment.mock.outcome:success}") String outcome){this.outcome=outcome;}

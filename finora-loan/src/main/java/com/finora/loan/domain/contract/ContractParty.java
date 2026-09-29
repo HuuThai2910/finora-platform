@@ -51,6 +51,9 @@ public class ContractParty {
     @Column(name = "allocation_share_percent", precision = 9, scale = 6, updatable = false)
     private BigDecimal allocationSharePercent;
 
+    @Column(name = "payment_hold_reference", length = 100, updatable = false)
+    private String paymentHoldReference;
+
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(nullable = false, length = 30)
@@ -107,6 +110,7 @@ public class ContractParty {
             String investorId,
             BigDecimal amount,
             BigDecimal sharePercent,
+            String paymentHoldReference,
             Instant now
     ) {
         if (commitmentId == null) {
@@ -118,8 +122,10 @@ public class ContractParty {
         if (normalizedAmount.signum() <= 0 || normalizedShare.signum() <= 0) {
             throw new IllegalArgumentException("Phần phân bổ lender phải dương");
         }
-        return create(contractId, commitmentId, ContractPartyType.LENDER, investorId,
+        ContractParty party = create(contractId, commitmentId, ContractPartyType.LENDER, investorId,
                 normalizedAmount, normalizedShare, now);
+        party.paymentHoldReference = requireText(paymentHoldReference, "paymentHoldReference");
+        return party;
     }
 
     private static ContractParty create(

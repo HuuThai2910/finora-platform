@@ -49,10 +49,11 @@ public class DisbursementSagaService {
         List<DisbursementAllocationEventData> allocations = parties.stream()
                 .filter(party -> party.getPartyType() == ContractPartyType.LENDER)
                 .map(party -> new DisbursementAllocationEventData(
-                        party.getCommitmentId(), party.getPartyId(), party.getAllocationAmount().toPlainString()))
+                        party.getCommitmentId(), party.getPartyId(), party.getAllocationAmount().toPlainString(),
+                        party.getPaymentHoldReference()))
                 .toList();
         outboxService.recordForPublication("DisbursementSaga", saga.getSagaId().toString(),
-                "DisbursementRequested", 1,
+                "DisbursementRequested", 2,
                 new DisbursementRequestedEventData(saga.getSagaId(), application.getId(),
                         application.getApplicationNumber(), contract.getContractNumber(),
                         application.getInvestmentListingId(), application.getBorrowerId(),

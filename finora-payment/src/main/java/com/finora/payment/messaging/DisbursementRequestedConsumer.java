@@ -10,6 +10,7 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 @Component @RequiredArgsConstructor
 public class DisbursementRequestedConsumer{
+ private static final int EVENT_VERSION=2;
  private final ObjectMapper mapper;private final PaymentDisbursementService service;
  @KafkaListener(topics="${finora.payment.disbursement-requested-topic}")
  public void consume(@Payload String payload,@Header(name="finora-event-id",required=false)String id,
@@ -19,9 +20,8 @@ public class DisbursementRequestedConsumer{
   }catch(JsonProcessingException ex){throw new IllegalArgumentException("DisbursementRequested JSON không hợp lệ",ex);}
  }
  private void require(KafkaEventEnvelope e,String id,String type,String version){
-  if(e==null||e.eventId()==null||e.data()==null||e.occurredAt()==null||e.version()!=1
+  if(e==null||e.eventId()==null||e.data()==null||e.occurredAt()==null||e.version()!=EVENT_VERSION
    ||(id!=null&&!UUID.fromString(id).equals(e.eventId()))||(type!=null&&!"DisbursementRequested".equals(type))
-   ||(version!=null&&Integer.parseInt(version)!=1))throw new IllegalArgumentException("DisbursementRequested envelope/header không hợp lệ");
+   ||(version!=null&&Integer.parseInt(version)!=EVENT_VERSION))throw new IllegalArgumentException("DisbursementRequested envelope/header không hợp lệ");
  }
 }
-

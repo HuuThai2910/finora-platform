@@ -1,7 +1,7 @@
 # Hợp đồng sự kiện Loan – Investment
 
-> **Trạng thái:** `READY_FOR_REVIEW` — Thái đã chấp thuận triển khai ngày 2026-09-26; Hải phải review
-> phần Investment và tài liệu dùng chung trước khi merge.
+> **Trạng thái:** `IMPLEMENTED_PENDING_E2E` — Loan, Investment và Payment đã nối contract ngày
+> 2026-09-28; còn kiểm thử E2E với các service chạy thật và ZaloPay sandbox.
 
 Tài liệu này là nguồn chung cho luồng từ hồ sơ vay đã được phép đưa lên sàn đến khi giải ngân và phát hành Note.
 Nó giải thích cả ý nghĩa nghiệp vụ lẫn contract Kafka để Loan, Investment, Notification,
@@ -58,11 +58,11 @@ nên màn nhà đầu tư gọi REST Loan khi xem hoặc ký hợp đồng.
 | Event / topic | Producer → consumer | Phát khi nào | Tác dụng và REST liên quan | Idempotency |
 |---|---|---|---|---|
 | `LoanFundingRequested` v1 / `finora.loan.funding-requested` | Loan → Investment | Exact terms đã `AUTO_AUTHORIZED` hoặc borrower `ACCEPTED`; local transaction đã ghi funding request | Investment tạo một `MarketListing` từ snapshot. Nhà đầu tư sau đó GET `/api/v1/market/listings`; event không thay GET | `eventId` trong `processed_events`; unique `loanId + fundingRound` |
-| `LoanFullyFunded` v1 / `finora.investment.loan-fully-funded` | Investment → Loan | Tổng commitment hợp lệ bằng đúng target và allocation đã bị khóa | Loan đối chiếu số tiền/hash, lưu allocation snapshot rồi tạo một Contract/PDF chung | `eventId`; transition listing `OPEN → FULLY_FUNDED` chỉ xảy ra một lần; Loan kiểm `allocationVersion` |
+| `LoanFullyFunded` v2 / `finora.investment.loan-fully-funded` | Investment → Loan | Tổng commitment hợp lệ bằng đúng target và allocation đã bị khóa | Loan đối chiếu số tiền/hash/hold, lưu allocation snapshot rồi tạo một Contract/PDF chung | `eventId`; transition listing `OPEN → FULLY_FUNDED` chỉ xảy ra một lần; Loan kiểm `allocationVersion` |
 | `InvestorSignatureRequested` v1 / `finora.loan.investor-signature-requested` | Loan → Investment; Notification là consumer kế tiếp | PDF signable đã lưu bất biến và các lender parties đã được tạo | Investment cập nhật projection để UI biết Contract; Notification báo từng investor khi module đó được nối. App gọi GET Loan để tải đúng PDF/hash rồi ký | Investment dùng `eventId`; Notification sẽ dùng `sourceEventId + recipientId + channel + templateVersion` |
 | `BorrowerSignatureRequested` v1 / `finora.loan.borrower-signature-requested` | Loan → Notification (chưa nối consumer) | Tất cả lender parties đã ký đúng cùng `documentVersion/documentHash` | App hiện đọc lại Contract từ Loan; consumer Notification sẽ báo borrower ở phase nối thông báo | Như event notification ở trên |
-| `LoanContractActivated` v1 / `finora.loan.contract-activated` | Loan → Investment; Payment/Blockchain/Notification là consumer kế tiếp | Tất cả lender và borrower đã ký; Contract chuyển `EFFECTIVE` | Investment đánh dấu khoản đầu tư có hiệu lực. Payment chỉ được bắt đầu Saga giải ngân và Blockchain ghi hash sau khi consumer tương ứng được triển khai; không được hiểu là đã giải ngân | `eventId`; mỗi consumer có `processed_events`; side effect tài chính có idempotency key riêng |
-| `DisbursementRequested` v1 / `finora.loan.disbursement-requested` | Loan → Payment | Contract đã `EFFECTIVE`, Loan đã tạo durable Saga | Payment lưu yêu cầu duy nhất theo `sagaId`, capture/đối chiếu allocation và gọi provider ngoài transaction | unique `sagaId`; provider reference/idempotency dùng cùng `sagaId` |
+| `LoanContractActivated` v1 / `finora.loan.contract-activated` | Loan → Investment; Blockchain/Notification là consumer kế tiếp | Tất cả lender và borrower đã ký; Contract chuyển `EFFECTIVE` | Investment đánh dấu khoản đầu tư có hiệu lực. Trong cùng transaction kích hoạt, Loan tạo durable Saga/outbox `DisbursementRequested`; event này không được hiểu là đã giải ngân | `eventId`; mỗi consumer có `processed_events`; side effect tài chính có idempotency key riêng |
+| `DisbursementRequested` v2 / `finora.loan.disbursement-requested` | Loan → Payment | Contract đã `EFFECTIVE`, Loan đã tạo durable Saga | Payment lưu yêu cầu duy nhất theo `sagaId`, capture/đối chiếu từng `paymentHoldReference` và gọi provider ngoài transaction | unique `sagaId`; provider reference/idempotency dùng cùng `sagaId` |
 | `DisbursementCompleted` v1 / `finora.payment.disbursement-completed` | Payment → Loan | Provider xác nhận tiền đã chuyển và Payment đã lưu reference | Loan ghi nhận Fineract bằng external ID, không yêu cầu Payment chuyển lại | `eventId` + `sagaId`; `paymentReference` unique |
 | `DisbursementFailed` v1 / `finora.payment.disbursement-failed` | Payment → Loan | Lỗi cuối cùng, không còn retry tự động trong Payment | Loan giữ Contract `EFFECTIVE`, saga thành `PAYMENT_FAILED` để vận hành xử lý | `eventId` + `sagaId` |
 | `LoanDisbursed` v1 / `finora.loan.disbursed` | Loan → Investment, Notification, Blockchain | Payment success và Fineract đã ghi disbursement | Investment `ACTIVE → FINALIZED` commitments và phát hành Note; các consumer khác chỉ tạo projection/proof/thông báo | `eventId`; Note unique theo commitment/sequence |
@@ -101,7 +101,7 @@ Payment. `LoanDisbursed` mới xác nhận toàn bộ happy path bắt buộc (P
 - `creditScore` là optional; `creditGrade` và final rate mới là snapshot chính cần cho listing.
 - Investment không tự thay `targetAmount`, `annualInterestRate`, `termMonths` hoặc `repaymentMethod`.
 
-### 5.2 `LoanFullyFunded` v1
+### 5.2 `LoanFullyFunded` v2
 
 ```json
 {
@@ -119,13 +119,15 @@ Payment. `LoanDisbursed` mới xác nhận toàn bộ happy path bắt buộc (P
       "commitmentId": 1001,
       "investorId": "keycloak-user-id",
       "amount": "30000000.00",
-      "sharePercent": "60.000000"
+      "sharePercent": "60.000000",
+      "paymentHoldReference": "HOLD-uuid-1"
     },
     {
       "commitmentId": 1002,
       "investorId": "keycloak-user-id-2",
       "amount": "20000000.00",
-      "sharePercent": "40.000000"
+      "sharePercent": "40.000000",
+      "paymentHoldReference": "HOLD-uuid-2"
     }
   ]
 }
@@ -136,10 +138,12 @@ Payment. `LoanDisbursed` mới xác nhận toàn bộ happy path bắt buộc (P
 - `investorId` là logical identity reference, không phải họ tên/CCCD. Bản hiện tại hiển thị mã tham
   chiếu này và không bịa định danh pháp lý. Batch API User để snapshot họ tên/định danh vào PDF là
   dependency trước production; không gọi User theo từng investor.
+- `paymentHoldReference` là mã Payment trả khi giữ tiền. Loan lưu cùng lender party và chuyển nguyên
+  mã này vào Saga; Payment chỉ capture khi owner, amount và reference khớp allocation đã ký.
 - Sau khi event này được commit, allocation không được sửa âm thầm. Investor từ chối/hết hạn ký
   phải đi qua flow thay thế allocation và tạo `documentVersion` mới (phase sau).
 
-### 5.3 Nhóm event giải ngân v1
+### 5.3 `DisbursementRequested` v2 và event kết quả v1
 
 ```json
 {
@@ -151,12 +155,16 @@ Payment. `LoanDisbursed` mới xác nhận toàn bộ happy path bắt buộc (P
   "borrowerId": "keycloak-user-id",
   "amount": "50000000.00",
   "currency": "VND",
-  "allocations": [{"commitmentId": 1001, "investorId": "investor-id", "amount": "50000000.00"}]
+  "allocations": [{"commitmentId": 1001, "investorId": "investor-id", "amount": "50000000.00", "paymentHoldReference": "HOLD-uuid-1"}]
 }
 ```
 
 - `DisbursementRequested` dùng payload trên; danh sách allocation phải đúng snapshot đã ký.
 - `DisbursementCompleted` trả `sagaId`, các ID đối chiếu, amount/currency, `paymentReference`, `completedAt`.
+- Payment chỉ tạo `DisbursementCompleted` sau khi đã ghi đủ hai bút toán cân bằng: capture phần
+  tiền đang giữ của nhà đầu tư vào clearing và chuyển clearing sang số dư khả dụng của người vay.
+  Dữ liệu `COMPLETED` cũ thiếu bút toán thứ hai được worker bù đúng một lần theo
+  `BORROWER_CREDIT:<sagaId>`; không sửa hoặc xóa sổ cái cũ.
 - `DisbursementFailed` trả `sagaId`, application/contract ID và mã lỗi đã lọc; không chứa raw provider body.
 - `LoanDisbursed` trả thêm `fineractLoanId` và `disbursedAt`; đây là trigger duy nhất để tạo Note.
 
@@ -181,6 +189,8 @@ Loan luôn ghi `LoanFundingRequested` và chỉ tạo Contract sau `LoanFullyFun
 
 - Broker lỗi sau local commit: outbox retry có backoff; không tạo event mới với business key khác.
 - Kafka giao trùng: consumer trả thành công sau khi thấy `processed_events`, không chạy lại side effect.
+- Event `LoanFullyFunded.v1` hoặc `DisbursementRequested.v1` còn tồn trong topic/DLT không được diễn
+  giải theo schema mới; phải bỏ hoặc replay lại từ business state thành event v2 sau khi đối soát.
 - Payload sai schema/rate/amount: fail closed và chuyển DLT/manual review; không tạo listing “gần đúng”.
 - Target không chia hết mệnh giá Note hiện hành: Investment từ chối listing có mã lỗi rõ, tuyệt đối
   không làm tròn giảm tiền vay. Phase sau có thể hỗ trợ partial Note bằng contract mới.

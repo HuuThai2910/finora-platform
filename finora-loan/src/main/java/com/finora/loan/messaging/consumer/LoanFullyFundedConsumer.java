@@ -13,14 +13,14 @@ import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
-/** Chỉ nhận `LoanFullyFunded.v1`; contract sai sẽ vào DLT thay vì bị bỏ qua. */
+/** Chỉ nhận `LoanFullyFunded.v2`; contract sai sẽ vào DLT thay vì bị bỏ qua. */
 @Component
 @ConditionalOnProperty(name = "finora.loan.kafka.consumer-enabled", havingValue = "true")
 @RequiredArgsConstructor
 public class LoanFullyFundedConsumer {
 
     private static final String EVENT_TYPE = "LoanFullyFunded";
-    private static final int EVENT_VERSION = 1;
+    private static final int EVENT_VERSION = 2;
 
     private final ObjectMapper objectMapper;
     private final LoanFullyFundedHandler handler;

@@ -154,7 +154,7 @@ finora:
           event-version: 1
           topic: ${LOAN_CONTRACT_ACTIVATED_TOPIC:finora.loan.contract-activated}
         - event-type: DisbursementRequested
-          event-version: 1
+          event-version: 2
           topic: ${LOAN_DISBURSEMENT_REQUESTED_TOPIC:finora.loan.disbursement-requested}
         - event-type: LoanDisbursed
           event-version: 1

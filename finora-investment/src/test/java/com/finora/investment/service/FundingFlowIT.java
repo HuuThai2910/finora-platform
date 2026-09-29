@@ -56,6 +56,9 @@ import org.testcontainers.utility.DockerImageName;
  */
 @SpringBootTest(properties = {
         "spring.kafka.listener.auto-startup=false",
+        "finora.investment.payment.mode=stub",
+        "finora.investment.payment.mode=stub",
+        "finora.investment.payment.mode=stub",
         "finora.investment.outbox.publisher-delay=3600000"
 })
 @Testcontainers
@@ -239,7 +242,11 @@ class FundingFlowIT {
                 .filter(event -> saved.getApplicationNumber().equals(event.getAggregateId()))
                 .toList())
                 .singleElement()
-                .satisfies(event -> assertThat(event.getEventType()).isEqualTo("LoanFullyFunded"));
+                .satisfies(event -> {
+                    assertThat(event.getEventType()).isEqualTo("LoanFullyFunded");
+                    assertThat(event.getEventVersion()).isEqualTo(2);
+                    assertThat(event.getPayloadJson()).contains("paymentHoldReference");
+                });
     }
 
     @Test

@@ -84,7 +84,7 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 3. Nếu exact terms không bất lợi hơn, disclosure lúc submit cho phép tự tiếp tục. Nếu bất lợi hơn, borrower phải accept/decline trên Application theo version/hash/expiry; decline/expiry không tạo Contract.
 4. Loan ghi outbox `LoanFundingRequested.v1` sau
    `AUTO_AUTHORIZED/ACCEPTED`; Investment tạo projection listing idempotent, xác định lender và phát
-   `LoanFullyFunded.v1` cùng allocation bất biến. Loan chỉ lập Contract/PDF chung sau event này.
+   `LoanFullyFunded.v2` cùng allocation bất biến. Loan chỉ lập Contract/PDF chung sau event này.
 5. Nhà đầu tư ký cùng document hash trước; khi đủ chữ ký lender, Loan yêu cầu borrower ký một lần.
    Loan phát `LoanContractActivated.v1` sau khi mọi party đã ký; event này không đồng nghĩa đã giải ngân.
 
@@ -106,7 +106,7 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 3. Payment khóa/cập nhật wallet an toàn, tạo ledger + hold transaction, trả `paymentTransactionId`.
 4. Investment tạo commitment, chuyển order `COMMITTED`, phát `InvestmentCommitted`.
 5. Nếu tổng valid commitments đạt target, Investment khóa allocation, ghi outbox và phát
-   `LoanFullyFunded.v1` đúng một lần. Event mang logical investor/commitment ID và amount/share,
+   `LoanFullyFunded.v2` đúng một lần. Event mang logical investor/commitment ID và amount/share,
    không mang PII.
 6. Loan consume, đối chiếu exact amount/hash/version, lưu funding snapshot và tự mở bước tạo
    Contract nhiều bên. `FUNDED` không có nghĩa đã giải ngân.
@@ -115,7 +115,7 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 
 **Failure/compensation:** Payment từ chối → order `REJECTED`; lỗi tạo commitment sau hold → Investment yêu cầu Payment release bằng reference hold; release được retry idempotently. Concurrent order MUST NOT làm overfund hoặc âm ví.
 
-**CURRENT STATE (2026-09-21):** Payment đã có local wallet và immutable balanced-ledger foundation: balance/entries commit cùng transaction, idempotency key có request hash, row lock chống debit cạnh tranh và PostgreSQL trigger chặn sửa/xóa ledger đã ghi. Chưa có public API, provider, Kafka hoặc hold/release/capture; các phần đó chỉ mở sau khi contract Investment được hai owner duyệt.
+**CURRENT STATE (2026-09-28):** Payment đã có API wallet/top-up/hold/release/transfer, immutable balanced ledger và capture đúng từng `paymentHoldReference`. Investment mặc định gọi Payment qua HTTP và truyền hold reference trong `LoanFullyFunded.v2`; stub chỉ còn dùng trong test. Nạp tiền hỗ trợ provider `mock` và adapter ZaloPay sandbox có HMAC callback; disbursement hiện dùng provider `mock`, còn ZaloPay disbursement fail-closed vì chưa có quyền API chuyển tiền.
 
 ## F05 — Saga giải ngân
 
@@ -123,7 +123,7 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 
 1. Khi tất cả các bên ký, Contract chuyển `EFFECTIVE`; trạng thái này chỉ nói hợp đồng có hiệu lực, chưa nói tiền đã chuyển.
 2. Loan tạo durable `DisbursementSaga`, phát `DisbursementRequested` và hiển thị `DISBURSING`.
-3. Payment capture các hold theo allocation snapshot và yêu cầu provider giải ngân cho borrower bằng cùng `sagaId`/idempotency key.
+3. Payment capture các hold theo allocation snapshot và yêu cầu provider giải ngân cho borrower bằng cùng `sagaId`/idempotency key. Với chế độ ví FINORA đang dùng cho demo, sau provider success Payment ghi thêm bút toán cân bằng `clearing → borrower AVAILABLE`; dữ liệu legacy thiếu bút toán này được bù idempotent theo `sagaId`, không sửa/xóa ledger cũ.
 4. Payment lưu reference/kết quả tài chính rồi phát `DisbursementCompleted` hoặc `DisbursementFailed` qua transactional outbox.
 5. Sau khi tiền đã chuyển, Loan reconcile theo `paymentReference`, bảo đảm Fineract Client/Loan bằng external ID, approve và ghi disbursement core idempotently.
 6. Loan chuyển saga `COMPLETED`, khoản vay nghiệp vụ thành `ACTIVE`, rồi phát `LoanDisbursed`.

@@ -28,7 +28,8 @@ public class AllocationSnapshotService {
                         commitment.getId(),
                         commitment.getInvestorId(),
                         commitment.getAmount().toPlainString(),
-                        commitment.getSharePercent().toPlainString()))
+                        commitment.getSharePercent().toPlainString(),
+                        commitment.getPaymentHoldReference()))
                 .toList();
         try {
             String json = objectMapper.writeValueAsString(allocations);

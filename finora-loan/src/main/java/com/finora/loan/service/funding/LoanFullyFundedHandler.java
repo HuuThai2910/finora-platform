@@ -30,7 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class LoanFullyFundedHandler {
 
     private static final String EVENT_TYPE = "LoanFullyFunded";
-    private static final int EVENT_VERSION = 1;
+    private static final int EVENT_VERSION = 2;
     private static final String SYSTEM_ACTOR = "SYSTEM-INVESTMENT-EVENT";
 
     private final ProcessedEventRepository processedEventRepository;
@@ -66,7 +66,8 @@ public class LoanFullyFundedHandler {
                 .map(allocation -> new FundedContractAllocation(
                         allocation.commitmentId(), requireText(allocation.investorId(), "investorId"),
                         decimal(allocation.amount(), "amount"),
-                        decimal(allocation.sharePercent(), "sharePercent")))
+                        decimal(allocation.sharePercent(), "sharePercent"),
+                        requireText(allocation.paymentHoldReference(), "paymentHoldReference")))
                 .toList();
         Instant now = clock.instant();
         boolean newlyFunded = application.markFullyFunded(
@@ -108,6 +109,8 @@ public class LoanFullyFundedHandler {
         HashSet<Long> commitmentIds = new HashSet<>();
         for (FundingAllocationEventData allocation : data.allocations()) {
             if (allocation == null || allocation.commitmentId() == null
+                    || allocation.paymentHoldReference() == null
+                    || allocation.paymentHoldReference().isBlank()
                     || !commitmentIds.add(allocation.commitmentId())) {
                 throw new IllegalArgumentException("Allocation commitment bị thiếu hoặc trùng");
             }

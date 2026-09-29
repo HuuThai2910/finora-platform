@@ -26,8 +26,8 @@ public record LedgerPostingCommand(
         referenceId = requireText(referenceId, "referenceId", 100);
         currency = PaymentWallet.normalizeCurrency(currency);
         entries = entries == null ? List.of() : List.copyOf(entries);
-        if (entries.size() < 2 || entries.size() > 100) {
-            throw new IllegalArgumentException("Một transaction cần từ 2 đến 100 entries");
+        if (entries.size() < 2 || entries.size() > 500) {
+            throw new IllegalArgumentException("Một transaction cần từ 2 đến 500 entries");
         }
         if (entries.stream().noneMatch(entry -> entry.walletId() != null)) {
             throw new IllegalArgumentException("Transaction phải ảnh hưởng ít nhất một wallet");

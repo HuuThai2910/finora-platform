@@ -161,7 +161,7 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
                     "MarketListing",
                     listing.getApplicationNumber(),
                     "LoanFullyFunded",
-                    1,
+                    2,
                     new LoanFullyFundedEventData(
                             listing.getLoanId(),
                             listing.getApplicationNumber(),

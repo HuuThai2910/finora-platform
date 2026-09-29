@@ -5,10 +5,12 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Pageable;
 
 public interface LedgerTransactionRepository extends JpaRepository<LedgerTransaction, Long> {
 
@@ -38,4 +40,17 @@ public interface LedgerTransactionRepository extends JpaRepository<LedgerTransac
     );
 
     Optional<LedgerTransaction> findByIdempotencyKey(String idempotencyKey);
+
+    @Query("""
+            select transaction from LedgerTransaction transaction
+            where transaction.status = com.finora.payment.domain.ledger.LedgerTransactionStatus.POSTED
+              and exists (
+                  select entry.id from LedgerEntry entry
+                  where entry.transaction = transaction and entry.wallet.walletId = :walletId
+              )
+            order by transaction.postedAt desc, transaction.id desc
+            """)
+    List<LedgerTransaction> findWalletStatement(
+            @Param("walletId") UUID walletId,
+            Pageable pageable);
 }

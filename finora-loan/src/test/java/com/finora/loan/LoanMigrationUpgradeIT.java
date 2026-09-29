@@ -23,7 +23,7 @@ class LoanMigrationUpgradeIT {
             .withPassword("finora_test");
 
     @Test
-    void existingV4DatabaseUpgradesThroughV17WithoutRecreatingOldTables() throws Exception {
+    void existingV4DatabaseUpgradesThroughV18WithoutRecreatingOldTables() throws Exception {
         Flyway.configure()
                 .dataSource(POSTGRESQL.getJdbcUrl(), POSTGRESQL.getUsername(), POSTGRESQL.getPassword())
                 .locations("classpath:db/migration")
@@ -37,7 +37,7 @@ class LoanMigrationUpgradeIT {
                 .load();
         upgraded.migrate();
 
-        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("17");
+        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("18");
         assertThat(upgraded.info().pending()).isEmpty();
         try (Connection connection = POSTGRESQL.createConnection("");
              Statement statement = connection.createStatement();
@@ -64,10 +64,14 @@ class LoanMigrationUpgradeIT {
                      FROM information_schema.columns
                      WHERE table_schema = 'public'
                        AND table_name = 'loan_contract_parties'
-                       AND column_name IN ('signature_document_id', 'signature_requested_at')
+                       AND column_name IN (
+                           'signature_document_id',
+                           'signature_requested_at',
+                           'payment_hold_reference'
+                       )
                      """)) {
             assertThat(result.next()).isTrue();
-            assertThat(result.getInt(1)).isEqualTo(2);
+            assertThat(result.getInt(1)).isEqualTo(3);
         }
         try (Connection connection = POSTGRESQL.createConnection("");
              Statement statement = connection.createStatement();

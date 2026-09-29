@@ -68,6 +68,6 @@ class ContractPartyTest {
     private ContractParty lender() {
         return ContractParty.lender(
                 10L, 101L, ACTOR, new BigDecimal("1000000.00"),
-                new BigDecimal("10.000000"), NOW.minusSeconds(60));
+                new BigDecimal("10.000000"), "HOLD-INVESTOR-001", NOW.minusSeconds(60));
     }
 }

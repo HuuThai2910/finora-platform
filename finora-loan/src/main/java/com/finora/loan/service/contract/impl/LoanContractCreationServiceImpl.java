@@ -169,7 +169,7 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
         partyRepository.saveAll(allocations.stream()
                 .map(allocation -> ContractParty.lender(
                         contract.getId(), allocation.commitmentId(), allocation.investorId(),
-                        allocation.amount(), allocation.sharePercent(), now))
+                        allocation.amount(), allocation.sharePercent(), allocation.paymentHoldReference(), now))
                 .toList());
         partyRepository.flush();
         contractDocumentRepository.saveAndFlush(LoanContractDocument.create(
@@ -206,6 +206,7 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
                     || allocation.investorId() == null || allocation.investorId().isBlank()
                     || allocation.amount() == null || allocation.amount().signum() <= 0
                     || allocation.sharePercent() == null || allocation.sharePercent().signum() <= 0
+                    || allocation.paymentHoldReference() == null || allocation.paymentHoldReference().isBlank()
                     || !commitmentIds.add(allocation.commitmentId())) {
                 throw new IllegalArgumentException("Allocation lender bị thiếu hoặc trùng");
             }

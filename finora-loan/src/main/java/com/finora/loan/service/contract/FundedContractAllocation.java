@@ -7,6 +7,7 @@ public record FundedContractAllocation(
         Long commitmentId,
         String investorId,
         BigDecimal amount,
-        BigDecimal sharePercent
+        BigDecimal sharePercent,
+        String paymentHoldReference
 ) {
 }

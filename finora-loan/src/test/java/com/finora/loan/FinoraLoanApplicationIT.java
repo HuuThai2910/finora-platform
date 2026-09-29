@@ -386,7 +386,8 @@ class FinoraLoanApplicationIT {
                 .andExpect(jsonPath("$.funding.investmentListingId").doesNotExist());
 
         List<FundingAllocationEventData> allocations = List.of(
-                new FundingAllocationEventData(101L, "INVESTOR-001", "50000000.00", "100.000000"));
+                new FundingAllocationEventData(
+                        101L, "INVESTOR-001", "50000000.00", "100.000000", "HOLD-INVESTOR-001"));
         String allocationHash = hashingService.sha256Text(hashingService.toJson(allocations));
         UUID fundedEventId = UUID.randomUUID();
         LoanFullyFundedEventData funded = new LoanFullyFundedEventData(
@@ -491,6 +492,14 @@ class FinoraLoanApplicationIT {
                         .content(borrowerSignJson))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("EFFECTIVE"));
+
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM loan_outbox_events
+                WHERE event_type = 'DisbursementRequested'
+                  AND event_version = 2
+                  AND publishable = true
+                  AND payload_json::text LIKE '%HOLD-INVESTOR-001%'
+                """, Long.class)).isEqualTo(1L);
 
         org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
                 new org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken(

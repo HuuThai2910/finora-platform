@@ -10,6 +10,16 @@ import com.finora.payment.domain.ledger.LedgerTransactionStatus;
 import com.finora.payment.domain.ledger.LedgerTransactionType;
 import com.finora.payment.domain.wallet.PaymentWallet;
 import com.finora.payment.domain.wallet.WalletOwnerType;
+import com.finora.payment.domain.disbursement.PaymentDisbursement;
+import com.finora.payment.domain.disbursement.PaymentDisbursementStatus;
+import com.finora.payment.dto.request.CreateHoldRequest;
+import com.finora.payment.dto.response.HoldResponse;
+import com.finora.payment.dto.response.TopUpResponse;
+import com.finora.payment.messaging.DisbursementRequestedEventData;
+import com.finora.payment.repository.PaymentDisbursementRepository;
+import com.finora.payment.service.disbursement.PaymentDisbursementService;
+import com.finora.payment.service.hold.HoldTransferService;
+import com.finora.payment.service.topup.TopUpService;
 import com.finora.payment.repository.ledger.LedgerEntryRepository;
 import com.finora.payment.repository.ledger.LedgerTransactionRepository;
 import com.finora.payment.repository.wallet.PaymentWalletRepository;
@@ -20,6 +30,7 @@ import com.finora.payment.service.ledger.LedgerPostingService;
 import com.finora.payment.service.wallet.WalletAccountService;
 import com.finora.payment.service.wallet.WalletView;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -33,6 +44,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.dao.DataAccessException;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -41,7 +56,10 @@ import org.testcontainers.utility.DockerImageName;
 /**
  * Xác nhận Payment khởi động với đúng PostgreSQL 17 và Flyway không còn migration chờ chạy.
  */
-@SpringBootTest(properties = "spring.kafka.listener.auto-startup=false")
+@SpringBootTest(properties = {
+        "spring.kafka.listener.auto-startup=false",
+        "finora.payment.scheduling-enabled=false"
+})
 @Testcontainers
 class FinoraPaymentApplicationIT {
 
@@ -75,12 +93,27 @@ class FinoraPaymentApplicationIT {
     @Autowired
     private LedgerPostingService postingService;
 
+    @Autowired
+    private TopUpService topUpService;
+
+    @Autowired
+    private HoldTransferService holdTransferService;
+
+    @Autowired
+    private PaymentDisbursementService disbursementService;
+
+    @Autowired
+    private PaymentDisbursementRepository disbursementRepository;
+
     @BeforeEach
     void cleanLedger() {
         jdbcTemplate.execute("""
-                TRUNCATE TABLE payment_ledger_entries, payment_ledger_transactions, payment_wallets
+                TRUNCATE TABLE payment_top_ups, payment_holds, payment_disbursements,
+                    payment_processed_events, payment_outbox_events,
+                    payment_ledger_entries, payment_ledger_transactions, payment_wallets
                 RESTART IDENTITY CASCADE
                 """);
+        SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -176,6 +209,81 @@ class FinoraPaymentApplicationIT {
                 .hasMessageContaining("payment ledger transactions cannot be deleted");
     }
 
+    @Test
+    void topUpHoldAndDisbursementCaptureUseOneBalancedLedger() {
+        actAs("INVESTOR-100");
+        TopUpResponse topUp = topUpService.create(new BigDecimal("5000000"), "topup-it-100");
+        topUpService.completeMock(topUp.topUpId());
+
+        HoldResponse hold = holdTransferService.hold(new CreateHoldRequest(
+                "INVESTOR-100", new BigDecimal("2000000.00"), "ORDER-100"));
+        UUID sagaId = UUID.randomUUID();
+        disbursementService.request(UUID.randomUUID(), new DisbursementRequestedEventData(
+                sagaId, 100L, "LA-100", "LC-100", 200L, "BORROWER-100",
+                "2000000.00", "VND", List.of(new DisbursementRequestedEventData.Allocation(
+                300L, "INVESTOR-100", "2000000.00", hold.holdReference()))));
+
+        Long workId = disbursementService.dueIds().getFirst();
+        disbursementService.execute(workId);
+
+        PaymentWallet wallet = walletRepository.findByOwnerTypeAndOwnerIdAndCurrency(
+                WalletOwnerType.INVESTOR, "INVESTOR-100", "VND").orElseThrow();
+        PaymentWallet borrowerWallet = walletRepository.findByOwnerTypeAndOwnerIdAndCurrency(
+                WalletOwnerType.BORROWER, "BORROWER-100", "VND").orElseThrow();
+        assertThat(wallet.getAvailableBalance()).isEqualByComparingTo("3000000.00");
+        assertThat(wallet.getHeldBalance()).isEqualByComparingTo("0.00");
+        assertThat(borrowerWallet.getAvailableBalance()).isEqualByComparingTo("2000000.00");
+        assertThat(borrowerWallet.getHeldBalance()).isEqualByComparingTo("0.00");
+        assertThat(disbursementRepository.findBySagaId(sagaId).orElseThrow().getStatus())
+                .isEqualTo(PaymentDisbursementStatus.COMPLETED);
+    }
+
+    @Test
+    void completedLegacyDisbursementCreditsBorrowerExactlyOnce() {
+        UUID sagaId = UUID.randomUUID();
+        Instant now = Instant.parse("2026-09-28T12:00:00Z");
+        PaymentDisbursement legacy = PaymentDisbursement.requested(
+                sagaId, 102L, "LC-LEGACY", 202L, "BORROWER-LEGACY",
+                new BigDecimal("7000000.00"), "VND", "MOCK", "[]", now);
+        legacy.start(now);
+        legacy.complete("MOCK-LEGACY-" + sagaId, UUID.randomUUID(), now);
+        legacy = disbursementRepository.saveAndFlush(legacy);
+
+        assertThat(disbursementService.completedAwaitingBorrowerCreditIds()).contains(legacy.getId());
+
+        disbursementService.reconcileBorrowerCredit(legacy.getId());
+        disbursementService.reconcileBorrowerCredit(legacy.getId());
+
+        PaymentWallet borrowerWallet = walletRepository.findByOwnerTypeAndOwnerIdAndCurrency(
+                WalletOwnerType.BORROWER, "BORROWER-LEGACY", "VND").orElseThrow();
+        assertThat(borrowerWallet.getAvailableBalance()).isEqualByComparingTo("7000000.00");
+        assertThat(transactionRepository.count()).isEqualTo(1);
+        assertThat(entryRepository.count()).isEqualTo(2);
+        assertThat(disbursementService.completedAwaitingBorrowerCreditIds()).doesNotContain(legacy.getId());
+    }
+
+    @Test
+    void duplicateDisbursementSagaRejectsDifferentFinancialPayload() {
+        UUID sagaId = UUID.randomUUID();
+        DisbursementRequestedEventData original = new DisbursementRequestedEventData(
+                sagaId, 101L, "LA-101", "LC-101", 201L, "BORROWER-101",
+                "1000000.00", "VND", List.of(new DisbursementRequestedEventData.Allocation(
+                301L, "INVESTOR-101", "1000000.00", "HOLD-101")));
+        DisbursementRequestedEventData conflicting = new DisbursementRequestedEventData(
+                sagaId, 101L, "LA-101", "LC-101", 201L, "BORROWER-101",
+                "1500000.00", "VND", List.of(new DisbursementRequestedEventData.Allocation(
+                301L, "INVESTOR-101", "1500000.00", "HOLD-101")));
+
+        disbursementService.request(UUID.randomUUID(), original);
+
+        assertThatThrownBy(() -> disbursementService.request(UUID.randomUUID(), conflicting))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("sagaId");
+        assertThat(disbursementRepository.count()).isEqualTo(1);
+        assertThat(disbursementRepository.findBySagaId(sagaId).orElseThrow().getAmount())
+                .isEqualByComparingTo("1000000.00");
+    }
+
     private boolean postAfterBarrier(
             LedgerPostingCommand command,
             CountDownLatch ready,
@@ -219,5 +327,15 @@ class FinoraPaymentApplicationIT {
     private static LedgerPostingEntryCommand wallet(UUID walletId, LedgerDirection direction, String amount) {
         return new LedgerPostingEntryCommand(
                 walletId, null, LedgerBalanceBucket.AVAILABLE, direction, new BigDecimal(amount));
+    }
+
+    private static void actAs(String userId) {
+        Jwt jwt = Jwt.withTokenValue("test-token")
+                .header("alg", "none")
+                .subject(userId)
+                .claim("user_id", userId)
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(
+                jwt, List.of(new SimpleGrantedAuthority("ROLE_INVESTOR")), userId));
     }
 }

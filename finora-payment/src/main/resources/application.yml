@@ -22,6 +22,12 @@ spring:
     locations: classpath:db/migration
     validate-on-migrate: true
     clean-disabled: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/finora}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/finora/protocol/openid-connect/certs}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     listener:
@@ -38,7 +44,7 @@ spring:
     redis:
       host: ${PAYMENT_REDIS_HOST:localhost}
       port: ${PAYMENT_REDIS_PORT:6380}
-      password: ${PAYMENT_REDIS_PASSWORD}
+      password: ${PAYMENT_REDIS_PASSWORD:}
       repositories:
         enabled: false
 
@@ -47,9 +53,24 @@ server:
 
 finora:
   payment:
-    provider: ${PAYMENT_PROVIDER:mock}
+    scheduling-enabled: ${PAYMENT_SCHEDULING_ENABLED:true}
+    disbursement:
+      provider: ${PAYMENT_DISBURSEMENT_PROVIDER:${PAYMENT_PROVIDER:mock}}
+    top-up:
+      provider: ${PAYMENT_TOPUP_PROVIDER:mock}
+      minimum-amount: ${PAYMENT_TOPUP_MINIMUM_AMOUNT:10000}
+      maximum-amount: ${PAYMENT_TOPUP_MAXIMUM_AMOUNT:100000000}
     mock:
       outcome: ${PAYMENT_MOCK_OUTCOME:success}
+    zalopay:
+      base-url: ${ZALOPAY_BASE_URL:https://sb-openapi.zalopay.vn}
+      app-id: ${ZALOPAY_APP_ID:}
+      key1: ${ZALOPAY_KEY1:}
+      key2: ${ZALOPAY_KEY2:}
+      callback-url: ${ZALOPAY_CALLBACK_URL:}
+      redirect-url: ${ZALOPAY_REDIRECT_URL:}
+      connect-timeout: ${ZALOPAY_CONNECT_TIMEOUT:3s}
+      read-timeout: ${ZALOPAY_READ_TIMEOUT:10s}
     disbursement-requested-topic: ${LOAN_DISBURSEMENT_REQUESTED_TOPIC:finora.loan.disbursement-requested}
     disbursement-completed-topic: ${PAYMENT_DISBURSEMENT_COMPLETED_TOPIC:finora.payment.disbursement-completed}
     disbursement-failed-topic: ${PAYMENT_DISBURSEMENT_FAILED_TOPIC:finora.payment.disbursement-failed}

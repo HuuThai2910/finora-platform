@@ -55,6 +55,9 @@ logging:
 
 finora:
   investment:
+    payment:
+      mode: ${INVESTMENT_PAYMENT_MODE:http}
+      base-url: ${PAYMENT_SERVICE_URL:http://localhost:8082/api/v1}
     kafka:
       funding-requested-topic: ${LOAN_FUNDING_REQUESTED_TOPIC:finora.loan.funding-requested}
       fully-funded-topic: ${INVESTMENT_FULLY_FUNDED_TOPIC:finora.investment.loan-fully-funded}
