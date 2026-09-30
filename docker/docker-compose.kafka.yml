@@ -1,0 +1,47 @@
+# Chỉ chạy Kafka, tách từ service `kafka` trong docker-compose.yml.
+# Sửa cấu hình Kafka thì sửa cả hai file để không lệch nhau.
+#
+# Chạy từ gốc repo:
+#   docker compose -f docker/docker-compose.kafka.yml up -d
+#   docker compose -f docker/docker-compose.kafka.yml down
+#
+# Không đặt `name:` nên project name vẫn là "docker" như file chính: dùng chung
+# volume kafka-data và network finora-network với các service bật từ file kia.
+# App chạy trong IntelliJ dùng localhost:${KAFKA_HOST_PORT}; app trong Compose dùng kafka:29092.
+services:
+  kafka:
+    image: apache/kafka:3.9.1
+    restart: unless-stopped
+    container_name: finora-kafka
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: CONTROLLER://:29093,PLAINTEXT://:29092,PLAINTEXT_HOST://:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:${KAFKA_HOST_PORT:-9092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+    ports:
+      - "127.0.0.1:${KAFKA_HOST_PORT:-9092}:9092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - finora-network
+
+volumes:
+  kafka-data:
+
+networks:
+  finora-network:
+    driver: bridge

@@ -16,7 +16,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-CIC_BASE_URL = os.getenv("CIC_SERVICE_URL", "http://localhost:9000")
+# Mặc định trỏ bản Node đã deploy Vercel; chạy cic-service local thì đặt
+# CIC_SERVICE_URL=http://localhost:9000.
+CIC_BASE_URL = os.getenv("CIC_SERVICE_URL", "https://cic-service-node.vercel.app")
 CIC_TIMEOUT_SECONDS = float(os.getenv("CIC_TIMEOUT_SECONDS", "3.0"))
 
 

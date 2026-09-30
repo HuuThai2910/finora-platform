@@ -46,8 +46,9 @@ public class PaymentSecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of(
-                "http://localhost:3000", "http://localhost:5173", "http://localhost:8080"));
+        // Mẫu origin để Expo web (cổng bất kỳ) và máy trong LAN gọi thẳng service được.
+        configuration.setAllowedOriginPatterns(List.of(
+                "http://localhost:*", "http://127.0.0.1:*", "http://192.168.*.*:*"));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);

@@ -64,15 +64,16 @@ public class SecurityConfig {
 
     /**
      * Cho phép web quản trị chạy ở dev server và request đi qua Gateway. Phải bật
-     * {@code allowCredentials} vì web gửi token bằng cookie.
+     * {@code allowCredentials} vì web gửi token bằng cookie. Dùng mẫu origin để Expo web
+     * (cổng bất kỳ) và máy trong LAN gọi thẳng service được.
      */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of(
-                "http://localhost:3000",
-                "http://localhost:5173",
-                "http://localhost:8080"));
+        configuration.setAllowedOriginPatterns(List.of(
+                "http://localhost:*",
+                "http://127.0.0.1:*",
+                "http://192.168.*.*:*"));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);

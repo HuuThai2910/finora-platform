@@ -1,0 +1,344 @@
+# =============================================================================
+# FINORA — chạy 6 service bằng một lệnh: gateway, user, ai, loan, payment, investment
+# kèm hạ tầng chúng cần: Kafka, Keycloak, Redis, Fineract.
+#
+# Chạy từ thư mục finora-platform:
+#   docker compose -f docker/docker-compose.app.yml up -d --build
+#   docker compose -f docker/docker-compose.app.yml ps
+#   docker compose -f docker/docker-compose.app.yml logs -f loan
+#   docker compose -f docker/docker-compose.app.yml down
+#
+# Lần đầu build mất khoảng 5–15 phút (Maven và pip tải thư viện).
+#
+# Cấu hình:
+# - Mỗi service đọc đúng file .env của nó (finora-*/.env) qua `env_file`, nên secret
+#   không nằm trong file này. Phần `environment` chỉ ghi đè các địa chỉ localhost
+#   thành tên service trong mạng Docker.
+# - Keycloak lấy thông tin database từ docker/.env (Compose tự nạp vì file này nằm
+#   cùng thư mục). Realm `finora` đã có sẵn trong database Neon nên không import.
+# - Database của 6 service ở Neon. Riêng Fineract dùng PostgreSQL trên máy (5432),
+#   nên PostgreSQL đó phải đang chạy.
+# - Payment dùng chung Redis với User (giống cấu hình chạy local hiện tại).
+#
+# Trước khi chạy: tắt các service đang chạy trong IntelliJ/terminal và các container
+# cũ (finora-kafka, finora-keycloak, finora-user-redis, finora-fineract) vì trùng cổng.
+#
+# Cổng trên máy:
+#   gateway 8080, loan 8081, payment 8082, investment 8084, user 8085, ai 8000
+#   (mở ra mọi địa chỉ để mobile trong LAN gọi được qua 192.168.x.x)
+#   keycloak 8180, kafka 9092, redis 6381, fineract 18443 (chỉ 127.0.0.1)
+# =============================================================================
+name: finora-app
+
+x-java-service: &java-service
+  restart: unless-stopped
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  networks:
+    - finora
+
+# Spring của mọi service kiểm tra `iss` trong JWT bằng địa chỉ công khai, còn khóa
+# ký (JWKS) thì tải qua tên nội bộ `keycloak`.
+x-keycloak-jwt: &keycloak-jwt
+  KEYCLOAK_ISSUER_URI: http://localhost:8180/realms/finora
+  KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/finora/protocol/openid-connect/certs
+
+services:
+  # ============================ HẠ TẦNG ============================
+  kafka:
+    image: apache/kafka:3.9.1
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: CONTROLLER://:29093,PLAINTEXT://:29092,PLAINTEXT_HOST://:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+    ports:
+      - "127.0.0.1:9092:9092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    networks:
+      - finora
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    restart: unless-stopped
+    command: ["start-dev"]
+    environment:
+      KEYCLOAK_ADMIN: "${KEYCLOAK_ADMIN}"
+      KEYCLOAK_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD}"
+      KC_DB: postgres
+      KC_DB_URL: "jdbc:postgresql://${KEYCLOAK_DB_HOST}:${KEYCLOAK_DB_PORT:-5432}/${KEYCLOAK_DB_NAME}${KEYCLOAK_DB_PARAMS:-}"
+      KC_DB_USERNAME: "${KEYCLOAK_DB_USERNAME}"
+      KC_DB_PASSWORD: "${KEYCLOAK_DB_PASSWORD}"
+      KC_HEALTH_ENABLED: "true"
+      # Cố định issuer để JWT giống nhau dù được cấp qua keycloak:8080 hay localhost:8180.
+      KC_HOSTNAME_URL: http://localhost:8180
+      KC_HOSTNAME_STRICT: "true"
+    ports:
+      - "127.0.0.1:8180:8080"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8080;
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q '200 OK'"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    networks:
+      - finora
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6381:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - finora
+
+  # Apache Fineract (core banking của Loan). Dùng lại database fineract_tenants /
+  # fineract_default trên PostgreSQL của máy (cổng 5432), giống container cũ, nên
+  # không mất dữ liệu đã có. Tài khoản lấy từ docker/.env.
+  fineract:
+    build:
+      context: ./fineract
+      dockerfile: Dockerfile
+    image: finora/fineract:1.15.0
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      FINERACT_HIKARI_DRIVER_SOURCE_CLASS_NAME: org.postgresql.Driver
+      FINERACT_HIKARI_JDBC_URL: jdbc:postgresql://host.docker.internal:5432/fineract_tenants
+      FINERACT_HIKARI_USERNAME: "${FINERACT_DB_USERNAME:-fineract}"
+      FINERACT_HIKARI_PASSWORD: "${FINERACT_DB_PASSWORD}"
+      FINERACT_DEFAULT_TENANTDB_HOSTNAME: host.docker.internal
+      FINERACT_DEFAULT_TENANTDB_PORT: "5432"
+      FINERACT_DEFAULT_TENANTDB_UID: "${FINERACT_DB_USERNAME:-fineract}"
+      FINERACT_DEFAULT_TENANTDB_PWD: "${FINERACT_DB_PASSWORD}"
+      FINERACT_DEFAULT_TENANTDB_CONN_PARAMS: ""
+      FINERACT_DEFAULT_TENANTDB_TIMEZONE: Asia/Ho_Chi_Minh
+      FINERACT_DEFAULT_TENANTDB_IDENTIFIER: default
+      FINERACT_DEFAULT_TENANTDB_NAME: fineract_default
+      FINERACT_DEFAULT_TENANTDB_DESCRIPTION: FINORA Local Tenant
+      # Phải giữ đúng giá trị cũ: nó mã hóa mật khẩu tenant đã lưu trong fineract_tenants.
+      FINERACT_DEFAULT_MASTER_PASSWORD: "${FINERACT_DEFAULT_MASTER_PASSWORD:-fineract}"
+      FINERACT_SERVER_SSL_ENABLED: "false"
+      FINERACT_SERVER_PORT: "8443"
+      FINERACT_MANAGEMENT_ENDPOINT_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+      FINERACT_NODE_ID: "1"
+      SPRING_PROFILES_ACTIVE: test,diagnostics
+      FINORA_READINESS_API_USERNAME: "${FINERACT_API_USERNAME:-mifos}"
+      FINORA_READINESS_API_PASSWORD: "${FINERACT_API_PASSWORD:-password}"
+      FINORA_READINESS_TENANT_ID: default
+    ports:
+      - "127.0.0.1:18443:8443"
+    healthcheck:
+      # Fineract khởi tạo API lười ở request đầu; mở cổng chưa có nghĩa là Loan gọi được.
+      test: ["CMD", "/usr/local/bin/finora-fineract-readiness"]
+      interval: 15s
+      timeout: 20s
+      retries: 40
+      start_period: 180s
+    networks:
+      - finora
+
+  # ============================ SERVICE ============================
+  ai:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ai
+    image: finora/ai:app
+    restart: unless-stopped
+    env_file: ../finora-ai/.env
+    environment:
+      USER_SERVICE_URL: http://user:8085
+      KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/finora/protocol/openid-connect/token
+      # Lần lấy token đầu tiên sau khi Keycloak khởi động mất ~3 giây (nạp dữ liệu từ
+      # Neon); mặc định 3 giây sẽ làm hồ sơ đầu tiên bị chấm như không có CIC.
+      USER_TIMEOUT_SECONDS: "10"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - finora
+
+  user:
+    <<: *java-service
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.java-service
+      args:
+        SERVICE_MODULE: finora-user
+    image: finora/user:app
+    env_file: ../finora-user/.env
+    environment:
+      <<: *keycloak-jwt
+      KEYCLOAK_SERVER_URL: http://keycloak:8080
+      USER_REDIS_HOST: redis
+      USER_REDIS_PORT: "6379"
+      AI_SERVICE_URL: http://ai:8000
+      # finora-notification không nằm trong compose này; chạy riêng trên máy thì vẫn gọi được.
+      NOTIFICATION_SERVICE_URL: http://host.docker.internal:8086
+    ports:
+      - "8085:8085"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8085'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  payment:
+    <<: *java-service
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.java-service
+      args:
+        SERVICE_MODULE: finora-payment
+    image: finora/payment:app
+    env_file: ../finora-payment/.env
+    environment:
+      <<: *keycloak-jwt
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      PAYMENT_REDIS_HOST: redis
+      PAYMENT_REDIS_PORT: "6379"
+      PAYMENT_REDIS_PASSWORD: ""
+    ports:
+      - "8082:8082"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8082'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  investment:
+    <<: *java-service
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.java-service
+      args:
+        SERVICE_MODULE: finora-investment
+    image: finora/investment:app
+    env_file: ../finora-investment/.env
+    environment:
+      <<: *keycloak-jwt
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      PAYMENT_SERVICE_URL: http://payment:8082/api/v1
+    ports:
+      - "8084:8084"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8084'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  loan:
+    <<: *java-service
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.java-service
+      args:
+        SERVICE_MODULE: finora-loan
+    image: finora/loan:app
+    env_file: ../finora-loan/.env
+    environment:
+      <<: *keycloak-jwt
+      # Profile `local` bật bản giả hồ sơ người vay — Loan chưa có provider nào khác.
+      SPRING_PROFILES_ACTIVE: local
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      AI_SERVICE_URL: http://ai:8000
+      FINERACT_BASE_URL: http://fineract:8443/fineract-provider/api/v1
+    ports:
+      - "8081:8081"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      # Không chờ Fineract healthy (mất ~3 phút): Loan gọi Fineract khi cần và tự thử lại.
+      fineract:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8081'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  gateway:
+    <<: *java-service
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.java-service
+      args:
+        SERVICE_MODULE: finora-gateway
+    image: finora/gateway:app
+    environment:
+      # application-docker.yml trỏ route tới tên service trong mạng Docker.
+      SPRING_PROFILES_ACTIVE: docker
+    ports:
+      - "8080:8080"
+    depends_on:
+      - user
+      - loan
+      - payment
+      - investment
+      - ai
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+volumes:
+  kafka-data:
+  redis-data:
+
+networks:
+  finora:
+    driver: bridge
