@@ -54,6 +54,14 @@ public class PaymentHold {
     @Column(nullable = false, length = 3, updatable = false)
     private String currency;
 
+    /**
+     * Phần đã chuyển đi từ khoản giữ qua {@link #settle} — lệnh mua trên sổ lệnh Notes khớp từng
+     * phần, mỗi lần khớp lấy một phần tiền giữ trả cho người bán. Phần còn lại vẫn giữ cho tới khi
+     * {@link #release} nhả về ví. Khoản giữ của luồng gọi vốn sơ cấp luôn bằng 0.
+     */
+    @Column(name = "settled_amount", nullable = false, precision = 19, scale = 2)
+    private BigDecimal settledAmount;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private PaymentHoldStatus status;
@@ -99,6 +107,7 @@ public class PaymentHold {
             throw new IllegalArgumentException("amount phải dương");
         }
         hold.currency = wallet.getCurrency();
+        hold.settledAmount = BigDecimal.ZERO.setScale(2);
         hold.status = PaymentHoldStatus.HELD;
         hold.heldAt = Objects.requireNonNull(now, "now");
         hold.createdAt = now;
@@ -116,6 +125,11 @@ public class PaymentHold {
         }
         if (status != PaymentHoldStatus.HELD) {
             throw new IllegalStateException("Khoản tiền không còn sẵn sàng để capture");
+        }
+        // Capture giải ngân lấy trọn số giữ ban đầu; khoản đã chuyển đi một phần cho người bán Note
+        // thì không còn đủ, và không bao giờ thuộc allocation giải ngân.
+        if (settledAmount.signum() > 0) {
+            throw new IllegalStateException("Khoản tiền đã được thanh toán một phần, không capture toàn bộ được");
         }
         captureReference = normalized;
         status = PaymentHoldStatus.CAPTURE_PENDING;
@@ -141,6 +155,27 @@ public class PaymentHold {
         status = PaymentHoldStatus.CAPTURED;
         capturedAt = Objects.requireNonNull(now, "now");
         updatedAt = now;
+    }
+
+    /** Phần còn đang giữ: số giữ ban đầu trừ phần đã thanh toán. */
+    public BigDecimal remainingAmount() {
+        return amount.subtract(settledAmount);
+    }
+
+    /**
+     * Ghi nhận một lần thanh toán từ khoản giữ. Chỉ khoản đang HELD mới thanh toán được, và tổng đã
+     * thanh toán không vượt số giữ — bất biến tiền của khoản giữ.
+     */
+    public void settle(BigDecimal value, Instant now) {
+        BigDecimal normalized = Objects.requireNonNull(value, "value").setScale(2);
+        if (status != PaymentHoldStatus.HELD) {
+            throw new IllegalStateException("Khoản tiền không còn ở trạng thái giữ");
+        }
+        if (normalized.signum() <= 0 || normalized.compareTo(remainingAmount()) > 0) {
+            throw new IllegalArgumentException("Số tiền thanh toán vượt phần còn đang giữ");
+        }
+        settledAmount = settledAmount.add(normalized);
+        updatedAt = Objects.requireNonNull(now, "now");
     }
 
     public boolean release(String actorId, Instant now) {

@@ -12,6 +12,10 @@ note: Backend đã triển khai 2026-09-22 theo yêu cầu của owner, plan ch�
 
 # INV-E1 — Chợ thứ cấp Notes: luồng nghiệp vụ
 
+> **2026-10-02:** cơ chế bảng tin (mục 4–5, mục 11) đã được thay bằng sổ lệnh Ask/Bid —
+> xem [INV-E2](INV-E2-order-book-matching.md). Các quy tắc giá trần theo dư nợ, phí 5% trừ người bán,
+> cho bán Note nợ xấu kèm cảnh báo và các quyết định ở mục 8 vẫn giữ nguyên.
+
 > Plan này **chỉ mô tả luồng nghiệp vụ và quy tắc**. Chưa đặc tả entity, API contract hay
 > cấu trúc code — phần đó viết sau khi flow được duyệt.
 

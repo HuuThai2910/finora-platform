@@ -2,6 +2,7 @@ package com.finora.investment.config;
 
 import com.finora.common.security.DualBearerTokenResolver;
 import com.finora.common.security.KeycloakJwtAuthenticationConverter;
+import jakarta.servlet.DispatcherType;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -48,6 +49,10 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Probe của hạ tầng phải gọi được khi chưa có token.
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        // Stream sổ lệnh (SSE) gửi dữ liệu qua async dispatch sau khi request gốc đã
+                        // qua xác thực. Không mở thì Spring Security chặn lại lượt dispatch đó khi
+                        // response đã commit và stream bị cắt.
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // Swagger để đối chiếu hợp đồng API khi phát triển.
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()

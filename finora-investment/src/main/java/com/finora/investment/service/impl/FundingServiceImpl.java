@@ -2,6 +2,7 @@ package com.finora.investment.service.impl;
 
 import com.finora.investment.service.FundingService;
 import com.finora.investment.service.OrderTransactionService;
+import com.finora.common.enums.investment.OrderStatus;
 import com.finora.common.security.SecurityUtils;
 import com.finora.investment.domain.order.InvestmentOrder;
 import com.finora.investment.dto.request.PlaceOrderRequest;
@@ -59,7 +60,20 @@ public class FundingServiceImpl implements FundingService {
      */
     @Override
     public OrderResponse placeOrder(Long listingId, String idempotencyKey, PlaceOrderRequest request) {
-        String investorId = SecurityUtils.getCurrentUserId();
+        return placeOrderFor(SecurityUtils.getCurrentUserId(), listingId, idempotencyKey, request);
+    }
+
+    /**
+     * Lõi đặt lệnh, nhận {@code investorId} tường minh thay vì đọc JWT — Auto-Invest chạy trong
+     * worker không có người dùng đăng nhập.
+     *
+     * <p>Gửi lại cùng khóa mà lệnh cũ còn kẹt ở {@code PENDING_FUNDS} (lần trước Payment không
+     * phản hồi) thì làm tiếp từ bước giữ tiền: Payment idempotent theo mã lệnh nên không giữ hai
+     * lần, và bước chốt cam kết tự kiểm tra lại listing.</p>
+     */
+    @Override
+    public OrderResponse placeOrderFor(
+            String investorId, Long listingId, String idempotencyKey, PlaceOrderRequest request) {
         String requestHash = hashRequest(listingId, request.amount());
 
         Optional<InvestmentOrder> replayed = orderRepository
@@ -74,15 +88,21 @@ public class FundingServiceImpl implements FundingService {
                         "Khóa idempotency đã được dùng cho một lệnh khác"
                 );
             }
-            return mapper.toOrderResponse(existing);
+            if (existing.getStatus() != OrderStatus.PENDING_FUNDS) {
+                return mapper.toOrderResponse(existing);
+            }
+            return holdAndCommit(existing, listingId);
         }
 
         InvestmentOrder order = transactions.createPendingOrder(
                 listingId, investorId, idempotencyKey, requestHash, request);
+        return holdAndCommit(order, listingId);
+    }
 
+    private OrderResponse holdAndCommit(InvestmentOrder order, Long listingId) {
         // Ngoài transaction: chờ mạng ở đây không khóa nhà đầu tư khác của cùng khoản vay.
         PaymentHoldResult hold = paymentClient.hold(
-                investorId, order.getAmount(), order.getOrderReference());
+                order.getInvestorId(), order.getAmount(), order.getOrderReference());
 
         if (!hold.isSuccess()) {
             if (hold.isRetryable()) {

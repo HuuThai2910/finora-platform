@@ -10,8 +10,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface MarketListingRepository extends JpaRepository<MarketListing, Long> {
 
@@ -57,6 +59,26 @@ public interface MarketListingRepository extends JpaRepository<MarketListing, Lo
             @Param("maxTermMonths") Integer maxTermMonths,
             Pageable pageable
     );
+
+    /** Listing đang mở mà Auto-Invest chưa xét, khoản mở sớm nhất trước. */
+    @Query("""
+            SELECT l.id FROM MarketListing l
+            WHERE l.status = 'OPEN' AND l.autoInvestProcessedAt IS NULL
+            ORDER BY l.fundingOpenedAt ASC, l.id ASC
+            """)
+    List<Long> findAutoInvestPendingIds(Pageable pageable);
+
+    /**
+     * Đánh dấu Auto-Invest đã xét xong listing.
+     *
+     * <p>Bulk update không tăng {@code @Version}, nên không làm lệnh đặt tay đang chạy song song
+     * thất bại vì xung đột phiên bản.</p>
+     */
+    @Transactional
+    @Modifying
+    @Query("UPDATE MarketListing l SET l.autoInvestProcessedAt = :now "
+            + "WHERE l.id = :id AND l.autoInvestProcessedAt IS NULL")
+    int markAutoInvestProcessed(@Param("id") Long id, @Param("now") Instant now);
 
     /** Listing quá hạn gọi vốn, để worker đóng lại theo lô. */
     @Query("SELECT l FROM MarketListing l WHERE l.status = 'OPEN' AND l.fundingClosesAt <= :now")

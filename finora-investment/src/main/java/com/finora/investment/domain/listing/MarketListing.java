@@ -139,6 +139,14 @@ public class MarketListing {
     @Column(name = "allocation_hash", length = 64)
     private String allocationHash;
 
+    /**
+     * Lúc worker Auto-Invest xét xong listing này. Chỉ ghi bằng câu UPDATE riêng
+     * ({@code MarketListingRepository.markAutoInvestProcessed}) để không đụng {@code @Version}
+     * trong lúc nhà đầu tư khác đang đặt lệnh.
+     */
+    @Column(name = "auto_invest_processed_at", insertable = false, updatable = false)
+    private Instant autoInvestProcessedAt;
+
     @Version
     @Column(nullable = false)
     private Long version;

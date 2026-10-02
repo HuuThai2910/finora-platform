@@ -61,6 +61,12 @@
       }
     ],
     "client": {
+      "finora-investment-client": [
+        {
+          "name": "payment:hold:on_behalf",
+          "description": "Auto-Invest: giu/nha tien trong vi thay nha dau tu (chi hold/release)"
+        }
+      ],
       "finora-user-client": [
         {
           "name": "user:profile:read",
@@ -91,6 +97,28 @@
   },
 
   "clients": [
+    {
+      "clientId": "finora-investment-client",
+      "name": "FINORA Investment Service",
+      "description": "Service account cua finora-investment: Auto-Invest goi Payment khi khong co JWT nguoi dung",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "__KEYCLOAK_INVESTMENT_CLIENT_SECRET__",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true,
+      "attributes": {
+        "client_credentials.use_refresh_token": "false"
+      },
+      "defaultClientScopes": [
+        "roles"
+      ]
+    },
     {
       "clientId": "finora-user-client",
       "name": "FINORA User Service",
@@ -146,6 +174,16 @@
   ],
 
   "users": [
+    {
+      "username": "service-account-finora-investment-client",
+      "enabled": true,
+      "serviceAccountClientId": "finora-investment-client",
+      "clientRoles": {
+        "finora-investment-client": [
+          "payment:hold:on_behalf"
+        ]
+      }
+    },
     {
       "username": "service-account-finora-user-client",
       "enabled": true,

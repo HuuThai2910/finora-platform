@@ -266,6 +266,9 @@ services:
       <<: *keycloak-jwt
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       PAYMENT_SERVICE_URL: http://payment:8082/api/v1
+      # Auto-Invest lấy token service account qua tên nội bộ; issuer vẫn là localhost:8180
+      # nhờ KC_HOSTNAME_URL nên Payment chấp nhận token này.
+      KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/finora/protocol/openid-connect/token
     ports:
       - "8084:8084"
     depends_on:

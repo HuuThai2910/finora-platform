@@ -1,6 +1,7 @@
 package com.finora.payment.controller;
 
 import com.finora.payment.dto.request.CreateHoldRequest;
+import com.finora.payment.dto.request.SettleHoldRequest;
 import com.finora.payment.dto.request.TransferRequest;
 import com.finora.payment.dto.response.HoldResponse;
 import com.finora.payment.dto.response.TransferResponse;
@@ -31,6 +32,15 @@ public class TransactionController {
             @RequestParam String orderReference
     ) {
         return service.release(holdReference, orderReference);
+    }
+
+    /** Thanh toán một lần khớp trên sổ lệnh Notes từ khoản giữ của lệnh mua (service account Investment). */
+    @PostMapping("/holds/{holdReference}/settlements")
+    public TransferResponse settle(
+            @PathVariable String holdReference,
+            @Valid @RequestBody SettleHoldRequest request
+    ) {
+        return service.settleFromHold(holdReference, request);
     }
 
     @PostMapping("/transfers")

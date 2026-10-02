@@ -20,8 +20,9 @@ import lombok.NoArgsConstructor;
  * {@code updatable = false}. Tin đăng bán còn đổi trạng thái được, còn giao dịch đã xảy ra thì
  * không — nếu cần sửa thì ghi một bản ghi đối ứng, không sửa bản ghi cũ.</p>
  *
- * <p>Tách khỏi {@link NoteListing} vì một Note có thể được chuyển nhượng nhiều lần: người mua
- * hôm nay có thể là người bán tháng sau.</p>
+ * <p>Dùng chung cho hai nguồn: bảng tin cũ (V2, đã thay bằng sổ lệnh) và sổ lệnh (V9). Tách khỏi
+ * nguồn vì một Note có thể được chuyển nhượng nhiều lần: người mua hôm nay có thể là người bán
+ * tháng sau.</p>
  */
 @Entity
 @Table(name = "note_transfers")
@@ -38,8 +39,16 @@ public class NoteTransfer {
     @Column(name = "note_id", nullable = false, updatable = false)
     private Long noteId;
 
-    @Column(name = "note_listing_id", nullable = false, unique = true, updatable = false)
+    /** Tin đăng bán của bảng tin cũ (V2); null với chuyển nhượng qua sổ lệnh. */
+    @Column(name = "note_listing_id", updatable = false)
     private Long noteListingId;
+
+    /**
+     * Lần khớp trên sổ lệnh đã chuyển Note này; null với chuyển nhượng qua bảng tin cũ. Một lần
+     * khớp gồm nhiều Note nên nhiều dòng chung một {@code tradeId}.
+     */
+    @Column(name = "trade_id", updatable = false)
+    private Long tradeId;
 
     @Column(name = "seller_id", nullable = false, length = 100, updatable = false)
     private String sellerId;
@@ -71,7 +80,8 @@ public class NoteTransfer {
     @Column(name = "defaulted_at_transfer", nullable = false, updatable = false)
     private Boolean defaultedAtTransfer;
 
-    @Column(name = "payment_reference", nullable = false, length = 100, unique = true, updatable = false)
+    /** Mã chống trùng phía Payment; với sổ lệnh là {@code tradeReference}, chung cho cả lần khớp. */
+    @Column(name = "payment_reference", nullable = false, length = 100, updatable = false)
     private String paymentReference;
 
     @Column(name = "transferred_at", nullable = false, updatable = false)
