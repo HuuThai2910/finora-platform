@@ -117,6 +117,33 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 
 **CURRENT STATE (2026-09-28):** Payment đã có API wallet/top-up/hold/release/transfer, immutable balanced ledger và capture đúng từng `paymentHoldReference`. Investment mặc định gọi Payment qua HTTP và truyền hold reference trong `LoanFullyFunded.v2`; stub chỉ còn dùng trong test. Nạp tiền hỗ trợ provider `mock` và adapter ZaloPay sandbox có HMAC callback; disbursement hiện dùng provider `mock`, còn ZaloPay disbursement fail-closed vì chưa có quyền API chuyển tiền.
 
+## F04b — Sổ lệnh chợ thứ cấp Notes
+
+**Trigger:** nhà đầu tư đặt hoặc huỷ lệnh Ask/Bid. **Orchestrator:** Investment. **Plan:**
+[`INV-E2`](../../finora-investment/plans/INV-E2-order-book-matching.md).
+
+1. Lệnh mua: Investment ghi order `PENDING_FUNDS`, gọi Payment `hold` ngoài transaction (idempotent theo
+   `orderReference`), rồi khóa sổ, cho lệnh vào sổ và khớp. Lệnh bán: Investment khóa Note của người bán,
+   vào sổ và khớp trong một transaction.
+2. Khớp chỉ ghi database Investment: đổi chủ Note, ghi trade `PENDING` (đóng vai outbox) và lịch sử chuyển
+   nhượng trong cùng transaction. Không gọi mạng khi đang khóa sổ.
+3. Worker Investment gọi Payment `settleFromHold` theo `tradeReference` để chuyển từ tiền giữ của người mua
+   sang người bán và thu phí; khi lệnh mua kết thúc và mọi trade đã thanh toán thì gọi `release` nhả phần còn lại.
+
+**State authority:** Investment cho lệnh, trade, Note ownership; Payment cho tiền giữ và ledger.
+
+**Idempotency:** `(investorId, Idempotency-Key)` cho đặt lệnh; `orderReference` cho hold/release;
+`tradeReference` cho thanh toán.
+
+**Failure:** hold từ chối → order `REJECTED`; hold không chắc chắn → giữ `PENDING_FUNDS`, client gửi lại cùng
+khóa. Thanh toán lỗi tạm thời → trade `PENDING`, retry backoff; Payment từ chối hẳn → `FAILED` và đối soát
+tay, không đảo chủ Note.
+
+**CURRENT STATE (2026-10-02):** cả hai phía đã triển khai. Payment có
+`POST /transactions/holds/{holdReference}/settlements` (service account `payment:hold:on_behalf`) và `release`
+chỉ nhả phần còn giữ — xem [`INVESTMENT-PAYMENT-ORDER-BOOK.md`](../../docs/integrations/INVESTMENT-PAYMENT-ORDER-BOOK.md).
+Phần Payment do Hải viết theo yêu cầu, owner Payment (Thái) cần review trước merge.
+
 ## F05 — Saga giải ngân
 
 **Trigger:** Loan ở `FUNDED` và đủ điều kiện/chữ ký. **Orchestrator:** Loan.

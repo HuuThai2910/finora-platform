@@ -13,6 +13,7 @@ import com.finora.payment.domain.wallet.WalletOwnerType;
 import com.finora.payment.domain.disbursement.PaymentDisbursement;
 import com.finora.payment.domain.disbursement.PaymentDisbursementStatus;
 import com.finora.payment.dto.request.CreateHoldRequest;
+import com.finora.payment.dto.request.SettleHoldRequest;
 import com.finora.payment.dto.response.HoldResponse;
 import com.finora.payment.dto.response.TopUpResponse;
 import com.finora.payment.messaging.DisbursementRequestedEventData;
@@ -238,6 +239,38 @@ class FinoraPaymentApplicationIT {
                 .isEqualTo(PaymentDisbursementStatus.COMPLETED);
     }
 
+    /**
+     * Sổ lệnh Notes: một lệnh mua giữ tiền một lần, khớp hai lần với người bán, rồi nhả phần thừa.
+     * Gọi lại cùng mã thanh toán không chuyển tiền lần hai; ví cuối cùng khớp từng đồng.
+     */
+    @Test
+    void holdIsSettledInPartsThenRemainderReleased() {
+        actAs("BUYER-OB");
+        TopUpResponse topUp = topUpService.create(new BigDecimal("5000000"), "topup-it-ob");
+        topUpService.completeMock(topUp.topUpId());
+        HoldResponse hold = holdTransferService.hold(new CreateHoldRequest(
+                "BUYER-OB", new BigDecimal("2910000.00"), "OB-IT-1"));
+
+        actAsInvestmentService();
+        SettleHoldRequest first = new SettleHoldRequest(
+                "OB-IT-1", "SELLER-OB", new BigDecimal("970000.00"), new BigDecimal("48500.00"), "TRD-IT-1");
+        holdTransferService.settleFromHold(hold.holdReference(), first);
+        assertThat(holdTransferService.settleFromHold(hold.holdReference(), first).replayed()).isTrue();
+        holdTransferService.settleFromHold(hold.holdReference(), new SettleHoldRequest(
+                "OB-IT-1", "SELLER-OB", new BigDecimal("1000000.00"), new BigDecimal("50000.00"), "TRD-IT-2"));
+        holdTransferService.release(hold.holdReference(), "OB-IT-1");
+
+        PaymentWallet buyer = walletRepository.findByOwnerTypeAndOwnerIdAndCurrency(
+                WalletOwnerType.INVESTOR, "BUYER-OB", "VND").orElseThrow();
+        PaymentWallet seller = walletRepository.findByOwnerTypeAndOwnerIdAndCurrency(
+                WalletOwnerType.INVESTOR, "SELLER-OB", "VND").orElseThrow();
+        // Người mua: 5tr − 970.000 − 1.000.000; 940.000 giữ thừa đã về ví.
+        assertThat(buyer.getAvailableBalance()).isEqualByComparingTo("3030000.00");
+        assertThat(buyer.getHeldBalance()).isEqualByComparingTo("0.00");
+        // Người bán: 921.500 + 950.000 sau phí 5%.
+        assertThat(seller.getAvailableBalance()).isEqualByComparingTo("1871500.00");
+    }
+
     @Test
     void completedLegacyDisbursementCreditsBorrowerExactlyOnce() {
         UUID sagaId = UUID.randomUUID();
@@ -327,6 +360,17 @@ class FinoraPaymentApplicationIT {
     private static LedgerPostingEntryCommand wallet(UUID walletId, LedgerDirection direction, String amount) {
         return new LedgerPostingEntryCommand(
                 walletId, null, LedgerBalanceBucket.AVAILABLE, direction, new BigDecimal(amount));
+    }
+
+    /** Service account của finora-investment: không có user_id, mang client role on_behalf. */
+    private static void actAsInvestmentService() {
+        Jwt jwt = Jwt.withTokenValue("test-token")
+                .header("alg", "none")
+                .subject("service-account-finora-investment-client")
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(
+                jwt, List.of(new SimpleGrantedAuthority(HoldTransferService.ON_BEHALF_AUTHORITY)),
+                "service-account-finora-investment-client"));
     }
 
     private static void actAs(String userId) {

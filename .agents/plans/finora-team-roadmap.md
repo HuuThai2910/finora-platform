@@ -140,11 +140,11 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P2-B01 | Investment | Consume event listing v1 đã cùng Loan duyệt, tạo market projection | Unique business listing key + `listingVersion` | `BACKLOG` |
-| P2-B02 | Investment | Market query/filter/pagination/WebSocket nếu cần | Index + không N+1/unbounded | `BACKLOG` |
-| P2-B03 | Investment | Investment order state machine | Validation và concurrency rule | `BACKLOG` |
-| P2-B04 | Investment | Matching engine partial/full | Deterministic, test concurrent order | `BACKLOG` |
-| P2-B05 | Investment | Funding aggregation | Chống overfund, funded-once | `BACKLOG` |
+| P2-B01 | Investment | Consume event listing v1 đã cùng Loan duyệt, tạo market projection | Unique business listing key + `listingVersion` | `REVIEW` — 2026-10-02 đối chiếu code: `LoanFundingRequestedConsumer` + `processed_events`, listing tạo thẳng `OPEN` (chưa có bước nháp chờ admin duyệt) |
+| P2-B02 | Investment | Market query/filter/pagination/WebSocket nếu cần | Index + không N+1/unbounded | `REVIEW` — `MarketController` lọc hạng/lãi/kỳ hạn có phân trang; thời gian thực dùng SSE ở sổ lệnh (P2-B04) thay WebSocket |
+| P2-B03 | Investment | Investment order state machine | Validation và concurrency rule | `REVIEW` — `PENDING_FUNDS → COMMITTED/REJECTED/CANCELLED`, ba transaction quanh hold; `FundingFlowIT` 11/11 |
+| P2-B04 | Investment | Matching engine partial/full | Deterministic, test concurrent order | `REVIEW` — 2026-10-02 [INV-E2](../../finora-investment/plans/INV-E2-order-book-matching.md): sổ lệnh Ask/Bid khớp liên tục giá–thời gian, khóa theo sổ, SSE; `OrderBookFlowIT` 9/9 gồm 4 lệnh tranh 1 Note |
+| P2-B05 | Investment | Funding aggregation | Chống overfund, funded-once | `REVIEW` — khóa listing khi chốt cam kết, `LoanFullyFunded.v2` qua outbox đúng một lần; `FundingFlowIT` |
 
 **Contract phải chốt:** tên/schema event listing v1 sau `AUTO_AUTHORIZED/ACCEPTED`, business listing key, listing expiry/cancel, amount/interest/term/grade, `LoanFullyFunded` v2 và partition key. Kafka adapter không được tự route event Contract nội bộ thay cho contract này.
 
@@ -267,8 +267,8 @@ Các task có thể chạy song song theo ownership, nhưng mỗi task vẫn ph�
 
 | ID | Module | Chức năng | Phụ thuộc | Trạng thái |
 |---|---|---|---|---|
-| P7-B01 | Investment | Auto-invest | P3 | `BACKLOG` |
-| P7-B02 | Investment | [INV-E1: Secondary market/Note transfer](../../finora-investment/plans/INV-E1-secondary-market-flow.md) | Backend xong 2026-09-22 (5 endpoint, `V2` migration, ví giả lập `transfer`); trần giá bán = dư nợ gốc, phí 5% trừ người bán, cho bán Note nợ xấu kèm cảnh báo. **Plan chưa được Thái duyệt**; chưa có UI, chưa có IT (thiếu Docker), chưa kiểm eKYC và trần 100tr/400tr; `PaymentClient.transfer` cần owner Payment review | `IN_PROGRESS` |
+| P7-B01 | Investment | [INV-C2.1: Auto-invest](../../finora-investment/plans/INV-C21-auto-invest-design.md) | P3 | `REVIEW` — 2026-09-30: worker khớp listing `OPEN` theo thứ tự bật, V8 migration, API cấu hình/lịch sử, mobile nối thật. Payment cho service account `finora-investment-client` (role `payment:hold:on_behalf`) hold/release thay nhà đầu tư — **Thái cần review `HoldTransferService`**. `AutoInvestFlowIT` 2/2 đạt 2026-10-02 |
+| P7-B02 | Investment | [INV-E1: Secondary market/Note transfer](../../finora-investment/plans/INV-E1-secondary-market-flow.md) → [INV-E2: Sổ lệnh Ask/Bid](../../finora-investment/plans/INV-E2-order-book-matching.md) | Bảng tin INV-E1 đã được **thay** bằng sổ lệnh INV-E2 (2026-10-02): lệnh giới hạn theo % dư nợ, mỗi đợt gọi vốn một sổ, khớp liên tục giá–thời gian, chặn tự khớp, huỷ lệnh, giữ tiền Bid khi đặt, SSE, `V9`; mobile đã chuyển sang sổ lệnh. Payment thêm `POST /transactions/holds/{ref}/settlements` + `release` chỉ nhả phần còn lại (`V4`, [hợp đồng](../../docs/integrations/INVESTMENT-PAYMENT-ORDER-BOOK.md)) — **Hải sửa trong module của Thái theo yêu cầu, Thái cần review**. Web quản trị đã chuyển sang sổ lệnh (số liệu, thang giá SSE, giao dịch và đối soát thanh toán); plan chưa duyệt | `IN_PROGRESS` |
 | P7-B03 | AI | SHAP/XAI nâng cao | P1 | `DONE` — 2026-09-02: `POST /api/v1/ai/credit/explain` giải thích PD bằng TreeSHAP (`app/ml/credit/explainer.py`) gộp với rule trace 5C. `int_rate` vẫn hiển thị nhưng gắn cờ `la_leakage` kèm cảnh báo thay vì lọc bỏ, để giải thích mô tả trung thực mô hình. |
 | P7-B04 | AI | Champion/challenger + backtest | Model registry/dataset | `BACKLOG` |
 | P7-B05 | AI | Fraud detection | Payment behavior contract | `BACKLOG` |

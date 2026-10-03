@@ -58,6 +58,27 @@ finora:
     payment:
       mode: ${INVESTMENT_PAYMENT_MODE:http}
       base-url: ${PAYMENT_SERVICE_URL:http://localhost:8082/api/v1}
+    # Service account cho lời gọi Payment không có JWT người dùng (Auto-Invest giữ tiền thay
+    # nhà đầu tư). Client mang client role payment:hold:on_behalf.
+    service-account:
+      token-url: ${KEYCLOAK_TOKEN_URL:http://localhost:8180/realms/finora/protocol/openid-connect/token}
+      client-id: ${KEYCLOAK_INVESTMENT_CLIENT_ID:finora-investment-client}
+      client-secret: ${KEYCLOAK_INVESTMENT_CLIENT_SECRET:}
+    # Sổ lệnh Ask/Bid chợ thứ cấp (INV-E2). Worker thanh toán gọi Payment chuyển tiền từ phần
+    # đang giữ của lệnh mua sang người bán, rồi nhả phần giữ thừa khi lệnh mua kết thúc.
+    order-book:
+      stream-timeout-ms: ${INVESTMENT_ORDER_BOOK_STREAM_TIMEOUT_MS:1800000}
+      heartbeat-ms: ${INVESTMENT_ORDER_BOOK_HEARTBEAT_MS:20000}
+      settlement:
+        enabled: ${INVESTMENT_ORDER_BOOK_SETTLEMENT_ENABLED:true}
+        delay: ${INVESTMENT_ORDER_BOOK_SETTLEMENT_DELAY:2000}
+        batch-size: ${INVESTMENT_ORDER_BOOK_SETTLEMENT_BATCH_SIZE:50}
+        retry-backoff: ${INVESTMENT_ORDER_BOOK_SETTLEMENT_RETRY_BACKOFF:5s}
+        maximum-backoff: ${INVESTMENT_ORDER_BOOK_SETTLEMENT_MAXIMUM_BACKOFF:5m}
+    auto-invest:
+      enabled: ${INVESTMENT_AUTO_INVEST_ENABLED:true}
+      delay: ${INVESTMENT_AUTO_INVEST_DELAY:5000}
+      batch-size: ${INVESTMENT_AUTO_INVEST_BATCH_SIZE:20}
     kafka:
       funding-requested-topic: ${LOAN_FUNDING_REQUESTED_TOPIC:finora.loan.funding-requested}
       fully-funded-topic: ${INVESTMENT_FULLY_FUNDED_TOPIC:finora.investment.loan-fully-funded}

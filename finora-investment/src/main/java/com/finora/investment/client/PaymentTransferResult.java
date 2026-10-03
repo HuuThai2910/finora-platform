@@ -7,7 +7,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * Kết quả chuyển tiền giữa hai ví cho một giao dịch chuyển nhượng Note.
+ * Kết quả chuyển tiền cho một giao dịch chuyển nhượng Note (thanh toán một lần khớp trên sổ lệnh).
  *
  * <p>Tách khỏi {@link PaymentHoldResult} vì hai việc khác nhau: giữ tiền trả về mã giữ chỗ
  * còn nhả được, còn chuyển tiền trả về mã giao dịch đã hoàn tất và không hoàn lại. Dùng chung

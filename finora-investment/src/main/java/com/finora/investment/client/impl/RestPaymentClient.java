@@ -6,12 +6,15 @@ import com.finora.common.security.SecurityUtils;
 import com.finora.investment.client.PaymentClient;
 import com.finora.investment.client.PaymentHoldResult;
 import com.finora.investment.client.PaymentTransferResult;
+import com.finora.investment.client.ServiceTokenProvider;
 import java.math.BigDecimal;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -22,6 +25,7 @@ import org.springframework.web.client.RestClientResponseException;
 public class RestPaymentClient implements PaymentClient {
     private final RestClient.Builder restClientBuilder;
     private final ObjectMapper objectMapper;
+    private final ServiceTokenProvider serviceTokenProvider;
 
     @Value("${finora.investment.payment.base-url:http://localhost:8082/api/v1}")
     private String baseUrl;
@@ -56,29 +60,41 @@ public class RestPaymentClient implements PaymentClient {
                 .retrieve().toBodilessEntity();
     }
 
+    /**
+     * Thanh toán một lần khớp từ tiền đang giữ.
+     *
+     * <p>Endpoint {@code /holds/{holdReference}/settlements} là hợp đồng mới đề xuất cho
+     * finora-payment (xem {@code docs/integrations/INVESTMENT-PAYMENT-ORDER-BOOK.md}). Khi Payment
+     * chưa triển khai, server trả 404/405 không mang mã nghiệp vụ; coi đó là lỗi tạm thời để lần
+     * khớp nằm chờ và tự thanh toán khi Payment lên bản mới, thay vì đánh dấu thất bại vĩnh viễn.</p>
+     */
     @Override
-    public PaymentTransferResult transfer(
-            String buyerId,
+    public PaymentTransferResult settleFromHold(
+            String holdReference,
+            String orderReference,
             String sellerId,
-            BigDecimal price,
+            BigDecimal amount,
             BigDecimal platformFee,
-            String transferReference
+            String settlementReference
     ) {
         try {
-            TransferBody response = client().post().uri("/transactions/transfers")
+            TransferBody response = client().post().uri("/transactions/holds/{holdReference}/settlements", holdReference)
                     .headers(this::authorize)
                     .body(Map.of(
-                            "buyerId", buyerId, "sellerId", sellerId, "price", price,
-                            "platformFee", platformFee, "transferReference", transferReference))
+                            "orderReference", orderReference, "sellerId", sellerId, "amount", amount,
+                            "platformFee", platformFee, "settlementReference", settlementReference))
                     .retrieve().body(TransferBody.class);
             return response == null
-                    ? PaymentTransferResult.unavailable("Payment không trả kết quả chuyển tiền")
+                    ? PaymentTransferResult.unavailable("Payment không trả kết quả thanh toán")
                     : PaymentTransferResult.ok(response.paymentReference());
         } catch (RestClientResponseException exception) {
-            if (exception.getStatusCode().is4xxClientError()) {
-                return PaymentTransferResult.rejected(errorCode(exception), errorMessage(exception));
+            String code = errorCode(exception);
+            boolean endpointMissing = (exception.getStatusCode().value() == 404 || exception.getStatusCode().value() == 405)
+                    && "PAYMENT_REJECTED".equals(code);
+            if (exception.getStatusCode().is4xxClientError() && !endpointMissing) {
+                return PaymentTransferResult.rejected(code, errorMessage(exception));
             }
-            return PaymentTransferResult.unavailable("Payment tạm thời không phản hồi");
+            return PaymentTransferResult.unavailable("Payment tạm thời không thanh toán được");
         } catch (RuntimeException exception) {
             return PaymentTransferResult.unavailable("Không kết nối được Payment Service");
         }
@@ -88,8 +104,18 @@ public class RestPaymentClient implements PaymentClient {
         return restClientBuilder.baseUrl(baseUrl).build();
     }
 
+    /**
+     * Đang phục vụ request của người dùng thì chuyển tiếp JWT của họ; không có (worker
+     * Auto-Invest) thì dùng token service account. Payment tự quyết token nào được làm gì —
+     * token người dùng không bao giờ mang quyền giữ tiền thay người khác.
+     */
     private void authorize(HttpHeaders headers) {
-        headers.setBearerAuth(SecurityUtils.getJwt().getTokenValue());
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof Jwt) {
+            headers.setBearerAuth(SecurityUtils.getJwt().getTokenValue());
+        } else {
+            headers.setBearerAuth(serviceTokenProvider.accessToken());
+        }
     }
 
     private String errorCode(RestClientResponseException exception) {

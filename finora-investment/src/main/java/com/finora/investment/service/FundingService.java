@@ -19,6 +19,12 @@ public interface FundingService {
      */
     OrderResponse placeOrder(Long listingId, String idempotencyKey, PlaceOrderRequest request);
 
+    /**
+     * Như {@link #placeOrder} nhưng chỉ định nhà đầu tư tường minh, cho luồng không có JWT
+     * người dùng (Auto-Invest). Không mở ra qua HTTP.
+     */
+    OrderResponse placeOrderFor(String investorId, Long listingId, String idempotencyKey, PlaceOrderRequest request);
+
     /** Hủy lệnh đã cam kết và nhả tiền về ví. */
     OrderResponse cancelOrder(String orderReference);
 }

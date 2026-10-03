@@ -2,6 +2,7 @@ package com.finora.investment.config;
 
 import com.finora.common.security.DualBearerTokenResolver;
 import com.finora.common.security.KeycloakJwtAuthenticationConverter;
+import jakarta.servlet.DispatcherType;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -48,6 +49,10 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Probe của hạ tầng phải gọi được khi chưa có token.
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        // Stream sổ lệnh (SSE) gửi dữ liệu qua async dispatch sau khi request gốc đã
+                        // qua xác thực. Không mở thì Spring Security chặn lại lượt dispatch đó khi
+                        // response đã commit và stream bị cắt.
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // Swagger để đối chiếu hợp đồng API khi phát triển.
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
@@ -64,15 +69,16 @@ public class SecurityConfig {
 
     /**
      * Cho phép web quản trị chạy ở dev server và request đi qua Gateway. Phải bật
-     * {@code allowCredentials} vì web gửi token bằng cookie.
+     * {@code allowCredentials} vì web gửi token bằng cookie. Dùng mẫu origin để Expo web
+     * (cổng bất kỳ) và máy trong LAN gọi thẳng service được.
      */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of(
-                "http://localhost:3000",
-                "http://localhost:5173",
-                "http://localhost:8080"));
+        configuration.setAllowedOriginPatterns(List.of(
+                "http://localhost:*",
+                "http://127.0.0.1:*",
+                "http://192.168.*.*:*"));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);

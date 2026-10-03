@@ -42,6 +42,7 @@ services:
     container_name: finora-keycloak-realm-init
     environment:
       KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_CLIENT_SECRET}"
+      KEYCLOAK_INVESTMENT_CLIENT_SECRET: "${KEYCLOAK_INVESTMENT_CLIENT_SECRET}"
     command:
       - sh
       - -c
@@ -51,7 +52,11 @@ services:
           echo "Thieu KEYCLOAK_CLIENT_SECRET trong docker/.env" >&2
           exit 1
         fi
-        sed "s|__KEYCLOAK_CLIENT_SECRET__|$$KEYCLOAK_CLIENT_SECRET|g"           /template/realm-finora.json > /import/realm-finora.json
+        if [ -z "$$KEYCLOAK_INVESTMENT_CLIENT_SECRET" ]; then
+          echo "Thieu KEYCLOAK_INVESTMENT_CLIENT_SECRET trong docker/.env" >&2
+          exit 1
+        fi
+        sed -e "s|__KEYCLOAK_CLIENT_SECRET__|$$KEYCLOAK_CLIENT_SECRET|g"             -e "s|__KEYCLOAK_INVESTMENT_CLIENT_SECRET__|$$KEYCLOAK_INVESTMENT_CLIENT_SECRET|g"             /template/realm-finora.json > /import/realm-finora.json
         echo "Da render /import/realm-finora.json"
     volumes:
       - ./keycloak/template:/template:ro

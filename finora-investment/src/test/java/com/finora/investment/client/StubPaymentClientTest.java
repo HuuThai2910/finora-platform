@@ -55,59 +55,50 @@ class StubPaymentClientTest {
     }
 
     @Test
-    @DisplayName("Chuyển nhượng Note: người mua trả đủ giá, người bán nhận sau phí")
-    void transferSplitsFeeFromSellerProceeds() {
+    @DisplayName("Thanh toán từ tiền giữ: người bán nhận sau phí, phần giữ còn lại nhả về đúng người mua")
+    void settleFromHoldSplitsFeeAndKeepsRemainder() {
         StubPaymentClient client = new StubPaymentClient();
-        BigDecimal price = new BigDecimal("950000.00");
-        BigDecimal fee = new BigDecimal("47500.00");
+        client.hold("BUYER-1", new BigDecimal("2000000.00"), "OB-1");
 
-        PaymentTransferResult result = client.transfer("BUYER-1", "SELLER-1", price, fee, "NTRF-1");
+        PaymentTransferResult result = client.settleFromHold(
+                "OB-1", "OB-1", "SELLER-1", new BigDecimal("950000.00"), new BigDecimal("47500.00"), "TRD-1");
 
         assertThat(result.isSuccess()).isTrue();
         assertThat(client.collectedFees()).isEqualByComparingTo("47500.00");
+        assertThat(client.availableBalance("SELLER-1")).isEqualByComparingTo("500902500.00");
 
-        // Người mua bị trừ đúng giá treo: số dư còn lại phải đủ cho 500tr trừ 950k.
-        assertThat(client.hold("BUYER-1", new BigDecimal("499050000.00"), "H-1").isSuccess()).isTrue();
-
-        // Người bán nhận 902.500đ, tức số dư thành 500tr + 902.500đ.
-        StubPaymentClient other = new StubPaymentClient();
-        other.transfer("BUYER-2", "SELLER-2", price, fee, "NTRF-2");
-        assertThat(other.hold("SELLER-2", new BigDecimal("500902500.00"), "H-2").isSuccess()).isTrue();
-        assertThat(other.hold("SELLER-2", new BigDecimal("1.00"), "H-3").isSuccess()).isFalse();
+        // Nhả phần còn lại: người mua chỉ mất đúng 950.000đ so với hạn mức khởi tạo.
+        client.release("OB-1", "OB-1");
+        assertThat(client.availableBalance("BUYER-1")).isEqualByComparingTo("499050000.00");
     }
 
     @Test
-    @DisplayName("Chuyển tiền hai lần cùng mã giao dịch chỉ trừ ví một lần")
-    void transferIsIdempotent() {
+    @DisplayName("Thanh toán hai lần cùng mã chỉ chuyển tiền và thu phí một lần")
+    void settleFromHoldIsIdempotent() {
         StubPaymentClient client = new StubPaymentClient();
-        BigDecimal price = new BigDecimal("1000000.00");
-        BigDecimal fee = new BigDecimal("50000.00");
+        client.hold("BUYER-2", new BigDecimal("2000000.00"), "OB-2");
 
-        client.transfer("BUYER-3", "SELLER-3", price, fee, "NTRF-3");
-        PaymentTransferResult replay =
-                client.transfer("BUYER-3", "SELLER-3", price, fee, "NTRF-3");
+        client.settleFromHold("OB-2", "OB-2", "SELLER-2", new BigDecimal("1000000.00"), new BigDecimal("50000.00"), "TRD-2");
+        PaymentTransferResult replay = client.settleFromHold(
+                "OB-2", "OB-2", "SELLER-2", new BigDecimal("1000000.00"), new BigDecimal("50000.00"), "TRD-2");
 
         assertThat(replay.isSuccess()).isTrue();
-        // Phí chỉ thu một lần, không phải hai.
         assertThat(client.collectedFees()).isEqualByComparingTo("50000.00");
-        // Ví người mua chỉ bị trừ một lần: còn đúng 499tr.
-        assertThat(client.hold("BUYER-3", new BigDecimal("499000000.00"), "H-4").isSuccess()).isTrue();
+        assertThat(client.availableBalance("SELLER-2")).isEqualByComparingTo("500950000.00");
     }
 
     @Test
-    @DisplayName("Ví người mua không đủ tiền thì từ chối, không chuyển cho người bán")
-    void transferRejectsWhenBuyerBalanceInsufficient() {
+    @DisplayName("Thanh toán vượt phần đang giữ bị từ chối, không phải lỗi tạm thời")
+    void settleFromHoldRejectsOverdraw() {
         StubPaymentClient client = new StubPaymentClient();
+        client.hold("BUYER-3", new BigDecimal("1000.00"), "OB-3");
 
-        PaymentTransferResult result = client.transfer(
-                "BUYER-4", "SELLER-4",
-                new BigDecimal("900000000.00"), new BigDecimal("45000000.00"), "NTRF-4");
+        PaymentTransferResult result = client.settleFromHold(
+                "OB-3", "OB-3", "SELLER-3", new BigDecimal("1000.01"), BigDecimal.ZERO, "TRD-3");
 
         assertThat(result.isSuccess()).isFalse();
         assertThat(result.isRetryable()).isFalse();
-        assertThat(result.getErrorCode()).isEqualTo("INSUFFICIENT_BALANCE");
-        assertThat(client.collectedFees()).isEqualByComparingTo("0");
-        // Người bán không nhận gì: số dư vẫn đúng mức khởi tạo.
-        assertThat(client.hold("SELLER-4", new BigDecimal("500000000.00"), "H-5").isSuccess()).isTrue();
+        assertThat(result.getErrorCode()).isEqualTo("PAYMENT_HOLD_INSUFFICIENT");
+        assertThat(client.availableBalance("SELLER-3")).isEqualByComparingTo("500000000.00");
     }
 }

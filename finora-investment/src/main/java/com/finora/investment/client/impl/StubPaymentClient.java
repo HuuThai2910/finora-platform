@@ -24,8 +24,8 @@ public class StubPaymentClient implements PaymentClient {
     private final Map<String, BigDecimal> availableBalances = new ConcurrentHashMap<>();
     private final Map<String, HeldFund> holds = new ConcurrentHashMap<>();
 
-    /** Giao dịch chuyển nhượng đã thực hiện, khóa theo mã giao dịch để chống trùng lặp. */
-    private final Map<String, Transfer> transfers = new ConcurrentHashMap<>();
+    /** Lần thanh toán từ tiền giữ đã thực hiện, khóa theo mã thanh toán để chống trùng lặp. */
+    private final Map<String, Settlement> settlements = new ConcurrentHashMap<>();
 
     /** Phí nền tảng đã thu. Ví thật sẽ hạch toán vào sổ; bản giả lập chỉ cộng dồn. */
     private final Map<String, BigDecimal> collectedFees = new ConcurrentHashMap<>();
@@ -33,11 +33,11 @@ public class StubPaymentClient implements PaymentClient {
     private record HeldFund(String investorId, BigDecimal amount) {
     }
 
-    private record Transfer(String buyerId, String sellerId, BigDecimal price, BigDecimal fee) {
+    private record Settlement(String holdReference, String sellerId, BigDecimal amount, BigDecimal fee) {
     }
 
     @Override
-    public PaymentHoldResult hold(String investorId, BigDecimal amount, String orderReference) {
+    public synchronized PaymentHoldResult hold(String investorId, BigDecimal amount, String orderReference) {
         HeldFund existing = holds.get(orderReference);
         if (existing != null) {
             return PaymentHoldResult.ok(orderReference);
@@ -66,7 +66,7 @@ public class StubPaymentClient implements PaymentClient {
     }
 
     @Override
-    public void release(String holdReference, String orderReference) {
+    public synchronized void release(String holdReference, String orderReference) {
         HeldFund released = holds.remove(holdReference);
         if (released == null) {
             log.info("Stub Payment bỏ qua nhả tiền đã xử lý: orderReference={}", orderReference);
@@ -77,53 +77,50 @@ public class StubPaymentClient implements PaymentClient {
     }
 
     @Override
-    public PaymentTransferResult transfer(
-            String buyerId,
+    public synchronized PaymentTransferResult settleFromHold(
+            String holdReference,
+            String orderReference,
             String sellerId,
-            BigDecimal price,
+            BigDecimal amount,
             BigDecimal platformFee,
-            String transferReference) {
+            String settlementReference) {
 
-        // Gọi lại cùng mã giao dịch chỉ chuyển tiền một lần. Ví thật phải giữ đúng hợp đồng
+        // Gọi lại cùng mã thanh toán chỉ chuyển tiền một lần. Ví thật phải giữ đúng hợp đồng
         // này, nên bản giả lập cũng phải giữ — nếu không, bản demo chạy đúng mà bản thật sai.
-        if (transfers.containsKey(transferReference)) {
-            log.info("Stub Payment bỏ qua chuyển tiền đã xử lý: transferReference={}", transferReference);
-            return PaymentTransferResult.ok(transferReference);
+        if (settlements.containsKey(settlementReference)) {
+            log.info("Stub Payment bỏ qua thanh toán đã xử lý: settlementReference={}", settlementReference);
+            return PaymentTransferResult.ok(settlementReference);
         }
 
-        BigDecimal proceeds = price.subtract(platformFee);
-
-        boolean[] deducted = {false};
-        availableBalances.compute(buyerId, (key, current) -> {
-            BigDecimal balance = current == null ? DEFAULT_BALANCE : current;
-            if (balance.compareTo(price) < 0) {
-                return balance;
-            }
-            deducted[0] = true;
-            return balance.subtract(price);
-        });
-
-        if (!deducted[0]) {
+        HeldFund held = holds.get(holdReference);
+        if (held == null) {
             return PaymentTransferResult.rejected(
-                    "INSUFFICIENT_BALANCE",
-                    "Số dư ví không đủ để mua Note này"
-            );
+                    "PAYMENT_HOLD_NOT_FOUND", "Không tìm thấy khoản tiền giữ");
+        }
+        if (held.amount().compareTo(amount) < 0) {
+            return PaymentTransferResult.rejected(
+                    "PAYMENT_HOLD_INSUFFICIENT", "Khoản tiền giữ không đủ cho lần thanh toán này");
         }
 
-        // Người bán nhận phần sau khi trừ phí. Người mua đã bị trừ đúng giá treo, nên phần phí
-        // nằm lại ở nền tảng — bản giả lập cộng dồn để đối chiếu, chưa có sổ thu thật.
-        //
+        // Trừ vào phần đang giữ; phần còn lại vẫn giữ cho các lần khớp sau hoặc chờ nhả.
+        holds.put(holdReference, new HeldFund(held.investorId(), held.amount().subtract(amount)));
+
         // Không dùng `merge`: người bán có thể chưa từng giao dịch nên chưa có bản ghi ví, và
         // `merge` sẽ chèn đúng số tiền nhận được thay vì cộng vào hạn mức khởi tạo — tức ví của
         // họ bị đặt lại về gần 0.
+        BigDecimal proceeds = amount.subtract(platformFee);
         availableBalances.compute(sellerId, (key, current) ->
                 (current == null ? DEFAULT_BALANCE : current).add(proceeds));
         collectedFees.merge("PLATFORM", platformFee, BigDecimal::add);
-        transfers.put(transferReference, new Transfer(buyerId, sellerId, price, platformFee));
+        settlements.put(settlementReference, new Settlement(holdReference, sellerId, amount, platformFee));
 
-        log.info("Stub Payment chuyển tiền chuyển nhượng Note: transferReference={}, priceScale={}",
-                transferReference, price.scale());
-        return PaymentTransferResult.ok(transferReference);
+        log.info("Stub Payment thanh toán từ tiền giữ: settlementReference={}", settlementReference);
+        return PaymentTransferResult.ok(settlementReference);
+    }
+
+    /** Số dư khả dụng hiện tại, chỉ để đối chiếu khi chạy thử. */
+    public BigDecimal availableBalance(String investorId) {
+        return availableBalances.getOrDefault(investorId, DEFAULT_BALANCE);
     }
 
     /** Tổng phí nền tảng đã thu, chỉ để đối chiếu khi chạy thử. */
