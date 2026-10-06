@@ -21,7 +21,7 @@ import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.SerializationException;
 import org.springframework.kafka.core.KafkaTemplate;
 
-/** Publisher duy nhất của Investment hiện chỉ cho phép `LoanFullyFunded.v2`. */
+/** Publisher allowlist cho các event mà Investment sở hữu. */
 public class InvestmentKafkaOutboxPublisher implements InvestmentOutboxPublisher {
 
     static final String EVENT_ID_HEADER = "finora-event-id";
@@ -45,7 +45,11 @@ public class InvestmentKafkaOutboxPublisher implements InvestmentOutboxPublisher
 
     @Override
     public void publish(InvestmentOutboxMessage message) {
-        if (!"LoanFullyFunded".equals(message.eventType()) || message.eventVersion() != 2) {
+        boolean fullyFunded = "LoanFullyFunded".equals(message.eventType()) && message.eventVersion() == 2;
+        boolean ownershipChanged = "NoteOwnershipChanged".equals(message.eventType()) && message.eventVersion() == 1;
+        boolean servicingChanged = "InvestorNoteServicingChanged".equals(message.eventType())
+                && message.eventVersion() == 1;
+        if (!fullyFunded && !ownershipChanged && !servicingChanged) {
             throw failure("KAFKA_EVENT_ROUTE_MISSING",
                     "Event/version chưa có Kafka route được duyệt", false, null);
         }
@@ -72,8 +76,12 @@ public class InvestmentKafkaOutboxPublisher implements InvestmentOutboxPublisher
             }
             String value = objectMapper.writeValueAsString(new KafkaEnvelope(
                     message.eventId(), message.occurredAt().toString(), message.eventVersion(), data));
-            ProducerRecord<String, String> record = new ProducerRecord<>(
-                    properties.fullyFundedTopic(), message.aggregateId(), value);
+            String topic = switch (message.eventType()) {
+                case "NoteOwnershipChanged" -> properties.noteOwnershipChangedTopic();
+                case "InvestorNoteServicingChanged" -> properties.noteServicingChangedTopic();
+                default -> properties.fullyFundedTopic();
+            };
+            ProducerRecord<String, String> record = new ProducerRecord<>(topic, message.aggregateId(), value);
             header(record, EVENT_ID_HEADER, message.eventId().toString());
             header(record, EVENT_TYPE_HEADER, message.eventType());
             header(record, EVENT_VERSION_HEADER, Integer.toString(message.eventVersion()));

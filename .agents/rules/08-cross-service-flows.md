@@ -28,7 +28,8 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 
 1. **Quét:** client gửi `POST /api/v1/users/profile/ekyc-verify` gồm ảnh mặt trước và mặt sau CCCD. User chạy tuần tự và dừng ở bước đầu tiên trượt: rate limit → `POST /api/v1/ai/ekyc/ocr` trên ảnh mặt trước → đối chiếu HMAC số CCCD (`ID_MISMATCH` với hồ sơ có số cũ, `ID_TAKEN` nếu số thuộc tài khoản khác). Đạt thì cất kết quả OCR vào **bản nháp Redis (TTL 10 phút)** và trả `DRAFT_READY` kèm bản nháp — **hồ sơ chưa được ghi**.
 2. Ảnh mặt sau không OCR (model chỉ đọc mặt trước) — nộp kèm làm bằng chứng cầm thẻ đầy đủ, phục vụ đối soát tay khi có nghi vấn.
-3. **Xác nhận:** người dùng soát bản nháp trên client; sai thì quét lại, đúng thì gọi `POST /api/v1/users/profile/ekyc-confirm` (không mang dữ liệu — bản nháp đọc từ Redis để client không sửa được thông tin OCR). User kiểm tra trùng lần cuối, ghi bản nháp vào hồ sơ, chuyển `VERIFIED` (`documentVerified = true`), xoá nháp. Nháp hết hạn trả `DRAFT_EXPIRED`.
+3. **Xác nhận:** người dùng soát bản nháp trên client; sai thì quét lại, đúng thì gọi `POST /api/v1/users/profile/ekyc-confirm` (không mang dữ liệu — bản nháp đọc từ Redis để client không sửa được thông tin OCR). User kiểm tra trùng lần cuối, ghi bản nháp vào hồ sơ, chuyển `VERIFIED` (`documentVerified = true`) và tạo `user_cic_mapping_tasks` trong cùng transaction; chỉ xoá nháp Redis sau khi DB commit. Nháp hết hạn trả `DRAFT_EXPIRED`.
+4. **Ánh xạ CIC:** worker User lấy task bằng lease, giải mã CCCD just-in-time rồi gọi API nội bộ CIC với `keycloakUserId` làm `borrowerId`. CIC tắt không rollback eKYC; task retry lũy tiến và request lặp được CIC xử lý idempotent. CCCD không đi qua Kafka/log/bảng task.
 4. Các trường hợp trượt giữ nguyên trạng thái hồ sơ và trả `resultCode` (`OCR_FAILED`/`ID_MISMATCH`/`ID_TAKEN`/`RATE_LIMITED`/`AI_UNAVAILABLE`/`DRAFT_EXPIRED`) để client hướng dẫn chụp lại.
 
 **State authority:** AI không giữ trạng thái; rate limit nằm ở User (Redis). Số CCCD là điều kiện đối chiếu duy nhất; họ tên và ngày sinh chỉ sinh cảnh báo `ocrWarnings`. Phần face-match/liveness phía AI đã xoá hẳn (2026-08-22); AI chỉ còn `/ocr` cho eKYC — engine duy nhất là Gemini vision, bắt buộc cấu hình `GEMINI_API_KEY` (thiếu key endpoint trả lỗi và User hiển thị AI_UNAVAILABLE).
@@ -173,13 +174,32 @@ Phần Payment do Hải viết theo yêu cầu, owner Payment (Thái) cần revi
 3. Sau thu thành công, Payment ghi repayment vào Fineract bằng external transaction reference; Fineract phân bổ borrower payment vào principal/interest/fee/penalty và trả core transaction/breakdown.
 4. Payment lấy ownership snapshot/version từ Investment và phân bổ investor wallets dựa trên kết quả core hợp lệ cùng policy FINORA.
 5. Payment phát `RepaymentDistributed` với breakdown/reference tối thiểu.
-6. Loan cập nhật servicing projection từ Fineract response/reliable event; Investment cập nhật Note/portfolio; Blockchain ghi proof; Notification gửi thông báo.
+6. Loan cập nhật servicing projection từ Fineract response/reliable event; Investment cập nhật Note/portfolio và phát projection event theo chủ Note; Blockchain ghi proof; Notification lưu delivery in-app idempotent.
+7. Worker Loan đồng bộ Fineract định kỳ; khi DPD thay đổi, Loan ghi outbox
+   `LoanDelinquencyChanged.v1`. CIC mock consume idempotent để thêm một phiên bản lịch sử
+   quá hạn/nhóm nợ. Event chỉ mang `borrowerId`; mapping CCCD nằm riêng trong CIC và event
+   đến trước mapping được giữ bền vững để replay.
 
 **Invariant:** Payment ledger là nguồn chuyển tiền; Fineract là nguồn allocation/balance. Tổng tiền thu phải đối chiếu với core transaction và tổng phân bổ investor + platform; mismatch tạo reconciliation incident, không thu hoặc ghi repayment lần hai.
 
-**Idempotency:** `repaymentInstructionId` hoặc provider transaction ID unique.
+**Idempotency:** `repaymentId`/`Idempotency-Key`, wallet ledger transaction và Fineract external
+reference `FINORA-REPAY-<repaymentId>` là unique.
 
 **Failure:** thiếu tiền → kết quả partial/rejected theo policy, không giả completed; lỗi projection sau ledger commit → event retry/rebuild, không chạy lại collection.
+
+**CURRENT STATE (2026-10-04):** scheduled/overdue/partial/early-settlement repayment, core breakdown,
+investor distribution và Loan/Investment projection đã có. Payment có admin reconciliation; integration
+test PostgreSQL chứng minh borrower → clearing → current Note owner và outbox cân bằng. Product mới dùng
+`FINORA-FINERACT-V2` với `PROGRESSIVE` + advanced allocation; mapping V1 giữ nguyên. Local Fineract đã
+chứng minh khoản vay 50 triệu trả trước 5 triệu và re-amortize 6 kỳ. Loan đã phát
+`LoanDelinquencyChanged.v1`; CIC mock đã có consumer, processed-event và pending-mapping
+queue. Loan V21 tự mở/đóng từng collection episode, tăng stage theo DPD, chuyển `DEFAULTED`
+từ DPD 91, cure về `ACTIVE` và cung cấp admin queue/audit action append-only. Loan V23 đã fail-closed và
+lưu incident riêng khi servicing snapshot sai core identity, external ID, principal giải ngân hoặc tổng
+breakdown; V24 giữ/replay event hợp lệ nhưng thiếu mapping. Blockchain đã consume repayment hash-only;
+Kafka broker local publish/consume envelope v1 đã xanh. Notification đã consume
+`InvestorNoteServicingChanged.v1`, lưu delivery PostgreSQL và cung cấp REST cho mobile; push hệ điều hành
+vẫn cần device-token/provider receipt riêng.
 
 ## F07 — Tất toán sớm hoặc tái cơ cấu
 
@@ -187,12 +207,21 @@ Phần Payment do Hải viết theo yêu cầu, owner Payment (Thái) cần revi
 
 1. Loan tính quote có `quoteId`, expiry và rule version.
 2. Với tất toán: Payment collect theo quote, Loan đóng schedule/loan sau event thành công, Investment cập nhật Notes.
-3. Với tái cơ cấu: Loan thu thập approval/consent cần thiết, tạo schedule version mới; lịch sử cũ bất biến.
-4. Loan phát `LoanSettledEarly` hoặc `LoanRestructured`; Blockchain/Notification consume.
+3. Với tái cơ cấu: borrower gửi request và consent version; lịch cũ tiếp tục có hiệu lực. Admin duyệt thì
+   Loan chuyển sang `RESTRUCTURING`; worker reconcile/create/approve Fineract reschedule ngoài DB transaction,
+   đọc servicing snapshot mới rồi mới trở lại `ACTIVE`.
+4. Loan phát `LoanSettled.v1` hoặc `LoanRescheduled.v1`; consumer phụ trợ không được làm rollback core state.
 
 **Idempotency:** command theo `requestId`; payment theo `quoteId`; chỉ một active quote/transition theo policy.
 
 **Failure:** quote hết hạn hoặc version thay đổi → reject và tính lại; Payment thất bại → Loan không đổi schedule/state; consumer phụ trợ lỗi → retry từ outbox.
+
+**CURRENT STATE (2026-10-04):** backend Loan đã có V20 `loan_reschedule_requests`, API borrower/admin,
+processing lease, bounded retry, reconcile bằng marker Fineract và outbox `LoanRescheduled.v1`. Worker mặc
+định fail-closed; chỉ bật sau khi tạo reason code trong Fineract và cấu hình `FINERACT_RESCHEDULE_REASON_ID`.
+Investment đã consume idempotent `LoanRescheduled.v1`/`LoanSettled.v1` thành lifecycle read model.
+Notification delivery không thuộc transaction tái cơ cấu; Investment phát outbox projection và
+Notification consume idempotent sau khi lịch mới đã commit.
 
 ## F08 — Audit Blockchain và đối chiếu
 
@@ -207,7 +236,10 @@ Phần Payment do Hải viết theo yêu cầu, owner Payment (Thái) cần revi
 
 **Failure:** Fabric unavailable → retry có backoff, DLT và cảnh báo; mismatch → điều tra/audit workflow, không overwrite bằng giá trị “khớp”.
 
-**CURRENT STATE (2026-09-21):** Blockchain đã có durable proof foundation local: PostgreSQL lưu duy nhất hash/version và business reference, idempotent theo source event, claim lease, bounded retry/dead-letter và mock receipt được đánh dấu rõ. Worker và Kafka listener mặc định tắt. Fabric adapter hiện fail-closed; chưa có Kafka topic/consumer hoặc chaincode submission thật cho tới khi contract P4 được hai owner duyệt và phase gate P3 đạt.
+**CURRENT STATE (2026-10-04):** Blockchain có durable proof foundation: PostgreSQL chỉ lưu hash/version
+và business reference, idempotent theo source event, claim lease, bounded retry/dead-letter. Consumer
+`RepaymentDistributed.v1` canonicalize `data` rồi đăng ký proof `REPAYMENT`; listener/worker mặc định tắt
+để local chủ động bật. Provider MOCK ghi receipt phân biệt; Fabric thật vẫn fail-closed tới khi có network.
 
 ## F09 — Notification từ domain event
 

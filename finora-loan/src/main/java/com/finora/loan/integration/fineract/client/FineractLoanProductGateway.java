@@ -10,7 +10,7 @@ public interface FineractLoanProductGateway {
     /**
      * Tìm chính xác theo external ID để đối chiếu kết quả sau timeout và ngăn retry tạo Product logic thứ hai.
      */
-    Optional<FineractProductCreationResult> findProductByExternalId(String externalId);
+    Optional<FineractProductCreationResult> findProductByExternalId(String externalId, String configVersion);
 
     /** Tạo Product core với external ID và idempotency key ổn định để retry không tạo resource thứ hai. */
     FineractProductCreationResult createProduct(FineractProductConfiguration configuration, String idempotencyKey);

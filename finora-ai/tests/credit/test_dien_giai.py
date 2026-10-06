@@ -88,7 +88,7 @@ class TestThongDiep:
         assert "thẩm định viên" in d["thong_diep"]
 
     def test_tu_choi_do_chot_chan_khac_voi_do_diem_thap(self):
-        chot = sinh_dien_giai(_ket_qua(rejection_reasons=["CIC_BAD_DEBT_GROUP"]))
+        chot = sinh_dien_giai(_ket_qua(rejection_reasons=["CIC_CURRENT_BAD_DEBT"]))
         diem = sinh_dien_giai(_ket_qua())
         assert "quy định bắt buộc" in chot["thong_diep"]
         assert "chưa đạt ngưỡng" in diem["thong_diep"]
@@ -283,7 +283,7 @@ class TestGoiYLuatTuTao:
 class TestKhongLoSoKyThuat:
     def test_khong_co_log_odds_trong_ban_dien_giai(self):
         """Bản cho người vay không được chứa số SHAP hay thuật ngữ kỹ thuật."""
-        d = sinh_dien_giai(_ket_qua(rejection_reasons=["CIC_BAD_DEBT_GROUP"]))
+        d = sinh_dien_giai(_ket_qua(rejection_reasons=["CIC_CURRENT_BAD_DEBT"]))
         toan_bo = " ".join([d["thong_diep"], *d["ly_do_chinh"], *d["goi_y_cai_thien"]])
         for tu in ("log-odds", "SHAP", "pd_probability", "muc_dong_gop"):
             assert tu not in toan_bo

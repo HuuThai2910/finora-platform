@@ -14,6 +14,8 @@ import com.finora.investment.mapper.InvestmentMapper;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
 import com.finora.investment.repository.InvestmentNoteRepository;
 import com.finora.investment.repository.MarketListingRepository;
+import com.finora.investment.repository.InvestmentLoanServicingStateRepository;
+import com.finora.investment.domain.note.InvestmentLoanServicingState;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -40,6 +42,7 @@ public class PortfolioServiceImpl implements PortfolioService {
     private final InvestmentCommitmentRepository commitmentRepository;
     private final InvestmentNoteRepository noteRepository;
     private final MarketListingRepository listingRepository;
+    private final InvestmentLoanServicingStateRepository servicingStateRepository;
     private final InvestmentMapper mapper;
 
     @Override
@@ -71,6 +74,10 @@ public class PortfolioServiceImpl implements PortfolioService {
 
         Map<Long, List<InvestmentNote>> notesByLoan = notes.stream()
                 .collect(Collectors.groupingBy(InvestmentNote::getLoanId));
+        Map<Long, InvestmentLoanServicingState> servicingByLoan = servicingStateRepository
+                .findByLoanApplicationIdIn(new ArrayList<>(notesByLoan.keySet())).stream()
+                .collect(Collectors.toMap(InvestmentLoanServicingState::getLoanApplicationId,
+                        Function.identity()));
 
         List<PortfolioPositionResponse> positions = new ArrayList<>();
         BigDecimal outstandingTotal = ZERO_MONEY;
@@ -82,6 +89,7 @@ public class PortfolioServiceImpl implements PortfolioService {
             List<InvestmentNote> loanNotes = entry.getValue();
             InvestmentNote sample = loanNotes.get(0);
             MarketListing listing = listings.get(sample.getListingId());
+            InvestmentLoanServicingState servicing = servicingByLoan.get(entry.getKey());
 
             BigDecimal principal = sum(loanNotes, InvestmentNote::getPrincipalAmount);
             BigDecimal outstanding = sum(loanNotes, InvestmentNote::getOutstandingPrincipal);
@@ -109,7 +117,14 @@ public class PortfolioServiceImpl implements PortfolioService {
                     repaid.toPlainString(),
                     interest.toPlainString(),
                     sharePercentOf(listing, principal),
-                    NoteStatus.ACTIVE.name()
+                    NoteStatus.ACTIVE.name(),
+                    servicing == null ? 0 : servicing.getDaysPastDue(),
+                    servicing == null ? 1 : servicing.getDebtGroup(),
+                    servicing == null || servicing.getOverdueAmount() == null
+                            ? ZERO_MONEY.toPlainString() : servicing.getOverdueAmount().toPlainString(),
+                    servicing == null ? "ACTIVE" : servicing.getStatus(),
+                    servicing == null ? null : servicing.getMaturityDate(),
+                    servicing == null ? null : servicing.getRiskDataAsOf()
             ));
         }
 

@@ -20,6 +20,7 @@ from app.services.credit.rule_engine import (
     cham_diem_chi_tiet,
     dem_luat_co_du_lieu,
     kiem_tra_chot_chan_cung,
+    kiem_tra_yeu_cau_tham_dinh,
     lay_bo_luat,
     quyet_dinh,
     so_luat_toi_thieu_co_du_lieu,
@@ -413,14 +414,46 @@ class TestChotChanCung:
 
     @pytest.mark.parametrize("nhom_no", [3, 4, 5])
     def test_no_xau_cic_bi_chan(self, nhom_no):
-        """Nợ nhóm 3+ là nợ xấu theo Thông tư 11/2021/TT-NHNN."""
-        assert "CIC_BAD_DEBT_GROUP" in kiem_tra_chot_chan_cung(
-            {**HO_SO_TOT, "nhom_no_cao_nhat": nhom_no}
+        """Chỉ nhóm nợ HIỆN TẠI 3+ mới là chốt từ chối."""
+        assert "CIC_CURRENT_BAD_DEBT" in kiem_tra_chot_chan_cung(
+            {**HO_SO_TOT, "nhom_no_hien_tai": nhom_no}
         )
 
     @pytest.mark.parametrize("nhom_no", [1, 2])
     def test_no_nhom_1_2_khong_bi_chan(self, nhom_no):
-        assert kiem_tra_chot_chan_cung({**HO_SO_TOT, "nhom_no_cao_nhat": nhom_no}) == []
+        assert kiem_tra_chot_chan_cung({**HO_SO_TOT, "nhom_no_hien_tai": nhom_no}) == []
+
+    def test_lich_su_no_xau_khong_chan_vinh_vien(self):
+        features = {
+            **HO_SO_TOT,
+            "nhom_no_cao_nhat": 5,
+            "nhom_no_hien_tai": 1,
+            "cic_as_of_date": "2028-10-04",
+            "tam_khoa_vay_den": "2027-10-04",
+            "tham_dinh_thu_cong_den": "2028-10-04",
+        }
+        assert "CIC_CURRENT_BAD_DEBT" not in kiem_tra_chot_chan_cung(features)
+        assert kiem_tra_yeu_cau_tham_dinh(features) == []
+
+    def test_dang_trong_thoi_gian_tam_khoa_bi_tu_choi(self):
+        features = {
+            **HO_SO_TOT,
+            "nhom_no_hien_tai": 1,
+            "cic_as_of_date": "2026-10-04",
+            "tam_khoa_vay_den": "2027-10-04",
+        }
+        assert "CIC_BAD_DEBT_COOLDOWN" in kiem_tra_chot_chan_cung(features)
+
+    def test_sau_tam_khoa_nhung_con_giai_doan_phuc_hoi_phai_tham_dinh(self):
+        features = {
+            **HO_SO_TOT,
+            "nhom_no_hien_tai": 1,
+            "cic_as_of_date": "2027-10-04",
+            "tam_khoa_vay_den": "2027-10-04",
+            "tham_dinh_thu_cong_den": "2028-10-04",
+        }
+        assert kiem_tra_chot_chan_cung(features) == []
+        assert "CIC_BAD_DEBT_RECOVERY_REVIEW" in kiem_tra_yeu_cau_tham_dinh(features)
 
     def test_tong_du_no_vuot_400_trieu_bi_chan(self):
         """Trần tổng 400 triệu toàn hệ thống — Quyết định 2866/QĐ-NHNN."""
@@ -451,13 +484,13 @@ class TestChotChanCung:
             **HO_SO_TOT,
             "int_rate": 30.0,
             "term_months": 48,
-            "nhom_no_cao_nhat": 5,
+            "nhom_no_hien_tai": 5,
         }
         vi_pham = kiem_tra_chot_chan_cung(ho_so)
         assert {
             "INTEREST_RATE_EXCEEDS_LEGAL_LIMIT",
             "TERM_EXCEEDS_LEGAL_LIMIT",
-            "CIC_BAD_DEBT_GROUP",
+            "CIC_CURRENT_BAD_DEBT",
         } <= set(vi_pham)
 
     def test_ho_so_rong_khong_vi_pham_gia(self):

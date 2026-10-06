@@ -23,7 +23,7 @@ class LoanMigrationUpgradeIT {
             .withPassword("finora_test");
 
     @Test
-    void existingV4DatabaseUpgradesThroughV18WithoutRecreatingOldTables() throws Exception {
+    void existingV4DatabaseUpgradesThroughV24WithoutRecreatingOldTables() throws Exception {
         Flyway.configure()
                 .dataSource(POSTGRESQL.getJdbcUrl(), POSTGRESQL.getUsername(), POSTGRESQL.getPassword())
                 .locations("classpath:db/migration")
@@ -37,7 +37,7 @@ class LoanMigrationUpgradeIT {
                 .load();
         upgraded.migrate();
 
-        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("18");
+        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("24");
         assertThat(upgraded.info().pending()).isEmpty();
         try (Connection connection = POSTGRESQL.createConnection("");
              Statement statement = connection.createStatement();
@@ -51,11 +51,18 @@ class LoanMigrationUpgradeIT {
                            'loan_contract_documents',
                            'loan_contract_parties',
                            'loan_processed_events',
-                           'loan_disbursement_sagas'
+                           'loan_disbursement_sagas',
+                           'finora_loans',
+                           'loan_servicing_projections',
+                           'loan_reschedule_requests',
+                           'loan_collection_cases',
+                           'loan_collection_actions',
+                           'loan_reconciliation_incidents',
+                           'loan_repayment_event_quarantine'
                        )
                      """)) {
             assertThat(result.next()).isTrue();
-            assertThat(result.getInt(1)).isEqualTo(6);
+            assertThat(result.getInt(1)).isEqualTo(13);
         }
         try (Connection connection = POSTGRESQL.createConnection("");
              Statement statement = connection.createStatement();
@@ -188,6 +195,32 @@ class LoanMigrationUpgradeIT {
                      """)) {
             assertThat(result.next()).isTrue();
             assertThat(result.getInt(1)).isEqualTo(1);
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT COUNT(*)
+                     FROM pg_indexes
+                     WHERE schemaname = 'public'
+                       AND indexname = 'idx_loan_servicing_projection_stale_queue'
+                     """)) {
+            assertThat(result.next()).isTrue();
+            assertThat(result.getInt(1)).isEqualTo(1);
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT COUNT(*)
+                     FROM pg_indexes
+                     WHERE schemaname = 'public'
+                       AND indexname IN (
+                           'uq_loan_reconciliation_one_open_type',
+                           'idx_loan_reconciliation_admin_queue',
+                           'idx_loan_reconciliation_history'
+                       )
+                     """)) {
+            assertThat(result.next()).isTrue();
+            assertThat(result.getInt(1)).isEqualTo(3);
         }
     }
 }

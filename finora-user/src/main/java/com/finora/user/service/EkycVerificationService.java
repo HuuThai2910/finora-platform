@@ -11,12 +11,18 @@ import com.finora.user.dto.request.EkycVerifyRequest;
 import com.finora.user.dto.response.EkycResultResponse;
 import com.finora.user.dto.response.EkycResultResponse.EkycDraft;
 import com.finora.user.repository.UserProfileRepository;
+import com.finora.user.repository.CicMappingTaskRepository;
+import com.finora.user.domain.CicMappingTask;
 import com.finora.user.support.CryptoUtils;
 import com.finora.user.util.CccdMatcher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
 
@@ -44,6 +50,8 @@ public class EkycVerificationService {
     private final EkycRateLimitService rateLimitService;
     private final EkycDraftStore draftStore;
     private final CryptoProperties cryptoProperties;
+    private final CicMappingTaskRepository cicMappingTaskRepository;
+    private final Clock clock;
 
     // ── Bước quét: OCR ra bản nháp ─────────────────────────────────
 
@@ -119,6 +127,7 @@ public class EkycVerificationService {
     // ── Bước xác nhận: người dùng đồng ý thì mới lưu ───────────────
 
     /** Ghi bản nháp đã được người dùng xác nhận vào hồ sơ và chuyển VERIFIED. */
+    @Transactional
     public EkycResultResponse confirm(UUID keycloakUserId) {
         UserProfile profile = findProfileOrThrow(keycloakUserId);
 
@@ -150,7 +159,10 @@ public class EkycVerificationService {
         profile.markEkycDocumentVerified();
         updateProfileCompleteness(profile);
         userProfileRepository.save(profile);
-        draftStore.remove(keycloakUserId);
+        cicMappingTaskRepository.findByUserProfileId(profile.getId())
+                .orElseGet(() -> cicMappingTaskRepository.save(
+                        CicMappingTask.pending(profile.getId(), clock.instant())));
+        removeDraftAfterCommit(keycloakUserId);
 
         log.info("Người dùng xác nhận bản nháp — eKYC hoàn tất: userId={}", profile.getId());
 
@@ -242,5 +254,19 @@ public class EkycVerificationService {
         return userProfileRepository.findByKeycloakUserId(keycloakUserId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Hồ sơ người dùng", "keycloakUserId", keycloakUserId));
+    }
+
+    /** Không xóa bản nháp trước khi transaction DB đã commit thành công. */
+    private void removeDraftAfterCommit(UUID keycloakUserId) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            draftStore.remove(keycloakUserId);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                draftStore.remove(keycloakUserId);
+            }
+        });
     }
 }

@@ -36,6 +36,7 @@ from app.services.credit.rule_engine import (
     cham_diem_chi_tiet,
     dem_luat_co_du_lieu,
     kiem_tra_chot_chan_cung,
+    kiem_tra_yeu_cau_tham_dinh,
     quyet_dinh,
     tinh_diem_tong_hop,
     xep_hang,
@@ -187,10 +188,12 @@ class BoDuDoan:
         hang = xep_hang(evaluation_score)
 
         vi_pham = kiem_tra_chot_chan_cung(ho_so)
+        ly_do_tham_dinh = kiem_tra_yeu_cau_tham_dinh(ho_so)
         # Mẫu số là số luật ĐÃ CHẤM (đang bật), không phải hằng số: admin thêm bớt
         # luật thì ngưỡng "đủ dữ liệu để máy quyết" phải co giãn theo.
         decision = quyet_dinh(
-            evaluation_score, vi_pham, dem_luat_co_du_lieu(rule_trace), len(rule_trace)
+            evaluation_score, vi_pham, dem_luat_co_du_lieu(rule_trace), len(rule_trace),
+            ly_do_tham_dinh
         )
 
         return {
@@ -203,6 +206,7 @@ class BoDuDoan:
             # Giữ field cũ (mã đầu tiên) để finora-loan không phải sửa hợp đồng.
             "rejection_reason": vi_pham[0] if vi_pham else None,
             "rejection_reasons": vi_pham,
+            "review_reasons": ly_do_tham_dinh,
             "rule_trace": rule_trace,
             "model_version": self.metadata["version"],
         }

@@ -79,7 +79,7 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 | P0-A06 | Thái + Hải | [Chuyển Loan/Payment/Blockchain/User/Investment và Keycloak sang PostgreSQL 17, mỗi thành phần một database riêng](P0-A06-postgresql-neon-migration.md); Loan schema theo [LN-001A](../../finora-loan/plans/LN-001A-postgresql-neon-migration.md) | Docker PostgreSQL chỉ offline/test; mỗi service persistent dùng Neon Project riêng | `REVIEW` |
 | P0-B01 | Hải | Nền PostgreSQL/Flyway/Testcontainers cho User và Investment đã thuộc P0-A06; migration/index nghiệp vụ thêm cùng entity đầu tiên, Python Ruff/Pytest vẫn áp dụng cho AI | Thái review contract và pattern vùng chung | `IN_PROGRESS` |
 | P0-A02 | Thái | Outbox + idempotent consumer reference implementation phía Java do Thái sở hữu | Hải dùng contract, không sửa module | `BACKLOG` |
-| P0-B02 | Hải | Notification consumer reference, retry/DLT/idempotency | Thái cung cấp event fixture | `BACKLOG` |
+| P0-B02 | Hải | Notification consumer reference, retry/DLT/idempotency | Thái cung cấp event fixture | `REVIEW` — PostgreSQL in-app delivery, Kafka consumer servicing và dedup source event đã có; bounded retry/DLT/provider push còn thuộc P7-B09 |
 | P0-C03 | Thái + Hải | Trace ID HTTP/Kafka, JSON logging, Actuator/readiness; HTTP baseline Loan ở [LN-002](../../finora-loan/plans/LN-002-security-error-observability.md) | Thái triển khai HTTP Loan; Kafka trace làm khi có flow thật; Hải hậu kiểm | `IN_PROGRESS` |
 | P0-C04 | Thái + Hải | Neon-first cho mọi service có persistence; Docker PostgreSQL riêng từng service làm offline/test fallback ([plan](P0-C04-local-docker-infrastructure.md)) | Thái và Hải cùng chịu trách nhiệm module của mình; vùng chung phải được hai bên đọc được | `REVIEW` |
 | P0-C05 | Thái + Hải | [Apache Fineract 1.15.0 + PostgreSQL riêng + tenant/bootstrap/health fixture](P0-C05-fineract-local-fixture.md) | Thái triển khai adapter/hạ tầng; Hải review vùng dùng chung trước merge | `IN_PROGRESS` |
@@ -187,7 +187,7 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 |---|---|---|---|---|
 | P4-A01 | Loan | [LN-011: Fineract booking + Disbursement Saga](../../finora-loan/plans/LN-011-disbursement-fineract-booking-saga.md) | externalId contract, `sagaId`, step, attempt, timeout | `IN_PROGRESS` |
 | P4-A02 | Payment | Capture commitments và disbursement ledger | Financial idempotency | `REVIEW` — capture theo hold reference, cần E2E restart |
-| P4-A03 | Loan | [LN-012: Fineract projection/reconciliation](../../finora-loan/plans/LN-012-fineract-servicing-reconciliation.md) | Không lặp side effect; repair khi tiền đã chuyển nhưng core lỗi | `BACKLOG` |
+| P4-A03 | Loan | [LN-012: Fineract projection/reconciliation](../../finora-loan/plans/LN-012-fineract-servicing-reconciliation.md) | Không lặp side effect; repair khi tiền đã chuyển nhưng core lỗi | `REVIEW` — projection/API/event, stale/manual reconcile, incident V23 và quarantine/replay V24 đã có; empty/upgrade schema test xanh |
 | P4-A04 | Blockchain | Fabric adapter submit/query | Hash only, no PII | `BACKLOG` |
 | P4-A05 | Blockchain | Retry/DLT/submission status | Không rollback nghiệp vụ đã commit | `BACKLOG` |
 
@@ -212,21 +212,21 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P5-A01 | Loan | [LN-012: Fineract schedule/balance projection](../../finora-loan/plans/LN-012-fineract-servicing-reconciliation.md) | Fineract là SoR; version/staleness/reconcile rõ | `BACKLOG` |
-| P5-A02 | Payment | Collect/manual payment/auto-debit cơ bản | Provider/idempotency reference | `BACKLOG` |
-| P5-A03 | Payment | [LN-013: Ghi repayment vào Fineract](../../finora-loan/plans/LN-013-repayment-schedule-boundary.md) và dùng core breakdown | External transaction idempotency + reconciliation | `BACKLOG` |
-| P5-A04 | Payment | Phân bổ investor wallets | Balanced ledger | `BACKLOG` |
-| P5-A05 | Loan | [LN-014: Consume overdue/default và cập nhật credit profile](../../finora-loan/plans/LN-014-delinquency-credit-profile.md) | Không chạy lại collection | `BACKLOG` |
-| P5-A06 | Blockchain | Repayment proof | Reconciliation reference | `BACKLOG` |
+| P5-A01 | Loan | [LN-012: Fineract schedule/balance projection](../../finora-loan/plans/LN-012-fineract-servicing-reconciliation.md) | Fineract là SoR; version/staleness/reconcile rõ | `REVIEW` — read projection, polling, stale/manual reconcile, incident V23 và quarantine/replay V24 đã có |
+| P5-A02 | Payment | Collect/manual payment/auto-debit cơ bản | Provider/idempotency reference | `IN_PROGRESS` — manual wallet collection đã có |
+| P5-A03 | Payment | [LN-013: Ghi repayment vào Fineract](../../finora-loan/plans/LN-013-repayment-schedule-boundary.md), [PM-006: đối soát](../../finora-payment/plans/PM-006-repayment-reconciliation.md) và dùng core breakdown | External transaction idempotency + reconciliation | `REVIEW` — kỳ thường, quá hạn, tất toán và partial V2 đã có; Testcontainers xanh; Fineract V2 thật đã chứng minh re-amortization; Kafka broker smoke xanh |
+| P5-A04 | Payment | Phân bổ investor wallets | Balanced ledger | `IN_PROGRESS` — current Note owner projection + balanced distribution đã có; integration test chứng minh ví/Note/outbox cân bằng, còn consumer Investment thật |
+| P5-A05 | Loan/CIC mock | [LN-014: Consume overdue/default và cập nhật credit profile](../../finora-loan/plans/LN-014-delinquency-credit-profile.md) | Không chạy lại collection | `REVIEW` — CIC đã tách nhóm hiện tại/lịch sử, có cooldown/manual-review policy; DPD/group, cure về 0, idempotency/pending mapping và Investment risk projection đã có |
+| P5-A06 | Blockchain | Repayment proof | Reconciliation reference | `REVIEW` — consume `RepaymentDistributed.v1`, chỉ neo SHA-256 data, unique source event |
 
 ### Hải
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P5-B01 | Investment | Ownership snapshot contract | Version hiệu lực tại thời điểm trả | `BACKLOG` |
-| P5-B02 | Investment | Update Note principal/interest | Consumer idempotent | `BACKLOG` |
+| P5-B01 | Investment | Ownership snapshot contract | Version hiệu lực tại thời điểm trả | `IN_PROGRESS` — issuance/transfer event đã có; cần E2E concurrency review |
+| P5-B02 | Investment | Update Note principal/interest | Consumer idempotent | `REVIEW` — consumer/domain update, lifecycle settled/rescheduled và regression test đã có |
 | P5-B03 | Investment | Portfolio và cashflow projection | Rebuild được từ event | `BACKLOG` |
-| P5-B04 | Notification | Due/paid/overdue/investor-credit templates | Preference + idempotency | `BACKLOG` |
+| P5-B04 | Notification | Due/paid/overdue/investor-credit templates | Preference + idempotency | `REVIEW` — Investment phát `InvestorNoteServicingChanged.v1`; Notification lưu in-app delivery, API unread/read và mobile nối thật; OS push còn chờ provider/device token |
 
 **Invariant bắt buộc:** tiền thu = phí + phạt/lãi + gốc + rounding remainder; không mất tiền do làm tròn; projection lỗi không thu tiền lần hai.
 
@@ -237,7 +237,7 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 | ID | Owner | Công việc | Kết quả | Trạng thái |
 |---|---|---|---|---|
 | P6-C01 | Thái + Hải | E2E vertical slice từ đăng ký đến một kỳ trả nợ | Script/demo lặp lại được | `BACKLOG` |
-| P6-C02 | Thái | Test concurrency/financial reconciliation | Báo cáo invariant | `BACKLOG` |
+| P6-C02 | Thái | Test concurrency/financial reconciliation | Báo cáo invariant | `IN_PROGRESS` — wallet concurrent debit, repayment balanced distribution và admin reconcile đã có; còn restart/unknown-outcome với Fineract thật |
 | P6-C03 | Hải | Test model/XAI, matching và projection rebuild | Báo cáo metric | `BACKLOG` |
 | P6-C04 | Thái + Hải | Chaos cases: Kafka/AI/Fabric/DB timeout, restart Saga | Evidence failure recovery | `BACKLOG` |
 | P6-C05 | Thái + Hải | Security/PII/log review | Không secret/PII leak | `BACKLOG` |
@@ -254,9 +254,9 @@ Các task có thể chạy song song theo ownership, nhưng mỗi task vẫn ph�
 
 | ID | Module | Chức năng | Phụ thuộc | Trạng thái |
 |---|---|---|---|---|
-| P7-A01 | Loan | Trả nợ sớm | P5 | `BACKLOG` |
-| P7-A02 | Loan | Tái cơ cấu | P5 + consent contract | `BACKLOG` |
-| P7-A03 | Loan | NPL policy/dashboard | P5 + reporting | `BACKLOG` |
+| P7-A01 | Loan | [LN-017: Product V2 và trả nợ sớm](../../finora-loan/plans/LN-017-fineract-product-v2-partial-prepayment.md) | P5 | `REVIEW` — Product V2 `PROGRESSIVE`/advanced allocation, API trả trước một phần, Payment V9–V10 và E2E Fineract thật đã hoàn tất ngày 2026-10-04; quote cố ý không dựng lịch giả định vì Fineract 1.15 không có preview theo số tiền |
+| P7-A02 | Loan | [LN-015: Tái cơ cấu/gia hạn](../../finora-loan/plans/LN-015-loan-restructuring.md) | P5 + consent contract | `REVIEW` — V20, borrower/admin API, durable Fineract reconcile, `LoanRescheduled.v1` và Investment lifecycle consumer đã có |
+| P7-A03 | Loan | [LN-016: NPL policy/dashboard](../../finora-loan/plans/LN-016-collection-default.md) | P5 + reporting | `REVIEW` — V21, episode thu hồi, DPD stage/default-cure, admin API/audit action và trang quản trị servicing đã có |
 | P7-A04 | Loan | SmartCA adapter | Contract/sandbox ký số | `BACKLOG` |
 | P7-A05 | Payment | Payment gateway nạp/rút thật hoặc sandbox | P3 | `BACKLOG` |
 | P7-A06 | Payment | Auto-debit nâng cao | P5 | `BACKLOG` |

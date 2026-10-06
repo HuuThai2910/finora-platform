@@ -16,6 +16,7 @@ import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.disbursement.DisbursementSagaRepository;
 import com.finora.loan.repository.messaging.ProcessedEventRepository;
 import com.finora.loan.service.outbox.OutboxService;
+import com.finora.loan.service.servicing.ServicingActivationService;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -36,6 +37,7 @@ public class DisbursementSagaService {
     private final LoanContractRepository contractRepository;
     private final ProcessedEventRepository processedEventRepository;
     private final OutboxService outboxService;
+    private final ServicingActivationService servicingActivationService;
     private final CoreLoanBookingGateway coreGateway;
     private final Clock clock;
     private final TransactionTemplate transactionTemplate;
@@ -97,7 +99,8 @@ public class DisbursementSagaService {
         return new CoreBookingWork(saga.getSagaId(), new CoreLoanBookingGateway.CoreLoanBookingCommand(
                 application.getId(), contract.getContractNumber(), application.getBorrowerId(),
                 application.getFineractProductIdSnapshot(), contract.getPrincipalAmount(), contract.getTermMonths(),
-                contract.getAnnualInterestRate(), contract.getExpectedDisbursementDate(), saga.getPaymentReference()));
+                contract.getAnnualInterestRate(), application.getCoreConfigVersionSnapshot(),
+                contract.getExpectedDisbursementDate(), saga.getPaymentReference()));
     }
 
     public void execute(Long id) {
@@ -121,10 +124,13 @@ public class DisbursementSagaService {
         Instant now = clock.instant();
         saga.complete(fineractLoanId, now, now);
         LoanApplication application = applicationRepository.findById(saga.getLoanApplicationId()).orElseThrow();
+        LoanContract contract = contractRepository.findByContractNumber(saga.getContractNumber()).orElseThrow();
+        servicingActivationService.activate(application, contract, fineractLoanId, now);
         outboxService.recordForPublication("DisbursementSaga", sagaId.toString(), "LoanDisbursed", 1,
                 new LoanDisbursedEventData(sagaId, application.getId(), application.getApplicationNumber(),
                         saga.getContractNumber(), saga.getListingId(), saga.getAmount().toPlainString(),
-                        saga.getCurrency(), saga.getPaymentReference(), fineractLoanId, now));
+                        saga.getCurrency(), saga.getPaymentReference(), fineractLoanId,
+                        application.getCoreConfigVersionSnapshot(), now));
     }
 
     @Transactional

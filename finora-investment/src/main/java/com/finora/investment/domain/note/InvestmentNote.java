@@ -99,4 +99,21 @@ public class InvestmentNote {
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    public void applyRepayment(BigDecimal principal, BigDecimal interest, Instant paidAt) {
+        if (principal == null || interest == null || principal.signum() < 0 || interest.signum() < 0) {
+            throw new IllegalArgumentException("Phân bổ repayment không hợp lệ");
+        }
+        BigDecimal nextOutstanding = outstandingPrincipal.subtract(principal.setScale(2));
+        if (nextOutstanding.signum() < 0) throw new IllegalArgumentException("Gốc trả vượt dư nợ Note");
+        outstandingPrincipal = nextOutstanding;
+        principalRepaid = principalRepaid.add(principal.setScale(2));
+        interestReceived = interestReceived.add(interest.setScale(2));
+        if (outstandingPrincipal.signum() == 0) {
+            status = NoteStatus.CLOSED;
+            closedAt = paidAt;
+        }
+        updatedBy = "SYSTEM-REPAYMENT";
+        updatedAt = paidAt;
+    }
 }

@@ -95,6 +95,10 @@ Trước khi chạy, cập nhật `docker/.env` theo `docker/.env.example`:
   hậu tố `?sslmode=require`.
 - `USER_DB_URL`, `USER_DB_USERNAME`, `USER_DB_PASSWORD` trỏ tới database User.
 - `CIC_DB_URL`, `CIC_DB_USERNAME`, `CIC_DB_PASSWORD` trỏ tới database CIC.
+- `CIC_INTERNAL_API_KEY` bảo vệ API nội bộ tạo mapping borrowerId–CCCD; phải dùng cùng giá trị
+  ở client nội bộ gọi CIC và không commit secret thật.
+- `USER_CIC_MAPPING_ENABLED=true` bật worker User. Sau eKYC, User tự đăng ký mapping vào CIC;
+  CIC tạm tắt thì task nằm trong PostgreSQL User và retry, không làm eKYC thất bại.
 - `KEYCLOAK_CLIENT_SECRET` phải đúng client `finora-user-client` trong realm đang dùng.
 - `FINORA_AES_SECRET` và `FINORA_HMAC_SECRET` phải đúng với dữ liệu User hiện có.
 - `GEMINI_API_KEY` chỉ bắt buộc khi test OCR/eKYC.
@@ -110,6 +114,10 @@ CIC:      http://localhost:9000/actuator/health
 
 Compose build CIC từ repository ngang cấp `../cic-service` và AI gọi qua DNS nội bộ
 `http://cic:9000`. CIC sở hữu Flyway/database riêng; AI chỉ gọi REST và không đọc DB CIC.
+CIC đồng thời consume `finora.loan.delinquency-changed` qua group
+`cic-loan-delinquency`; Compose tự dùng broker nội bộ `kafka:29092`.
+User gọi CIC qua DNS nội bộ `http://cic:9000`; hai container phải nhận cùng
+`CIC_INTERNAL_API_KEY`. Migration User V4 tự backfill task cho hồ sơ `VERIFIED` cũ.
 
 ### Chạy AI v17 cho LN-007
 

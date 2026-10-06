@@ -216,6 +216,7 @@ public class CreditScoringStateService {
                         application.getRequestedTermMonths(),
                         pricing.finalAnnualInterestRate(),
                         application.getRepaymentMethodSnapshot(),
+                        application.getCoreConfigVersionSnapshot(),
                         application.getSubmittedAt().atZone(ZoneOffset.UTC).toLocalDate(),
                         application.getExpectedDisbursementDate()
                 ),

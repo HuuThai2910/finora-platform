@@ -60,6 +60,7 @@ public class LoanApplicationSubmissionStateService {
                 product.getConfigurationVersion(),
                 mapping.getId(),
                 mapping.getFineractProductId(),
+                mapping.getConfigVersion(),
                 product.getAnnualInterestRate(),
                 product.getRepaymentMethod()
         );

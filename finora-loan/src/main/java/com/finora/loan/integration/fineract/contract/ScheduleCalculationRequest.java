@@ -11,6 +11,7 @@ public record ScheduleCalculationRequest(
         Integer termMonths,
         BigDecimal annualInterestRate,
         RepaymentMethod repaymentMethod,
+        String coreConfigVersion,
         LocalDate submittedOnDate,
         LocalDate expectedDisbursementDate
 ) {

@@ -74,5 +74,26 @@ finora:
     disbursement-requested-topic: ${LOAN_DISBURSEMENT_REQUESTED_TOPIC:finora.loan.disbursement-requested}
     disbursement-completed-topic: ${PAYMENT_DISBURSEMENT_COMPLETED_TOPIC:finora.payment.disbursement-completed}
     disbursement-failed-topic: ${PAYMENT_DISBURSEMENT_FAILED_TOPIC:finora.payment.disbursement-failed}
+    loan-disbursed-topic: ${LOAN_DISBURSED_TOPIC:finora.loan.disbursed}
+    note-ownership-changed-topic: ${INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC:finora.investment.note-ownership-changed}
+    repayment-distributed-topic: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:finora.payment.repayment-distributed}
+    servicing-group: ${PAYMENT_SERVICING_GROUP:payment-servicing}
+    repayment-worker-delay: ${PAYMENT_REPAYMENT_WORKER_DELAY:3000}
+    reconciliation-worker-delay: ${PAYMENT_RECONCILIATION_WORKER_DELAY:30000}
+    core-posting-stale-after: ${PAYMENT_CORE_POSTING_STALE_AFTER:1m}
+    early-settlement:
+      policy-version: ${PAYMENT_EARLY_SETTLEMENT_POLICY_VERSION:VCB_REFERENCE_2024_V1}
+      quote-ttl: ${PAYMENT_EARLY_SETTLEMENT_QUOTE_TTL:15m}
+      short-term-first-half-rate: ${PAYMENT_EARLY_SETTLEMENT_SHORT_RATE:0.005}
+      long-term-rate: ${PAYMENT_EARLY_SETTLEMENT_LONG_RATE:0.01}
+      minimum-fee: ${PAYMENT_EARLY_SETTLEMENT_MINIMUM_FEE:100000}
+    fineract:
+      base-url: ${FINERACT_BASE_URL:http://localhost:18443/fineract-provider/api/v1}
+      tenant-id: ${FINERACT_TENANT_ID:default}
+      username: ${FINERACT_API_USERNAME:mifos}
+      password: ${FINERACT_API_PASSWORD:password}
+      repayment-payment-type-id: ${FINERACT_REPAYMENT_PAYMENT_TYPE_ID:1}
+      connect-timeout: ${FINERACT_CONNECT_TIMEOUT:3s}
+      read-timeout: ${FINERACT_READ_TIMEOUT:15s}
     worker-delay: ${PAYMENT_DISBURSEMENT_WORKER_DELAY:3000}
     outbox-delay: ${PAYMENT_OUTBOX_DELAY:3000}

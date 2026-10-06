@@ -8,6 +8,7 @@ public record ApplicationSubmissionContext(
         Long productConfigurationVersion,
         Long mappingId,
         Long fineractProductId,
+        String coreConfigVersion,
         BigDecimal annualInterestRate,
         RepaymentMethod repaymentMethod
 ) {

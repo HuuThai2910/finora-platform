@@ -8,9 +8,15 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.repository.query.Param;
+import jakarta.persistence.LockModeType;
 
 public interface InvestmentNoteRepository extends JpaRepository<InvestmentNote, Long> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select n from InvestmentNote n where n.id = :noteId")
+    java.util.Optional<InvestmentNote> findByIdForUpdate(@Param("noteId") Long noteId);
 
     List<InvestmentNote> findByCommitmentId(Long commitmentId);
 
@@ -21,6 +27,8 @@ public interface InvestmentNoteRepository extends JpaRepository<InvestmentNote, 
     List<InvestmentNote> findByInvestorIdAndStatus(String investorId, NoteStatus status);
 
     List<InvestmentNote> findByLoanIdAndStatus(Long loanId, NoteStatus status);
+
+    List<InvestmentNote> findByLoanIdAndStatusIn(Long loanId, List<NoteStatus> statuses);
 
     boolean existsByListingIdAndStatus(Long listingId, NoteStatus status);
 

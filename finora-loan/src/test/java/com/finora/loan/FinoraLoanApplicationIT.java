@@ -113,7 +113,9 @@ class FinoraLoanApplicationIT {
         // Mỗi test phải có dữ liệu độc lập; Spring giữ nguyên context và PostgreSQL
         // giữa các method nên không thể dựa vào thứ tự chạy hoặc ID của test trước.
         jdbcTemplate.execute("""
-                TRUNCATE TABLE loan_outbox_events, loan_contract_documents, loan_contract_status_histories, loan_contracts,
+                TRUNCATE TABLE loan_repayment_event_quarantine, loan_collection_actions, loan_collection_cases,
+                    loan_reschedule_requests, loan_servicing_projections, finora_loans,
+                    loan_outbox_events, loan_contract_documents, loan_contract_status_histories, loan_contracts,
                     credit_scoring_retry_requests, credit_scoring_assessments,
                     borrower_eligibility_checks, borrower_credit_profiles,
                     loan_application_status_histories, schedule_calculation_snapshots,
@@ -138,7 +140,7 @@ class FinoraLoanApplicationIT {
                         "BORROWER-001"
                 )
         );
-        when(productGateway.findProductByExternalId(anyString())).thenReturn(Optional.empty());
+        when(productGateway.findProductByExternalId(anyString(), anyString())).thenReturn(Optional.empty());
         when(productGateway.createProduct(any(), anyString()))
                 .thenAnswer(invocation -> new FineractProductCreationResult(fineractIds.incrementAndGet(), "{}"));
         when(scheduleGateway.calculateSchedule(any()))
@@ -169,7 +171,7 @@ class FinoraLoanApplicationIT {
                 """, Long.class);
 
         assertThat(databaseVersion).startsWith("17.");
-        assertThat(businessTables).isEqualTo(17L);
+        assertThat(businessTables).isEqualTo(24L);
         assertThat(flyway.info().pending()).isEmpty();
     }
 
@@ -642,7 +644,9 @@ class FinoraLoanApplicationIT {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.totalElements").value(3))
                     .andExpect(jsonPath("$.data.length()").value(3));
-            assertThat(statistics.getQueryExecutionCount()).isLessThanOrEqualTo(3L);
+            // Page content + count + batch assessment + một query fixed của projection liên quan.
+            // Giới hạn vẫn cố định theo page, không tăng theo số hồ sơ.
+            assertThat(statistics.getQueryExecutionCount()).isLessThanOrEqualTo(4L);
         } finally {
             statistics.setStatisticsEnabled(false);
         }

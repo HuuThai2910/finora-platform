@@ -131,6 +131,7 @@ async def explain_credit(ho_so: CreditScoreRequest) -> CreditExplainResponse:
         giai_thich_mo_hinh=giai_thich,
         rule_trace=ket_qua["rule_trace"],
         rejection_reasons=ket_qua["rejection_reasons"],
+        review_reasons=ket_qua["review_reasons"],
         model_version=ket_qua["model_version"],
         decision_policy_version=get_decision_policy_version(),
     )

@@ -28,9 +28,12 @@ public class PaymentOutboxPublisher{
   PaymentOutboxEvent e=repository.findById(id).orElseThrow();
   try{JsonNode data=mapper.readTree(e.getPayloadJson());String envelope=mapper.writeValueAsString(
     new KafkaEventEnvelope(e.getEventId(),e.getCreatedAt().toString(),e.getEventVersion(),data));
-   String topic="DisbursementCompleted".equals(e.getEventType())
-    ?environment.getProperty("finora.payment.disbursement-completed-topic","finora.payment.disbursement-completed")
-    :environment.getProperty("finora.payment.disbursement-failed-topic","finora.payment.disbursement-failed");
+   String topic=switch(e.getEventType()){
+    case "DisbursementCompleted" -> environment.getProperty("finora.payment.disbursement-completed-topic","finora.payment.disbursement-completed");
+    case "DisbursementFailed" -> environment.getProperty("finora.payment.disbursement-failed-topic","finora.payment.disbursement-failed");
+    case "RepaymentDistributed" -> environment.getProperty("finora.payment.repayment-distributed-topic","finora.payment.repayment-distributed");
+    default -> throw new IllegalArgumentException("Payment event chưa có Kafka route: "+e.getEventType());
+   };
    ProducerRecord<String,String> record=new ProducerRecord<>(topic,e.getAggregateId(),envelope);
    record.headers().add("finora-event-id",e.getEventId().toString().getBytes(StandardCharsets.UTF_8));
    record.headers().add("finora-event-type",e.getEventType().getBytes(StandardCharsets.UTF_8));

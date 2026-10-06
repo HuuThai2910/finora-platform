@@ -8,7 +8,7 @@ public interface CoreLoanBookingGateway {
 
     record CoreLoanBookingCommand(Long loanApplicationId, String contractNumber, String borrowerId,
             Long productId, BigDecimal principal, Integer termMonths, BigDecimal annualRate,
-            LocalDate disbursementDate, String paymentReference) {}
+            String coreConfigVersion, LocalDate disbursementDate, String paymentReference) {}
     record CoreLoanBookingResult(Long fineractLoanId) {}
 }
 

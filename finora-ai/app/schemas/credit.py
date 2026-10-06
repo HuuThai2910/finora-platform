@@ -264,6 +264,10 @@ class CreditExplainResponse(BaseModel):
         default_factory=list,
         description="Mã chốt chặn cứng bị vi phạm, nếu có.",
     )
+    review_reasons: list[str] = Field(
+        default_factory=list,
+        description="Mã lý do bắt buộc thẩm định thủ công, không phải lý do từ chối.",
+    )
     model_version: str
     decision_policy_version: str = Field(
         description=(

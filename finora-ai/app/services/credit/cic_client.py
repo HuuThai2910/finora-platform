@@ -44,8 +44,8 @@ class CicClient:
         """Tra điểm CIC và dữ liệu tín dụng thô theo số CCCD.
 
         Returns:
-            Dict với 11 keys (cic_score + 9 CIC raw + ty_le_su_dung_the tính từ
-            duNoTheTinDung/hanMucThe) nếu thành công. None nếu fail-open.
+            Dict dữ liệu chấm điểm và trạng thái nợ hiện tại/lịch sử nếu thành
+            công. None nếu fail-open.
         """
         url = f"{self.base_url}/api/v1/diem-tin-dung/{so_cccd}?chiTiet=true"
         cccd_che = _che_cccd(so_cccd)
@@ -89,6 +89,12 @@ class CicClient:
                 "so_hop_dong_dang_co": ho_so.get("soHopDongDangCo"),
                 "so_thang_quan_he": ho_so.get("soThangQuanHe"),
                 "nhom_no_cao_nhat": ho_so.get("nhomNoCaoNhat"),
+                "nhom_no_hien_tai": ho_so.get("nhomNoHienTai"),
+                "ngay_khac_phuc_no_xau": ho_so.get("ngayKhacPhucNoXau"),
+                "tam_khoa_vay_den": ho_so.get("tamKhoaVayDen"),
+                "tham_dinh_thu_cong_den": ho_so.get("thamDinhThuCongDen"),
+                # Dùng ngày tra cứu từ CIC làm mốc so sánh để replay/test tất định.
+                "cic_as_of_date": (data.get("thoiDiemTraCuu") or "")[:10] or None,
             }
 
         except (httpx.HTTPError, ValueError, KeyError) as loi:
