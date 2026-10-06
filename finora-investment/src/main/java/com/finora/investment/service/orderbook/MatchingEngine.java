@@ -9,11 +9,13 @@ import com.finora.investment.domain.orderbook.OrderBook;
 import com.finora.investment.domain.orderbook.OrderSide;
 import com.finora.investment.domain.orderbook.SettlementStatus;
 import com.finora.investment.domain.secondary.NoteTransfer;
+import com.finora.investment.messaging.event.NoteOwnershipChangedEventData;
 import com.finora.investment.repository.BookOrderRepository;
 import com.finora.investment.repository.BookTradeRepository;
 import com.finora.investment.repository.InvestmentNoteRepository;
 import com.finora.investment.repository.NoteLockRepository;
 import com.finora.investment.repository.NoteTransferRepository;
+import com.finora.investment.service.outbox.InvestmentOutboxService;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -47,6 +49,7 @@ public class MatchingEngine {
     private final InvestmentNoteRepository noteRepository;
     private final NoteLockRepository lockRepository;
     private final NoteTransferRepository transferRepository;
+    private final InvestmentOutboxService outboxService;
 
     /**
      * Khớp {@code incoming} tới khi hết số lượng, hết lệnh đối ứng khớp được giá, hoặc chạm lệnh
@@ -184,6 +187,15 @@ public class MatchingEngine {
         }
         transferRepository.saveAll(transfers);
         lockRepository.deleteByNoteIdIn(noteIds);
+
+        // Giữ cùng Kafka key với mọi event của khoản vay để ownership không vượt qua
+        // repayment/disbursement của chính khoản vay đó trong cùng partition.
+        outboxService.record("LOAN", notes.get(0).getLoanId().toString(), "NoteOwnershipChanged", 1,
+                new NoteOwnershipChangedEventData(notes.get(0).getLoanId(), book.getListingId(), "VND",
+                        "TRANSFERRED", trade.getTradeReference(), now,
+                        notes.stream().map(note -> new NoteOwnershipChangedEventData.NoteOwner(
+                                note.getId(), note.getNoteNumber(), note.getInvestorId(),
+                                note.getOutstandingPrincipal().toPlainString())).toList()));
 
         bid.fill(quantity, amount, now);
         ask.fill(quantity, BigDecimal.ZERO, now);

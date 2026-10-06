@@ -78,10 +78,13 @@ DIEN_GIAI_CHOT_CHAN: dict[str, str] = {
         "Kỳ hạn vay vượt 24 tháng — mức tối đa cho vay ngang hàng theo Nghị định "
         "94/2025. Hãy chọn kỳ hạn ngắn hơn."
     ),
-    "CIC_BAD_DEBT_GROUP": (
-        "Bạn đang có nợ xấu từ nhóm 3 trở lên trên hệ thống CIC. Theo Thông tư "
-        "11/2021 của Ngân hàng Nhà nước, tổ chức tín dụng không được cấp khoản vay "
-        "mới trong trường hợp này."
+    "CIC_CURRENT_BAD_DEBT": (
+        "Bạn đang có khoản nợ được phân loại từ nhóm 3 trở lên. Theo chính sách "
+        "rủi ro nội bộ của FINORA, hồ sơ chưa đủ điều kiện nhận khoản vay mới."
+    ),
+    "CIC_BAD_DEBT_COOLDOWN": (
+        "Khoản nợ xấu đã được khắc phục nhưng vẫn còn trong thời gian phục hồi "
+        "theo chính sách rủi ro nội bộ của FINORA."
     ),
     "TOTAL_DEBT_EXCEEDS_LEGAL_LIMIT": (
         "Tổng dư nợ của bạn cộng khoản vay này vượt trần 400 triệu đồng trên toàn "
@@ -239,6 +242,7 @@ def sinh_dien_giai(ket_qua: dict, tom_tat: dict | None = None) -> dict:
     """
     quyet_dinh = ket_qua["decision"]
     vi_pham: list[str] = ket_qua.get("rejection_reasons") or []
+    ly_do_tham_dinh: list[str] = ket_qua.get("review_reasons") or []
     vet: list[dict] = ket_qua.get("rule_trace") or []
 
     # ── Thông điệp tóm tắt ────────────────────────────────────────────────
@@ -271,6 +275,17 @@ def sinh_dien_giai(ket_qua: dict, tom_tat: dict | None = None) -> dict:
     ly_do: list[str] = [
         DIEN_GIAI_CHOT_CHAN.get(ma, f"Hồ sơ vi phạm quy định: {ma}") for ma in vi_pham
     ]
+    for ma in ly_do_tham_dinh:
+        if ma == "CIC_BAD_DEBT_RECOVERY_REVIEW":
+            ly_do.append(
+                "Bạn đã khắc phục nợ xấu và đang trong giai đoạn phục hồi; hồ sơ "
+                "cần thẩm định viên kiểm tra trước khi quyết định."
+            )
+        elif ma == "CIC_CURRENT_GROUP_MISSING":
+            ly_do.append(
+                "CIC có lịch sử tín dụng nhưng chưa cung cấp nhóm nợ hiện tại, "
+                "nên hệ thống không tự động duyệt hồ sơ."
+            )
 
     # Thiếu dữ liệu là chuyện của hệ thống, không phải lỗi người vay: báo ở phần lý
     # do bất kể luật đó có lọt vào top gợi ý hay không.

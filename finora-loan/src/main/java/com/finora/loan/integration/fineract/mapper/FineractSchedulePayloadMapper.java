@@ -45,7 +45,7 @@ public class FineractSchedulePayloadMapper {
         payload.put("amortizationType", repaymentPolicy.amortizationType(source.repaymentMethod()));
         payload.put("interestType", repaymentPolicy.interestType());
         payload.put("interestCalculationPeriodType", repaymentPolicy.interestCalculationPeriodType());
-        payload.put("transactionProcessingStrategyCode", "mifos-standard-strategy");
+        payload.put("transactionProcessingStrategyCode", FineractAllocationPolicy.strategy(source.coreConfigVersion()));
         payload.put("expectedDisbursementDate", source.expectedDisbursementDate());
         payload.put("submittedOnDate", source.submittedOnDate());
         payload.put("dateFormat", "yyyy-MM-dd");

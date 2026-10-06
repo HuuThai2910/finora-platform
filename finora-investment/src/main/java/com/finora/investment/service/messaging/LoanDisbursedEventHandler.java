@@ -3,9 +3,13 @@ import com.finora.investment.domain.listing.MarketListing;
 import com.finora.investment.domain.messaging.ProcessedEvent;
 import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.messaging.event.LoanDisbursedEventData;
+import com.finora.investment.messaging.event.NoteOwnershipChangedEventData;
 import com.finora.investment.repository.MarketListingRepository;
 import com.finora.investment.repository.ProcessedEventRepository;
+import com.finora.investment.repository.InvestmentNoteRepository;
 import com.finora.investment.service.NoteIssuanceService;
+import com.finora.investment.service.outbox.InvestmentOutboxService;
+import com.finora.common.enums.investment.NoteStatus;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -16,7 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service @RequiredArgsConstructor
 public class LoanDisbursedEventHandler{
  private final ProcessedEventRepository processed;private final MarketListingRepository listings;
- private final NoteIssuanceService notes;private final Clock clock;
+ private final NoteIssuanceService notes;private final InvestmentNoteRepository noteRepository;
+ private final InvestmentOutboxService outboxService;private final Clock clock;
  @Transactional public void handle(UUID eventId,Instant occurredAt,LoanDisbursedEventData data){
   if(processed.existsByEventId(eventId))return;
   MarketListing listing=listings.findByIdForUpdate(data.listingId()).orElseThrow(()->
@@ -27,6 +32,14 @@ public class LoanDisbursedEventHandler{
   requireFinancialResult(listing,data);
   notes.finalizeCommitments(listing.getId());
   notes.activateNotes(listing.getId());
+  var ownership = noteRepository.findByLoanIdAndStatus(listing.getLoanId(), NoteStatus.ACTIVE).stream()
+   .map(note -> new NoteOwnershipChangedEventData.NoteOwner(note.getId(), note.getNoteNumber(),
+    note.getInvestorId(), note.getOutstandingPrincipal().toPlainString())).toList();
+  if(ownership.isEmpty())throw InvestmentDomainException.conflict("NOTE_OWNERSHIP_EMPTY",
+   "Không có Note để công bố quyền sở hữu sau giải ngân");
+  outboxService.record("LOAN",listing.getLoanId().toString(),"NoteOwnershipChanged",1,
+   new NoteOwnershipChangedEventData(listing.getLoanId(),listing.getId(),"VND","ISSUED",
+    data.paymentReference(),data.disbursedAt(),ownership));
   listing.setDisbursementSagaId(data.sagaId());listing.setPaymentReference(data.paymentReference());
   listing.setFineractLoanId(data.fineractLoanId());listing.setDisbursedAt(data.disbursedAt());
   listing.setUpdatedBy("SYSTEM-LOAN-EVENT");listing.setUpdatedAt(clock.instant());

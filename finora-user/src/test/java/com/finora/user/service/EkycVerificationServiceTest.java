@@ -10,6 +10,8 @@ import com.finora.user.dto.request.EkycVerifyRequest;
 import com.finora.user.dto.response.EkycResultResponse;
 import com.finora.user.dto.response.EkycResultResponse.EkycDraft;
 import com.finora.user.repository.UserProfileRepository;
+import com.finora.user.repository.CicMappingTaskRepository;
+import com.finora.user.domain.CicMappingTask;
 import com.finora.user.support.CryptoUtils;
 import com.finora.user.util.CccdMatcher;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,6 +21,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -58,6 +63,9 @@ class EkycVerificationServiceTest {
     @Mock
     private EkycDraftStore draftStore;
 
+    @Mock
+    private CicMappingTaskRepository cicMappingTaskRepository;
+
     private EkycVerificationService service;
     private UserProfile profile;
 
@@ -68,7 +76,9 @@ class EkycVerificationServiceTest {
         cryptoProperties.setAesSecret("test-aes-secret-32-characters!!");
 
         service = new EkycVerificationService(
-                userProfileRepository, aiEkycClient, rateLimitService, draftStore, cryptoProperties);
+                userProfileRepository, aiEkycClient, rateLimitService, draftStore, cryptoProperties,
+                cicMappingTaskRepository,
+                Clock.fixed(Instant.parse("2026-10-03T00:00:00Z"), ZoneOffset.UTC));
 
         // Đăng ký không thu họ tên — hồ sơ khởi đầu trống thông tin định danh
         profile = UserProfile.builder()
@@ -190,6 +200,7 @@ class EkycVerificationServiceTest {
         assertThat(profile.getPlaceOfOrigin()).isEqualTo("Phường 2, Gò Công, Tiền Giang");
         assertThat(profile.getAddress()).startsWith("202 A");
         verify(userProfileRepository).save(profile);
+        verify(cicMappingTaskRepository).save(any(CicMappingTask.class));
         verify(draftStore).remove(USER_ID);
     }
 

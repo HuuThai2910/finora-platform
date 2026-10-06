@@ -2,6 +2,7 @@ package com.finora.payment;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.when;
 
 import com.finora.common.exception.BusinessException;
 import com.finora.payment.domain.ledger.LedgerBalanceBucket;
@@ -12,15 +13,28 @@ import com.finora.payment.domain.wallet.PaymentWallet;
 import com.finora.payment.domain.wallet.WalletOwnerType;
 import com.finora.payment.domain.disbursement.PaymentDisbursement;
 import com.finora.payment.domain.disbursement.PaymentDisbursementStatus;
+import com.finora.payment.domain.repayment.PaymentRepayment;
+import com.finora.payment.domain.repayment.PaymentRepaymentStatus;
 import com.finora.payment.dto.request.CreateHoldRequest;
 import com.finora.payment.dto.request.SettleHoldRequest;
 import com.finora.payment.dto.response.HoldResponse;
 import com.finora.payment.dto.response.TopUpResponse;
 import com.finora.payment.messaging.DisbursementRequestedEventData;
+import com.finora.payment.messaging.LoanDisbursedEventData;
+import com.finora.payment.messaging.NoteOwnershipChangedEventData;
 import com.finora.payment.repository.PaymentDisbursementRepository;
+import com.finora.payment.repository.PaymentOutboxEventRepository;
+import com.finora.payment.repository.repayment.PaymentRepaymentRepository;
+import com.finora.payment.repository.servicing.PaymentNoteOwnershipRepository;
+import com.finora.payment.integration.fineract.RepaymentCoreGateway;
+import com.finora.payment.integration.fineract.PartialPrepaymentCoreSnapshot;
+import com.finora.payment.integration.fineract.ScheduledRepaymentCoreQuote;
 import com.finora.payment.service.disbursement.PaymentDisbursementService;
 import com.finora.payment.service.hold.HoldTransferService;
 import com.finora.payment.service.topup.TopUpService;
+import com.finora.payment.service.repayment.PaymentRepaymentService;
+import com.finora.payment.service.repayment.PartialPrepaymentQuoteService;
+import com.finora.payment.service.servicing.PaymentServicingProjectionService;
 import com.finora.payment.repository.ledger.LedgerEntryRepository;
 import com.finora.payment.repository.ledger.LedgerTransactionRepository;
 import com.finora.payment.repository.wallet.PaymentWalletRepository;
@@ -31,7 +45,9 @@ import com.finora.payment.service.ledger.LedgerPostingService;
 import com.finora.payment.service.wallet.WalletAccountService;
 import com.finora.payment.service.wallet.WalletView;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -42,6 +58,7 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.dao.DataAccessException;
@@ -106,10 +123,36 @@ class FinoraPaymentApplicationIT {
     @Autowired
     private PaymentDisbursementRepository disbursementRepository;
 
+    @Autowired
+    private PaymentServicingProjectionService servicingProjectionService;
+
+    @Autowired
+    private PaymentRepaymentService repaymentService;
+
+    @Autowired
+    private PartialPrepaymentQuoteService partialPrepaymentQuoteService;
+
+    @Autowired
+    private PaymentRepaymentRepository repaymentRepository;
+
+    @Autowired
+    private PaymentNoteOwnershipRepository noteOwnershipRepository;
+
+    @Autowired
+    private PaymentOutboxEventRepository outboxRepository;
+
+    @Autowired
+    private Clock clock;
+
+    @MockBean
+    private RepaymentCoreGateway repaymentCoreGateway;
+
     @BeforeEach
     void cleanLedger() {
         jdbcTemplate.execute("""
-                TRUNCATE TABLE payment_top_ups, payment_holds, payment_disbursements,
+                TRUNCATE TABLE payment_repayments, payment_partial_prepayment_quotes, payment_early_settlement_quotes,
+                    payment_note_ownership, payment_loan_accounts,
+                    payment_top_ups, payment_holds, payment_disbursements,
                     payment_processed_events, payment_outbox_events,
                     payment_ledger_entries, payment_ledger_transactions, payment_wallets
                 RESTART IDENTITY CASCADE
@@ -317,6 +360,123 @@ class FinoraPaymentApplicationIT {
                 .isEqualByComparingTo("1000000.00");
     }
 
+    @Test
+    void scheduledRepaymentMovesMoneyThroughCoreAndDistributesToCurrentNoteOwner() {
+        long applicationId = 501L;
+        long listingId = 601L;
+        long fineractLoanId = 701L;
+        UUID sagaId = UUID.randomUUID();
+        Instant disbursedAt = Instant.parse("2026-10-01T00:00:00Z");
+        PaymentDisbursement disbursement = PaymentDisbursement.requested(
+                sagaId, applicationId, "LC-501", listingId, "BORROWER-501",
+                new BigDecimal("10000000.00"), "VND", "MOCK", "[]", disbursedAt);
+        disbursement.start(disbursedAt);
+        disbursement.complete("MOCK-501", UUID.randomUUID(), disbursedAt);
+        disbursementRepository.saveAndFlush(disbursement);
+        servicingProjectionService.activateLoan(UUID.randomUUID(), new LoanDisbursedEventData(
+                sagaId, applicationId, "LA-501", "LC-501", listingId, "10000000.00", "VND",
+                "MOCK-501", fineractLoanId, "FINORA-FINERACT-V2", disbursedAt));
+        servicingProjectionService.updateOwnership(UUID.randomUUID(), new NoteOwnershipChangedEventData(
+                applicationId, listingId, "VND", "ISSUED", "NOTE-ISSUE-501", disbursedAt,
+                List.of(new NoteOwnershipChangedEventData.NoteOwner(
+                        801L, "NOTE-501", "INVESTOR-501", "10000000.00"))));
+
+        actAsBorrower("BORROWER-501");
+        TopUpResponse topUp = topUpService.create(new BigDecimal("4500000"), "topup-repay-501");
+        topUpService.completeMock(topUp.topUpId());
+        when(repaymentCoreGateway.scheduledRepaymentQuote(fineractLoanId))
+                .thenReturn(new ScheduledRepaymentCoreQuote(
+                        new BigDecimal("4500000.00"), BigDecimal.ZERO.setScale(2)));
+        when(repaymentCoreGateway.postRepayment(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new PaymentRepayment.CoreBreakdown(
+                        901L, new BigDecimal("4000000.00"), new BigDecimal("500000.00"),
+                        BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2),
+                        new BigDecimal("6000000.00"), BigDecimal.ZERO.setScale(2),
+                        BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2),
+                        new BigDecimal("6000000.00"), BigDecimal.ZERO.setScale(2),
+                        LocalDate.now(clock).plusMonths(1), new BigDecimal("4500000.00")));
+
+        var collected = repaymentService.create(applicationId, new BigDecimal("4500000.00"),
+                LocalDate.now(clock), "repay-it-501");
+        PaymentRepayment repayment = repaymentRepository.findByRepaymentId(collected.repaymentId()).orElseThrow();
+        repaymentService.postToCore(repayment.getId());
+        repaymentService.distribute(repayment.getId());
+
+        PaymentRepayment completed = repaymentRepository.findByRepaymentId(collected.repaymentId()).orElseThrow();
+        PaymentWallet borrower = walletRepository.findByOwnerTypeAndOwnerIdAndCurrency(
+                WalletOwnerType.BORROWER, "BORROWER-501", "VND").orElseThrow();
+        PaymentWallet investor = walletRepository.findByOwnerTypeAndOwnerIdAndCurrency(
+                WalletOwnerType.INVESTOR, "INVESTOR-501", "VND").orElseThrow();
+        assertThat(completed.getStatus()).isEqualTo(PaymentRepaymentStatus.COMPLETED);
+        assertThat(borrower.getAvailableBalance()).isEqualByComparingTo("0.00");
+        assertThat(investor.getAvailableBalance()).isEqualByComparingTo("4500000.00");
+        assertThat(noteOwnershipRepository.findById(801L).orElseThrow().getOutstandingPrincipal())
+                .isEqualByComparingTo("6000000.00");
+        assertThat(outboxRepository.findAll()).anySatisfy(event ->
+                assertThat(event.getEventType()).isEqualTo("RepaymentDistributed"));
+    }
+
+    @Test
+    void partialPrepaymentQuotesCollectsPostsAndDistributesWithV2CoreAccount() {
+        long applicationId = 502L;
+        long listingId = 602L;
+        long fineractLoanId = 702L;
+        UUID sagaId = UUID.randomUUID();
+        Instant disbursedAt = Instant.parse("2026-10-01T00:00:00Z");
+        PaymentDisbursement disbursement = PaymentDisbursement.requested(
+                sagaId, applicationId, "LC-502", listingId, "BORROWER-502",
+                new BigDecimal("10000000.00"), "VND", "MOCK", "[]", disbursedAt);
+        disbursement.start(disbursedAt);
+        disbursement.complete("MOCK-502", UUID.randomUUID(), disbursedAt);
+        disbursementRepository.saveAndFlush(disbursement);
+        servicingProjectionService.activateLoan(UUID.randomUUID(), new LoanDisbursedEventData(
+                sagaId, applicationId, "LA-502", "LC-502", listingId, "10000000.00", "VND",
+                "MOCK-502", fineractLoanId, "FINORA-FINERACT-V2", disbursedAt));
+        servicingProjectionService.updateOwnership(UUID.randomUUID(), new NoteOwnershipChangedEventData(
+                applicationId, listingId, "VND", "ISSUED", "NOTE-ISSUE-502", disbursedAt,
+                List.of(new NoteOwnershipChangedEventData.NoteOwner(
+                        802L, "NOTE-502", "INVESTOR-502", "10000000.00"))));
+
+        actAsBorrower("BORROWER-502");
+        TopUpResponse topUp = topUpService.create(new BigDecimal("5100000"), "topup-partial-502");
+        topUpService.completeMock(topUp.topUpId());
+        LocalDate today = LocalDate.now(clock);
+        when(repaymentCoreGateway.partialPrepaymentSnapshot(fineractLoanId, today))
+                .thenReturn(new PartialPrepaymentCoreSnapshot(today, BigDecimal.ZERO.setScale(2),
+                        new BigDecimal("10500000.00"), new BigDecimal("10000000.00"),
+                        today.plusMonths(1), new BigDecimal("1800000.00"), 12,
+                        today.minusMonths(1), today.plusMonths(11)));
+        when(repaymentCoreGateway.postRepayment(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new PaymentRepayment.CoreBreakdown(
+                        902L, new BigDecimal("5000000.00"), BigDecimal.ZERO.setScale(2),
+                        BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2),
+                        new BigDecimal("5000000.00"), BigDecimal.ZERO.setScale(2),
+                        BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2),
+                        new BigDecimal("5000000.00"), BigDecimal.ZERO.setScale(2),
+                        today.plusMonths(1), new BigDecimal("950000.00")));
+
+        var quote = partialPrepaymentQuoteService.create(applicationId, new BigDecimal("5000000.00"));
+        assertThat(quote.coreAmount()).isEqualByComparingTo("5000000.00");
+        assertThat(quote.platformFee()).isEqualByComparingTo("100000.00");
+        var collected = repaymentService.createPartialPrepayment(quote.quoteId(), "partial-it-502");
+        PaymentRepayment repayment = repaymentRepository.findByRepaymentId(collected.repaymentId()).orElseThrow();
+        repaymentService.postToCore(repayment.getId());
+        repaymentService.distribute(repayment.getId());
+
+        PaymentRepayment completed = repaymentRepository.findByRepaymentId(collected.repaymentId()).orElseThrow();
+        PaymentWallet borrower = walletRepository.findByOwnerTypeAndOwnerIdAndCurrency(
+                WalletOwnerType.BORROWER, "BORROWER-502", "VND").orElseThrow();
+        PaymentWallet investor = walletRepository.findByOwnerTypeAndOwnerIdAndCurrency(
+                WalletOwnerType.INVESTOR, "INVESTOR-502", "VND").orElseThrow();
+        assertThat(completed.getStatus()).isEqualTo(PaymentRepaymentStatus.COMPLETED);
+        assertThat(completed.getCoreAmount()).isEqualByComparingTo("5000000.00");
+        assertThat(completed.getPlatformFee()).isEqualByComparingTo("100000.00");
+        assertThat(borrower.getAvailableBalance()).isEqualByComparingTo("0.00");
+        assertThat(investor.getAvailableBalance()).isEqualByComparingTo("5000000.00");
+        assertThat(noteOwnershipRepository.findById(802L).orElseThrow().getOutstandingPrincipal())
+                .isEqualByComparingTo("5000000.00");
+    }
+
     private boolean postAfterBarrier(
             LedgerPostingCommand command,
             CountDownLatch ready,
@@ -381,5 +541,15 @@ class FinoraPaymentApplicationIT {
                 .build();
         SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(
                 jwt, List.of(new SimpleGrantedAuthority("ROLE_INVESTOR")), userId));
+    }
+
+    private static void actAsBorrower(String userId) {
+        Jwt jwt = Jwt.withTokenValue("test-token")
+                .header("alg", "none")
+                .subject(userId)
+                .claim("user_id", userId)
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(
+                jwt, List.of(new SimpleGrantedAuthority("ROLE_BORROWER")), userId));
     }
 }

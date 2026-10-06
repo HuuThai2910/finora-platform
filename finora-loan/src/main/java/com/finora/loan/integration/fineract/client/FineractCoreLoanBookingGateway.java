@@ -2,6 +2,7 @@ package com.finora.loan.integration.fineract.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.finora.loan.config.FineractBookingProperties;
+import com.finora.loan.integration.fineract.mapper.FineractStrategyResolver;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
@@ -40,6 +41,7 @@ public class FineractCoreLoanBookingGateway implements CoreLoanBookingGateway{
   if(existing!=null)return existing;
   Map<String,Object> body=new LinkedHashMap<>();body.put("officeId",properties.officeId());
   body.put("firstname","FINORA");body.put("lastname","Borrower");body.put("externalId",external);
+  body.put("legalFormId",properties.clientLegalFormId());
   body.put("active",true);body.put("activationDate",LocalDate.now(clock).toString());common(body);
   return resource(post("/clients",body,"create-client"));
  }
@@ -49,8 +51,8 @@ public class FineractCoreLoanBookingGateway implements CoreLoanBookingGateway{
   body.put("externalId",external);body.put("principal",c.principal());body.put("loanTermFrequency",c.termMonths());
   body.put("loanTermFrequencyType",2);body.put("loanType","individual");body.put("numberOfRepayments",c.termMonths());
   body.put("repaymentEvery",1);body.put("repaymentFrequencyType",2);body.put("interestRatePerPeriod",c.annualRate());
-  body.put("amortizationType",1);body.put("interestType",0);body.put("interestCalculationPeriodType",0);
-  body.put("transactionProcessingStrategyCode",properties.transactionProcessingStrategyCode());
+  body.put("amortizationType",1);body.put("interestType",0);body.put("interestCalculationPeriodType",1);
+  body.put("transactionProcessingStrategyCode",FineractStrategyResolver.strategy(c.coreConfigVersion()));
   body.put("expectedDisbursementDate",c.disbursementDate().toString());body.put("submittedOnDate",LocalDate.now(clock).toString());common(body);
   return resource(post("/loans",body,"create-loan"));
  }

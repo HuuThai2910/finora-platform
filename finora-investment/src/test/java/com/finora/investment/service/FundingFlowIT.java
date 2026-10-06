@@ -57,8 +57,8 @@ import org.testcontainers.utility.DockerImageName;
 @SpringBootTest(properties = {
         "spring.kafka.listener.auto-startup=false",
         "finora.investment.payment.mode=stub",
-        "finora.investment.payment.mode=stub",
-        "finora.investment.payment.mode=stub",
+        "finora.investment.auto-invest.enabled=false",
+        "finora.investment.order-book.settlement.enabled=false",
         "finora.investment.outbox.publisher-delay=3600000"
 })
 @Testcontainers
@@ -390,7 +390,8 @@ class FundingFlowIT {
         UUID eventId = UUID.randomUUID();
         LoanDisbursedEventData event = new LoanDisbursedEventData(
                 sagaId, listing.getLoanId(), listing.getApplicationNumber(), contractNumber, listing.getId(),
-                "3000000.00", "VND", "MOCK-PAYMENT-1", 9001L, now.plusSeconds(2));
+                "3000000.00", "VND", "MOCK-PAYMENT-1", 9001L,
+                "FINORA-FINERACT-V2", now.plusSeconds(2));
         loanDisbursedEventHandler.handle(eventId, now.plusSeconds(2), event);
         loanDisbursedEventHandler.handle(eventId, now.plusSeconds(2), event);
 

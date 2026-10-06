@@ -47,6 +47,7 @@ Khoảng điểm, hạng tín dụng, hạn mức và ngưỡng duyệt đọc t
 import math
 from collections import namedtuple
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from app.services.credit.product_config import (
@@ -69,8 +70,8 @@ XepHangTinDung = namedtuple("XepHangTinDung", ["hang", "han_muc"])
 # số giữa chúng nằm tường minh ở `trong_so`, không ẩn trong độ lớn điểm bậc.
 DIEM_TOI_DA_MOI_LUAT = 20
 
-# Nợ nhóm 3 trở lên là nợ xấu theo Thông tư 11/2021/TT-NHNN. Tổ chức tín dụng
-# không được cấp tín dụng mới cho khách hàng đang có nợ xấu.
+# Nợ nhóm 3 trở lên là nợ xấu theo quy tắc phân loại nợ tham chiếu. FINORA dùng
+# trạng thái hiện tại làm chốt chính sách nội bộ; lịch sử chỉ ảnh hưởng điểm số.
 NHOM_NO_XAU_TOI_THIEU = 3
 
 # Quyết định 2866/QĐ-NHNN (22/7/2025) đặt HAI trần dư nợ cho cơ chế thử nghiệm P2P,
@@ -293,11 +294,8 @@ def kiem_tra_chot_chan_cung(features: dict) -> list[str]:
     dừng ở lỗi đầu tiên: người vay sửa xong một lỗi mà vẫn bị từ chối vì lỗi
     thứ hai là trải nghiệm tệ và tốn thêm một vòng thẩm định.
 
-    Mọi luật ở đây đều dẫn được số hiệu văn bản pháp luật: vi phạm nghĩa là hợp
-    đồng vô hiệu, chứ không phải "rủi ro cao hơn". Chốt chặn có quyền phủ quyết
-    tuyệt đối — REJECTED bất kể điểm số — nên chỉ dành cho ràng buộc pháp lý,
-    không dành cho khẩu vị rủi ro. Khẩu vị rủi ro thuộc tầng điểm số, và đó là lý
-    do chốt chặn cố định trong code trong khi luật chấm điểm là config.
+    Danh sách gồm cả chốt pháp lý và chốt chính sách rủi ro nội bộ. Mã trả về phải
+    nói rõ loại nào để phần giải trình không biến chính sách nội bộ thành luật.
     """
     legal = get_legal_limits()
     vi_pham: list[str] = []
@@ -316,10 +314,16 @@ def kiem_tra_chot_chan_cung(features: dict) -> list[str]:
     if ky_han is not None and ky_han > legal["max_term_months"]:
         vi_pham.append("TERM_EXCEEDS_LEGAL_LIMIT")
 
-    # 3. Nợ xấu CIC — Thông tư 11/2021/TT-NHNN
-    nhom_no = _so_hoac_none(features.get("nhom_no_cao_nhat"))
+    # 3. Nợ xấu HIỆN TẠI. Không dùng nhom_no_cao_nhat vì đó là lịch sử và sẽ
+    # khiến khách hàng bị từ chối vĩnh viễn kể cả sau khi đã khắc phục.
+    nhom_no = _so_hoac_none(features.get("nhom_no_hien_tai"))
     if nhom_no is not None and nhom_no >= NHOM_NO_XAU_TOI_THIEU:
-        vi_pham.append("CIC_BAD_DEBT_GROUP")
+        vi_pham.append("CIC_CURRENT_BAD_DEBT")
+
+    as_of = _ngay_hoac_none(features.get("cic_as_of_date"))
+    cooldown_until = _ngay_hoac_none(features.get("tam_khoa_vay_den"))
+    if as_of is not None and cooldown_until is not None and as_of < cooldown_until:
+        vi_pham.append("CIC_BAD_DEBT_COOLDOWN")
 
     # 4. Trần tổng dư nợ 400 triệu trên TOÀN BỘ nền tảng thử nghiệm —
     # Quyết định 2866/QĐ-NHNN ngày 22/7/2025. Đây là trần thứ hai, độc lập với
@@ -345,11 +349,44 @@ def kiem_tra_chot_chan_cung(features: dict) -> list[str]:
     return vi_pham
 
 
+def _ngay_hoac_none(value: Any) -> date | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def kiem_tra_yeu_cau_tham_dinh(features: dict) -> list[str]:
+    """Các điều kiện không được duyệt tự động nhưng cũng không phải lý do từ chối."""
+    ly_do: list[str] = []
+    current_group = _so_hoac_none(features.get("nhom_no_hien_tai"))
+    historical_group = _so_hoac_none(features.get("nhom_no_cao_nhat"))
+    as_of = _ngay_hoac_none(features.get("cic_as_of_date"))
+    manual_until = _ngay_hoac_none(features.get("tham_dinh_thu_cong_den"))
+    cooldown_until = _ngay_hoac_none(features.get("tam_khoa_vay_den"))
+
+    if current_group is None and historical_group is not None:
+        ly_do.append("CIC_CURRENT_GROUP_MISSING")
+    if (
+        as_of is not None
+        and manual_until is not None
+        and (cooldown_until is None or as_of >= cooldown_until)
+        and as_of < manual_until
+    ):
+        ly_do.append("CIC_BAD_DEBT_RECOVERY_REVIEW")
+    return ly_do
+
+
 def quyet_dinh(
     evaluation_score: float,
     vi_pham: list[str] | None = None,
     so_luat_co_du_lieu: int | None = None,
     so_luat_da_cham: int | None = None,
+    ly_do_tham_dinh: list[str] | None = None,
 ) -> str:
     """Quyết định tự động: REJECTED / PENDING_REVIEW / APPROVED.
 
@@ -369,6 +406,9 @@ def quyet_dinh(
     """
     if vi_pham:
         return "REJECTED"
+
+    if ly_do_tham_dinh:
+        return "PENDING_REVIEW"
 
     if so_luat_co_du_lieu is not None:
         if so_luat_da_cham is None:

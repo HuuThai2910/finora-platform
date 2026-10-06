@@ -17,7 +17,26 @@ public record AiCreditScoreResponse(
         @JsonProperty("giai_thich_mo_hinh") JsonNode modelExplanation,
         @JsonProperty("rule_trace") JsonNode ruleTrace,
         @JsonProperty("rejection_reasons") List<String> rejectionReasons,
+        @JsonProperty("review_reasons") List<String> reviewReasons,
         @JsonProperty("model_version") String modelVersion,
         @JsonProperty("decision_policy_version") String decisionPolicyVersion
 ) {
+    /** Tương thích với fixture/client cũ chưa trả review_reasons. */
+    public AiCreditScoreResponse(
+            BigDecimal pdProbability,
+            Integer riskScore,
+            BigDecimal evaluationScore,
+            String creditGrade,
+            AiRecommendation decision,
+            JsonNode borrowerExplanation,
+            JsonNode modelExplanation,
+            JsonNode ruleTrace,
+            List<String> rejectionReasons,
+            String modelVersion,
+            String decisionPolicyVersion
+    ) {
+        this(pdProbability, riskScore, evaluationScore, creditGrade, decision,
+                borrowerExplanation, modelExplanation, ruleTrace, rejectionReasons,
+                List.of(), modelVersion, decisionPolicyVersion);
+    }
 }

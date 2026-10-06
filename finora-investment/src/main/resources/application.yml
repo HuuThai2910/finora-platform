@@ -85,6 +85,12 @@ finora:
       investor-signature-requested-topic: ${LOAN_INVESTOR_SIGNATURE_REQUESTED_TOPIC:finora.loan.investor-signature-requested}
       contract-activated-topic: ${LOAN_CONTRACT_ACTIVATED_TOPIC:finora.loan.contract-activated}
       loan-disbursed-topic: ${LOAN_DISBURSED_TOPIC:finora.loan.disbursed}
+      note-ownership-changed-topic: ${INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC:finora.investment.note-ownership-changed}
+      note-servicing-changed-topic: ${INVESTMENT_NOTE_SERVICING_CHANGED_TOPIC:finora.investment.note-servicing-changed}
+      repayment-distributed-topic: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:finora.payment.repayment-distributed}
+      loan-settled-topic: ${LOAN_SETTLED_TOPIC:finora.loan.settled}
+      loan-rescheduled-topic: ${LOAN_RESCHEDULED_TOPIC:finora.loan.rescheduled}
+      loan-delinquency-changed-topic: ${LOAN_DELINQUENCY_CHANGED_TOPIC:finora.loan.delinquency-changed}
       publish-timeout: ${INVESTMENT_KAFKA_PUBLISH_TIMEOUT:10s}
     outbox:
       publisher-delay: ${INVESTMENT_OUTBOX_PUBLISHER_DELAY:5000}

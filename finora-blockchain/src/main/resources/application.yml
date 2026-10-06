@@ -37,6 +37,7 @@ server:
 
 finora:
   blockchain:
+    repayment-distributed-topic: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:finora.payment.repayment-distributed}
     proof:
       # MOCK chỉ phục vụ local/test và receipt luôn có tiền tố MOCK; Fabric thật fail-closed cho tới phase P4.
       provider: ${BLOCKCHAIN_PROOF_PROVIDER:MOCK}

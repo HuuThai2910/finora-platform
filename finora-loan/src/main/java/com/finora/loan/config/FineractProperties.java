@@ -27,7 +27,8 @@ public record FineractProperties(
                 : previewClientExternalId.trim();
         connectTimeout = connectTimeout == null ? Duration.ofSeconds(3) : connectTimeout;
         readTimeout = readTimeout == null ? Duration.ofSeconds(15) : readTimeout;
-        productConfigVersion = productConfigVersion == null ? "FINERACT_PRODUCT_V1" : productConfigVersion;
+        productConfigVersion = productConfigVersion == null || productConfigVersion.isBlank()
+                ? "FINORA-FINERACT-V2" : productConfigVersion.trim();
         maxAttempts = maxAttempts <= 0 ? 3 : maxAttempts;
         retryBackoff = retryBackoff == null ? Duration.ofSeconds(10) : retryBackoff;
         retryBatchSize = retryBatchSize <= 0 ? 10 : Math.min(retryBatchSize, 50);

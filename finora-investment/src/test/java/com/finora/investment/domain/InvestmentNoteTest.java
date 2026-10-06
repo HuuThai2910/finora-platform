@@ -49,5 +49,19 @@ class InvestmentNoteTest {
         assertThat(note.getPrincipalRepaid()).isEqualByComparingTo("0.00");
         assertThat(note.getNoteNumber()).isEqualTo("NOTE-1-1-0001");
     }
+
+    @Test
+    @DisplayName("Đóng Note khi repayment hoàn lại toàn bộ gốc")
+    void appliesRepaymentAndClosesNote() {
+        InvestmentNote note = newNote();
+
+        note.applyRepayment(new BigDecimal("1000000.00"), new BigDecimal("10000.00"), NOW.plusSeconds(60));
+
+        assertThat(note.getOutstandingPrincipal()).isEqualByComparingTo("0.00");
+        assertThat(note.getPrincipalRepaid()).isEqualByComparingTo("1000000.00");
+        assertThat(note.getInterestReceived()).isEqualByComparingTo("10000.00");
+        assertThat(note.getStatus()).isEqualTo(NoteStatus.CLOSED);
+        assertThat(note.getClosedAt()).isEqualTo(NOW.plusSeconds(60));
+    }
 }
 

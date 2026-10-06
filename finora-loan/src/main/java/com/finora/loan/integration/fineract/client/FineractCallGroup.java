@@ -7,7 +7,9 @@ package com.finora.loan.integration.fineract.client;
 public enum FineractCallGroup {
     PRODUCT("fineract-product"),
     SCHEDULE("fineract-schedule"),
-    BOOKING("fineract-booking");
+    BOOKING("fineract-booking"),
+    SERVICING("fineract-servicing"),
+    RESTRUCTURING("fineract-restructuring");
 
     private final String circuitBreakerName;
 

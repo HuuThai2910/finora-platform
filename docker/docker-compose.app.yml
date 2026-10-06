@@ -210,6 +210,10 @@ services:
       AI_SERVICE_URL: http://ai:8000
       # finora-notification không nằm trong compose này; chạy riêng trên máy thì vẫn gọi được.
       NOTIFICATION_SERVICE_URL: http://host.docker.internal:8086
+      # CIC chạy ở compose demo/host; task DB sẽ tự retry nếu service chưa sẵn sàng.
+      CIC_SERVICE_URL: ${CIC_SERVICE_URL:-http://host.docker.internal:9000}
+      USER_CIC_MAPPING_ENABLED: "${USER_CIC_MAPPING_ENABLED:-true}"
+      CIC_INTERNAL_API_KEY: "${CIC_INTERNAL_API_KEY:-}"
     ports:
       - "8085:8085"
     depends_on:
@@ -239,6 +243,18 @@ services:
       PAYMENT_REDIS_HOST: redis
       PAYMENT_REDIS_PORT: "6379"
       PAYMENT_REDIS_PASSWORD: ""
+      FINERACT_BASE_URL: http://fineract:8443/fineract-provider/api/v1
+      FINERACT_REPAYMENT_PAYMENT_TYPE_ID: ${FINERACT_REPAYMENT_PAYMENT_TYPE_ID:-1}
+      INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC: ${INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC:-finora.investment.note-ownership-changed}
+      PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:-finora.payment.repayment-distributed}
+      PAYMENT_SERVICING_GROUP: ${PAYMENT_SERVICING_GROUP:-payment-servicing}
+      PAYMENT_REPAYMENT_WORKER_DELAY: ${PAYMENT_REPAYMENT_WORKER_DELAY:-3000}
+      PAYMENT_RECONCILIATION_WORKER_DELAY: ${PAYMENT_RECONCILIATION_WORKER_DELAY:-30000}
+      PAYMENT_EARLY_SETTLEMENT_POLICY_VERSION: ${PAYMENT_EARLY_SETTLEMENT_POLICY_VERSION:-VCB_REFERENCE_2024_V1}
+      PAYMENT_EARLY_SETTLEMENT_QUOTE_TTL: ${PAYMENT_EARLY_SETTLEMENT_QUOTE_TTL:-15m}
+      PAYMENT_EARLY_SETTLEMENT_SHORT_RATE: ${PAYMENT_EARLY_SETTLEMENT_SHORT_RATE:-0.005}
+      PAYMENT_EARLY_SETTLEMENT_LONG_RATE: ${PAYMENT_EARLY_SETTLEMENT_LONG_RATE:-0.01}
+      PAYMENT_EARLY_SETTLEMENT_MINIMUM_FEE: ${PAYMENT_EARLY_SETTLEMENT_MINIMUM_FEE:-100000}
     ports:
       - "8082:8082"
     depends_on:
@@ -246,6 +262,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      fineract:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8082'"]
       interval: 10s
@@ -269,6 +287,8 @@ services:
       # Auto-Invest lấy token service account qua tên nội bộ; issuer vẫn là localhost:8180
       # nhờ KC_HOSTNAME_URL nên Payment chấp nhận token này.
       KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/finora/protocol/openid-connect/token
+      INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC: ${INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC:-finora.investment.note-ownership-changed}
+      PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:-finora.payment.repayment-distributed}
     ports:
       - "8084:8084"
     depends_on:
@@ -297,6 +317,13 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       AI_SERVICE_URL: http://ai:8000
       FINERACT_BASE_URL: http://fineract:8443/fineract-provider/api/v1
+      FINERACT_BOOKING_PROVIDER: ${FINERACT_BOOKING_PROVIDER:-mock}
+      FINERACT_OFFICE_ID: ${FINERACT_OFFICE_ID:-1}
+      FINERACT_DISBURSEMENT_PAYMENT_TYPE_ID: ${FINERACT_DISBURSEMENT_PAYMENT_TYPE_ID:-1}
+      FINERACT_CLIENT_LEGAL_FORM_ID: ${FINERACT_CLIENT_LEGAL_FORM_ID:-1}
+      LOAN_DELINQUENCY_CHANGED_TOPIC: ${LOAN_DELINQUENCY_CHANGED_TOPIC:-finora.loan.delinquency-changed}
+      LOAN_SERVICING_SYNC_ENABLED: ${LOAN_SERVICING_SYNC_ENABLED:-true}
+      LOAN_SERVICING_SYNC_WORKER_DELAY: ${LOAN_SERVICING_SYNC_WORKER_DELAY:-60000}
     ports:
       - "8081:8081"
     depends_on:

@@ -60,6 +60,7 @@ public class RepaymentPreviewServiceImpl implements RepaymentPreviewService {
                     request.termMonths(),
                     product.getAnnualInterestRate(),
                     product.getRepaymentMethod(),
+                    mapping.getConfigVersion(),
                     LocalDate.now(clock),
                     request.expectedDisbursementDate()
             ));

@@ -138,6 +138,7 @@ finora:
       fully-funded-topic: ${INVESTMENT_FULLY_FUNDED_TOPIC:finora.investment.loan-fully-funded}
       disbursement-completed-topic: ${PAYMENT_DISBURSEMENT_COMPLETED_TOPIC:finora.payment.disbursement-completed}
       disbursement-failed-topic: ${PAYMENT_DISBURSEMENT_FAILED_TOPIC:finora.payment.disbursement-failed}
+      repayment-distributed-topic: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:finora.payment.repayment-distributed}
       publish-timeout: ${LOAN_KAFKA_PUBLISH_TIMEOUT:10s}
       # Chỉ event có publishable=true và route đúng type/version mới được relay.
       routes:
@@ -159,8 +160,32 @@ finora:
         - event-type: LoanDisbursed
           event-version: 1
           topic: ${LOAN_DISBURSED_TOPIC:finora.loan.disbursed}
+        - event-type: LoanDelinquencyChanged
+          event-version: 1
+          topic: ${LOAN_DELINQUENCY_CHANGED_TOPIC:finora.loan.delinquency-changed}
+        - event-type: LoanSettled
+          event-version: 1
+          topic: ${LOAN_SETTLED_TOPIC:finora.loan.settled}
+        - event-type: LoanRescheduled
+          event-version: 1
+          topic: ${LOAN_RESCHEDULED_TOPIC:finora.loan.rescheduled}
     disbursement:
       worker-delay: ${LOAN_DISBURSEMENT_WORKER_DELAY:5000}
+    servicing-sync:
+      enabled: ${LOAN_SERVICING_SYNC_ENABLED:true}
+      worker-delay: ${LOAN_SERVICING_SYNC_WORKER_DELAY:60000}
+    reschedule:
+      # Fail-closed: chỉ bật khi đã tạo reason code trong Fineract và điền ID bên dưới.
+      worker-enabled: ${LOAN_RESCHEDULE_WORKER_ENABLED:false}
+      worker-delay: ${LOAN_RESCHEDULE_WORKER_DELAY:5000}
+      batch-size: ${LOAN_RESCHEDULE_BATCH_SIZE:20}
+      max-attempts: ${LOAN_RESCHEDULE_MAX_ATTEMPTS:10}
+      processing-lease: ${LOAN_RESCHEDULE_PROCESSING_LEASE:2m}
+      retry-delay: ${LOAN_RESCHEDULE_RETRY_DELAY:30s}
+      maximum-retry-delay: ${LOAN_RESCHEDULE_MAXIMUM_RETRY_DELAY:15m}
+      fineract-reason-id: ${FINERACT_RESCHEDULE_REASON_ID:}
+      terms-version: ${LOAN_RESTRUCTURE_TERMS_VERSION:LOAN_RESTRUCTURE_TERMS_V1}
+      terms-text: "Tôi xác nhận lịch trả nợ hiện tại vẫn có hiệu lực cho đến khi FINORA phê duyệt và Apache Fineract xác nhận lịch cơ cấu mới."
   borrower-eligibility:
     minimum-age: ${BORROWER_MINIMUM_AGE:18}
     maximum-age: ${BORROWER_MAXIMUM_AGE:65}
@@ -186,8 +211,9 @@ finora:
     password: ${FINERACT_API_PASSWORD}
     preview-client-external-id: ${FINERACT_PREVIEW_CLIENT_EXTERNAL_ID:FINORA-PREVIEW-CLIENT}
     connect-timeout: ${FINERACT_CONNECT_TIMEOUT:3s}
-    read-timeout: ${FINERACT_READ_TIMEOUT:10s}
-    product-config-version: ${FINERACT_PRODUCT_CONFIG_VERSION:FINORA-FINERACT-V1}
+    read-timeout: ${FINERACT_READ_TIMEOUT:30s}
+    # V2 chỉ áp dụng cho Product/mapping tạo mới; hồ sơ V1 giữ configVersion snapshot riêng.
+    product-config-version: ${FINERACT_PRODUCT_CONFIG_VERSION:FINORA-FINERACT-V2}
     max-attempts: ${FINERACT_MAX_ATTEMPTS:3}
     retry-backoff: ${FINERACT_RETRY_BACKOFF:30s}
     retry-batch-size: ${FINERACT_RETRY_BATCH_SIZE:20}
@@ -196,7 +222,8 @@ finora:
     booking:
       office-id: ${FINERACT_OFFICE_ID:}
       payment-type-id: ${FINERACT_DISBURSEMENT_PAYMENT_TYPE_ID:}
-      transaction-processing-strategy-code: ${FINERACT_TRANSACTION_PROCESSING_STRATEGY_CODE:mifos-standard-strategy}
+      # 1 = PERSON trên Fineract mặc định; cấu hình lại nếu tenant dùng mã khác.
+      client-legal-form-id: ${FINERACT_CLIENT_LEGAL_FORM_ID:1}
       locale: en
       date-format: yyyy-MM-dd
 
@@ -231,6 +258,24 @@ resilience4j:
         automatic-transition-from-open-to-half-open-enabled: true
         ignore-exceptions:
           - org.springframework.web.client.HttpClientErrorException
+      fineract-servicing:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+      fineract-restructuring:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
       ai-credit:
         sliding-window-size: 10
         minimum-number-of-calls: 5
@@ -240,11 +285,23 @@ resilience4j:
     instances:
       fineract-product:
         # Cao hơn RestClient read-timeout để HTTP client tự phân loại timeout trước.
-        timeout-duration: ${FINERACT_TIME_LIMITER_TIMEOUT:12s}
+        timeout-duration: ${FINERACT_TIME_LIMITER_TIMEOUT:35s}
         cancel-running-future: true
       fineract-schedule:
         # Cao hơn RestClient read-timeout để HTTP client tự phân loại timeout trước.
-        timeout-duration: ${FINERACT_TIME_LIMITER_TIMEOUT:12s}
+        timeout-duration: ${FINERACT_TIME_LIMITER_TIMEOUT:35s}
+        cancel-running-future: true
+      fineract-booking:
+        # Booking gồm các lệnh idempotent create/reconcile/approve/disburse; không dùng timeout mặc định 1 giây.
+        timeout-duration: ${FINERACT_TIME_LIMITER_TIMEOUT:35s}
+        cancel-running-future: true
+      fineract-servicing:
+        # Đồng bộ lịch trả nợ có thể chậm hơn API metadata khi Fineract vừa khởi động.
+        timeout-duration: ${FINERACT_TIME_LIMITER_TIMEOUT:35s}
+        cancel-running-future: true
+      fineract-restructuring:
+        # Tái cơ cấu phải có cùng ngân sách timeout với RestClient để phân loại lỗi chính xác.
+        timeout-duration: ${FINERACT_TIME_LIMITER_TIMEOUT:35s}
         cancel-running-future: true
       ai-credit:
         # Cao hơn read-timeout 15 giây để HTTP client phân loại lỗi trước, nhưng vẫn chặn cuộc gọi bị treo.

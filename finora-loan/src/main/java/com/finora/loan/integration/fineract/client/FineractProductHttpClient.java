@@ -27,7 +27,10 @@ public class FineractProductHttpClient implements FineractLoanProductGateway {
     }
 
     @Override
-    public Optional<FineractProductCreationResult> findProductByExternalId(String externalId) {
+    public Optional<FineractProductCreationResult> findProductByExternalId(
+            String externalId,
+            String configVersion
+    ) {
         JsonNode response = requestExecutor.execute(FineractCallGroup.PRODUCT,
                 "find-product-by-external-id", () -> restClient.get()
                 .uri(uriBuilder -> uriBuilder.path("/loanproducts")
@@ -36,7 +39,20 @@ public class FineractProductHttpClient implements FineractLoanProductGateway {
                 .headers(requestExecutor::authenticate)
                 .retrieve()
                 .body(JsonNode.class));
-        return payloadMapper.findProductByExternalId(response, externalId);
+        Optional<FineractProductCreationResult> reconciled =
+                payloadMapper.findProductByExternalId(response, externalId);
+        if (reconciled.isEmpty()) {
+            return Optional.empty();
+        }
+        long productId = reconciled.orElseThrow().resourceId();
+        JsonNode product = requestExecutor.execute(FineractCallGroup.PRODUCT,
+                "read-reconciled-product", () -> restClient.get()
+                .uri("/loanproducts/{id}", productId)
+                .headers(requestExecutor::authenticate)
+                .retrieve()
+                .body(JsonNode.class));
+        payloadMapper.validateReconciledProduct(product, configVersion);
+        return reconciled;
     }
 
     @Override

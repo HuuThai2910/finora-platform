@@ -64,6 +64,17 @@ keycloak:
 finora:
   notification:
     url: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
+  cic:
+    url: ${CIC_SERVICE_URL:http://localhost:9000}
+    mapping:
+      enabled: ${USER_CIC_MAPPING_ENABLED:false}
+      internal-api-key: ${CIC_INTERNAL_API_KEY:}
+      worker-delay: ${USER_CIC_MAPPING_WORKER_DELAY:5000}
+      batch-size: ${USER_CIC_MAPPING_BATCH_SIZE:20}
+      max-attempts: ${USER_CIC_MAPPING_MAX_ATTEMPTS:20}
+      lease-duration: ${USER_CIC_MAPPING_LEASE_DURATION:2m}
+      initial-retry-delay: ${USER_CIC_MAPPING_INITIAL_RETRY_DELAY:30s}
+      max-retry-delay: ${USER_CIC_MAPPING_MAX_RETRY_DELAY:15m}
   # AI service — OCR CCCD, active liveness và so khớp khuôn mặt
   ai:
     url: ${AI_SERVICE_URL:http://localhost:8000}

@@ -3,6 +3,38 @@ spring:
     import: optional:file:.env[.properties]
   application:
     name: finora-notification
+  datasource:
+    url: ${NOTIFICATION_DB_URL}
+    username: ${NOTIFICATION_DB_USERNAME}
+    password: ${NOTIFICATION_DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    clean-disabled: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: ${NOTIFICATION_SERVICING_GROUP:notification-investor-servicing}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+    listener:
+      ack-mode: record
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/finora}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/finora/protocol/openid-connect/certs}
   # SMTP mac dinh la Gmail. Doi sang mail server local (Mailpit) bang cach set
   # MAIL_HOST/MAIL_PORT/MAIL_SMTP_AUTH/MAIL_SMTP_STARTTLS trong finora-notification/.env
   mail:
@@ -24,4 +56,9 @@ spring:
           writetimeout: 5000
 
 server:
-  port: 8086
+  port: ${NOTIFICATION_PORT:8086}
+
+finora:
+  notification:
+    kafka:
+      note-servicing-changed-topic: ${INVESTMENT_NOTE_SERVICING_CHANGED_TOPIC:finora.investment.note-servicing-changed}

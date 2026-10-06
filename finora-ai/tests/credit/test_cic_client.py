@@ -30,6 +30,10 @@ class TestTraDiemCicV14:
                     "soThangTuLanTreGanNhat": 6,
                     "soNgayTreDaiNhat": 30,
                     "nhomNoCaoNhat": 1,
+                    "nhomNoHienTai": 1,
+                    "ngayKhacPhucNoXau": "2025-01-01",
+                    "tamKhoaVayDen": "2026-01-01",
+                    "thamDinhThuCongDen": "2027-01-01",
                     "tongDuNo": 50000000,
                     "duNoTheTinDung": 5000000,
                     "hanMucThe": 20000000,
@@ -51,6 +55,9 @@ class TestTraDiemCicV14:
         assert result["so_hop_dong_dang_co"] == 3
         assert result["so_thang_quan_he"] == 48
         assert result["nhom_no_cao_nhat"] == 1
+        assert result["nhom_no_hien_tai"] == 1
+        assert result["cic_as_of_date"] == "2026-08-14"
+        assert result["tam_khoa_vay_den"] == "2026-01-01"
 
     @pytest.mark.asyncio
     async def test_ty_le_su_dung_the_none_khi_han_muc_0(self, client, httpx_mock):

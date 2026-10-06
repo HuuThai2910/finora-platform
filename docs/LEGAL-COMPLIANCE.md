@@ -2,7 +2,7 @@
 
 > Tài liệu dùng chung cho thiết kế, code review và viết báo cáo khóa luận. Đây là bản đối chiếu kỹ thuật, không thay thế ý kiến pháp lý của luật sư/cơ quan có thẩm quyền.
 
-- Ngày kiểm tra nguồn gần nhất: **2026-09-16**.
+- Ngày kiểm tra nguồn gần nhất: **2026-10-03**.
 - Chỉ coi một yêu cầu là “đã xác minh” khi có đường dẫn tới văn bản chính thức và chỉ rõ điều/khoản liên quan.
 - Mỗi service chỉ dẫn chiếu mã kiểm soát trong file này; không sao chép luật sang nhiều plan vì dễ lệch phiên bản.
 - Trước khi triển khai thật hoặc khi văn bản thay đổi, owner nghiệp vụ phải rà soát lại trạng thái hiệu lực.
@@ -19,6 +19,7 @@
 | `LAW-ELECTRONIC-2023` | Luật Giao dịch điện tử 20/2023/QH15, **Điều 8–11, 13, 22–23, 38** | 01-07-2024 | [Trang văn bản](https://vanban.chinhphu.vn/?classid=1&docid=208421&pageid=27160&typegroupid=3), [PDF chính thức](https://datafiles.chinhphu.vn/cpp/files/vbpq/2023/8/luat20-2023-qh15..pdf) | Giá trị thông điệp dữ liệu, tính toàn vẹn/lưu trữ, chữ ký điện tử và thông báo điện tử. |
 | `LAW-DATA-2025` | Luật Bảo vệ dữ liệu cá nhân 91/2025/QH15 | 01-01-2026 | [Trang văn bản](https://vanban.chinhphu.vn/?docid=214590&pageid=27160&typegroupid=3), [PDF chính thức](https://datafiles.chinhphu.vn/cpp/files/vbpq/2025/7/91qh.signed.pdf) | Mục đích xử lý, tối thiểu hóa dữ liệu, quyền của chủ thể dữ liệu, trách nhiệm của bên xử lý dữ liệu. |
 | `DECREE-DATA-2025` | Nghị định 356/2025/NĐ-CP hướng dẫn Luật Bảo vệ dữ liệu cá nhân | 01-01-2026 | [Cổng TTĐT Chính phủ](https://vanban.chinhphu.vn/default.aspx?docid=216387&pageid=27160) | Biện pháp và hồ sơ tuân thủ chi tiết cho xử lý dữ liệu cá nhân. |
+| `CIRCULAR-LENDING-CONSOLIDATED-2026` | Văn bản hợp nhất 06/VBHN-NHNN về hoạt động cho vay, **Điều 13, 14, 18, 19 và 23** | Kiểm tra 03-10-2026 | [PDF chính thức](https://datafiles.chinhphu.vn/cpp/files/vbpq/2026/01/06-vbhn-nhnn.pdf) | Tham chiếu cách công bố lãi/phí, lãi quá hạn/chậm trả, thứ tự thu nợ, cơ cấu thời hạn và nội dung thỏa thuận. Phạm vi áp dụng trực tiếp cho FINORA cần legal review theo mô hình pháp nhân. |
 
 ## 2. Kết luận pháp lý được chuyển thành kiểm soát hệ thống
 
@@ -84,6 +85,9 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 - Local mock gửi `so_cccd=null`; không được tạo số CCCD giả trông như dữ liệu thật rồi lưu vào assessment.
 - Request/response AI, schedule và contract cần được phân loại dữ liệu, mã hóa khi lưu/truyền, giới hạn quyền đọc và có retention policy trước production.
 - Outbox Contract chỉ chứa business ID, hash/version, trạng thái ký và thời gian; không chứa CCCD, thu nhập, raw AI payload, OTP hoặc secret provider. Kafka adapter đã có allowlist theo exact event/version nhưng mặc định tắt và chưa có route/topic hoạt động; event listing chỉ được mở sau khi Loan–Investment duyệt payload tối thiểu.
+- Event servicing `LoanDelinquencyChanged.v1` chỉ chứa business ID, DPD, nhóm nợ nội bộ và
+  breakdown tiền cần thiết; không chứa CCCD. Mapping `borrowerId ↔ CCCD` được bảo vệ bằng
+  khóa nội bộ và chỉ lưu ở CIC mock. Đây vẫn là dữ liệu demo, không phải báo cáo CIC thật.
 - Blockchain proof foundation chỉ lưu/gửi SHA-256, schema version và business reference; không nhận raw PDF, CCCD, AI payload hoặc dữ liệu thanh toán chi tiết. Receipt `MOCK` phải luôn được trình bày là dữ liệu demo, không phải bằng chứng đã ghi Hyperledger Fabric.
 
 ### `LEGAL-PAYMENT-01` — Giải ngân và thanh toán
@@ -96,6 +100,21 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
   cần hợp đồng với tổ chức cung ứng dịch vụ thanh toán, callback/reconciliation và quy trình vận hành được duyệt.
 - Đây là cổng bắt buộc trước khi bật giải ngân production; không ảnh hưởng demo Loan đến trạng thái `PENDING_SIGNATURE`.
 
+### `LEGAL-SERVICING-01` — Trả nợ, quá hạn, cơ cấu và phí trả trước
+
+- Điều 14 và Điều 23 của `CIRCULAR-LENDING-CONSOLIDATED-2026` cho phép các bên thỏa thuận phí trả nợ trước hạn và yêu cầu ghi rõ loại/mức phí trong hợp đồng; văn bản không ấn định một tỷ lệ phí trả trước chung.
+- FINORA V1 dùng một nguồn policy duy nhất là [biểu phí Vietcombank](https://www.vietcombank.com.vn/-/media/Project/VCB-Sites/VCB/KHCN/Bieu-mau-Bieu-phi-KHCN/Bieu-phi/Vay/San-pham-vay/Bieu-Phi-Tra-No-Truoc-Han-updated.pdf?ts=20240221071228). Đây là policy demo tham chiếu ngân hàng, **không phải mức pháp luật bắt buộc**; phải snapshot version/rate/minimum fee vào offer hoặc quote người vay chấp nhận.
+- Theo Điều 13, lãi trên dư nợ gốc quá hạn không vượt 150% lãi suất trong hạn tương ứng; lãi chậm trả trên tiền lãi chưa trả không vượt 10%/năm. Cách tính phải dùng đúng căn cứ tiền, số ngày và day-count đã công bố; không cộng trùng trên cùng căn cứ.
+- Điều 18 là căn cứ tham chiếu thứ tự thu nợ: gốc quá hạn, lãi trên gốc quá hạn, gốc đến hạn, lãi trên gốc đến hạn. Phí/lãi chậm trả bổ sung chỉ được thu theo contract/Fineract policy đã công bố và phải giữ breakdown.
+- Cơ cấu lại thời hạn trả nợ phải có yêu cầu, đánh giá và quyết định; trạng thái chờ duyệt không tự dừng nghĩa vụ theo lịch cũ. Mọi lịch mới lấy từ Fineract và lưu audit/version.
+- Các mốc nhóm nợ/DPD trong [LOAN-SERVICING-POLICY.md](LOAN-SERVICING-POLICY.md) là benchmark nội bộ/CIC mock. Chưa được mô tả là phân loại CIC thật hoặc quy định áp dụng trực tiếp cho pháp nhân P2P cho tới khi `LEGAL-OPEN-05` được duyệt.
+- CIC/AI tách `nhomNoHienTai` khỏi `nhomNoCaoNhat` lịch sử. Mốc từ chối 12 tháng và bắt buộc
+  thẩm định đến 24 tháng sau khi khắc phục là policy demo cấu hình của FINORA, không phải thời hạn
+  cấm vay do pháp luật ấn định. Xem [CIC-RISK-NOTIFICATION.md](integrations/CIC-RISK-NOTIFICATION.md).
+- Việc thông tin tín dụng tiêu cực có thể còn được lưu/cung cấp sau khi nghĩa vụ kết thúc không được
+  diễn giải thành cấm cấp tín dụng trong toàn bộ thời gian lưu. Quyết định cấp tín dụng còn phụ thuộc
+  chính sách và đánh giá của bên cho vay; cần legal/policy sign-off trước production.
+
 ## 3. Ma trận service và điểm kiểm soát
 
 | Chức năng | Service sở hữu | Mã pháp lý | Kiểm soát đang có | Còn thiếu trước production |
@@ -106,7 +125,7 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 | Định giá sau scoring | Loan + Fineract | `LEGAL-RATE-01`, `LEGAL-AI-01` | Grade adjustment, clamp, final schedule snapshot | Admin UI hiển thị so sánh base/final; quy trình phê duyệt policy |
 | Duyệt, xác nhận điều khoản và ký | Loan + Web/Mobile | `LEGAL-DISCLOSURE-01`, `LEGAL-CONTRACT-01` | Outcome-based non-worsening gate; evidence version/hash/expiry; PDF bất biến; mock/provider evidence được phân biệt; Contract event ghi local outbox | Investment/lender identity; legal review hình thức ký; chữ ký hai bên; API/callback/chứng thư SmartCA production; Kafka transport |
 | Bằng chứng toàn vẹn | Blockchain + service nguồn | `LEGAL-CONTRACT-01`, `LEGAL-DATA-01` | Durable hash-only proof, idempotency/retry/DLT local; mock được phân biệt; Fabric fail-closed | Event contract đã duyệt, Fabric network/chaincode, access/retention và legal review cách trình bày bằng chứng |
-| Giải ngân/trả nợ | Loan + Payment + Fineract | `LEGAL-PAYMENT-01` | Wallet/top-up/hold/capture API, immutable balanced ledger, idempotency, ZaloPay top-up sandbox và disbursement mock | Đối tác tài khoản/ví được phép, API disbursement thật, reconciliation và bằng chứng giao dịch |
+| Giải ngân/trả nợ | Loan + Payment + Fineract | `LEGAL-PAYMENT-01`, `LEGAL-SERVICING-01` | Wallet/top-up/hold/capture API, immutable balanced ledger, idempotency, ZaloPay top-up sandbox và disbursement mock; policy servicing V1 đã tách luật với biểu phí tham chiếu | Repayment/reconciliation thật, đối tác tài khoản/ví được phép, legal review phạm vi áp dụng và disclosure/quote |
 
 ## 4. Quy tắc cập nhật nguồn pháp lý
 
@@ -124,3 +143,4 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 | `LEGAL-OPEN-02` | Bản gốc Quyết định 2866/QĐ-NHNN và cách kiểm tra dư nợ 100/400 triệu | `NEEDS_PRIMARY_SOURCE` |
 | `LEGAL-OPEN-03` | Click-wrap có đủ cho loại hợp đồng cụ thể hay bắt buộc tích hợp chữ ký điện tử/chữ ký số? | `NEEDS_LEGAL_REVIEW` |
 | `LEGAL-OPEN-04` | Bộ reason/feature AI có tạo phân biệt đối xử hoặc dùng dữ liệu vượt mục đích đã thông báo không? | `NEEDS_POLICY_AND_PRIVACY_REVIEW` |
+| `LEGAL-OPEN-05` | Phạm vi áp dụng trực tiếp quy định phân loại nợ/cơ cấu của tổ chức tín dụng cho FINORA P2P và cách báo cáo CIC production | `NEEDS_LEGAL_REVIEW` |

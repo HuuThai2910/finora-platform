@@ -45,7 +45,14 @@ public class FineractProductPayloadMapper {
         payload.put("amortizationType", repaymentPolicy.amortizationType(source.repaymentMethod()));
         payload.put("interestType", repaymentPolicy.interestType());
         payload.put("interestCalculationPeriodType", repaymentPolicy.interestCalculationPeriodType());
-        payload.put("transactionProcessingStrategyCode", "mifos-standard-strategy");
+        payload.put("transactionProcessingStrategyCode", FineractAllocationPolicy.strategy(source.configVersion()));
+        if (FineractAllocationPolicy.advanced(source.configVersion())) {
+            // Fineract 1.15 chỉ cho phép Advanced Payment Allocation trên lịch PROGRESSIVE.
+            // Nếu bỏ field này, Product vẫn tạo được ở dạng CUMULATIVE nhưng mọi Loan V2 sẽ bị
+            // từ chối khi apply, nên phải snapshot cùng strategy ngay từ lúc tạo Product.
+            payload.put("loanScheduleType", "PROGRESSIVE");
+            payload.put("paymentAllocation", FineractAllocationPolicy.paymentAllocation());
+        }
         payload.put("accountingRule", 1);
         payload.put("isInterestRecalculationEnabled", false);
         payload.put("daysInYearType", 1);
@@ -85,6 +92,64 @@ public class FineractProductPayloadMapper {
             return Optional.of(new FineractProductCreationResult(resourceId, snapshot));
         }
         return Optional.empty();
+    }
+
+    /**
+     * Retry chỉ được tái sử dụng Product nếu cấu hình bất biến vẫn đúng với version FINORA.
+     * External ID đúng nhưng strategy/lịch sai sẽ làm mọi Loan V2 bị từ chối hoặc phân bổ sai.
+     */
+    public void validateReconciledProduct(JsonNode product, String configVersion) {
+        if (product == null || !product.isObject()) {
+            throw contractMismatch("Fineract không trả chi tiết Product hợp lệ khi đối chiếu");
+        }
+        String expectedStrategy = FineractAllocationPolicy.strategy(configVersion);
+        if (!matchesExact(product.path("transactionProcessingStrategyCode"), expectedStrategy)) {
+            throw contractMismatch("Product Fineract tồn tại nhưng transaction strategy không khớp "
+                    + configVersion);
+        }
+        if (!FineractAllocationPolicy.advanced(configVersion)) {
+            return;
+        }
+        if (!matchesEnum(product.path("loanScheduleType"), "PROGRESSIVE")) {
+            throw contractMismatch("Product Fineract V2 tồn tại nhưng loanScheduleType không phải PROGRESSIVE");
+        }
+        JsonNode allocations = product.path("paymentAllocation");
+        boolean validDefaultRule = false;
+        if (allocations.isArray()) {
+            for (JsonNode allocation : allocations) {
+                JsonNode order = allocation.path("paymentAllocationOrder");
+                if (matchesEnum(allocation.path("transactionType"), "DEFAULT")
+                        && matchesEnum(allocation.path("futureInstallmentAllocationRule"), "REAMORTIZATION")
+                        && order.isArray() && order.size() == 12) {
+                    validDefaultRule = true;
+                    break;
+                }
+            }
+        }
+        if (!validDefaultRule) {
+            throw contractMismatch("Product Fineract V2 tồn tại nhưng payment allocation/REAMORTIZATION không khớp");
+        }
+    }
+
+    private boolean matchesExact(JsonNode node, String expected) {
+        if (node.isTextual()) {
+            return expected.equalsIgnoreCase(node.asText());
+        }
+        return node.isObject() && (expected.equalsIgnoreCase(node.path("code").asText())
+                || expected.equalsIgnoreCase(node.path("value").asText()));
+    }
+
+    private boolean matchesEnum(JsonNode node, String expected) {
+        String token = expected.replace("_", "").toUpperCase();
+        if (node.isTextual()) {
+            return normalizeEnum(node.asText()).contains(token);
+        }
+        return node.isObject() && (normalizeEnum(node.path("code").asText()).contains(token)
+                || normalizeEnum(node.path("value").asText()).contains(token));
+    }
+
+    private String normalizeEnum(String value) {
+        return value == null ? "" : value.replaceAll("[^A-Za-z0-9]", "").toUpperCase();
     }
 
     private String fineractName(FineractProductConfiguration source) {

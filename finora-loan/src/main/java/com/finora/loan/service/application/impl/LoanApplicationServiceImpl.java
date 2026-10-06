@@ -95,6 +95,7 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
                     request.requestedTermMonths(),
                     context.annualInterestRate(),
                     context.repaymentMethod(),
+                    context.coreConfigVersion(),
                     LocalDate.now(clock),
                     request.expectedDisbursementDate()
             ));

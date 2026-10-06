@@ -12,6 +12,8 @@ import com.finora.loan.integration.fineract.client.FineractIntegrationException;
 import com.finora.loan.support.HashingService;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,7 +54,8 @@ class FineractPayloadMapperTest {
         ScheduleCalculationResult result = scheduleMapper.toScheduleResult(
                 new ScheduleCalculationRequest(
                         1L, 1001L, new BigDecimal("50000000"), 12, new BigDecimal("12.5"),
-                        RepaymentMethod.ANNUITY, LocalDate.of(2026, 8, 3), LocalDate.of(2026, 8, 10)),
+                        RepaymentMethod.ANNUITY, "FINORA-FINERACT-V1",
+                        LocalDate.of(2026, 8, 3), LocalDate.of(2026, 8, 10)),
                 2001L,
                 response);
 
@@ -63,7 +66,8 @@ class FineractPayloadMapperTest {
         assertThat(scheduleMapper.toSchedulePayload(
                 new ScheduleCalculationRequest(
                         1L, 1001L, new BigDecimal("50000000"), 12, new BigDecimal("12.5"),
-                        RepaymentMethod.ANNUITY, LocalDate.of(2026, 8, 3), LocalDate.of(2026, 8, 10)),
+                        RepaymentMethod.ANNUITY, "FINORA-FINERACT-V1",
+                        LocalDate.of(2026, 8, 3), LocalDate.of(2026, 8, 10)),
                 2001L))
                 .containsEntry("clientId", 2001L)
                 .containsEntry("loanType", "individual")
@@ -116,6 +120,74 @@ class FineractPayloadMapperTest {
                 .hasMessageContaining("principalDue");
     }
 
+    @Test
+    void shouldCreateV2ProductWithAdvancedReamortizationAllocation() {
+        FineractProductConfiguration v2 = new FineractProductConfiguration(
+                1L, 2L, "PERSONAL_V2", "Vay tiêu dùng V2",
+                new BigDecimal("10000000"), new BigDecimal("100000000"),
+                6, 24, new BigDecimal("12.5000"), RepaymentMethod.ANNUITY,
+                "FINORA-LP-1-V2", "FINORA-FINERACT-V2");
+
+        var payload = productMapper.toCreateProductPayload(v2);
+
+        assertThat(payload).containsEntry("transactionProcessingStrategyCode",
+                        "advanced-payment-allocation-strategy")
+                .containsEntry("loanScheduleType", "PROGRESSIVE");
+        assertThat(payload.get("paymentAllocation")).isEqualTo(List.of(Map.of(
+                "transactionType", "DEFAULT",
+                "futureInstallmentAllocationRule", "REAMORTIZATION",
+                "paymentAllocationOrder", List.of(
+                        allocation("PAST_DUE_PRINCIPAL", 1),
+                        allocation("PAST_DUE_INTEREST", 2),
+                        allocation("PAST_DUE_FEE", 3),
+                        allocation("PAST_DUE_PENALTY", 4),
+                        allocation("DUE_PRINCIPAL", 5),
+                        allocation("DUE_INTEREST", 6),
+                        allocation("DUE_FEE", 7),
+                        allocation("DUE_PENALTY", 8),
+                        allocation("IN_ADVANCE_PRINCIPAL", 9),
+                        allocation("IN_ADVANCE_INTEREST", 10),
+                        allocation("IN_ADVANCE_FEE", 11),
+                        allocation("IN_ADVANCE_PENALTY", 12)))));
+    }
+
+    @Test
+    void shouldAcceptReconciledV2ProductOnlyWhenAdvancedAllocationIsIntact() throws Exception {
+        JsonNode product = objectMapper.readTree("""
+                {
+                  "transactionProcessingStrategyCode": "advanced-payment-allocation-strategy",
+                  "loanScheduleType": {"code": "loanScheduleType.progressive", "value": "Progressive"},
+                  "paymentAllocation": [{
+                    "transactionType": {"code": "DEFAULT", "value": "Default"},
+                    "futureInstallmentAllocationRule": {"code": "REAMORTIZATION", "value": "Re-amortization"},
+                    "paymentAllocationOrder": [{},{},{},{},{},{},{},{},{},{},{},{}]
+                  }]
+                }
+                """);
+
+        productMapper.validateReconciledProduct(product, "FINORA-FINERACT-V2");
+    }
+
+    @Test
+    void shouldRejectReconciledV2ProductWithCumulativeSchedule() throws Exception {
+        JsonNode product = objectMapper.readTree("""
+                {
+                  "transactionProcessingStrategyCode": "advanced-payment-allocation-strategy",
+                  "loanScheduleType": {"code": "loanScheduleType.cumulative", "value": "Cumulative"},
+                  "paymentAllocation": [{
+                    "transactionType": "DEFAULT",
+                    "futureInstallmentAllocationRule": "REAMORTIZATION",
+                    "paymentAllocationOrder": [{},{},{},{},{},{},{},{},{},{},{},{}]
+                  }]
+                }
+                """);
+
+        assertThatThrownBy(() -> productMapper.validateReconciledProduct(
+                product, "FINORA-FINERACT-V2"))
+                .isInstanceOf(FineractIntegrationException.class)
+                .hasMessageContaining("PROGRESSIVE");
+    }
+
     private FineractProductConfiguration configuration(RepaymentMethod method) {
         return new FineractProductConfiguration(
                 1L, 1L, "PERSONAL_STANDARD", "Vay tiêu dùng",
@@ -127,6 +199,11 @@ class FineractPayloadMapperTest {
     private ScheduleCalculationRequest scheduleRequest() {
         return new ScheduleCalculationRequest(
                 1L, 1001L, new BigDecimal("50000000"), 12, new BigDecimal("12.5"),
-                RepaymentMethod.ANNUITY, LocalDate.of(2026, 8, 3), LocalDate.of(2026, 8, 10));
+                RepaymentMethod.ANNUITY, "FINORA-FINERACT-V1",
+                LocalDate.of(2026, 8, 3), LocalDate.of(2026, 8, 10));
+    }
+
+    private Map<String, Object> allocation(String rule, int order) {
+        return Map.of("paymentAllocationRule", rule, "order", order);
     }
 }

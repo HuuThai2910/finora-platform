@@ -1,7 +1,8 @@
 # Hợp đồng sự kiện Loan – Investment
 
-> **Trạng thái:** `IMPLEMENTED_PENDING_E2E` — Loan, Investment và Payment đã nối contract ngày
-> 2026-09-28; còn kiểm thử E2E với các service chạy thật và ZaloPay sandbox.
+> **Trạng thái:** `IMPLEMENTED_LOCAL_VERIFIED` — Loan, Investment, Payment và Blockchain đã có
+> producer/consumer idempotent; schema/Flyway, integration test, Fineract V2 và Kafka broker local đã
+> được xác minh ngày 2026-10-04. Provider sandbox/triển khai UAT được nghiệm thu riêng.
 
 Tài liệu này là nguồn chung cho luồng từ hồ sơ vay đã được phép đưa lên sàn đến khi giải ngân và phát hành Note.
 Nó giải thích cả ý nghĩa nghiệp vụ lẫn contract Kafka để Loan, Investment, Notification,
@@ -66,6 +67,12 @@ nên màn nhà đầu tư gọi REST Loan khi xem hoặc ký hợp đồng.
 | `DisbursementCompleted` v1 / `finora.payment.disbursement-completed` | Payment → Loan | Provider xác nhận tiền đã chuyển và Payment đã lưu reference | Loan ghi nhận Fineract bằng external ID, không yêu cầu Payment chuyển lại | `eventId` + `sagaId`; `paymentReference` unique |
 | `DisbursementFailed` v1 / `finora.payment.disbursement-failed` | Payment → Loan | Lỗi cuối cùng, không còn retry tự động trong Payment | Loan giữ Contract `EFFECTIVE`, saga thành `PAYMENT_FAILED` để vận hành xử lý | `eventId` + `sagaId` |
 | `LoanDisbursed` v1 / `finora.loan.disbursed` | Loan → Investment, Notification, Blockchain | Payment success và Fineract đã ghi disbursement | Investment `ACTIVE → FINALIZED` commitments và phát hành Note; các consumer khác chỉ tạo projection/proof/thông báo | `eventId`; Note unique theo commitment/sequence |
+| `NoteOwnershipChanged` v1 / `finora.investment.note-ownership-changed` | Investment → Payment | Note vừa phát hành hoặc đổi chủ trên chợ thứ cấp | Payment cập nhật read model chủ Note để kỳ trả tiếp theo chuyển tiền đúng người đang sở hữu | `eventId`; `noteId` unique; event cũ hơn `changedAt` không ghi đè event mới |
+| `RepaymentDistributed` v1 / `finora.payment.repayment-distributed` | Payment → Loan, Investment, Blockchain | Ví người vay đã bị trừ, Fineract đã phân bổ và ledger phân phối đã cân bằng | Loan cập nhật projection; Investment cộng gốc/lãi và đóng Note khi hết gốc; Blockchain chỉ neo SHA-256 của `data`, không lưu payload tài chính thô | `eventId`; unique `repaymentId`/`fineractTransactionId`; `processed_events`; proof unique `sourceService + sourceEventId` |
+| `LoanDelinquencyChanged` v1 / `finora.loan.delinquency-changed` | Loan → CIC mock, Investment | Snapshot Fineract làm DPD đổi, kể cả repayment khắc phục đưa DPD về 0 | CIC tách nhóm hiện tại/lịch sử; Investment cập nhật risk projection của Note/portfolio | Mỗi consumer dùng `eventId`; Investment bỏ event risk cũ hơn `dataAsOf` |
+| `LoanSettled` v1 / `finora.loan.settled` | Loan → Investment lifecycle consumer | Fineract xác nhận `totalOutstanding = 0` và `FinoraLoan` vừa chuyển `SETTLED` | Investment lưu read model mốc đóng khoản vay; không thay `RepaymentDistributed` trong việc chia tiền/đóng Note | Outbox cùng transaction chuyển trạng thái; consumer `processed_events` |
+| `LoanRescheduled` v1 / `finora.loan.rescheduled` | Loan → Investment lifecycle consumer | Admin đã duyệt, Fineract đã chấp nhận lịch mới và Loan đã refresh projection | Investment cập nhật maturity/schedule marker cho portfolio; không tự tính lịch hoặc dư nợ | `eventId` trong `processed_events`; `requestId` snapshot, event trùng không ghi lại |
+| `InvestorNoteServicingChanged` v1 / `finora.investment.note-servicing-changed` | Investment → Notification | Note projection đổi do trả nợ, quá hạn, khắc phục, cơ cấu hoặc tất toán | Notification fan-out theo chủ Note và tạo in-app delivery; cờ push theo milestone, không push hằng ngày | Outbox Investment; unique `sourceEventId + recipientId + type` ở Notification |
 
 `LoanContractActivated` chỉ xác nhận hợp đồng có hiệu lực. `DisbursementCompleted` chỉ xác nhận phía
 Payment. `LoanDisbursed` mới xác nhận toàn bộ happy path bắt buộc (Payment + Fineract) đã hoàn tất.
@@ -168,6 +175,67 @@ Payment. `LoanDisbursed` mới xác nhận toàn bộ happy path bắt buộc (P
 - `DisbursementFailed` trả `sagaId`, application/contract ID và mã lỗi đã lọc; không chứa raw provider body.
 - `LoanDisbursed` trả thêm `fineractLoanId` và `disbursedAt`; đây là trigger duy nhất để tạo Note.
 
+### 5.4 Quyền sở hữu Note và repayment v1
+
+`NoteOwnershipChanged.v1` mang `loanApplicationId`, `listingId`, `currency`, `reason`, `reference`,
+`changedAt` và mảng `notes(noteId, noteNumber, investorId, outstandingPrincipal)`. `reason` hiện là
+`ISSUED` hoặc `TRANSFERRED`. Event không mang PII. Payment giữ projection để chọn ví nhận tiền;
+Investment vẫn là nguồn chuẩn quyền sở hữu Note.
+
+`RepaymentDistributed.v1` mang đầy đủ:
+
+| Field | Ý nghĩa |
+|---|---|
+| `repaymentId`, `repaymentReference` | Identity/idempotency xuyên Payment ledger và Fineract |
+| `repaymentType`, `quoteId` | Loại trả nợ; `quoteId` chỉ có với báo giá tất toán trước hạn |
+| `platformFee` | Phí FINORA đã công bố/snapshot riêng, không gửi vào dư nợ Fineract |
+| `loanApplicationId`, `fineractLoanId`, `fineractTransactionId` | Liên kết ba hệ thống |
+| `amount`, `principalAmount`, `interestAmount`, `feeAmount`, `penaltyAmount` | Tổng thu và breakdown; `feeAmount = core fee + platformFee`, các phần còn lại từ Fineract |
+| `outstandingPrincipal`, `outstandingInterest`, `outstandingFee`, `outstandingPenalty` | Từng thành phần dư nợ chính thức sau khi trả |
+| `totalOutstanding`, `overdueAmount`, `nextDueDate`, `nextDueAmount` | Tổng dư nợ, quá hạn và kỳ tiếp theo từ Fineract |
+| `currency`, `transactionDate`, `completedAt` | Tiền tệ và thời điểm nghiệp vụ |
+| `allocations[]` | `noteId`, `noteNumber`, `investorId`, gốc/lãi đã credit cho từng Note |
+
+Invariant bắt buộc:
+
+- `principal + interest + fee + penalty = amount`; `platformFee` là phần được cộng rõ trong `fee`.
+- Tổng phân bổ theo Note bằng đúng tổng gốc/lãi.
+- Payment debit clearing đúng bằng tổng credit ví nhà đầu tư và ví platform.
+- Fineract là nguồn breakdown; Loan/Investment không tự chạy waterfall khác.
+- POST Fineract có kết quả không chắc chắn thì chuyển `RECONCILIATION_REQUIRED`, không POST lại mù.
+
+### 5.5 Quá hạn và đóng khoản vay
+
+`LoanDelinquencyChanged.v1` mang `loanApplicationId`, `loanNumber`, `borrowerId`, `fineractLoanId`,
+DPD/nhóm nợ trước và sau, `overdueAmount`, `overdueSince`, `totalOutstanding`, `dataAsOf`.
+Không mang CCCD. User đăng ký mapping `borrowerId ↔ CCCD` vào CIC qua HTTP nội bộ sau eKYC.
+Repayment khắc phục đủ phần quá hạn phải tạo event có `daysPastDue = 0`; nếu chỉ sửa projection thì
+CIC sẽ giữ sai nhóm cũ.
+
+`LoanSettled.v1` mang `loanApplicationId`, `loanNumber`, `contractNumber`, `borrowerId`,
+`fineractLoanId`, `settledAt`. Event được phát từ cả kết quả repayment và worker sync core, nhưng khóa
+trạng thái/processed event bảo đảm chỉ transition thực sự mới ghi outbox.
+
+### 5.6 Cơ cấu khoản vay
+
+`LoanRescheduled.v1` chỉ được phát sau khi admin đã duyệt, Fineract đã approve yêu cầu reschedule và Loan
+đã đọc lại servicing snapshot. Request còn `PENDING_REVIEW`, lỗi Fineract hoặc chỉ đổi local state không
+được phát event này.
+
+| Field | Ý nghĩa |
+|---|---|
+| `loanApplicationId`, `loanNumber`, `fineractLoanId` | Định danh khoản vay xuyên Loan/Fineract |
+| `borrowerId` | Logical user ID; không phải CCCD |
+| `requestId` | Idempotency/correlation của lần cơ cấu |
+| `requestType` | `INSTALLMENT_ADJUSTMENT` hoặc `TERM_EXTENSION` |
+| `previousMaturityDate`, `newMaturityDate` | Ngày đáo hạn trước/sau theo snapshot core |
+| `rescheduleFromDate`, `adjustedDueDate`, `extraTerms` | Tham số lịch đã được Fineract chấp nhận |
+| `occurredAt` | Thời điểm Loan commit lịch mới theo UTC |
+
+Payload không mang `reasonComment`, admin note hoặc PII tự do. Investment/Notification là consumer dự kiến;
+Hải cần review contract trước khi bật consumer. Retry/restart phía Loan dùng marker `[FINORA:<requestId>]`
+để dò yêu cầu đã tạo trên Fineract trước khi POST lại.
+
 ## 6. Luồng và trạng thái mục tiêu
 
 ```text
@@ -204,6 +272,7 @@ Loan luôn ghi `LoanFundingRequested` và chỉ tạo Contract sau `LoanFullyFun
 - Ownership/SoR: [07-service-boundaries.md](../../.agents/rules/07-service-boundaries.md).
 - Loan producer: [LN-009](../../finora-loan/plans/LN-009-funding-requested-v1.md).
 - Loan consumer và Contract nhiều bên: [LN-010](../../finora-loan/plans/LN-010-multi-party-contract-v1.md).
+- Loan restructure producer: [LN-015](../../finora-loan/plans/LN-015-loan-restructuring.md).
 - Pháp lý/hợp đồng/dữ liệu: [`LEGAL-CONTRACT-01`, `LEGAL-DATA-01`, `LEGAL-PAYMENT-01`](../LEGAL-COMPLIANCE.md).
 
 ## 9. Chạy local để test end-to-end

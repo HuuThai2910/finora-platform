@@ -18,6 +18,12 @@ public record PortfolioPositionResponse(
         String principalRepaid,
         String interestReceived,
         BigDecimal sharePercent,
-        String status
+        String status,
+        int daysPastDue,
+        int debtGroup,
+        String overdueAmount,
+        String servicingStatus,
+        java.time.LocalDate maturityDate,
+        java.time.Instant riskDataAsOf
 ) {
 }
