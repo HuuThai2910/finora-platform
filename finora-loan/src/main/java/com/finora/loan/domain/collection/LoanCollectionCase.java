@@ -1,5 +1,6 @@
 package com.finora.loan.domain.collection;
 
+import com.finora.loan.domain.servicing.DebtGroup;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -53,7 +54,7 @@ public class LoanCollectionCase {
         if (status != CollectionCaseStatus.OPEN) throw new IllegalStateException("Collection case đã đóng");
         stage = CollectionStage.fromDaysPastDue(dpd);
         daysPastDue = dpd;
-        debtGroup = debtGroup(dpd);
+        debtGroup = DebtGroup.fromDaysPastDue(dpd);
         overdueAmount = money(overdue);
         totalOutstanding = money(outstanding);
         overdueSince = since;
@@ -70,14 +71,6 @@ public class LoanCollectionCase {
         closedAt = now;
         lastObservedAt = now;
         updatedAt = now;
-    }
-
-    public static int debtGroup(int dpd) {
-        if (dpd <= 9) return 1;
-        if (dpd <= 90) return 2;
-        if (dpd <= 180) return 3;
-        if (dpd <= 360) return 4;
-        return 5;
     }
 
     private static BigDecimal money(BigDecimal value) {

@@ -47,7 +47,8 @@ public class AdminLoanDecisionMapper {
                 application.getVersion(),
                 application.getSubmittedAt(),
                 application.getAdminDecidedBy(),
-                application.getAdminDecidedAt()
+                application.getAdminDecidedAt(),
+                application.getPurposeCode()
         );
     }
 

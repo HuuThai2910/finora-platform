@@ -1,5 +1,6 @@
 package com.finora.loan.service.servicing;
 
+import com.finora.loan.domain.servicing.DebtGroup;
 import com.finora.loan.domain.servicing.FinoraLoan;
 import com.finora.loan.domain.servicing.FinoraLoanStatus;
 import com.finora.loan.domain.servicing.LoanServicingProjection;
@@ -68,7 +69,7 @@ public class LoanServicingSyncService {
         LoanServicingProjection projection = projections.findByFinoraLoanIdForUpdate(loanId)
                 .orElseThrow(() -> new IllegalStateException("Khoản vay thiếu servicing projection"));
         int previousDpd = projection.getDaysPastDue();
-        int previousGroup = debtGroup(previousDpd);
+        int previousGroup = DebtGroup.fromDaysPastDue(previousDpd);
         var now = clock.instant();
         List<String> mismatches = reconciliation.inspect(loan, snapshot, now).stream()
                 .map(Enum::name).toList();
@@ -85,7 +86,7 @@ public class LoanServicingSyncService {
                             loan.getLoanApplicationId(), loan.getLoanNumber(), loan.getContractNumber(),
                             loan.getBorrowerId(), loan.getFineractLoanId(), now));
         }
-        int currentGroup = debtGroup(projection.getDaysPastDue());
+        int currentGroup = DebtGroup.fromDaysPastDue(projection.getDaysPastDue());
         if (previousDpd != projection.getDaysPastDue()) {
             outbox.recordForPublication("FinoraLoan", loan.getId().toString(),
                     "LoanDelinquencyChanged", 1, new LoanDelinquencyChangedEventData(
@@ -99,14 +100,6 @@ public class LoanServicingSyncService {
 
     private void markStale(Long loanId) {
         projections.findByFinoraLoanIdForUpdate(loanId).ifPresent(value -> value.markStale(clock.instant()));
-    }
-
-    static int debtGroup(int daysPastDue) {
-        if (daysPastDue <= 9) return 1;
-        if (daysPastDue <= 90) return 2;
-        if (daysPastDue <= 180) return 3;
-        if (daysPastDue <= 360) return 4;
-        return 5;
     }
 
     private record Work(Long loanId, Long fineractLoanId) {}

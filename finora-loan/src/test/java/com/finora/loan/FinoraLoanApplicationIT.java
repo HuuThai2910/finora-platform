@@ -659,6 +659,111 @@ class FinoraLoanApplicationIT {
                 .andExpect(jsonPath("$.data.length()").value(3));
     }
 
+    /**
+     * Chạy câu SQL thống kê thật trên PostgreSQL 17: cắt cột theo giờ Việt Nam, nhóm nợ từ DPD,
+     * phễu cohort và phân bố điểm. Mốc thời gian được đặt sát nửa đêm để sai múi giờ là lệch cột ngay.
+     */
+    @Test
+    void adminLoanStatisticsAggregateRealSchemaInVietnamTimeBuckets() throws Exception {
+        JsonNode approvedApplication = submitAndScoreApplication();
+        approvePendingReview(approvedApplication.path("applicationNumber").asText());
+        JsonNode pendingApplication = submitAndScoreApplication();
+        long approvedId = approvedApplication.path("id").asLong();
+        long pendingId = pendingApplication.path("id").asLong();
+
+        // 23:30 UTC 1/10 = 06:30 ngày 2/10 giờ Việt Nam; 16:30 UTC 1/10 = 23:30 ngày 1/10 giờ Việt Nam.
+        jdbcTemplate.update("""
+                UPDATE loan_applications
+                SET submitted_at = TIMESTAMPTZ '2026-10-01T23:30:00Z',
+                    admin_decided_at = TIMESTAMPTZ '2026-10-03T00:00:00Z'
+                WHERE id = ?
+                """, approvedId);
+        // Đổi số tiền hồ sơ chờ duyệt để hai cột có giá trị nộp khác nhau, cộng nhầm cột là thấy ngay.
+        jdbcTemplate.update("""
+                UPDATE loan_applications
+                SET submitted_at = TIMESTAMPTZ '2026-10-01T16:30:00Z', requested_amount = 30000000.00
+                WHERE id = ?
+                """, pendingId);
+        Long loanId = jdbcTemplate.queryForObject("""
+                INSERT INTO finora_loans (loan_number, loan_application_id, application_number, contract_number,
+                    borrower_id, fineract_loan_id, principal_amount, currency, status, disbursed_at,
+                    created_at, updated_at)
+                VALUES ('LN-STATS-001', ?, ?, 'CT-STATS-001', 'BORROWER-001', 777001, 50000000.00, 'VND',
+                    'ACTIVE', TIMESTAMPTZ '2026-10-03T18:00:00Z', now(), now())
+                RETURNING id
+                """, Long.class, approvedId, approvedApplication.path("applicationNumber").asText());
+        jdbcTemplate.update("""
+                INSERT INTO loan_servicing_projections (finora_loan_id, fineract_status_code, principal_disbursed,
+                    principal_paid, principal_outstanding, interest_charged, interest_paid, interest_outstanding,
+                    fee_outstanding, penalty_outstanding, total_outstanding, overdue_amount, days_past_due,
+                    source, data_as_of, last_synced_at, stale, created_at, updated_at)
+                VALUES (?, 'loanStatusType.active', 50000000.00, 10000000.00, 40000000.00, 2000000.00, 0, 2000000.00,
+                    0, 0, 42000000.00, 5000000.00, 120, 'FINERACT_SERVICING_SYNC', now(), now(), true, now(), now())
+                """, loanId);
+
+        mockMvc.perform(get("/api/v1/admin/loan-statistics/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.applications.total").value(2))
+                .andExpect(jsonPath("$.applications.byStatus.APPROVED").value(1))
+                .andExpect(jsonPath("$.applications.byStatus.PENDING_REVIEW").value(1))
+                .andExpect(jsonPath("$.applications.byFundingStatus.REQUESTED").value(1))
+                .andExpect(jsonPath("$.portfolio.loansByStatus.ACTIVE").value(1))
+                .andExpect(jsonPath("$.portfolio.outstandingLoans").value(1))
+                .andExpect(jsonPath("$.portfolio.principalOutstanding").value(40000000.00))
+                .andExpect(jsonPath("$.portfolio.totalOutstanding").value(42000000.00))
+                .andExpect(jsonPath("$.portfolio.overdueAmount").value(5000000.00))
+                // DPD 120 thuộc nhóm 3 nên toàn bộ dư nợ gốc là nợ xấu.
+                .andExpect(jsonPath("$.portfolio.nplPrincipalOutstanding").value(40000000.00))
+                .andExpect(jsonPath("$.portfolio.nplRatioPercent").value(100.00))
+                .andExpect(jsonPath("$.portfolio.staleProjections").value(1))
+                .andExpect(jsonPath("$.portfolio.byDebtGroup[2].loans").value(1))
+                .andExpect(jsonPath("$.portfolio.byCreditGrade[0].grade").value("B"))
+                .andExpect(jsonPath("$.portfolio.byCreditGrade[0].loans").value(1))
+                .andExpect(jsonPath("$.portfolio.byProduct.length()").value(2))
+                .andExpect(jsonPath("$.creditScores.assessed").value(2))
+                .andExpect(jsonPath("$.creditScores.byGrade.B").value(2))
+                // Điểm 70.2 rơi vào cột [70, 80).
+                .andExpect(jsonPath("$.creditScores.histogram[7].count").value(2));
+
+        mockMvc.perform(get("/api/v1/admin/loan-statistics/series")
+                        .queryParam("from", "2026-10-01")
+                        .queryParam("to", "2026-10-04"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.points.length()").value(4))
+                .andExpect(jsonPath("$.points[0].bucketStart").value("2026-10-01"))
+                .andExpect(jsonPath("$.points[0].applicationsSubmitted").value(1))
+                .andExpect(jsonPath("$.points[0].applicationsSubmittedAmount").value(30000000.00))
+                .andExpect(jsonPath("$.points[1].applicationsSubmitted").value(1))
+                .andExpect(jsonPath("$.points[1].applicationsSubmittedAmount").value(50000000.00))
+                .andExpect(jsonPath("$.points[2].applicationsSubmittedAmount").value(0.0))
+                .andExpect(jsonPath("$.points[2].applicationsApproved").value(1))
+                .andExpect(jsonPath("$.points[3].loansDisbursed").value(1))
+                .andExpect(jsonPath("$.points[3].disbursedAmount").value(50000000.00))
+                .andExpect(jsonPath("$.productPoints.length()").value(3))
+                .andExpect(jsonPath("$.productPoints[0].bucketStart").value("2026-10-01"))
+                .andExpect(jsonPath("$.productPoints[0].applicationsSubmittedAmount").value(30000000.00))
+                .andExpect(jsonPath("$.productPoints[1].bucketStart").value("2026-10-02"))
+                .andExpect(jsonPath("$.productPoints[1].applicationsSubmittedAmount").value(50000000.00))
+                .andExpect(jsonPath("$.productPoints[2].applicationsSubmittedAmount").value(0.0))
+                .andExpect(jsonPath("$.funnel.submitted").value(2))
+                .andExpect(jsonPath("$.funnel.scored").value(2))
+                .andExpect(jsonPath("$.funnel.approved").value(1))
+                .andExpect(jsonPath("$.funnel.termsAccepted").value(1))
+                .andExpect(jsonPath("$.funnel.fundingRequested").value(1))
+                .andExpect(jsonPath("$.funnel.fullyFunded").value(0))
+                .andExpect(jsonPath("$.funnel.disbursed").value(1));
+
+        mockMvc.perform(get("/api/v1/admin/loan-statistics/series")
+                        .queryParam("from", "2026-10-01")
+                        .queryParam("to", "2026-10-04")
+                        .queryParam("bucket", "WEEK"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.from").value("2026-09-28"))
+                .andExpect(jsonPath("$.points.length()").value(1))
+                .andExpect(jsonPath("$.points[0].applicationsSubmitted").value(2))
+                .andExpect(jsonPath("$.points[0].applicationsSubmittedAmount").value(80000000.00));
+    }
+
     @Test
     @EnabledIfSystemProperty(named = "finora.live.ai", matches = "true")
     void dockerAiV17ScoresThroughLoanAndPersistsAssessment() throws Exception {

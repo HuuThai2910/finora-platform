@@ -2,6 +2,7 @@ package com.finora.loan.dto.decision.response;
 
 import com.finora.loan.domain.application.LoanApplicationStatus;
 import com.finora.loan.domain.application.LoanDecisionSource;
+import com.finora.loan.domain.application.LoanPurpose;
 import com.finora.loan.domain.application.TermsConfirmationStatus;
 import com.finora.loan.domain.product.RepaymentMethod;
 import java.math.BigDecimal;
@@ -26,6 +27,8 @@ public record AdminLoanReviewSummaryResponse(
         Instant submittedAt,
         /** ID quản trị viên đã duyệt hoặc từ chối; {@code null} khi hồ sơ chưa có quyết định. */
         String adminDecidedBy,
-        Instant adminDecidedAt
+        Instant adminDecidedAt,
+        /** Mục đích vay để danh sách quản trị hiện icon/nhãn theo từng dòng mà không phải gọi chi tiết từng hồ sơ. */
+        LoanPurpose purposeCode
 ) {
 }

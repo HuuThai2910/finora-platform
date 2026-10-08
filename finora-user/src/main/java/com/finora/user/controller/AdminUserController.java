@@ -2,15 +2,20 @@ package com.finora.user.controller;
 
 import com.finora.common.dto.PageResponse;
 import com.finora.common.security.SecurityUtils;
+import com.finora.common.statistics.StatisticsBucket;
+import com.finora.common.statistics.StatisticsPeriod;
 import com.finora.user.dto.request.AssignRoleRequest;
 import com.finora.user.dto.response.UserProfileResponse;
 import com.finora.user.dto.response.UserStatsResponse;
+import com.finora.user.dto.response.UserStatsSeriesResponse;
 import com.finora.user.service.UserProfileService;
+import com.finora.user.service.UserStatisticsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
 
 /**
  * Controller quản trị người dùng — chỉ dành cho admin.
@@ -23,6 +28,7 @@ import org.springframework.web.bind.annotation.*;
 public class AdminUserController {
 
     private final UserProfileService userProfileService;
+    private final UserStatisticsService userStatisticsService;
 
     /**
      * Danh sách người dùng — lọc theo vai trò và trạng thái eKYC ở tầng DB.
@@ -47,6 +53,28 @@ public class AdminUserController {
     @PreAuthorize("hasAuthority('user:admin:read_all')")
     public ResponseEntity<UserStatsResponse> getUserStats() {
         return ResponseEntity.ok(userProfileService.getUserStats());
+    }
+
+    /**
+     * Người dùng mới và eKYC hoàn tất theo cột thời gian (STATS-001).
+     * <p>
+     * Tham số nhận dạng chuỗi rồi tự đọc: nếu để Spring tự chuyển kiểu thì {@code bucket=YEAR} hoặc ngày
+     * sai định dạng rơi vào handler lỗi chung và thành 500, trong khi đây là lỗi đầu vào của người gọi.
+     *
+     * @param from   ngày bắt đầu {@code YYYY-MM-DD}, bỏ trống là 30 ngày gần nhất
+     * @param to     ngày kết thúc {@code YYYY-MM-DD}, bỏ trống là hôm nay theo giờ Việt Nam
+     * @param bucket {@code DAY} (mặc định), {@code WEEK} hoặc {@code MONTH}
+     */
+    @GetMapping("/stats/series")
+    @PreAuthorize("hasAuthority('user:admin:read_all')")
+    public ResponseEntity<UserStatsSeriesResponse> getUserStatsSeries(
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) String bucket) {
+        return ResponseEntity.ok(userStatisticsService.series(
+                StatisticsPeriod.parseDate(from, "from"),
+                StatisticsPeriod.parseDate(to, "to"),
+                StatisticsBucket.parse(bucket)));
     }
 
     /** Chi tiết hồ sơ một người dùng — màn hình khách hàng/eKYC của admin. */
@@ -90,4 +118,6 @@ public class AdminUserController {
         userProfileService.assignRole(id, role, SecurityUtils.getCurrentKeycloakUserId());
         return ResponseEntity.ok().build();
     }
+
+
 }
