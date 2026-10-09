@@ -1,5 +1,7 @@
 package com.finora.investment.controller;
 
+import com.finora.common.security.pin.PinScope;
+import com.finora.common.security.pin.RequirePin;
 import com.finora.investment.dto.request.UpdateAutoInvestRequest;
 import com.finora.investment.dto.response.AutoInvestConfigResponse;
 import com.finora.investment.dto.response.AutoInvestMatchResponse;
@@ -35,6 +37,7 @@ public class AutoInvestController {
     }
 
     @PutMapping
+    @RequirePin(PinScope.AUTO_INVEST)
     public AutoInvestConfigResponse saveMyConfig(@Valid @RequestBody UpdateAutoInvestRequest request) {
         return autoInvestService.saveMyConfig(request);
     }

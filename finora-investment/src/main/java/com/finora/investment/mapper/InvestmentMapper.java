@@ -26,6 +26,7 @@ public class InvestmentMapper {
         return new MarketListingResponse(
                 listing.getId(),
                 listing.getLoanId(),
+                listing.getApplicationNumber(),
                 listing.getPurpose(),
                 listing.getRegion(),
                 listing.getCreditGrade(),

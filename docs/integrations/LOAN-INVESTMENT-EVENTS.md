@@ -36,6 +36,11 @@ Investment lưu `market_listings` trong database của Investment. Mobile/web g�
 xem listing; Investment không gọi Loan mỗi lần người dùng mở màn hình. PDF và chữ ký lại thuộc Loan,
 nên màn nhà đầu tư gọi REST Loan khi xem hoặc ký hợp đồng.
 
+Hồ sơ người vay cho nhà đầu tư cũng là dữ liệu Loan: listing trả thêm `applicationNumber`, app dùng mã
+này gọi `GET /api/v1/investor/loan-applications/{applicationNumber}/borrower-profile` của Loan (chỉ
+`ROLE_INVESTOR`, chỉ hồ sơ đã lên sàn, ẩn danh, không có SHAP; xem `LEGAL-DISCLOSURE-02`). Thu nhập,
+eKYC và bảng luật không đi qua Kafka và Investment không chép các số liệu này.
+
 ## 3. Envelope và quy ước chung
 
 ```json

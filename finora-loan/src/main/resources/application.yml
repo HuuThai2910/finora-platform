@@ -80,6 +80,11 @@ management:
         include: health,info,metrics
 
 finora:
+  # Pin-token xác nhận thao tác nhạy cảm — khoá HS256 phải GIỐNG NHAU ở finora-user
+  # (bên cấp) và payment/investment/loan (bên kiểm). Mặc định chỉ dùng cho máy dev.
+  pin:
+    token-secret: ${FINORA_PIN_TOKEN_SECRET:dev-only-pin-token-secret-change-me-32b}
+    token-ttl: ${FINORA_PIN_TOKEN_TTL:PT3M}
   signature:
     # MOCK giữ luồng click-wrap phát triển. Chỉ đổi sang VNPT_SMART_CA khi đã có certificate và API contract.
     provider: ${FINORA_SIGNATURE_PROVIDER:MOCK}

@@ -1,5 +1,7 @@
 package com.finora.investment.controller;
 
+import com.finora.common.security.pin.PinScope;
+import com.finora.common.security.pin.RequirePin;
 import com.finora.common.dto.PageResponse;
 import com.finora.common.security.SecurityUtils;
 import com.finora.investment.dto.request.PlaceBookOrderRequest;
@@ -83,6 +85,7 @@ public class OrderBookController {
      * cũ chứ không giữ tiền lần hai.
      */
     @PostMapping("/{listingId}/orders")
+    @RequirePin(PinScope.ORDER)
     @ResponseStatus(HttpStatus.CREATED)
     public BookOrderResponse placeOrder(
             @PathVariable Long listingId,

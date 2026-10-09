@@ -54,6 +54,11 @@ logging:
     com.finora.investment: INFO
 
 finora:
+  # Pin-token xác nhận thao tác nhạy cảm — khoá HS256 phải GIỐNG NHAU ở finora-user
+  # (bên cấp) và payment/investment/loan (bên kiểm). Mặc định chỉ dùng cho máy dev.
+  pin:
+    token-secret: ${FINORA_PIN_TOKEN_SECRET:dev-only-pin-token-secret-change-me-32b}
+    token-ttl: ${FINORA_PIN_TOKEN_TTL:PT3M}
   investment:
     payment:
       mode: ${INVESTMENT_PAYMENT_MODE:http}

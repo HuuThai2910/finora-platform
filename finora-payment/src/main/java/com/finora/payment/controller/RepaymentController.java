@@ -1,5 +1,7 @@
 package com.finora.payment.controller;
 
+import com.finora.common.security.pin.PinScope;
+import com.finora.common.security.pin.RequirePin;
 import com.finora.payment.dto.request.CreateRepaymentRequest;
 import com.finora.payment.dto.request.CreateEarlySettlementQuoteRequest;
 import com.finora.payment.dto.request.CreateEarlySettlementRequest;
@@ -31,6 +33,7 @@ public class RepaymentController {
     private final PartialPrepaymentQuoteService partialPrepaymentQuoteService;
 
     @PostMapping
+    @RequirePin(PinScope.REPAYMENT)
     public RepaymentResponse create(@RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody CreateRepaymentRequest request) {
         return service.create(request.loanApplicationId(), request.amount(), request.transactionDate(), idempotencyKey);
@@ -48,6 +51,7 @@ public class RepaymentController {
     }
 
     @PostMapping("/early-settlement")
+    @RequirePin(PinScope.REPAYMENT)
     public RepaymentResponse earlySettlement(@RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody CreateEarlySettlementRequest request) {
         return service.createEarlySettlement(request.quoteId(), idempotencyKey);
@@ -65,6 +69,7 @@ public class RepaymentController {
     }
 
     @PostMapping("/partial-prepayment")
+    @RequirePin(PinScope.REPAYMENT)
     public RepaymentResponse partialPrepayment(@RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody CreatePartialPrepaymentRequest request) {
         return service.createPartialPrepayment(request.quoteId(), idempotencyKey);

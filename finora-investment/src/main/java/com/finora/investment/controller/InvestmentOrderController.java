@@ -1,5 +1,7 @@
 package com.finora.investment.controller;
 
+import com.finora.common.security.pin.PinScope;
+import com.finora.common.security.pin.RequirePin;
 import com.finora.investment.dto.request.PlaceOrderRequest;
 import com.finora.investment.dto.response.CommitmentResponse;
 import com.finora.investment.dto.response.OrderResponse;
@@ -39,6 +41,7 @@ public class InvestmentOrderController {
     private final PortfolioService portfolioService;
 
     @PostMapping("/listings/{listingId}/orders")
+    @RequirePin(PinScope.INVEST)
     @ResponseStatus(HttpStatus.CREATED)
     public OrderResponse placeOrder(
             @PathVariable Long listingId,

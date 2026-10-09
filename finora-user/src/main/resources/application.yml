@@ -62,6 +62,11 @@ keycloak:
 # Mã hóa PII (CCCD, SĐT) — secret key cho HMAC-SHA256 và AES-256-GCM
 # Notification service — gọi qua Feign (internal HTTP, không qua gateway)
 finora:
+  # Pin-token xác nhận thao tác nhạy cảm — khoá HS256 phải GIỐNG NHAU ở finora-user
+  # (bên cấp) và payment/investment/loan (bên kiểm). Mặc định chỉ dùng cho máy dev.
+  pin:
+    token-secret: ${FINORA_PIN_TOKEN_SECRET:dev-only-pin-token-secret-change-me-32b}
+    token-ttl: ${FINORA_PIN_TOKEN_TTL:PT3M}
   notification:
     url: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
   cic:

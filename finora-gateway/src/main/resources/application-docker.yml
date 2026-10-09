@@ -15,7 +15,7 @@ spring:
           - id: loan-service
             uri: http://loan:8081
             predicates:
-              - Path=/api/v1/loans/**,/api/v1/loan-products/**,/api/v1/loan-purposes/**,/api/v1/loan-applications/**,/api/v1/loan-contracts/**,/api/v1/investor/loan-contracts/**
+              - Path=/api/v1/loans/**,/api/v1/loan-products/**,/api/v1/loan-purposes/**,/api/v1/loan-applications/**,/api/v1/loan-contracts/**,/api/v1/investor/loan-contracts/**,/api/v1/investor/loan-applications/**
           - id: payment-service
             uri: http://payment:8082
             predicates:

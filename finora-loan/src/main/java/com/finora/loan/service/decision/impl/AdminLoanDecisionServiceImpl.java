@@ -17,9 +17,8 @@ import com.finora.loan.dto.decision.response.AdminLoanReviewDetailResponse;
 import com.finora.loan.dto.decision.response.AdminLoanReviewSummaryResponse;
 import com.finora.loan.mapper.application.LoanApplicationMapper;
 import com.finora.loan.mapper.decision.AdminLoanDecisionMapper;
+import com.finora.loan.mapper.scoring.StoredAiCreditResponseReader;
 import com.finora.loan.repository.application.LoanApplicationRepository;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.loan.dto.decision.response.AdminAssessmentExplanationResponse;
 import com.finora.loan.exception.LoanBusinessException;
 import com.finora.loan.integration.ai.contract.StoredAiCreditResponse;
@@ -61,7 +60,7 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
     private final AdminLoanDecisionMapper mapper;
     private final LoanApplicationMapper applicationMapper;
     private final HashingService hashingService;
-    private final ObjectMapper objectMapper;
+    private final StoredAiCreditResponseReader snapshotReader;
 
     /**
      * Không truyền trạng thái nghĩa là xem tất cả hồ sơ, nhưng vẫn chỉ đọc một page có giới hạn.
@@ -141,7 +140,7 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
 
         // Lần chấm hỏng hoặc đang chờ thì chưa có gì để giải thích. Phân biệt với hồ sơ
         // chưa từng chấm ở trên để admin biết nên đợi hay nên yêu cầu chấm lại.
-        StoredAiCreditResponse snapshot = readSnapshot(assessment);
+        StoredAiCreditResponse snapshot = snapshotReader.read(assessment);
         if (snapshot == null) {
             throw LoanBusinessException.badRequest(
                     "ASSESSMENT_EXPLANATION_UNAVAILABLE",
@@ -156,29 +155,6 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
                 snapshot.borrowerExplanation(),
                 snapshot.modelExplanation(),
                 snapshot.ruleTrace());
-    }
-
-    /**
-     * Đọc snapshot response của AI.
-     *
-     * <p>Ánh xạ về {@link StoredAiCreditResponse} thay vì đọc khoá bằng chuỗi: snapshot
-     * được ghi bằng chính record đó nên tên trường phải khớp, và nếu record đổi thì lỗi
-     * hiện ra lúc biên dịch chứ không phải bằng ba giá trị null trên màn hình.</p>
-     *
-     * <p>Trả {@code null} khi chưa có; JSON hỏng thì coi như không có thay vì ném lỗi
-     * 500, vì một bản ghi lỗi không nên chặn cả màn thẩm định.</p>
-     */
-    private StoredAiCreditResponse readSnapshot(CreditScoringAssessment assessment) {
-        String json = assessment.getResponseSnapshotJson();
-        if (json == null || json.isBlank()) {
-            return null;
-        }
-        try {
-            return objectMapper.readValue(json, StoredAiCreditResponse.class);
-        } catch (JsonProcessingException e) {
-            log.warn("Snapshot chấm điểm không đọc được: assessmentId={}", assessment.getId(), e);
-            return null;
-        }
     }
 
     @Override

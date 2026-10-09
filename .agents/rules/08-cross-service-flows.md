@@ -86,6 +86,8 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 4. Loan ghi outbox `LoanFundingRequested.v1` sau
    `AUTO_AUTHORIZED/ACCEPTED`; Investment tạo projection listing idempotent, xác định lender và phát
    `LoanFullyFunded.v2` cùng allocation bất biến. Loan chỉ lập Contract/PDF chung sau event này.
+   Trong lúc gọi vốn, nhà đầu tư đọc hồ sơ người vay ẩn danh bằng REST Loan theo `applicationNumber`
+   của listing ([`LEGAL-DISCLOSURE-02`](../../docs/LEGAL-COMPLIANCE.md)); không có event hay bản sao ở Investment.
 5. Nhà đầu tư ký cùng document hash trước; khi đủ chữ ký lender, Loan yêu cầu borrower ký một lần.
    Loan phát `LoanContractActivated.v1` sau khi mọi party đã ký; event này không đồng nghĩa đã giải ngân.
 

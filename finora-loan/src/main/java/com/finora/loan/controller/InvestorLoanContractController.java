@@ -1,5 +1,7 @@
 package com.finora.loan.controller;
 
+import com.finora.common.security.pin.PinScope;
+import com.finora.common.security.pin.RequirePin;
 import com.finora.loan.dto.contract.request.SignLoanContractRequest;
 import com.finora.loan.dto.contract.response.InvestorContractResponse;
 import com.finora.loan.service.contract.InvestorContractService;
@@ -56,6 +58,7 @@ public class InvestorLoanContractController {
     }
 
     @PostMapping("/{contractNumber}/sign")
+    @RequirePin(PinScope.SIGN_CONTRACT)
     public InvestorContractResponse sign(
             @PathVariable @NotBlank @Size(max = 50) String contractNumber,
             @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 150) String idempotencyKey,
