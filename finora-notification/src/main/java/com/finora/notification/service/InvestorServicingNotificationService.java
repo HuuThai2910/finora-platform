@@ -3,8 +3,12 @@ package com.finora.notification.service;
 import com.finora.notification.domain.InAppNotification;
 import com.finora.notification.messaging.InvestorNoteServicingChangedData;
 import com.finora.notification.repository.InAppNotificationRepository;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -23,26 +27,41 @@ public class InvestorServicingNotificationService {
                 || data.recipients().isEmpty()) {
             throw new IllegalArgumentException("InvestorNoteServicingChanged data không hợp lệ");
         }
-        Template template = template(data);
-        java.util.Set<String> recipientsSeen = new java.util.HashSet<>();
+        // Một nhà đầu tư có thể giữ nhiều Note của cùng khoản vay: gộp về một thông báo, cộng
+        // phần tiền của các Note đó để mỗi người thấy đúng số mình nhận chứ không phải tổng cả khoản.
+        Map<String, BigDecimal> amountByInvestor = new LinkedHashMap<>();
+        Map<String, Boolean> amountKnown = new LinkedHashMap<>();
         for (var recipient : data.recipients()) {
-            if (recipient.investorId() == null || recipient.investorId().isBlank()
-                    || !recipientsSeen.add(recipient.investorId())
-                    || repository.existsBySourceEventIdAndRecipientIdAndType(
-                    eventId, recipient.investorId(), data.changeType())) continue;
-            repository.save(InAppNotification.create(eventId, recipient.investorId(),
+            if (recipient.investorId() == null || recipient.investorId().isBlank()) continue;
+            String investorId = recipient.investorId();
+            amountByInvestor.putIfAbsent(investorId, BigDecimal.ZERO);
+            amountKnown.merge(investorId, recipient.amount() != null, Boolean::logicalAnd);
+            if (recipient.amount() != null) {
+                amountByInvestor.merge(investorId, new BigDecimal(recipient.amount()), BigDecimal::add);
+            }
+        }
+        for (var entry : amountByInvestor.entrySet()) {
+            String investorId = entry.getKey();
+            if (repository.existsBySourceEventIdAndRecipientIdAndType(
+                    eventId, investorId, data.changeType())) continue;
+            // Event cũ chưa có phần tiền từng Note thì rơi về số tổng của event như trước.
+            String amount = amountKnown.get(investorId)
+                    ? entry.getValue().setScale(2, RoundingMode.HALF_UP).toPlainString()
+                    : data.amount();
+            Template template = template(data, amount);
+            repository.save(InAppNotification.create(eventId, investorId,
                     data.changeType(), template.title(), template.message(),
                     data.loanApplicationId().toString(), data.externalPushRequired(),
                     occurredAt, clock.instant()));
         }
     }
 
-    private Template template(InvestorNoteServicingChangedData data) {
+    private Template template(InvestorNoteServicingChangedData data, String amount) {
         String loan = data.loanNumber() == null ? "khoản vay #" + data.loanApplicationId()
                 : data.loanNumber();
         return switch (data.changeType()) {
             case "REPAYMENT_CREDITED" -> new Template("Đã nhận khoản trả nợ",
-                    loan + " vừa phân bổ " + data.amount() + " VND vào các Note của bạn.");
+                    loan + " vừa phân bổ " + amount + " VND vào các Note của bạn.");
             case "EARLY_SETTLEMENT" -> new Template("Khoản vay đã tất toán sớm",
                     loan + " đã tất toán sớm; gốc và lãi đã được phân bổ.");
             case "RESCHEDULED" -> new Template("Lịch trả nợ đã được cơ cấu",

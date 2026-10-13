@@ -168,9 +168,13 @@ public class HoldTransferService {
 
     @Transactional
     public TransferResponse transfer(TransferRequest request) {
-        String actorId = SecurityUtils.getCurrentUserId();
-        requireInvestor();
-        requireActor(actorId, request.buyerId());
+        // Service account Investment chuyển thay nhà đầu tư khi trả lại khoản trả nợ đã chia nhầm
+        // chủ cũ của Note (người bán chưa có mặt để tự chuyển). Người dùng thường chỉ chuyển từ ví mình.
+        if (!SecurityUtils.hasRole(ON_BEHALF_AUTHORITY)) {
+            String actorId = SecurityUtils.getCurrentUserId();
+            requireInvestor();
+            requireActor(actorId, request.buyerId());
+        }
         if (request.buyerId().equals(request.sellerId())) {
             throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, "PAYMENT_SELF_TRANSFER", "Không thể tự mua Note của chính mình");
         }

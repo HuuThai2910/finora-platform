@@ -1,6 +1,7 @@
 package com.finora.investment.service.impl;
 
 import com.finora.investment.service.FundingService;
+import com.finora.investment.service.InvestorEligibility;
 import com.finora.investment.service.OrderTransactionService;
 import com.finora.common.enums.investment.OrderStatus;
 import com.finora.common.security.SecurityUtils;
@@ -51,6 +52,7 @@ public class FundingServiceImpl implements FundingService {
     private final OrderTransactionService transactions;
     private final PaymentClient paymentClient;
     private final InvestmentMapper mapper;
+    private final InvestorEligibility eligibility;
 
     /**
      * Đặt một lệnh đầu tư vào khoản vay đang gọi vốn.
@@ -60,6 +62,7 @@ public class FundingServiceImpl implements FundingService {
      */
     @Override
     public OrderResponse placeOrder(Long listingId, String idempotencyKey, PlaceOrderRequest request) {
+        eligibility.requireVerifiedInvestor();
         return placeOrderFor(SecurityUtils.getCurrentUserId(), listingId, idempotencyKey, request);
     }
 
@@ -107,7 +110,7 @@ public class FundingServiceImpl implements FundingService {
         if (!hold.isSuccess()) {
             if (hold.isRetryable()) {
                 // Lỗi tạm thời: không kết luận được tiền đã giữ hay chưa, nên giữ lệnh ở
-                // PENDING_FUNDS cho luồng đối soát xử lý thay vì hủy oan của nhà đầu tư.
+                // PENDING_FUNDS; FundingMaintenanceService làm tiếp sau pending-funds-timeout.
                 log.warn("Giữ tiền chưa có kết quả chắc chắn: orderReference={}",
                         order.getOrderReference());
                 throw InvestmentDomainException.conflict(
@@ -119,6 +122,17 @@ public class FundingServiceImpl implements FundingService {
         }
 
         return transactions.confirmCommitment(order.getId(), listingId, hold.getHoldReference());
+    }
+
+    @Override
+    public OrderResponse resumePendingOrder(Long orderId) {
+        InvestmentOrder order = orderRepository.findById(orderId)
+                .orElseThrow(() -> InvestmentDomainException.notFound(
+                        "ORDER_NOT_FOUND", "Không tìm thấy lệnh đầu tư"));
+        if (order.getStatus() != OrderStatus.PENDING_FUNDS) {
+            return mapper.toOrderResponse(order);
+        }
+        return holdAndCommit(order, order.getListingId());
     }
 
     /** Hủy lệnh đã cam kết và nhả tiền về ví. */

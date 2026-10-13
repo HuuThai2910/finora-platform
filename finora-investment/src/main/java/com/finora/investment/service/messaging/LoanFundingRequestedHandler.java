@@ -49,6 +49,8 @@ public class LoanFundingRequestedHandler {
                 .annualInterestRate(decimal(data.annualInterestRate(), "annualInterestRate"))
                 .termMonths(data.termMonths())
                 .repaymentMethod(data.repaymentMethod())
+                .borrowerId(data.borrowerId() == null || data.borrowerId().isBlank()
+                        ? null : data.borrowerId().trim())
                 .build());
         Instant now = clock.instant();
         processedEventRepository.save(ProcessedEvent.create(

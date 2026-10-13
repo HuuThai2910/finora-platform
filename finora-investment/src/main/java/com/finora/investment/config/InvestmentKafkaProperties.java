@@ -8,6 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record InvestmentKafkaProperties(
         String fundingRequestedTopic,
         String fullyFundedTopic,
+        String fundingExpiredTopic,
         String investorSignatureRequestedTopic,
         String contractActivatedTopic,
         String noteOwnershipChangedTopic,
@@ -19,6 +20,7 @@ public record InvestmentKafkaProperties(
     public InvestmentKafkaProperties {
         fundingRequestedTopic = requireTopic(fundingRequestedTopic, "fundingRequestedTopic");
         fullyFundedTopic = requireTopic(fullyFundedTopic, "fullyFundedTopic");
+        fundingExpiredTopic = requireTopic(fundingExpiredTopic, "fundingExpiredTopic");
         investorSignatureRequestedTopic = requireTopic(
                 investorSignatureRequestedTopic, "investorSignatureRequestedTopic");
         contractActivatedTopic = requireTopic(contractActivatedTopic, "contractActivatedTopic");

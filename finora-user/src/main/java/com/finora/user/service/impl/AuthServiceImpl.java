@@ -276,11 +276,18 @@ public class AuthServiceImpl implements AuthService {
      */
     private void backfillUserIdAttribute(String email) {
         try {
-            userProfileRepository.findByEmail(email).ifPresent(profile ->
-                    keycloakAdminService.setUserIdAttribute(
-                            profile.getKeycloakUserId().toString(), profile.getId()));
+            userProfileRepository.findByEmail(email).ifPresent(profile -> {
+                keycloakAdminService.setUserIdAttribute(
+                        profile.getKeycloakUserId().toString(), profile.getId());
+                // Cùng lý do với user_id: tài khoản đã eKYC trước khi có claim ekyc_status
+                // phải mang claim ngay từ token của lần đăng nhập này.
+                if (profile.getEkycStatus() != null) {
+                    keycloakAdminService.setEkycStatusAttribute(
+                            profile.getKeycloakUserId().toString(), profile.getEkycStatus().name());
+                }
+            });
         } catch (Exception e) {
-            log.warn("Không gắn được user_id khi đăng nhập: email={}",
+            log.warn("Không gắn được user_id/ekyc_status khi đăng nhập: email={}",
                     PiiMasker.maskEmail(email), e);
         }
     }

@@ -12,6 +12,8 @@ public record LoanFundingResponse(
         Instant requestedAt,
         Long investmentListingId,
         BigDecimal fundedAmount,
-        Instant fullyFundedAt
+        Instant fullyFundedAt,
+        /** Có giá trị khi {@code status = EXPIRED}: đợt gọi vốn hết hạn mà chưa đủ vốn. */
+        Instant expiredAt
 ) {
 }

@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "finora.investment.payment.mode=stub",
         "finora.investment.auto-invest.enabled=false",
         "finora.investment.order-book.settlement.enabled=false",
+        "finora.investment.maintenance.enabled=false",
         "finora.investment.outbox.publisher-delay=3600000"
 })
 @Testcontainers

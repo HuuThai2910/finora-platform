@@ -70,6 +70,10 @@ public class MarketListing {
     @Column(name = "application_number", nullable = false, length = 30, updatable = false)
     private String applicationNumber;
 
+    /** ID logic người vay, chỉ dùng nội bộ để chặn tự cấp vốn; không trả ra API sàn. */
+    @Column(name = "borrower_id", length = 100, updatable = false)
+    private String borrowerId;
+
     @Column(name = "listing_version", nullable = false, updatable = false)
     private Integer listingVersion;
 

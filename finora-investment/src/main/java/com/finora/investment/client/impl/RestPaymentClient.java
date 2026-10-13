@@ -100,6 +100,29 @@ public class RestPaymentClient implements PaymentClient {
         }
     }
 
+    @Override
+    public PaymentTransferResult transferBetweenInvestors(
+            String fromInvestorId, String toInvestorId, BigDecimal amount, String transferReference) {
+        try {
+            TransferBody response = client().post().uri("/transactions/transfers")
+                    .headers(this::authorize)
+                    .body(Map.of(
+                            "buyerId", fromInvestorId, "sellerId", toInvestorId, "price", amount,
+                            "platformFee", BigDecimal.ZERO, "transferReference", transferReference))
+                    .retrieve().body(TransferBody.class);
+            return response == null
+                    ? PaymentTransferResult.unavailable("Payment không trả kết quả chuyển tiền")
+                    : PaymentTransferResult.ok(response.paymentReference());
+        } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().is4xxClientError()) {
+                return PaymentTransferResult.rejected(errorCode(exception), errorMessage(exception));
+            }
+            return PaymentTransferResult.unavailable("Payment tạm thời không chuyển được tiền");
+        } catch (RuntimeException exception) {
+            return PaymentTransferResult.unavailable("Không kết nối được Payment Service");
+        }
+    }
+
     private RestClient client() {
         return restClientBuilder.baseUrl(baseUrl).build();
     }

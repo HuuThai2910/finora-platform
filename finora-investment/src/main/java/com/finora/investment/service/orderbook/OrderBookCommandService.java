@@ -12,6 +12,7 @@ import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.domain.listing.MarketListing;
 import com.finora.investment.repository.BookOrderRepository;
 import com.finora.investment.repository.MarketListingRepository;
+import com.finora.investment.service.InvestorEligibility;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -46,12 +47,14 @@ public class OrderBookCommandService {
     private final BookOrderRepository orderRepository;
     private final PaymentClient paymentClient;
     private final MarketListingRepository listingRepository;
+    private final InvestorEligibility eligibility;
 
     /**
      * Đặt một lệnh giới hạn. Gửi lại cùng {@code Idempotency-Key} trả về lệnh cũ; lệnh mua còn kẹt
      * ở {@code PENDING_FUNDS} (lần trước Payment không phản hồi) thì làm tiếp từ bước giữ tiền.
      */
     public BookOrderResponse placeOrder(Long listingId, String idempotencyKey, PlaceBookOrderRequest request) {
+        eligibility.requireVerifiedInvestor();
         String investorId = SecurityUtils.getCurrentUserId();
         int pricePermille = OrderBookPricing.toPermille(request.pricePercent());
         String requestHash = hashRequest(listingId, request.side(), pricePermille, request.quantity());

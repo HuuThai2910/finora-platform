@@ -16,12 +16,16 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class LoanServicingLifecycleEventHandler {
+    private static final int BAD_DEBT_GROUP = 3;
+
     private final InvestmentLoanServicingStateRepository states;
     private final ProcessedEventRepository processed;
     private final InvestmentNoteRepository notes;
@@ -71,14 +75,18 @@ public class LoanServicingLifecycleEventHandler {
         var state = states.findByApplicationIdForUpdate(data.loanApplicationId()).orElse(null);
         BigDecimal overdue = new BigDecimal(data.overdueAmount());
         BigDecimal outstanding = new BigDecimal(data.totalOutstanding());
+        boolean applied = true;
         if (state == null) {
             states.save(InvestmentLoanServicingState.delinquency(
                     data.loanApplicationId(), data.loanNumber(), data.daysPastDue(),
                     data.debtGroup(), overdue, data.overdueSince(), outstanding,
                     data.dataAsOf(), receivedAt, now));
         } else {
-            state.applyDelinquency(data.daysPastDue(), data.debtGroup(), overdue,
+            applied = state.applyDelinquency(data.daysPastDue(), data.debtGroup(), overdue,
                     data.overdueSince(), outstanding, data.dataAsOf(), receivedAt, now);
+        }
+        if (applied) {
+            syncNoteDefaultStatus(data.loanApplicationId(), data.debtGroup(), now);
         }
         String changeType = data.daysPastDue() == 0 && data.previousDaysPastDue() > 0
                 ? "DELINQUENCY_CURED"
@@ -90,6 +98,21 @@ public class LoanServicingLifecycleEventHandler {
                 push, data.dataAsOf());
         processed.save(ProcessedEvent.create(eventId, "LoanDelinquencyChanged", 1,
                 "finora-loan", data.loanApplicationId().toString(), receivedAt, now));
+    }
+
+    /**
+     * Nhóm nợ 3–5 là nợ xấu (Thông tư 11/2021/TT-NHNN, Điều 10): Note của khoản vay chuyển
+     * DEFAULTED để sổ lệnh bắt người mua xác nhận rủi ro và ghi cờ nợ xấu vào giao dịch. Nhóm nợ
+     * về lại 1–2 thì trả Note về ACTIVE. Event cũ đến muộn đã bị lọc ở {@code applyDelinquency}.
+     */
+    private void syncNoteDefaultStatus(Long loanId, int debtGroup, Instant now) {
+        int changed = debtGroup >= BAD_DEBT_GROUP
+                ? notes.transitionStatusByLoan(loanId, NoteStatus.ACTIVE, NoteStatus.DEFAULTED, now)
+                : notes.transitionStatusByLoan(loanId, NoteStatus.DEFAULTED, NoteStatus.ACTIVE, now);
+        if (changed > 0) {
+            log.info("Đổi trạng thái nợ xấu của Note: loanId={}, debtGroup={}, notes={}",
+                    loanId, debtGroup, changed);
+        }
     }
 
     private void validate(LoanDelinquencyChangedEventData data) {
@@ -108,7 +131,7 @@ public class LoanServicingLifecycleEventHandler {
         var recipients = notes.findByLoanIdAndStatusIn(loanId,
                         java.util.List.of(NoteStatus.ACTIVE, NoteStatus.DEFAULTED)).stream()
                 .map(note -> new InvestorServicingNotificationEventData.Recipient(
-                        note.getId(), note.getNoteNumber(), note.getInvestorId()))
+                        note.getId(), note.getNoteNumber(), note.getInvestorId(), null))
                 .toList();
         if (recipients.isEmpty()) return;
         outbox.record("LOAN", loanId.toString(), "InvestorNoteServicingChanged", 1,

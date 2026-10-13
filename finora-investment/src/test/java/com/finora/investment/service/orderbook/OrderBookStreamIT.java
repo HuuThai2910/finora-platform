@@ -1,5 +1,7 @@
 package com.finora.investment.service.orderbook;
 
+import com.finora.common.security.pin.PinScope;
+import com.finora.common.security.pin.PinTokenService;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -54,6 +56,7 @@ import org.testcontainers.utility.DockerImageName;
         "finora.investment.payment.mode=stub",
         "finora.investment.auto-invest.enabled=false",
         "finora.investment.order-book.settlement.enabled=false",
+        "finora.investment.maintenance.enabled=false",
         "finora.investment.outbox.publisher-delay=3600000"
 })
 @Testcontainers
@@ -76,6 +79,7 @@ class OrderBookStreamIT {
                     .header("alg", "none")
                     .subject(token)
                     .claim("user_id", token)
+                    .claim("ekyc_status", "VERIFIED")
                     .claim("realm_access", Map.of("roles", List.of("INVESTOR")))
                     .issuedAt(Instant.now())
                     .expiresAt(Instant.now().plusSeconds(3600))
@@ -94,6 +98,8 @@ class OrderBookStreamIT {
     private NoteIssuanceService noteIssuanceService;
     @Autowired
     private ObjectMapper objectMapper;
+    @Autowired
+    private PinTokenService pinTokenService;
 
     private final HttpClient http = HttpClient.newHttpClient();
 
@@ -128,12 +134,14 @@ class OrderBookStreamIT {
             HttpResponse<String> placed = http.send(HttpRequest.newBuilder(
                             uri("/api/v1/investments/order-books/" + listingId + "/orders"))
                     .header("Authorization", "Bearer OBS-SELLER")
+                    .header(PinTokenService.HEADER_NAME,
+                            pinTokenService.issue("OBS-SELLER", PinScope.ORDER).token())
                     .header("Idempotency-Key", "stream-ask-1")
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(
                             "{\"side\":\"ASK\",\"pricePercent\":97.0,\"quantity\":2}"))
                     .build(), HttpResponse.BodyHandlers.ofString());
-            assertThat(placed.statusCode()).isEqualTo(201);
+            assertThat(placed.statusCode()).as(placed.body()).isEqualTo(201);
 
             JsonNode pushed = snapshots.poll(10, TimeUnit.SECONDS);
             assertThat(pushed).isNotNull();
@@ -188,6 +196,7 @@ class OrderBookStreamIT {
                 .header("alg", "none")
                 .claim("sub", userId)
                 .claim("user_id", userId)
+                .claim("ekyc_status", "VERIFIED")
                 .build();
         SecurityContextHolder.getContext().setAuthentication(
                 new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority(role)), userId));

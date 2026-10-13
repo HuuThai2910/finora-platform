@@ -60,6 +60,9 @@ finora:
     token-secret: ${FINORA_PIN_TOKEN_SECRET:dev-only-pin-token-secret-change-me-32b}
     token-ttl: ${FINORA_PIN_TOKEN_TTL:PT3M}
   investment:
+    # Chặn đặt lệnh/bật Auto-Invest khi token chưa có claim ekyc_status=VERIFIED. Realm đang chạy
+    # phải có mapper ekyc-status (docker/keycloak/add-ekyc-claim-mapper.sh) rồi đăng nhập lại.
+    require-ekyc: ${INVESTMENT_REQUIRE_EKYC:true}
     payment:
       mode: ${INVESTMENT_PAYMENT_MODE:http}
       base-url: ${PAYMENT_SERVICE_URL:http://localhost:8082/api/v1}
@@ -80,6 +83,13 @@ finora:
         batch-size: ${INVESTMENT_ORDER_BOOK_SETTLEMENT_BATCH_SIZE:50}
         retry-backoff: ${INVESTMENT_ORDER_BOOK_SETTLEMENT_RETRY_BACKOFF:5s}
         maximum-backoff: ${INVESTMENT_ORDER_BOOK_SETTLEMENT_MAXIMUM_BACKOFF:5m}
+    # Đối soát định kỳ: đóng listing hết hạn gọi vốn, làm tiếp/huỷ lệnh kẹt chờ giữ tiền quá
+    # pending-funds-timeout, nhả khoản giữ còn treo, huỷ lệnh trong sổ của khoản vay đã tất toán.
+    maintenance:
+      enabled: ${INVESTMENT_MAINTENANCE_ENABLED:true}
+      delay: ${INVESTMENT_MAINTENANCE_DELAY:30000}
+      batch-size: ${INVESTMENT_MAINTENANCE_BATCH_SIZE:50}
+      pending-funds-timeout: ${INVESTMENT_PENDING_FUNDS_TIMEOUT:2m}
     auto-invest:
       enabled: ${INVESTMENT_AUTO_INVEST_ENABLED:true}
       delay: ${INVESTMENT_AUTO_INVEST_DELAY:5000}
@@ -87,6 +97,7 @@ finora:
     kafka:
       funding-requested-topic: ${LOAN_FUNDING_REQUESTED_TOPIC:finora.loan.funding-requested}
       fully-funded-topic: ${INVESTMENT_FULLY_FUNDED_TOPIC:finora.investment.loan-fully-funded}
+      funding-expired-topic: ${INVESTMENT_FUNDING_EXPIRED_TOPIC:finora.investment.loan-funding-expired}
       investor-signature-requested-topic: ${LOAN_INVESTOR_SIGNATURE_REQUESTED_TOPIC:finora.loan.investor-signature-requested}
       contract-activated-topic: ${LOAN_CONTRACT_ACTIVATED_TOPIC:finora.loan.contract-activated}
       loan-disbursed-topic: ${LOAN_DISBURSED_TOPIC:finora.loan.disbursed}

@@ -155,6 +155,23 @@
             "multivalued": "false",
             "aggregate.attrs": "false"
           }
+        },
+        {
+          "name": "ekyc-status",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "ekyc_status",
+            "claim.name": "ekyc_status",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true",
+            "multivalued": "false",
+            "aggregate.attrs": "false"
+          }
         }
       ],
       "defaultClientScopes": [

@@ -17,6 +17,7 @@ import com.finora.investment.repository.InvestmentCommitmentRepository;
 import com.finora.investment.repository.InvestmentOrderRepository;
 import com.finora.investment.repository.MarketListingRepository;
 import com.finora.investment.messaging.event.LoanFullyFundedEventData;
+import com.finora.investment.service.InvestorEligibility;
 import com.finora.investment.service.OrderTransactionService;
 import com.finora.investment.service.messaging.AllocationSnapshotService;
 import com.finora.investment.service.outbox.InvestmentOutboxService;
@@ -42,6 +43,7 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
     private final InvestmentMapper mapper;
     private final AllocationSnapshotService allocationSnapshotService;
     private final InvestmentOutboxService outboxService;
+    private final InvestorEligibility eligibility;
 
     @Override
     @Transactional
@@ -57,6 +59,7 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
                         "LISTING_NOT_FOUND", "Không tìm thấy khoản vay trên sàn"));
 
         Instant now = Instant.now();
+        eligibility.requireNotBorrower(listing, investorId);
         requirePlaceable(listing, request.amount(), now);
 
         InvestmentOrder order = InvestmentOrder.builder()
@@ -83,6 +86,15 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
         if (order.getStatus() == OrderStatus.COMMITTED) {
             return mapper.toOrderResponse(order);
         }
+        if (order.getStatus() != OrderStatus.PENDING_FUNDS) {
+            // Lệnh đã kết thúc ở đường khác trong lúc chờ Payment. Khoản vừa giữ không thuộc lệnh
+            // nào đang chạy: ghi lại để worker nhả, không cam kết.
+            if (order.getPaymentHoldReference() == null && order.getPaymentReleasedAt() == null) {
+                order.setPaymentHoldReference(holdReference);
+                order.setUpdatedAt(Instant.now());
+            }
+            return mapper.toOrderResponse(order);
+        }
 
         MarketListing listing = listingRepository.findByIdForUpdate(listingId)
                 .orElseThrow(() -> InvestmentDomainException.notFound(
@@ -92,24 +104,19 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
         BigDecimal amount = order.getAmount();
 
         if (listing.getStatus() != ListingStatus.OPEN) {
-            releaseQuietly(order, holdReference);
-            rejectOrder(order, "LISTING_NOT_OPEN", "Khoản vay không còn nhận vốn", now);
-            order.setPaymentReleasedAt(now);
+            rejectAndRelease(order, holdReference, "LISTING_NOT_OPEN", "Khoản vay không còn nhận vốn", now);
             return mapper.toOrderResponse(order);
         }
         if (!listing.getFundingClosesAt().isAfter(now)) {
-            releaseQuietly(order, holdReference);
-            rejectOrder(order, "LISTING_WINDOW_CLOSED", "Đã hết hạn gọi vốn cho khoản vay này", now);
-            order.setPaymentReleasedAt(now);
+            rejectAndRelease(order, holdReference,
+                    "LISTING_WINDOW_CLOSED", "Đã hết hạn gọi vốn cho khoản vay này", now);
             return mapper.toOrderResponse(order);
         }
 
         BigDecimal remaining = listing.getTargetAmount().subtract(listing.getCommittedAmount());
         if (amount.compareTo(remaining) > 0) {
-            releaseQuietly(order, holdReference);
-            rejectOrder(order, "LISTING_INSUFFICIENT_REMAINING",
+            rejectAndRelease(order, holdReference, "LISTING_INSUFFICIENT_REMAINING",
                     "Khoản vay chỉ còn nhận thêm " + remaining.toPlainString() + " đồng", now);
-            order.setPaymentReleasedAt(now);
             log.info("Từ chối lệnh và nhả tiền: orderReference={}, reason=LISTING_INSUFFICIENT_REMAINING",
                     order.getOrderReference());
             return mapper.toOrderResponse(order);
@@ -254,12 +261,39 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
         order.setUpdatedAt(now);
     }
 
-    private void releaseQuietly(InvestmentOrder order, String holdReference) {
+    @Override
+    @Transactional
+    public void markHoldReleased(Long orderId) {
+        orderRepository.findById(orderId)
+                .filter(order -> order.getPaymentReleasedAt() == null)
+                .ifPresent(order -> {
+                    Instant now = Instant.now();
+                    order.setPaymentReleasedAt(now);
+                    order.setUpdatedAt(now);
+                });
+    }
+
+    /**
+     * Từ chối lệnh đã giữ tiền và thử nhả ngay. Ghi {@code paymentHoldReference} để nếu lần nhả này
+     * lỗi thì worker ({@code findReleasePending}) nhả lại — chỉ đánh dấu đã nhả khi Payment xác nhận.
+     */
+    private void rejectAndRelease(
+            InvestmentOrder order, String holdReference, String reasonCode, String reasonDetail, Instant now) {
+        order.setPaymentHoldReference(holdReference);
+        rejectOrder(order, reasonCode, reasonDetail, now);
+        if (releaseQuietly(order, holdReference)) {
+            order.setPaymentReleasedAt(now);
+        }
+    }
+
+    private boolean releaseQuietly(InvestmentOrder order, String holdReference) {
         try {
             paymentClient.release(holdReference, order.getOrderReference());
+            return true;
         } catch (RuntimeException e) {
-            log.warn("Không nhả được tiền giữ, cần đối soát: orderReference={}",
-                    order.getOrderReference());
+            log.warn("Chưa nhả được tiền giữ, worker sẽ thử lại: orderReference={}, exceptionType={}",
+                    order.getOrderReference(), e.getClass().getName());
+            return false;
         }
     }
 
@@ -270,7 +304,10 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
         if (listing.getFundingClosesAt().isBefore(now)) {
             throw InvestmentDomainException.conflict("LISTING_WINDOW_CLOSED", "Đã hết hạn gọi vốn");
         }
-        if (amount.compareTo(listing.getMinInvestmentAmount()) < 0) {
+        BigDecimal remaining = listing.getTargetAmount().subtract(listing.getCommittedAmount());
+        // Phần còn thiếu nhỏ hơn mức tối thiểu thì vẫn cho lấp đúng phần đó; chặn cứng theo mức
+        // tối thiểu sẽ để lại một khoản lẻ không ai mua được và khoản vay chết ở 9x%.
+        if (amount.compareTo(listing.getMinInvestmentAmount()) < 0 && amount.compareTo(remaining) != 0) {
             throw InvestmentDomainException.invalidInput(
                     "ORDER_BELOW_MINIMUM", "Số tiền đầu tư thấp hơn mức tối thiểu");
         }
@@ -278,7 +315,6 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
             throw InvestmentDomainException.invalidInput(
                     "ORDER_NOT_DIVISIBLE", "Số tiền đầu tư phải chia hết cho mệnh giá Note");
         }
-        BigDecimal remaining = listing.getTargetAmount().subtract(listing.getCommittedAmount());
         if (amount.compareTo(remaining) > 0) {
             throw InvestmentDomainException.conflict(
                     "LISTING_INSUFFICIENT_REMAINING",

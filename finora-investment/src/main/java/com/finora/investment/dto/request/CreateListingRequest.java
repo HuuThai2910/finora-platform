@@ -32,4 +32,6 @@ public class CreateListingRequest {
     private BigDecimal annualInterestRate;
     private Integer termMonths;
     private String repaymentMethod;
+    /** ID logic người vay; null với listing tạo từ event cũ. */
+    private String borrowerId;
 }

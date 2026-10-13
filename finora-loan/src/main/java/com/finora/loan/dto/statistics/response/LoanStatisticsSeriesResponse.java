@@ -16,7 +16,8 @@ public record LoanStatisticsSeriesResponse(
         String timezone,
         List<Point> points,
         List<ProductPoint> productPoints,
-        Funnel funnel
+        Funnel funnel,
+        PortfolioHistory portfolioHistory
 ) {
 
     public record Point(
@@ -27,8 +28,33 @@ public record LoanStatisticsSeriesResponse(
             long applicationsApproved,
             long applicationsRejected,
             long loansDisbursed,
-            BigDecimal disbursedAmount
+            BigDecimal disbursedAmount,
+            // Dư nợ cuối cột tính lại từ lịch sử Fineract; null với cột chưa tới hoặc khi không đọc được khoản nào.
+            PortfolioPosition portfolio
     ) {}
+
+    /**
+     * Danh mục tại cuối cột: ngày cuối của cột, hoặc hôm nay với cột đang chạy. Chỉ gồm khoản còn dư nợ gốc
+     * tại ngày đó; nhóm nợ theo số ngày quá hạn của ngày đó.
+     */
+    public record PortfolioPosition(
+            LocalDate asOf,
+            long loans,
+            BigDecimal principalOutstanding,
+            BigDecimal nplPrincipalOutstanding,
+            // Phần trăm, 2 chữ số; null khi dư nợ gốc bằng 0.
+            BigDecimal nplRatioPercent,
+            // Đủ 5 nhóm, nhóm 1 trước.
+            List<DebtGroupPosition> debtGroups
+    ) {}
+
+    public record DebtGroupPosition(int debtGroup, long loans, BigDecimal principalOutstanding) {}
+
+    /**
+     * Nguồn của {@link PortfolioPosition}: số khoản vay đã giải ngân trong kỳ cần đọc lịch sử, và số khoản
+     * không đọc được từ Fineract (bị bỏ khỏi dư nợ theo ngày, nên dư nợ theo ngày có thể thấp hơn số hiện tại).
+     */
+    public record PortfolioHistory(long loans, long unavailableLoans) {}
 
     public record ProductPoint(LocalDate bucketStart, Long productId, long applicationsSubmitted,
             BigDecimal applicationsSubmittedAmount, BigDecimal disbursedAmount) {}

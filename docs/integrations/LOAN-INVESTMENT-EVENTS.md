@@ -65,6 +65,7 @@ eKYC và bảng luật không đi qua Kafka và Investment không chép các s�
 |---|---|---|---|---|
 | `LoanFundingRequested` v1 / `finora.loan.funding-requested` | Loan → Investment | Exact terms đã `AUTO_AUTHORIZED` hoặc borrower `ACCEPTED`; local transaction đã ghi funding request | Investment tạo một `MarketListing` từ snapshot. Nhà đầu tư sau đó GET `/api/v1/market/listings`; event không thay GET | `eventId` trong `processed_events`; unique `loanId + fundingRound` |
 | `LoanFullyFunded` v2 / `finora.investment.loan-fully-funded` | Investment → Loan | Tổng commitment hợp lệ bằng đúng target và allocation đã bị khóa | Loan đối chiếu số tiền/hash/hold, lưu allocation snapshot rồi tạo một Contract/PDF chung | `eventId`; transition listing `OPEN → FULLY_FUNDED` chỉ xảy ra một lần; Loan kiểm `allocationVersion` |
+| `LoanFundingExpired` v1 / `finora.investment.loan-funding-expired` | Investment → Loan | Listing `OPEN` quá `fundingClosesAt` mà chưa đủ vốn; Investment đã huỷ commitment/order cùng transaction và tự nhả hold qua worker | Loan chuyển `fundingStatus REQUESTED → EXPIRED`, ghi `fundingExpiredAt`, không lập Contract | `eventId`; key = `applicationNumber` như `LoanFullyFunded`; Loan kiểm `fundingRound`, đã `FULLY_FUNDED` thì conflict → DLT |
 | `InvestorSignatureRequested` v1 / `finora.loan.investor-signature-requested` | Loan → Investment; Notification là consumer kế tiếp | PDF signable đã lưu bất biến và các lender parties đã được tạo | Investment cập nhật projection để UI biết Contract; Notification báo từng investor khi module đó được nối. App gọi GET Loan để tải đúng PDF/hash rồi ký | Investment dùng `eventId`; Notification sẽ dùng `sourceEventId + recipientId + channel + templateVersion` |
 | `BorrowerSignatureRequested` v1 / `finora.loan.borrower-signature-requested` | Loan → Notification (chưa nối consumer) | Tất cả lender parties đã ký đúng cùng `documentVersion/documentHash` | App hiện đọc lại Contract từ Loan; consumer Notification sẽ báo borrower ở phase nối thông báo | Như event notification ở trên |
 | `LoanContractActivated` v1 / `finora.loan.contract-activated` | Loan → Investment; Blockchain/Notification là consumer kế tiếp | Tất cả lender và borrower đã ký; Contract chuyển `EFFECTIVE` | Investment đánh dấu khoản đầu tư có hiệu lực. Trong cùng transaction kích hoạt, Loan tạo durable Saga/outbox `DisbursementRequested`; event này không được hiểu là đã giải ngân | `eventId`; mỗi consumer có `processed_events`; side effect tài chính có idempotency key riêng |
@@ -102,10 +103,14 @@ Payment. `LoanDisbursed` mới xác nhận toàn bộ happy path bắt buộc (P
   "termMonths": 12,
   "repaymentMethod": "ANNUITY",
   "termsVersion": "LOAN_TERMS_V1",
-  "termsHash": "sha256-hex"
+  "termsHash": "sha256-hex",
+  "borrowerId": "42"
 }
 ```
 
+- `borrowerId` (bổ sung 2026-10-11, tương thích ngược) là ID logic người vay (claim `user_id`), không phải
+  PII; Investment lưu ở `market_listings.borrower_id` chỉ để chặn người vay tự góp vốn/mua Note khoản của
+  mình (`SELF_FUNDING_FORBIDDEN`), không trả ra API sàn. Event cũ thiếu trường này → không kiểm.
 - `loanApplicationId` hiện là khóa tương quan nội bộ giữa hai service trong môi trường demo;
   `applicationNumber` là business/public ID dùng hiển thị, log và partition key.
 - `borrowerRegion` là optional. Investment hiển thị “Không công bố” nếu Loan chưa có public region;

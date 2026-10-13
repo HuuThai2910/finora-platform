@@ -118,6 +118,23 @@ public class StubPaymentClient implements PaymentClient {
         return PaymentTransferResult.ok(settlementReference);
     }
 
+    @Override
+    public synchronized PaymentTransferResult transferBetweenInvestors(
+            String fromInvestorId, String toInvestorId, BigDecimal amount, String transferReference) {
+        if (settlements.containsKey(transferReference)) {
+            return PaymentTransferResult.ok(transferReference);
+        }
+        BigDecimal balance = availableBalances.getOrDefault(fromInvestorId, DEFAULT_BALANCE);
+        if (balance.compareTo(amount) < 0) {
+            return PaymentTransferResult.rejected("PAYMENT_INSUFFICIENT_BALANCE", "Số dư ví không đủ");
+        }
+        availableBalances.put(fromInvestorId, balance.subtract(amount));
+        availableBalances.compute(toInvestorId, (key, current) ->
+                (current == null ? DEFAULT_BALANCE : current).add(amount));
+        settlements.put(transferReference, new Settlement(null, toInvestorId, amount, BigDecimal.ZERO));
+        return PaymentTransferResult.ok(transferReference);
+    }
+
     /** Số dư khả dụng hiện tại, chỉ để đối chiếu khi chạy thử. */
     public BigDecimal availableBalance(String investorId) {
         return availableBalances.getOrDefault(investorId, DEFAULT_BALANCE);

@@ -10,6 +10,7 @@ import com.finora.loan.domain.collection.CollectionStage;
 import com.finora.loan.domain.restructure.LoanRescheduleStatus;
 import com.finora.loan.domain.servicing.DebtGroup;
 import com.finora.loan.domain.servicing.FinoraLoanStatus;
+import com.finora.loan.domain.servicing.LoanServicingHistory;
 import com.finora.loan.domain.servicing.ReconciliationIncidentStatus;
 import com.finora.loan.dto.statistics.response.LoanStatisticsSeriesResponse;
 import com.finora.loan.dto.statistics.response.LoanStatisticsSummaryResponse;
@@ -20,6 +21,7 @@ import com.finora.loan.repository.statistics.LoanStatisticsRepository.BucketProd
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.CollectionCaseRow;
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.DecisionCountRow;
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.FunnelRow;
+import com.finora.loan.repository.statistics.LoanStatisticsRepository.HistoryLoanRow;
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.KeyCountRow;
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.OutstandingByGradeRow;
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.OutstandingByProductDpdRow;
@@ -30,6 +32,7 @@ import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -40,6 +43,7 @@ import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 
 /**
  * Số liệu thống kê danh mục cho vay cho quản trị viên (STATS-001).
@@ -70,6 +74,8 @@ public class AdminLoanStatisticsService {
             .thenComparing(Function.identity());
 
     private final LoanStatisticsRepository statistics;
+    private final PortfolioHistoryReader historyReader;
+    private final TransactionOperations transactions;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -90,26 +96,40 @@ public class AdminLoanStatisticsService {
     }
 
     /**
+     * Không mở transaction quanh cả hàm: phần dư nợ theo ngày gọi Fineract cho từng khoản vay (lần đầu
+     * hoặc khi có giao dịch mới), không giữ kết nối Neon trong lúc chờ core. Các câu SQL vẫn chạy chung
+     * một transaction.
+     *
      * @throws com.finora.common.exception.BusinessException 400 STATISTICS_RANGE_INVALID khi khoảng ngày sai
      */
-    @Transactional(readOnly = true)
     public LoanStatisticsSeriesResponse series(LocalDate from, LocalDate to, StatisticsBucket bucket) {
         SecurityUtils.requireAdmin();
         StatisticsPeriod period = StatisticsPeriod.of(from, to, bucket, clock);
-        List<BucketProductCountRow> submitted = statistics.countSubmittedByBucketAndProduct(period);
-        List<DecisionCountRow> decisions = statistics.countDecisionsByBucket(period);
-        List<BucketProductDisbursementRow> disbursed = statistics.sumDisbursedByBucketAndProduct(period);
-        FunnelRow funnel = statistics.countFunnel(period);
+        SeriesRows rows = transactions.execute(status -> new SeriesRows(
+                statistics.countSubmittedByBucketAndProduct(period),
+                statistics.countDecisionsByBucket(period),
+                statistics.sumDisbursedByBucketAndProduct(period),
+                statistics.countFunnel(period),
+                statistics.findLoansDisbursedBefore(period.endExclusive())));
+        Map<Long, LoanServicingHistory> histories = historyReader.read(rows.historyLoans());
+        long unavailable = rows.historyLoans().size() - histories.size();
+        // Có khoản vay mà không đọc được khoản nào thì không có số để vẽ, khác với "chưa có khoản vay" (= 0).
+        Map<LocalDate, LoanStatisticsSeriesResponse.PortfolioPosition> positions =
+                !rows.historyLoans().isEmpty() && histories.isEmpty()
+                        ? Map.of()
+                        : portfolioPositions(period, LocalDate.now(clock.withZone(period.zone())), histories.values());
+        FunnelRow funnel = rows.funnel();
         return new LoanStatisticsSeriesResponse(
                 period.from(),
                 period.to(),
                 period.bucket(),
                 period.zone().getId(),
-                points(period, submitted, decisions, disbursed),
-                productPoints(submitted, disbursed),
+                points(period, rows.submitted(), rows.decisions(), rows.disbursed(), positions),
+                productPoints(rows.submitted(), rows.disbursed()),
                 new LoanStatisticsSeriesResponse.Funnel(funnel.submitted(), funnel.scored(), funnel.approved(),
                         funnel.termsAccepted(), funnel.fundingRequested(), funnel.fullyFunded(),
-                        funnel.disbursed()));
+                        funnel.disbursed()),
+                new LoanStatisticsSeriesResponse.PortfolioHistory(rows.historyLoans().size(), unavailable));
     }
 
     // ---------- Summary ----------
@@ -230,7 +250,8 @@ public class AdminLoanStatisticsService {
             StatisticsPeriod period,
             List<BucketProductCountRow> submitted,
             List<DecisionCountRow> decisions,
-            List<BucketProductDisbursementRow> disbursed) {
+            List<BucketProductDisbursementRow> disbursed,
+            Map<LocalDate, LoanStatisticsSeriesResponse.PortfolioPosition> positions) {
         Map<LocalDate, PointTotals> byBucket = new HashMap<>();
         for (BucketProductCountRow row : submitted) {
             PointTotals totals = byBucket.computeIfAbsent(row.bucketStart(), key -> new PointTotals());
@@ -250,9 +271,47 @@ public class AdminLoanStatisticsService {
         Map<LocalDate, LoanStatisticsSeriesResponse.Point> points = new HashMap<>();
         byBucket.forEach((start, totals) -> points.put(start, new LoanStatisticsSeriesResponse.Point(start,
                 totals.submitted, money(totals.submittedAmount), totals.approved, totals.rejected,
-                totals.loansDisbursed, money(totals.disbursedAmount))));
-        return period.dense(points,
-                start -> new LoanStatisticsSeriesResponse.Point(start, 0, ZERO_MONEY, 0, 0, 0, ZERO_MONEY));
+                totals.loansDisbursed, money(totals.disbursedAmount), positions.get(start))));
+        return period.dense(points, start -> new LoanStatisticsSeriesResponse.Point(
+                start, 0, ZERO_MONEY, 0, 0, 0, ZERO_MONEY, positions.get(start)));
+    }
+
+    /**
+     * Dư nợ tại cuối mỗi cột: ngày cuối của cột, cột đang chạy thì lấy hôm nay, cột chưa tới thì bỏ.
+     * Nhóm nợ và nợ xấu dùng chung {@link DebtGroup} với số hiện tại để hai nơi không lệch công thức.
+     */
+    static Map<LocalDate, LoanStatisticsSeriesResponse.PortfolioPosition> portfolioPositions(
+            StatisticsPeriod period, LocalDate today, Collection<LoanServicingHistory> histories) {
+        Map<LocalDate, LoanStatisticsSeriesResponse.PortfolioPosition> positions = new HashMap<>();
+        for (LocalDate start : period.bucketStarts()) {
+            if (start.isAfter(today)) continue;
+            LocalDate end = period.bucket().next(start).minusDays(1);
+            positions.put(start, portfolioAt(end.isAfter(today) ? today : end, histories));
+        }
+        return positions;
+    }
+
+    private static LoanStatisticsSeriesResponse.PortfolioPosition portfolioAt(
+            LocalDate asOf, Collection<LoanServicingHistory> histories) {
+        Map<Integer, Totals> byGroup = new TreeMap<>();
+        for (int group = DebtGroup.FIRST; group <= DebtGroup.LAST; group++) {
+            byGroup.put(group, new Totals());
+        }
+        Totals all = new Totals();
+        for (LoanServicingHistory history : histories) {
+            LoanServicingHistory.Position position = history.positionAt(asOf);
+            if (position == null || position.principalOutstanding().signum() <= 0) continue;
+            int group = DebtGroup.fromDaysPastDue(position.daysPastDue());
+            boolean npl = DebtGroup.isNonPerforming(group);
+            all.add(1, position.principalOutstanding(), BigDecimal.ZERO, npl);
+            byGroup.get(group).add(1, position.principalOutstanding(), BigDecimal.ZERO, npl);
+        }
+        return new LoanStatisticsSeriesResponse.PortfolioPosition(asOf, all.loans, money(all.principal),
+                money(all.nplPrincipal), nplRatioPercent(all.nplPrincipal, all.principal),
+                byGroup.entrySet().stream()
+                        .map(entry -> new LoanStatisticsSeriesResponse.DebtGroupPosition(entry.getKey(),
+                                entry.getValue().loans, money(entry.getValue().principal)))
+                        .toList());
     }
 
     /** Thưa: chỉ cặp (cột, sản phẩm) có hồ sơ nộp hoặc có tiền giải ngân, sắp theo thời gian rồi productId. */
@@ -352,4 +411,7 @@ public class AdminLoanStatisticsService {
     }
 
     private record BucketProduct(LocalDate bucketStart, long productId) {}
+
+    private record SeriesRows(List<BucketProductCountRow> submitted, List<DecisionCountRow> decisions,
+            List<BucketProductDisbursementRow> disbursed, FunnelRow funnel, List<HistoryLoanRow> historyLoans) {}
 }

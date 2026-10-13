@@ -15,6 +15,7 @@ import com.finora.investment.repository.InvestmentNoteRepository;
 import com.finora.investment.repository.MarketListingRepository;
 import com.finora.investment.repository.NoteLockRepository;
 import com.finora.investment.repository.OrderBookRepository;
+import com.finora.investment.service.InvestorEligibility;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -45,6 +46,7 @@ public class OrderBookTransactionService {
     private final NoteLockRepository lockRepository;
     private final MarketListingRepository listingRepository;
     private final MatchingEngine matchingEngine;
+    private final InvestorEligibility eligibility;
     private final ApplicationEventPublisher events;
     private final EntityManager entityManager;
     private final Clock clock;
@@ -69,7 +71,10 @@ public class OrderBookTransactionService {
      */
     @Transactional
     public BookOrder createPendingBid(OrderCommand command) {
-        ensureBook(command.listingId());
+        MarketListing listing = ensureBook(command.listingId());
+        // Người vay mua Note khoản vay của chính mình cũng là tự cấp vốn. Lệnh bán không cần chặn:
+        // người vay không thể có Note của khoản mình.
+        eligibility.requireNotBorrower(listing, command.investorId());
         OrderBook book = bookRepository.findByListingId(command.listingId()).orElseThrow();
         requireDefaultAcknowledged(command);
 
@@ -237,15 +242,68 @@ public class OrderBookTransactionService {
     }
 
     /**
+     * Đối soát lệnh mua kẹt ở {@code PENDING_FUNDS}: lời gọi giữ tiền đối soát đã trả
+     * {@code holdReference}, giờ từ chối lệnh và để worker nhả khoản giữ đó.
+     *
+     * <p>Khóa sổ rồi đọc lại lệnh: nếu người đặt vừa gửi lại cùng khóa và lệnh đã vào sổ thì khoản
+     * giữ là của lệnh đang chạy, không được đụng tới.</p>
+     *
+     * @return {@code true} nếu lệnh vừa bị từ chối ở đây
+     */
+    @Transactional
+    public boolean expirePendingBid(Long orderId, String holdReference) {
+        BookOrder order = orderRepository.findById(orderId).orElseThrow();
+        lockBook(order.getListingId());
+        entityManager.refresh(order);
+        if (order.getStatus() != BookOrderStatus.PENDING_FUNDS) {
+            return false;
+        }
+        order.expireUnfunded(holdReference, clock.instant());
+        log.warn("Từ chối lệnh mua kẹt chờ giữ tiền: orderReference={}", order.getOrderReference());
+        return true;
+    }
+
+    /**
+     * Huỷ mọi lệnh còn nằm trong sổ của một đợt gọi vốn không còn Note giao dịch được. Lệnh mua bị
+     * huỷ được worker nhả tiền giữ; lệnh bán thì mở khóa Note ngay.
+     *
+     * @return số lệnh vừa huỷ
+     */
+    @Transactional
+    public int closeBook(Long listingId) {
+        OrderBook book = lockBook(listingId);
+        // Đọc lại dưới khóa sổ: giữa lúc quét và lúc khóa có thể đã có Note mới đổi trạng thái.
+        if (noteRepository.findMaxTradableOutstanding(listingId) != null) {
+            return 0;
+        }
+        Instant now = clock.instant();
+        List<BookOrder> resting = orderRepository.findResting(book.getId());
+        for (BookOrder order : resting) {
+            order.cancel(CancelReason.BOOK_CLOSED, "SYSTEM", now);
+            if (order.getSide() == OrderSide.ASK) {
+                lockRepository.deleteByAskOrderId(order.getId());
+            }
+        }
+        if (!resting.isEmpty()) {
+            book.nextSequence(now);
+            publishChanged(book);
+            log.info("Đóng sổ lệnh vì khoản vay không còn Note: listingId={}, cancelledOrders={}",
+                    listingId, resting.size());
+        }
+        return resting.size();
+    }
+
+    /**
      * Tạo sổ nếu chưa có. Cố ý không nạp entity sổ ở đây: nếu nạp trước rồi mới khóa, Hibernate trả
      * lại bản đã nạp (có thể cũ) thay vì bản đọc dưới khóa, và bộ đếm {@code last_sequence} bị ghi
      * đè bằng giá trị cũ.
      */
-    private void ensureBook(Long listingId) {
+    private MarketListing ensureBook(Long listingId) {
         MarketListing listing = listingRepository.findById(listingId)
                 .orElseThrow(() -> InvestmentDomainException.notFound(
                         "LISTING_NOT_FOUND", "Không tìm thấy khoản vay"));
         bookRepository.insertIfAbsent(listingId, listing.getLoanId(), clock.instant());
+        return listing;
     }
 
     private OrderBook lockBook(Long listingId) {

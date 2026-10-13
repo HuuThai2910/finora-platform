@@ -64,7 +64,8 @@ public class LoanFundingRequestService {
                         application.getRequestedTermMonths(),
                         application.getRepaymentMethodSnapshot().name(),
                         application.getTermsVersion(),
-                        application.getTermsHash()
+                        application.getTermsHash(),
+                        application.getBorrowerId()
                 )
         );
     }

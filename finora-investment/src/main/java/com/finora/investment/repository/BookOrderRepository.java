@@ -97,7 +97,7 @@ public interface BookOrderRepository extends JpaRepository<BookOrder, Long> {
      */
     @Query("""
             SELECT o FROM BookOrder o
-            WHERE o.side = 'BID' AND o.status IN ('FILLED', 'CANCELLED')
+            WHERE o.side = 'BID' AND o.status IN ('FILLED', 'CANCELLED', 'REJECTED')
               AND o.holdReference IS NOT NULL AND o.holdReleasedAt IS NULL
               AND NOT EXISTS (
                   SELECT 1 FROM BookTrade t
@@ -105,6 +105,38 @@ public interface BookOrderRepository extends JpaRepository<BookOrder, Long> {
             ORDER BY o.id ASC
             """)
     List<BookOrder> findReleasePending(Pageable pageable);
+
+    /**
+     * Lệnh mua còn kẹt ở {@code PENDING_FUNDS} từ trước {@code before}: lần giữ tiền đầu tiên không
+     * có kết quả chắc chắn và người đặt chưa gửi lại cùng khóa.
+     */
+    @Query("""
+            SELECT o FROM BookOrder o
+            WHERE o.side = 'BID' AND o.status = 'PENDING_FUNDS' AND o.updatedAt < :before
+            ORDER BY o.id ASC
+            """)
+    List<BookOrder> findStalePendingBids(@Param("before") java.time.Instant before, Pageable pageable);
+
+    /** Lệnh còn nằm trong một sổ, cũ trước — để huỷ hàng loạt khi sổ đóng. */
+    @Query("""
+            SELECT o FROM BookOrder o
+            WHERE o.orderBookId = :bookId AND o.status IN ('OPEN', 'PARTIALLY_FILLED')
+            ORDER BY o.id ASC
+            """)
+    List<BookOrder> findResting(@Param("bookId") Long bookId);
+
+    /**
+     * Đợt gọi vốn còn lệnh nằm trong sổ nhưng không còn Note nào giao dịch được (khoản vay đã tất
+     * toán): lệnh ở đó không bao giờ khớp được nữa mà lệnh mua vẫn giữ tiền.
+     */
+    @Query("""
+            SELECT DISTINCT o.listingId FROM BookOrder o
+            WHERE o.status IN ('OPEN', 'PARTIALLY_FILLED')
+              AND NOT EXISTS (
+                  SELECT 1 FROM InvestmentNote n
+                  WHERE n.listingId = o.listingId AND n.status IN ('ACTIVE', 'DEFAULTED'))
+            """)
+    List<Long> findListingsWithRestingOrdersButNoTradableNotes(Pageable pageable);
 
     boolean existsByOrderBookIdAndSideAndStatusIn(
             Long orderBookId, OrderSide side, Collection<BookOrderStatus> statuses);

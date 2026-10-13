@@ -80,7 +80,8 @@ public class LoanApplicationMapper {
                 application.getFundingRequestedAt(),
                 application.getInvestmentListingId(),
                 application.getFundedAmount(),
-                application.getFundingCompletedAt()
+                application.getFundingCompletedAt(),
+                application.getFundingExpiredAt()
         );
     }
 

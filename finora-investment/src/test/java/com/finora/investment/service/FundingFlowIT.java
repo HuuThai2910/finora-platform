@@ -15,7 +15,12 @@ import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.messaging.event.InvestorSignatureRequestedEventData;
 import com.finora.investment.messaging.event.LoanContractActivatedEventData;
 import com.finora.investment.messaging.event.LoanDisbursedEventData;
+import com.finora.common.enums.investment.OrderStatus;
+import com.finora.investment.client.PaymentClient;
+import com.finora.investment.client.impl.StubPaymentClient;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
+import com.finora.investment.repository.InvestmentOrderRepository;
+import com.finora.investment.service.impl.FundingMaintenanceService;
 import com.finora.investment.repository.InvestmentNoteRepository;
 import com.finora.investment.repository.InvestmentOutboxEventRepository;
 import com.finora.investment.repository.MarketListingRepository;
@@ -59,6 +64,7 @@ import org.testcontainers.utility.DockerImageName;
         "finora.investment.payment.mode=stub",
         "finora.investment.auto-invest.enabled=false",
         "finora.investment.order-book.settlement.enabled=false",
+        "finora.investment.maintenance.enabled=false",
         "finora.investment.outbox.publisher-delay=3600000"
 })
 @Testcontainers
@@ -99,6 +105,21 @@ class FundingFlowIT {
     @Autowired
     private LoanDisbursedEventHandler loanDisbursedEventHandler;
 
+    @Autowired
+    private InvestmentOrderRepository orderRepository;
+
+    @Autowired
+    private OrderTransactionService orderTransactions;
+
+    @Autowired
+    private FundingMaintenanceService fundingMaintenance;
+
+    @Autowired
+    private PaymentClient paymentClient;
+
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     private static final AtomicInteger LOAN_SEQUENCE = new AtomicInteger(1000);
 
     /**
@@ -119,6 +140,7 @@ class FundingFlowIT {
                 .header("alg", "none")
                 .claim("sub", userId)
                 .claim("user_id", userId)
+                .claim("ekyc_status", "VERIFIED")
                 .build();
         SecurityContextHolder.getContext().setAuthentication(
                 new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority(role)), userId));
@@ -456,5 +478,103 @@ class FundingFlowIT {
 
         assertThat(listingRepository.findById(listing.listingId()).orElseThrow()
                 .getCommittedAmount()).isEqualByComparingTo("0.00");
+    }
+    @Test
+    @DisplayName("Phần còn thiếu nhỏ hơn mức tối thiểu vẫn lấp được đúng phần đó, không lấp lẻ hơn")
+    void fillsRemainderBelowMinimum() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        // Mệnh giá chốt lúc tạo listing (updatable=false): ghi thẳng cột để dựng mệnh giá < mức tối thiểu.
+        jdbcTemplate.update("UPDATE market_listings SET note_denomination = 100000.00 WHERE id = ?",
+                created.listingId());
+
+        actAs("INVESTOR-REM-A");
+        fundingService.placeOrder(created.listingId(), "key-rem-a", new PlaceOrderRequest(new BigDecimal("9500000.00")));
+
+        actAs("INVESTOR-REM-B");
+        assertThatThrownBy(() -> fundingService.placeOrder(created.listingId(), "key-rem-b1",
+                new PlaceOrderRequest(new BigDecimal("400000.00"))))
+                .isInstanceOf(InvestmentDomainException.class)
+                .extracting("code").isEqualTo("ORDER_BELOW_MINIMUM");
+        OrderResponse last = fundingService.placeOrder(created.listingId(), "key-rem-b2",
+                new PlaceOrderRequest(new BigDecimal("500000.00")));
+
+        assertThat(last.status()).isEqualTo("COMMITTED");
+        assertThat(listingRepository.findById(created.listingId()).orElseThrow().getStatus())
+                .isEqualTo(ListingStatus.FULLY_FUNDED);
+    }
+
+    @Test
+    @DisplayName("Hết hạn gọi vốn: huỷ phần vốn, báo Loan, worker nhả tiền giữ về ví")
+    void expiredListingCancelsCommitmentsAndReleasesHolds() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        actAs("INVESTOR-EXP");
+        BigDecimal before = stubPayment().availableBalance("INVESTOR-EXP");
+        OrderResponse order = fundingService.placeOrder(created.listingId(), "key-exp",
+                new PlaceOrderRequest(new BigDecimal("3000000.00")));
+        assertThat(stubPayment().availableBalance("INVESTOR-EXP")).isEqualByComparingTo(before.subtract(new BigDecimal("3000000")));
+
+        jdbcTemplate.update("UPDATE market_listings SET funding_closes_at = now() - interval '1 minute' WHERE id = ?",
+                created.listingId());
+        SecurityContextHolder.clearContext();
+
+        assertThat(listingService.closeExpiredListings(100)).isGreaterThanOrEqualTo(1);
+
+        var closed = listingRepository.findById(created.listingId()).orElseThrow();
+        assertThat(closed.getStatus()).isEqualTo(ListingStatus.CLOSED);
+        assertThat(closed.getCommittedAmount()).isEqualByComparingTo("0.00");
+        assertThat(commitmentRepository.findByListingIdAndStatus(created.listingId(), CommitmentStatus.CANCELLED))
+                .hasSize(1);
+        var cancelled = orderRepository.findByOrderReference(order.orderReference()).orElseThrow();
+        assertThat(cancelled.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(cancelled.getPaymentReleasedAt()).isNull();
+        assertThat(outboxRepository.findAll()).anySatisfy(event -> {
+            assertThat(event.getEventType()).isEqualTo("LoanFundingExpired");
+            assertThat(event.getAggregateId()).isEqualTo(closed.getApplicationNumber());
+            assertThat(event.getPayloadJson()).contains("FUNDING_WINDOW_EXPIRED").contains("3000000.00");
+        });
+
+        assertThat(fundingMaintenance.releasePendingHolds(100)).isGreaterThanOrEqualTo(1);
+        assertThat(orderRepository.findByOrderReference(order.orderReference()).orElseThrow()
+                .getPaymentReleasedAt()).isNotNull();
+        assertThat(stubPayment().availableBalance("INVESTOR-EXP")).isEqualByComparingTo(before);
+        // Quét lại không nhả lần hai.
+        assertThat(orderRepository.findReleasePending(org.springframework.data.domain.PageRequest.of(0, 100)))
+                .noneMatch(item -> item.getOrderReference().equals(order.orderReference()));
+    }
+
+    @Test
+    @DisplayName("Lệnh kẹt chờ giữ tiền quá hạn được worker làm tiếp tới cam kết")
+    void stalePendingOrderIsResumed() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        var pending = orderTransactions.createPendingOrder(created.listingId(), "INVESTOR-STALE",
+                "key-stale", "hash-stale", new PlaceOrderRequest(new BigDecimal("2000000.00")));
+        pending.setUpdatedAt(Instant.now().minusSeconds(600));
+        orderRepository.save(pending);
+
+        assertThat(fundingMaintenance.resumeStalePendingOrders(100)).isGreaterThanOrEqualTo(1);
+
+        assertThat(orderRepository.findById(pending.getId()).orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.COMMITTED);
+        assertThat(listingRepository.findById(created.listingId()).orElseThrow().getCommittedAmount())
+                .isEqualByComparingTo("2000000.00");
+    }
+
+    @Test
+    @DisplayName("Người vay không đặt vốn được vào khoản vay của chính mình")
+    void borrowerCannotFundOwnLoan() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        // borrower_id là updatable=false nên ghi thẳng cột để dựng dữ liệu kiểm thử.
+        jdbcTemplate.update("UPDATE market_listings SET borrower_id = ? WHERE id = ?",
+                "BORROWER-SELF", created.listingId());
+
+        actAs("BORROWER-SELF");
+        assertThatThrownBy(() -> fundingService.placeOrder(created.listingId(), "key-self",
+                new PlaceOrderRequest(new BigDecimal("1000000.00"))))
+                .isInstanceOf(InvestmentDomainException.class)
+                .extracting("code").isEqualTo("SELF_FUNDING_FORBIDDEN");
+    }
+
+    private StubPaymentClient stubPayment() {
+        return (StubPaymentClient) paymentClient;
     }
 }

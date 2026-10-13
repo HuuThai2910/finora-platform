@@ -70,6 +70,11 @@ public class MatchingEngine {
             OrderMatcher.MatchPlan plan = OrderMatcher.plan(incoming, crossing);
             boolean progressed = false;
             for (OrderMatcher.Fill fill : plan.fills()) {
+                // Lệnh mới có thể bị huỷ giữa lượt (lệnh bán mất Note, lệnh mua chưa xác nhận nợ
+                // xấu): các phần khớp còn lại của kế hoạch không còn hiệu lực.
+                if (!incoming.getStatus().isResting()) {
+                    break;
+                }
                 BookTrade trade = execute(book, incoming, fill.resting(), fill.quantity(), now);
                 if (trade != null) {
                     trades.add(trade);
@@ -114,6 +119,15 @@ public class MatchingEngine {
             // không còn gì để giao. Huỷ nó thay vì để người mua trả tiền mà không nhận được Note.
             cancelRemainder(ask, CancelReason.NOTE_UNAVAILABLE, now);
             log.warn("Huỷ lệnh bán vì Note không còn giao được: orderReference={}", ask.getOrderReference());
+            return null;
+        }
+        if (!Boolean.TRUE.equals(bid.getAcknowledgedDefault())
+                && notes.stream().anyMatch(note -> note.getStatus() == NoteStatus.DEFAULTED)) {
+            // Khoản vay chuyển nợ xấu sau khi lệnh mua vào sổ: người mua chưa từng đọc cảnh báo nên
+            // không được khớp vào Note nợ xấu (INV-E1 mục 8.2). Huỷ lệnh mua, tiền giữ được nhả bởi
+            // worker như mọi lệnh mua đã kết thúc.
+            cancelRemainder(bid, CancelReason.DEFAULT_NOT_ACKNOWLEDGED, now);
+            log.info("Huỷ lệnh mua chưa xác nhận nợ xấu: orderReference={}", bid.getOrderReference());
             return null;
         }
 

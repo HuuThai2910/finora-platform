@@ -7,6 +7,7 @@ import com.finora.loan.domain.application.TermsConfirmationStatus;
 import com.finora.loan.domain.scoring.CreditAssessmentStatus;
 import com.finora.loan.domain.servicing.FinoraLoanStatus;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -229,6 +230,28 @@ public class LoanStatisticsRepository {
                 rs.getLong("fully_funded"), rs.getLong("disbursed")));
     }
 
+    /**
+     * Khoản vay đã giải ngân trước cuối kỳ (kể cả đã tất toán, vì trong kỳ có thể còn dư nợ), để tính lại
+     * dư nợ theo ngày từ lịch sử Fineract. Kèm các số của projection làm dấu vân tay: số tiền đã trả, trạng
+     * thái hay ngày đáo hạn đổi nghĩa là lịch sử trên core đã đổi và bản đọc cũ phải bỏ.
+     */
+    public List<HistoryLoanRow> findLoansDisbursedBefore(Instant endExclusive) {
+        return jdbc.query("""
+                SELECT l.id, l.fineract_loan_id, l.contract_number,
+                       p.principal_paid, p.interest_paid, p.fineract_status_code, p.maturity_date
+                FROM finora_loans l
+                LEFT JOIN loan_servicing_projections p ON p.finora_loan_id = l.id
+                WHERE l.disbursed_at < :end
+                ORDER BY l.id
+                """, new MapSqlParameterSource("end", endExclusive.atOffset(ZoneOffset.UTC)),
+                (rs, i) -> new HistoryLoanRow(rs.getLong("id"), rs.getLong("fineract_loan_id"),
+                        rs.getString("contract_number"), String.join("|",
+                                String.valueOf(rs.getBigDecimal("principal_paid")),
+                                String.valueOf(rs.getBigDecimal("interest_paid")),
+                                String.valueOf(rs.getString("fineract_status_code")),
+                                String.valueOf(rs.getObject("maturity_date", LocalDate.class)))));
+    }
+
     private List<KeyCountRow> keyCounts(String sql) {
         return jdbc.query(sql, new MapSqlParameterSource(),
                 (rs, i) -> new KeyCountRow(rs.getString("value_key"), rs.getLong("total")));
@@ -274,6 +297,9 @@ public class LoanStatisticsRepository {
 
     public record BucketProductDisbursementRow(LocalDate bucketStart, long productId, long loans,
             BigDecimal amount) {}
+
+    /** @param fingerprint đổi khi projection thấy giao dịch, trạng thái hoặc lịch trả mới trên core */
+    public record HistoryLoanRow(long loanId, long fineractLoanId, String contractNumber, String fingerprint) {}
 
     public record FunnelRow(long submitted, long scored, long approved, long termsAccepted,
             long fundingRequested, long fullyFunded, long disbursed) {}

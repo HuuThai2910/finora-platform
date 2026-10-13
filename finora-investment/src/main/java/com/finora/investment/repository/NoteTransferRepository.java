@@ -10,4 +10,7 @@ public interface NoteTransferRepository extends JpaRepository<NoteTransfer, Long
     List<NoteTransfer> findByNoteIdOrderByTransferredAtDesc(Long noteId);
 
     List<NoteTransfer> findByTradeIdOrderByNoteIdAsc(Long tradeId);
+
+    /** Người này từng bán Note này — điều kiện để coi một lần trả nợ cho họ là trả nhầm chủ cũ. */
+    boolean existsByNoteIdAndSellerId(Long noteId, String sellerId);
 }

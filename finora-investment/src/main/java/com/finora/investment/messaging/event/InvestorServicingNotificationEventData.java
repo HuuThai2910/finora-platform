@@ -20,5 +20,10 @@ public record InvestorServicingNotificationEventData(
         Instant changedAt,
         List<Recipient> recipients
 ) {
-    public record Recipient(Long noteId, String noteNumber, String investorId) {}
+    /**
+     * @param amount phần tiền (gốc + lãi) Note này vừa nhận; chỉ có ở REPAYMENT_CREDITED và
+     *               EARLY_SETTLEMENT, các loại khác để null. Notification cộng theo nhà đầu tư để
+     *               mỗi người thấy đúng phần của mình thay vì tổng của cả khoản vay.
+     */
+    public record Recipient(Long noteId, String noteNumber, String investorId, String amount) {}
 }

@@ -201,6 +201,35 @@ class AutoInvestMatcherTest {
     }
 
     @Test
+    @DisplayName("Phần còn thiếu nhỏ hơn mức tối thiểu vẫn được lấp đúng phần đó")
+    void fillsRemainderBelowMinimum() {
+        listing.setNoteDenomination(new BigDecimal("100000.00"));
+        listing.setCommittedAmount(new BigDecimal("9500000.00"));
+        candidates(config("INV-A", "2000000"));
+        when(fundingService.placeOrderFor(eq("INV-A"), anyLong(), anyString(), any()))
+                .thenReturn(committed("IO-A", "500000.00"));
+
+        assertThat(matcher.processListing(LISTING_ID)).isTrue();
+
+        ArgumentCaptor<PlaceOrderRequest> request = ArgumentCaptor.forClass(PlaceOrderRequest.class);
+        verify(fundingService).placeOrderFor(eq("INV-A"), eq(LISTING_ID), eq("AUTO-7"), request.capture());
+        assertThat(request.getValue().amount()).isEqualByComparingTo("500000");
+    }
+
+    @Test
+    @DisplayName("Mức cấu hình nhỏ hơn mức tối thiểu và không lấp hết phần còn lại: bỏ qua người đó")
+    void configBelowMinimumIsSkipped() {
+        listing.setNoteDenomination(new BigDecimal("100000.00"));
+        candidates(config("INV-A", "500000"));
+
+        matcher.processListing(LISTING_ID);
+
+        verify(fundingService, never()).placeOrderFor(anyString(), anyLong(), anyString(), any());
+        assertThat(recorded).singleElement()
+                .extracting(AutoInvestMatch::getReason).isEqualTo(AutoInvestMatcher.BELOW_MINIMUM);
+    }
+
+    @Test
     @DisplayName("Hạng không nằm trong tiêu chí thì bỏ qua, không ghi nhật ký")
     void gradeOutsideCriteriaIsIgnored() {
         listing.setCreditGrade("C");

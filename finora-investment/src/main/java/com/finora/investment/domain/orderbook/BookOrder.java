@@ -191,6 +191,20 @@ public class BookOrder {
         updatedAt = now;
     }
 
+    /**
+     * Lệnh mua kẹt ở {@code PENDING_FUNDS} quá lâu (Payment không trả lời lần giữ tiền đầu tiên):
+     * từ chối thay vì cho vào sổ muộn ở mức giá người đặt có thể không còn muốn. Lời gọi giữ tiền
+     * đối soát có thể đã tạo khoản giữ, nên ghi lại {@code holdReference} để worker nhả.
+     */
+    public void expireUnfunded(String holdReference, Instant now) {
+        requireStatus(BookOrderStatus.PENDING_FUNDS, "từ chối");
+        this.holdReference = holdReference;
+        this.status = BookOrderStatus.REJECTED;
+        this.rejectReasonCode = "PAYMENT_TIMEOUT";
+        this.rejectReasonDetail = "Ví không xác nhận giữ tiền kịp thời; lệnh đã huỷ và tiền giữ được trả lại ví";
+        this.updatedAt = now;
+    }
+
     public void markHoldReleased(Instant now) {
         holdReleasedAt = now;
         updatedAt = now;
@@ -199,7 +213,8 @@ public class BookOrder {
     /** Lệnh mua đã kết thúc mà phần tiền giữ còn lại chưa nhả về ví. */
     public boolean needsHoldRelease() {
         return side == OrderSide.BID
-                && (status == BookOrderStatus.FILLED || status == BookOrderStatus.CANCELLED)
+                && (status == BookOrderStatus.FILLED || status == BookOrderStatus.CANCELLED
+                        || status == BookOrderStatus.REJECTED)
                 && holdReference != null
                 && holdReleasedAt == null;
     }

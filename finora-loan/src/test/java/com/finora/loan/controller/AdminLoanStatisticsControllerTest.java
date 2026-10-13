@@ -14,13 +14,17 @@ import com.finora.loan.repository.statistics.LoanStatisticsRepository.BucketProd
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.BucketProductDisbursementRow;
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.FunnelRow;
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.OutstandingByProductDpdRow;
+import com.finora.loan.domain.servicing.LoanServicingHistory;
+import com.finora.loan.repository.statistics.LoanStatisticsRepository.HistoryLoanRow;
 import com.finora.loan.service.statistics.AdminLoanStatisticsService;
+import com.finora.loan.service.statistics.PortfolioHistoryReader;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +39,7 @@ import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.transaction.support.TransactionOperations;
 
 /**
  * Kiểm tra hợp đồng HTTP mà web đang dựng song song: tên field, mã lỗi 400 và 403.
@@ -48,12 +53,16 @@ class AdminLoanStatisticsControllerTest {
     @Mock
     private LoanStatisticsRepository repository;
 
+    @Mock
+    private PortfolioHistoryReader historyReader;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         AdminLoanStatisticsService service =
-                new AdminLoanStatisticsService(repository, Clock.fixed(NOW, ZoneOffset.UTC));
+                new AdminLoanStatisticsService(repository, historyReader, TransactionOperations.withoutTransaction(),
+                        Clock.fixed(NOW, ZoneOffset.UTC));
         // Giống cấu hình Jackson mặc định của Spring Boot: ngày giờ dạng ISO-8601, không phải mảng số.
         MappingJackson2HttpMessageConverter json = new MappingJackson2HttpMessageConverter(
                 Jackson2ObjectMapperBuilder.json()
@@ -133,6 +142,12 @@ class AdminLoanStatisticsControllerTest {
         when(repository.sumDisbursedByBucketAndProduct(any())).thenReturn(List.of(new BucketProductDisbursementRow(
                 LocalDate.of(2026, 10, 3), 3L, 1, new BigDecimal("85000000.00"))));
         when(repository.countFunnel(any())).thenReturn(new FunnelRow(60, 58, 31, 25, 22, 15, 12));
+        List<HistoryLoanRow> loans = List.of(new HistoryLoanRow(8L, 1016L, "LC-8", "a"),
+                new HistoryLoanRow(9L, 3L, "LC-9", "b"));
+        when(repository.findLoansDisbursedBefore(any())).thenReturn(loans);
+        when(historyReader.read(loans)).thenReturn(Map.of(8L, new LoanServicingHistory("LC-8",
+                List.of(new LoanServicingHistory.PrincipalMovement(LocalDate.of(2026, 6, 1), new BigDecimal("1000"))),
+                List.of(new LoanServicingHistory.Installment(LocalDate.of(2026, 6, 4), null)))));
 
         mockMvc.perform(get("/api/v1/admin/loan-statistics/series")
                         .queryParam("from", "2026-10-03")
@@ -170,7 +185,17 @@ class AdminLoanStatisticsControllerTest {
                 .andExpect(jsonPath("$.funnel.termsAccepted").value(25))
                 .andExpect(jsonPath("$.funnel.fundingRequested").value(22))
                 .andExpect(jsonPath("$.funnel.fullyFunded").value(15))
-                .andExpect(jsonPath("$.funnel.disbursed").value(12));
+                .andExpect(jsonPath("$.funnel.disbursed").value(12))
+                .andExpect(jsonPath("$.points[1].portfolio.asOf").value("2026-10-04"))
+                .andExpect(jsonPath("$.points[1].portfolio.loans").value(1))
+                .andExpect(jsonPath("$.points[1].portfolio.principalOutstanding").value(1000.00))
+                .andExpect(jsonPath("$.points[1].portfolio.nplPrincipalOutstanding").value(1000.00))
+                .andExpect(jsonPath("$.points[1].portfolio.nplRatioPercent").value(100.00))
+                .andExpect(jsonPath("$.points[1].portfolio.debtGroups.length()").value(5))
+                .andExpect(jsonPath("$.points[1].portfolio.debtGroups[2].debtGroup").value(3))
+                .andExpect(jsonPath("$.points[1].portfolio.debtGroups[2].loans").value(1))
+                .andExpect(jsonPath("$.portfolioHistory.loans").value(2))
+                .andExpect(jsonPath("$.portfolioHistory.unavailableLoans").value(1));
     }
 
     @ParameterizedTest

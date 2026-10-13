@@ -33,6 +33,20 @@ public interface InvestmentNoteRepository extends JpaRepository<InvestmentNote, 
     boolean existsByListingIdAndStatus(Long listingId, NoteStatus status);
 
     /**
+     * Đổi trạng thái mọi Note còn dư nợ của một khoản vay giữa ACTIVE và DEFAULTED khi nhóm nợ đổi.
+     * Note đã CLOSED không bị chạm. Tăng {@code version} để transaction đang giữ bản cũ của Note
+     * (ví dụ đang khớp lệnh) vấp khóa lạc quan thay vì ghi đè trạng thái vừa đổi.
+     */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            UPDATE InvestmentNote n
+            SET n.status = :to, n.version = n.version + 1, n.updatedBy = 'SYSTEM-DELINQUENCY', n.updatedAt = :now
+            WHERE n.loanId = :loanId AND n.status = :from
+            """)
+    int transitionStatusByLoan(@Param("loanId") Long loanId, @Param("from") NoteStatus from,
+            @Param("to") NoteStatus to, @Param("now") java.time.Instant now);
+
+    /**
      * Note của người bán trong một đợt gọi vốn còn bán được: chưa tất toán và chưa nằm trong lệnh
      * bán nào. Note cũ trước để thứ tự chọn ổn định, dễ đối soát.
      */

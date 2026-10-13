@@ -7,6 +7,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.finora.investment.domain.note.InvestmentLoanServicingState;
+import com.finora.common.enums.investment.NoteStatus;
+import com.finora.investment.messaging.event.LoanDelinquencyChangedEventData;
 import com.finora.investment.messaging.event.LoanRescheduledEventData;
 import com.finora.investment.messaging.event.LoanSettledEventData;
 import com.finora.investment.repository.InvestmentLoanServicingStateRepository;
@@ -60,6 +62,44 @@ class LoanServicingLifecycleEventHandlerTest {
         assertThat(state.getValue().getMaturityDate()).isEqualTo(LocalDate.of(2027, 7, 4));
         assertThat(state.getValue().getLastRescheduleRequestId()).isEqualTo(requestId);
         verify(processed).save(any());
+    }
+
+    @Test
+    void nhomNoXauChuyenNoteSangDefaulted() {
+        when(states.findByApplicationIdForUpdate(10L)).thenReturn(Optional.empty());
+
+        handler.delinquencyChanged(UUID.randomUUID(), NOW, delinquency(95, 2, 3, NOW));
+
+        verify(notes).transitionStatusByLoan(10L, NoteStatus.ACTIVE, NoteStatus.DEFAULTED, NOW);
+    }
+
+    @Test
+    void nhomNoVeLaiNhom2TraNoteVeActive() {
+        var state = InvestmentLoanServicingState.delinquency(10L, "LN-10", 95, 3,
+                new java.math.BigDecimal("100.00"), null, new java.math.BigDecimal("1000.00"),
+                NOW.minusSeconds(3600), NOW.minusSeconds(3600), NOW.minusSeconds(3600));
+        when(states.findByApplicationIdForUpdate(10L)).thenReturn(Optional.of(state));
+
+        handler.delinquencyChanged(UUID.randomUUID(), NOW, delinquency(0, 3, 1, NOW));
+
+        verify(notes).transitionStatusByLoan(10L, NoteStatus.DEFAULTED, NoteStatus.ACTIVE, NOW);
+    }
+
+    @Test
+    void suKienQuaHanDenMuonKhongDoiTrangThaiNote() {
+        var state = InvestmentLoanServicingState.delinquency(10L, "LN-10", 0, 1,
+                java.math.BigDecimal.ZERO, null, new java.math.BigDecimal("1000.00"),
+                NOW, NOW, NOW);
+        when(states.findByApplicationIdForUpdate(10L)).thenReturn(Optional.of(state));
+
+        handler.delinquencyChanged(UUID.randomUUID(), NOW, delinquency(95, 2, 3, NOW.minusSeconds(60)));
+
+        verify(notes, never()).transitionStatusByLoan(any(), any(), any(), any());
+    }
+
+    private LoanDelinquencyChangedEventData delinquency(int dpd, int previousGroup, int group, Instant asOf) {
+        return new LoanDelinquencyChangedEventData(10L, "LN-10", "BORROWER-10", 20L, 0, dpd,
+                previousGroup, group, dpd == 0 ? "0.00" : "100.00", null, "1000.00", asOf);
     }
 
     @Test

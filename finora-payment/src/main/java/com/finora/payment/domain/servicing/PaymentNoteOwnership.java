@@ -33,16 +33,23 @@ public class PaymentNoteOwnership {
         value.noteNumber = noteNumber;
         value.loanApplicationId = loanApplicationId;
         value.listingId = listingId;
+        // Dư nợ chỉ lấy từ event lúc tạo bản ghi; về sau Payment tự giảm qua repayPrincipal.
+        value.outstandingPrincipal = outstandingPrincipal.setScale(2);
         value.apply(investorId, outstandingPrincipal, currency, changedAt, sourceReference, now);
         value.createdAt = now;
         return value;
     }
 
+    /**
+     * Đổi chủ Note theo {@code NoteOwnershipChanged}. Không ghi đè dư nợ: dư nợ trong event là ảnh
+     * lúc khớp lệnh, còn Payment tự giảm dư nợ mỗi lần phân phối repayment ({@code repayPrincipal}).
+     * Event đổi chủ đến sau một lần phân phối mà ghi đè sẽ dựng lại dư nợ cũ (cao hơn thật) và các
+     * kỳ sau chia gốc vượt dư nợ.
+     */
     public void apply(String investorId, BigDecimal outstandingPrincipal, String currency,
             Instant changedAt, String sourceReference, Instant now) {
         if (ownershipChangedAt != null && changedAt.isBefore(ownershipChangedAt)) return;
         this.investorId = investorId;
-        this.outstandingPrincipal = outstandingPrincipal.setScale(2);
         this.currency = currency;
         this.ownershipChangedAt = changedAt;
         this.sourceReference = sourceReference;

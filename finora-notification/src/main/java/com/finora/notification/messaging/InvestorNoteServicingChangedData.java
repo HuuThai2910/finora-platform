@@ -8,5 +8,6 @@ public record InvestorNoteServicingChangedData(String changeType, Long loanAppli
         String loanNumber, int daysPastDue, int debtGroup, String amount,
         LocalDate maturityDate, boolean externalPushRequired, Instant changedAt,
         List<Recipient> recipients) {
-    public record Recipient(Long noteId, String noteNumber, String investorId) {}
+    /** {@code amount} là phần tiền của riêng Note này; event cũ không có trường này thì null. */
+    public record Recipient(Long noteId, String noteNumber, String investorId, String amount) {}
 }

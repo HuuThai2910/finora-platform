@@ -26,9 +26,9 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  *
  * <p>Phân quyền theo ba nhóm. Đọc thị trường mở cho khách chưa đăng nhập vì đó là
  * thông tin niêm yết công khai, không chứa dữ liệu cá nhân người vay (F03 bước 4).
- * {@code /investments/admin/**} yêu cầu vai trò ADMIN ngay tại tầng URL. Phần còn lại
- * — đặt lệnh, huỷ lệnh, xem danh mục — chỉ cần đăng nhập, vì quyền trên từng lệnh do
- * domain tự kiểm tra khi so chủ sở hữu.</p>
+ * {@code /investments/admin/**} yêu cầu vai trò ADMIN ngay tại tầng URL. Đặt/huỷ lệnh,
+ * Auto-Invest và danh mục cá nhân yêu cầu vai trò INVESTOR; quyền trên từng lệnh vẫn do
+ * domain kiểm khi so chủ sở hữu, còn eKYC và chặn tự cấp vốn ở {@code InvestorEligibility}.</p>
  */
 @Configuration
 @EnableWebSecurity
@@ -57,6 +57,17 @@ public class SecurityConfig {
                         // Swagger để đối chiếu hợp đồng API khi phát triển.
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/v1/investments/admin/**").hasRole("ADMIN")
+                        // Thao tác bỏ tiền và dữ liệu danh mục cá nhân chỉ dành cho nhà đầu tư.
+                        // Đọc sàn/sổ lệnh vẫn chỉ cần đăng nhập: web quản trị và người vay cũng xem.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/investments/listings/*/orders",
+                                "/api/v1/investments/orders/*/cancel",
+                                "/api/v1/investments/order-books/*/orders").hasRole("INVESTOR")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/investments/order-books/orders/*")
+                                .hasRole("INVESTOR")
+                        .requestMatchers("/api/v1/investments/auto-invest", "/api/v1/investments/auto-invest/**",
+                                "/api/v1/investments/portfolio", "/api/v1/investments/commitments",
+                                "/api/v1/investments/order-books/orders/mine",
+                                "/api/v1/investments/order-books/*/me").hasRole("INVESTOR")
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2

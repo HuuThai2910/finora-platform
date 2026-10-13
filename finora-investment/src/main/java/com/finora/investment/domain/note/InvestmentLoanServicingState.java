@@ -87,11 +87,15 @@ public class InvestmentLoanServicingState {
         return value;
     }
 
-    public void applyDelinquency(int newDaysPastDue, int newDebtGroup,
+    /**
+     * @return {@code false} khi bỏ qua vì khoản vay đã tất toán hoặc dữ liệu cũ hơn bản đang có —
+     *         người gọi dựa vào đó để không đổi trạng thái Note theo một event đến muộn
+     */
+    public boolean applyDelinquency(int newDaysPastDue, int newDebtGroup,
             BigDecimal newOverdueAmount, LocalDate newOverdueSince,
             BigDecimal newTotalOutstanding, Instant dataAsOf, Instant occurredAt, Instant now) {
-        if (settledAt != null) return;
-        if (riskDataAsOf != null && dataAsOf.isBefore(riskDataAsOf)) return;
+        if (settledAt != null) return false;
+        if (riskDataAsOf != null && dataAsOf.isBefore(riskDataAsOf)) return false;
         daysPastDue = newDaysPastDue;
         debtGroup = newDebtGroup;
         overdueAmount = newOverdueAmount.setScale(2);
@@ -100,6 +104,7 @@ public class InvestmentLoanServicingState {
         riskDataAsOf = dataAsOf;
         riskChangedAt = occurredAt;
         updatedAt = now;
+        return true;
     }
 
     private void initializeRisk() {

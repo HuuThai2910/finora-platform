@@ -26,6 +26,13 @@ public interface KeycloakAdminService {
      */
     void setUserIdAttribute(String keycloakUserId, Long userId);
 
+    /**
+     * Ghi trạng thái eKYC vào attribute {@code ekyc_status}; protocol mapper {@code ekyc-status}
+     * phát thành claim cùng tên để Investment chặn đặt lệnh khi chưa xác minh mà không phải gọi
+     * ngược finora-user. Token đang dùng chỉ có claim mới sau lần refresh/đăng nhập kế tiếp.
+     */
+    void setEkycStatusAttribute(String keycloakUserId, String ekycStatus);
+
     void resetPassword(String keycloakUserId, String newPassword);
 
     void disableUser(String keycloakUserId);

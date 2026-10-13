@@ -40,6 +40,7 @@ phần Investment trước merge:
 |---|---|---|---|
 | `finora.loan.funding-requested` | Loan | `investment-loan-funding` | Tạo market listing từ exact terms đã được borrower cho phép |
 | `finora.investment.loan-fully-funded` | Investment | `loan-investment-funding` | Trả allocation bất biến để Loan lập hợp đồng nhiều bên |
+| `finora.investment.loan-funding-expired` | Investment | `loan-investment-funding` | Đợt gọi vốn hết hạn chưa đủ vốn; Loan đặt `fundingStatus = EXPIRED`, không lập Contract |
 | `finora.loan.investor-signature-requested` | Loan | `investment-loan-funding` | Gắn Contract/PDF chung vào listing; Notification consumer bổ sung sau |
 | `finora.loan.borrower-signature-requested` | Loan | Chưa đăng ký | Báo tất cả lender đã ký; Notification consumer bổ sung sau |
 | `finora.loan.contract-activated` | Loan | `investment-loan-funding` | Investment cập nhật Contract có hiệu lực; Payment/Blockchain bổ sung sau |

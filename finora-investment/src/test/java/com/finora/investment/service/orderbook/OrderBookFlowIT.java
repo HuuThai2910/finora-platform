@@ -7,7 +7,11 @@ import com.finora.common.enums.investment.NoteStatus;
 import com.finora.investment.client.PaymentClient;
 import com.finora.investment.client.impl.StubPaymentClient;
 import com.finora.investment.domain.note.InvestmentNote;
+import com.finora.investment.domain.orderbook.BookOrderStatus;
 import com.finora.investment.domain.orderbook.BookTrade;
+import com.finora.investment.domain.orderbook.CancelReason;
+import com.finora.investment.messaging.event.LoanDelinquencyChangedEventData;
+import com.finora.investment.service.messaging.LoanServicingLifecycleEventHandler;
 import com.finora.investment.domain.orderbook.OrderSide;
 import com.finora.investment.domain.orderbook.SettlementStatus;
 import com.finora.investment.dto.request.CreateListingRequest;
@@ -65,6 +69,7 @@ import org.testcontainers.utility.DockerImageName;
         "finora.investment.payment.mode=stub",
         "finora.investment.auto-invest.enabled=false",
         "finora.investment.order-book.settlement.enabled=false",
+        "finora.investment.maintenance.enabled=false",
         "finora.investment.outbox.publisher-delay=3600000"
 })
 @Testcontainers
@@ -104,6 +109,14 @@ class OrderBookFlowIT {
     private PaymentClient paymentClient;
     @Autowired
     private OrderBookAdminService adminService;
+    @Autowired
+    private OrderBookTransactionService bookTransactions;
+    @Autowired
+    private OrderBookMaintenanceService maintenanceService;
+    @Autowired
+    private LoanServicingLifecycleEventHandler servicingHandler;
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     @AfterEach
     void clearSecurityContext() {
@@ -115,6 +128,7 @@ class OrderBookFlowIT {
                 .header("alg", "none")
                 .claim("sub", userId)
                 .claim("user_id", userId)
+                .claim("ekyc_status", "VERIFIED")
                 .build();
         SecurityContextHolder.getContext().setAuthentication(
                 new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority(role)), userId));
@@ -443,5 +457,80 @@ class OrderBookFlowIT {
             result.put((String) pairs[i], (Integer) pairs[i + 1]);
         }
         return result;
+    }
+    @Test
+    @DisplayName("Khoản vay chuyển nợ xấu: lệnh mua chưa xác nhận cảnh báo bị huỷ thay vì khớp vào Note nợ xấu")
+    void unacknowledgedBidIsCancelledWhenLoanDefaults() {
+        Long listingId = issuedListing(map("OBD-SELLER", 3, "OBD-OTHER", 1));
+        BookOrderResponse bid = place("OBD-BUYER", listingId, OrderSide.BID, "90.0", 2);
+        Long loanId = noteRepository.findAll().stream()
+                .filter(note -> note.getListingId().equals(listingId)).findFirst().orElseThrow().getLoanId();
+
+        servicingHandler.delinquencyChanged(UUID.randomUUID(), java.time.Instant.now(),
+                new LoanDelinquencyChangedEventData(loanId, "LN-" + loanId, "BORROWER", 1L, 30, 95, 2, 3,
+                        "100.00", null, "4000000.00", java.time.Instant.now()));
+        assertThat(noteRepository.existsByListingIdAndStatus(listingId, NoteStatus.DEFAULTED)).isTrue();
+
+        actAs("OBD-SELLER");
+        BookOrderResponse ask = commandService.placeOrder(listingId, UUID.randomUUID().toString(),
+                new PlaceBookOrderRequest(OrderSide.ASK, new BigDecimal("85.0"), 2, true));
+
+        var cancelledBid = orderRepository.findByOrderReference(bid.orderReference()).orElseThrow();
+        assertThat(cancelledBid.getStatus()).isEqualTo(BookOrderStatus.CANCELLED);
+        assertThat(cancelledBid.getCancelReason()).isEqualTo(CancelReason.DEFAULT_NOT_ACKNOWLEDGED);
+        assertThat(ask.status()).isEqualTo("OPEN");
+        assertThat(tradeRepository.findAll()).noneMatch(trade -> trade.getListingId().equals(listingId));
+    }
+
+    @Test
+    @DisplayName("Lệnh mua kẹt chờ giữ tiền quá hạn bị từ chối, khoản giữ đối soát được nhả về ví")
+    void staleUnfundedBidIsRejectedAndHoldReleased() {
+        Long listingId = issuedListing(map("OBP-SELLER", 2));
+        BigDecimal before = wallet().availableBalance("OBP-BUYER");
+        var pending = bookTransactions.createPendingBid(new OrderBookTransactionService.OrderCommand(
+                listingId, "OBP-BUYER", OrderSide.BID, 990, 1, false, "stale-bid", "hash-stale-bid"));
+        jdbcTemplate.update("UPDATE order_book_orders SET updated_at = now() - interval '10 minutes' WHERE id = ?",
+                pending.getId());
+
+        assertThat(maintenanceService.expireStalePendingBids(100)).isGreaterThanOrEqualTo(1);
+
+        var rejected = orderRepository.findById(pending.getId()).orElseThrow();
+        assertThat(rejected.getStatus()).isEqualTo(BookOrderStatus.REJECTED);
+        assertThat(rejected.getRejectReasonCode()).isEqualTo("PAYMENT_TIMEOUT");
+        assertThat(rejected.getHoldReference()).isNotNull();
+
+        settlementService.releaseFinished(100);
+        assertThat(orderRepository.findById(pending.getId()).orElseThrow().getHoldReleasedAt()).isNotNull();
+        assertThat(wallet().availableBalance("OBP-BUYER")).isEqualByComparingTo(before);
+    }
+
+    @Test
+    @DisplayName("Khoản vay tất toán hết Note: lệnh còn nằm trong sổ bị huỷ, tiền giữ của lệnh mua được nhả")
+    void finishedBookCancelsRestingOrders() {
+        Long listingId = issuedListing(map("OBC-SELLER", 2));
+        BigDecimal before = wallet().availableBalance("OBC-BUYER");
+        BookOrderResponse bid = place("OBC-BUYER", listingId, OrderSide.BID, "90.0", 1);
+        BookOrderResponse ask = place("OBC-SELLER", listingId, OrderSide.ASK, "99.0", 1);
+
+        jdbcTemplate.update("""
+                UPDATE investment_notes SET status = 'CLOSED', principal_repaid = principal_amount,
+                    outstanding_principal = 0, closed_at = now() WHERE listing_id = ?""", listingId);
+
+        assertThat(maintenanceService.closeFinishedBooks(100)).isGreaterThanOrEqualTo(2);
+
+        assertThat(List.of(bid.orderReference(), ask.orderReference())).allSatisfy(reference -> {
+            var order = orderRepository.findByOrderReference(reference).orElseThrow();
+            assertThat(order.getStatus()).isEqualTo(BookOrderStatus.CANCELLED);
+            assertThat(order.getCancelReason()).isEqualTo(CancelReason.BOOK_CLOSED);
+        });
+        assertThat(jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM order_book_note_locks l JOIN investment_notes n ON n.id = l.note_id
+                WHERE n.listing_id = ?""", Long.class, listingId)).isZero();
+
+        settlementService.releaseFinished(100);
+        assertThat(wallet().availableBalance("OBC-BUYER")).isEqualByComparingTo(before);
+        // Quét lại không còn sổ nào để đóng.
+        assertThat(orderRepository.findListingsWithRestingOrdersButNoTradableNotes(PageRequest.of(0, 100)))
+                .doesNotContain(listingId);
     }
 }

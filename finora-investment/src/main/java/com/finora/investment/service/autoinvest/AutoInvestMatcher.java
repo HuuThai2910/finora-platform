@@ -126,12 +126,13 @@ public class AutoInvestMatcher {
             }
             BigDecimal remaining = listing.getTargetAmount().subtract(listing.getCommittedAmount());
             amount = AutoInvestConfig.orderAmount(config.getAmountPerLoan(), remaining, listing.getNoteDenomination());
-            if (amount.compareTo(listing.getMinInvestmentAmount()) < 0) {
-                if (remaining.compareTo(config.getAmountPerLoan()) < 0) {
-                    // Vốn còn lại không đủ một lệnh tối thiểu: không ai sau cũng khớp được.
-                    record(AutoInvestMatch.skipped(investorId, listingId, LISTING_FULL, null, clock.instant()));
-                    return Step.STOP_AND_MARK;
-                }
+            // Lệnh lấp đúng phần còn thiếu được nhận dù dưới mức tối thiểu (requirePlaceable), nên
+            // chỉ bỏ qua khi mức cấu hình của nhà đầu tư tự nó nhỏ hơn mức tối thiểu.
+            if (amount.signum() <= 0) {
+                record(AutoInvestMatch.skipped(investorId, listingId, LISTING_FULL, null, clock.instant()));
+                return Step.STOP_AND_MARK;
+            }
+            if (amount.compareTo(listing.getMinInvestmentAmount()) < 0 && amount.compareTo(remaining) != 0) {
                 record(AutoInvestMatch.skipped(investorId, listingId, BELOW_MINIMUM, null, clock.instant()));
                 return Step.CONTINUE;
             }
@@ -185,8 +186,7 @@ public class AutoInvestMatcher {
         Instant now = clock.instant();
         return listing.getStatus() == ListingStatus.OPEN
                 && listing.getFundingClosesAt().isAfter(now)
-                && listing.getTargetAmount().subtract(listing.getCommittedAmount())
-                        .compareTo(listing.getMinInvestmentAmount()) >= 0;
+                && listing.getTargetAmount().subtract(listing.getCommittedAmount()).signum() > 0;
     }
 
     private boolean markProcessed(Long listingId) {

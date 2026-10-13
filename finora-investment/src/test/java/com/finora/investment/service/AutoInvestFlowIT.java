@@ -39,6 +39,7 @@ import org.testcontainers.utility.DockerImageName;
         "finora.investment.payment.mode=stub",
         "finora.investment.auto-invest.enabled=false",
         "finora.investment.order-book.settlement.enabled=false",
+        "finora.investment.maintenance.enabled=false",
         "finora.investment.outbox.publisher-delay=3600000"
 })
 @Testcontainers
@@ -77,6 +78,7 @@ class AutoInvestFlowIT {
                 .header("alg", "none")
                 .claim("sub", userId)
                 .claim("user_id", userId)
+                .claim("ekyc_status", "VERIFIED")
                 .build();
         SecurityContextHolder.getContext().setAuthentication(
                 new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority(role)), userId));

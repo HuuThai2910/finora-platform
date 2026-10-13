@@ -118,6 +118,18 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 
 **Failure/compensation:** Payment từ chối → order `REJECTED`; lỗi tạo commitment sau hold → Investment yêu cầu Payment release bằng reference hold; release được retry idempotently. Concurrent order MUST NOT làm overfund hoặc âm ví.
 
+**Hết hạn gọi vốn:** listing `OPEN` quá `fundingClosesAt` → Investment (cùng transaction, khóa listing) chuyển
+`CLOSED`, huỷ commitment/order còn `ACTIVE`, trừ tiến độ và ghi outbox `LoanFundingExpired.v1`
+(`finora.investment.loan-funding-expired`); Loan chuyển `fundingStatus = EXPIRED`, không lập Contract. Hold
+không nhả trong transaction đó mà để worker gọi `release` tới khi Payment xác nhận.
+
+**CURRENT STATE (2026-10-11):** `InvestmentMaintenanceWorker` (30s) đóng listing hết hạn, làm tiếp order kẹt
+`PENDING_FUNDS` quá `pending-funds-timeout` (gọi lại `hold` cùng `orderReference` rồi chốt commitment), nhả
+hold của order đã kết thúc có `payment_released_at IS NULL`. Lệnh lấp đúng phần còn thiếu được nhận dù dưới
+mức tối thiểu. Đặt lệnh yêu cầu vai trò INVESTOR, claim `ekyc_status=VERIFIED` (mapper `ekyc-status` của
+`finora-user-client`, finora-user ghi attribute khi eKYC và mỗi lần đăng nhập) và người đặt khác `borrowerId`
+mà `LoanFundingRequested.v1` mang theo (trường bổ sung).
+
 **CURRENT STATE (2026-09-28):** Payment đã có API wallet/top-up/hold/release/transfer, immutable balanced ledger và capture đúng từng `paymentHoldReference`. Investment mặc định gọi Payment qua HTTP và truyền hold reference trong `LoanFullyFunded.v2`; stub chỉ còn dùng trong test. Nạp tiền hỗ trợ provider `mock` và adapter ZaloPay sandbox có HMAC callback; disbursement hiện dùng provider `mock`, còn ZaloPay disbursement fail-closed vì chưa có quyền API chuyển tiền.
 
 ## F04b — Sổ lệnh chợ thứ cấp Notes
@@ -139,8 +151,11 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 `tradeReference` cho thanh toán.
 
 **Failure:** hold từ chối → order `REJECTED`; hold không chắc chắn → giữ `PENDING_FUNDS`, client gửi lại cùng
-khóa. Thanh toán lỗi tạm thời → trade `PENDING`, retry backoff; Payment từ chối hẳn → `FAILED` và đối soát
-tay, không đảo chủ Note.
+khóa; quá `pending-funds-timeout` mà chưa gửi lại thì worker gọi lại `hold` (idempotent) để lấy reference rồi
+chuyển `REJECTED/PAYMENT_TIMEOUT` và nhả. Thanh toán lỗi tạm thời → trade `PENDING`, retry backoff; Payment
+từ chối hẳn → `FAILED` và đối soát tay, không đảo chủ Note. Khoản vay chuyển nợ xấu (nhóm 3–5) → Note
+`DEFAULTED`; lệnh mua chưa xác nhận cảnh báo bị huỷ `DEFAULT_NOT_ACKNOWLEDGED` khi chạm Note nợ xấu. Mọi
+Note đã `CLOSED` → worker huỷ lệnh còn trong sổ (`BOOK_CLOSED`) và nhả tiền giữ.
 
 **CURRENT STATE (2026-10-02):** cả hai phía đã triển khai. Payment có
 `POST /transactions/holds/{holdReference}/settlements` (service account `payment:hold:on_behalf`) và `release`
@@ -188,6 +203,13 @@ Phần Payment do Hải viết theo yêu cầu, owner Payment (Thái) cần revi
 reference `FINORA-REPAY-<repaymentId>` là unique.
 
 **Failure:** thiếu tiền → kết quả partial/rejected theo policy, không giả completed; lỗi projection sau ledger commit → event retry/rebuild, không chạy lại collection.
+
+**Chủ Note đổi giữa chừng:** Payment phân bổ theo projection ownership (cập nhật bất đồng bộ qua
+`NoteOwnershipChanged`, chỉ đổi chủ — dư nợ chỉ lấy từ event lúc tạo, sau đó Payment tự giảm). Investment
+nhận `RepaymentDistributed` mà người được trả không còn là chủ Note nhưng đã từng bán Note đó → ghi
+`note_repayment_redirects` cùng transaction; worker gọi Payment `POST /transactions/transfers` bằng service
+account (`REPAY-REDIRECT:<repaymentId>:<noteId>`, idempotent) chuyển từ chủ cũ sang chủ hiện tại; ví chủ cũ
+thiếu tiền thì giữ `PENDING` và thử lại. Người được trả chưa từng sở hữu Note → conflict, event vào DLT.
 
 **CURRENT STATE (2026-10-04):** scheduled/overdue/partial/early-settlement repayment, core breakdown,
 investor distribution và Loan/Investment projection đã có. Payment có admin reconciliation; integration

@@ -51,6 +51,7 @@ public class EkycVerificationService {
     private final EkycDraftStore draftStore;
     private final CryptoProperties cryptoProperties;
     private final CicMappingTaskRepository cicMappingTaskRepository;
+    private final KeycloakAdminService keycloakAdminService;
     private final Clock clock;
 
     // ── Bước quét: OCR ra bản nháp ─────────────────────────────────
@@ -163,6 +164,7 @@ public class EkycVerificationService {
                 .orElseGet(() -> cicMappingTaskRepository.save(
                         CicMappingTask.pending(profile.getId(), clock.instant())));
         removeDraftAfterCommit(keycloakUserId);
+        publishEkycClaimAfterCommit(keycloakUserId, profile.getEkycStatus());
 
         log.info("Người dùng xác nhận bản nháp — eKYC hoàn tất: userId={}", profile.getId());
 
@@ -257,6 +259,32 @@ public class EkycVerificationService {
     }
 
     /** Không xóa bản nháp trước khi transaction DB đã commit thành công. */
+    /**
+     * Ghi claim {@code ekyc_status} lên Keycloak sau khi DB commit — trước commit thì rollback sẽ để
+     * lại claim VERIFIED cho một hồ sơ chưa xác minh. Lỗi Keycloak không làm hỏng eKYC đã lưu: lần
+     * đăng nhập sau {@code AuthServiceImpl} ghi bù.
+     */
+    private void publishEkycClaimAfterCommit(UUID keycloakUserId, EkycStatus status) {
+        Runnable publish = () -> {
+            try {
+                keycloakAdminService.setEkycStatusAttribute(keycloakUserId.toString(), status.name());
+            } catch (RuntimeException e) {
+                log.warn("Chưa ghi được ekyc_status lên Keycloak, sẽ ghi bù khi đăng nhập lại: keycloakUserId={}",
+                        keycloakUserId);
+            }
+        };
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            publish.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                publish.run();
+            }
+        });
+    }
+
     private void removeDraftAfterCommit(UUID keycloakUserId) {
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             draftStore.remove(keycloakUserId);

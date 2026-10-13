@@ -1,5 +1,7 @@
 package com.finora.loan;
 
+import com.finora.common.security.pin.PinScope;
+import com.finora.common.security.pin.PinTokenService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.loan.config.AiCreditProperties;
@@ -96,6 +98,7 @@ class FinoraLoanApplicationIT {
     @Autowired CreditScoringOrchestrator scoringOrchestrator;
     @Autowired LoanTermsConfirmationExpiryStateService termsExpiryStateService;
     @Autowired LoanFullyFundedHandler fullyFundedHandler;
+    @Autowired PinTokenService pinTokenService;
     @Autowired HashingService hashingService;
     @Autowired AiCreditProperties aiCreditProperties;
     @Autowired CircuitBreakerFactory<?, ?> circuitBreakerFactory;
@@ -449,6 +452,8 @@ class FinoraLoanApplicationIT {
 
         JsonNode signedInvestorContract = objectMapper.readTree(mockMvc.perform(
                         post("/api/v1/investor/loan-contracts/{number}/sign", contractNumber)
+                        .header(PinTokenService.HEADER_NAME,
+                                pinTokenService.issue("INVESTOR-001", PinScope.SIGN_CONTRACT).token())
                         .header("Idempotency-Key", "investor-sign-" + UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(signJson))
@@ -489,6 +494,8 @@ class FinoraLoanApplicationIT {
                 borrowerContract.path("documentHash").asText(),
                 borrowerContract.path("pdfDocument").path("contentHash").asText());
         mockMvc.perform(post("/api/v1/loan-contracts/{number}/sign", contractNumber)
+                        .header(PinTokenService.HEADER_NAME,
+                                pinTokenService.issue("BORROWER-001", PinScope.SIGN_CONTRACT).token())
                         .header("Idempotency-Key", "borrower-sign-" + UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(borrowerSignJson))

@@ -11,6 +11,7 @@ import com.finora.investment.repository.AutoInvestConfigRepository;
 import com.finora.investment.repository.AutoInvestMatchRepository;
 import com.finora.investment.repository.MarketListingRepository;
 import com.finora.investment.service.AutoInvestService;
+import com.finora.investment.service.InvestorEligibility;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.util.List;
@@ -31,6 +32,7 @@ public class AutoInvestServiceImpl implements AutoInvestService {
     private final AutoInvestConfigRepository configRepository;
     private final AutoInvestMatchRepository matchRepository;
     private final MarketListingRepository listingRepository;
+    private final InvestorEligibility eligibility;
     private final Clock clock;
 
     @Override
@@ -44,6 +46,11 @@ public class AutoInvestServiceImpl implements AutoInvestService {
     @Override
     @Transactional
     public AutoInvestConfigResponse saveMyConfig(UpdateAutoInvestRequest request) {
+        // Bật Auto-Invest là uỷ quyền đặt lệnh thay mình: kiểm eKYC tại đây vì worker đặt lệnh
+        // không có JWT người dùng để kiểm lại.
+        if (Boolean.TRUE.equals(request.enabled())) {
+            eligibility.requireVerifiedInvestor();
+        }
         String investorId = SecurityUtils.getCurrentUserId();
         var now = clock.instant();
         AutoInvestConfig config = configRepository.findByInvestorId(investorId)

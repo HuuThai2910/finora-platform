@@ -27,4 +27,10 @@ public interface FundingService {
 
     /** Hủy lệnh đã cam kết và nhả tiền về ví. */
     OrderResponse cancelOrder(String orderReference);
+
+    /**
+     * Làm tiếp một lệnh kẹt ở {@code PENDING_FUNDS} (đối soát). Payment idempotent theo mã lệnh nên
+     * gọi lại giữ tiền không giữ hai lần; bước chốt tự kiểm lại listing và nhả tiền nếu không còn nhận.
+     */
+    OrderResponse resumePendingOrder(Long orderId);
 }

@@ -11,7 +11,11 @@ import static org.mockito.Mockito.when;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.statistics.StatisticsBucket;
 import com.finora.common.statistics.StatisticsPeriod;
+import com.finora.loan.domain.servicing.LoanServicingHistory;
+import com.finora.loan.domain.servicing.LoanServicingHistory.Installment;
+import com.finora.loan.domain.servicing.LoanServicingHistory.PrincipalMovement;
 import com.finora.loan.dto.statistics.response.LoanStatisticsSeriesResponse;
+import com.finora.loan.dto.statistics.response.LoanStatisticsSeriesResponse.PortfolioPosition;
 import com.finora.loan.dto.statistics.response.LoanStatisticsSummaryResponse;
 import com.finora.loan.dto.statistics.response.LoanStatisticsSummaryResponse.DebtGroupBreakdown;
 import com.finora.loan.dto.statistics.response.LoanStatisticsSummaryResponse.ProductBreakdown;
@@ -23,6 +27,7 @@ import com.finora.loan.repository.statistics.LoanStatisticsRepository.BucketProd
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.CollectionCaseRow;
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.DecisionCountRow;
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.FunnelRow;
+import com.finora.loan.repository.statistics.LoanStatisticsRepository.HistoryLoanRow;
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.KeyCountRow;
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.OutstandingByGradeRow;
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.OutstandingByProductDpdRow;
@@ -34,6 +39,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,6 +52,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.transaction.support.TransactionOperations;
 
 @ExtendWith(MockitoExtension.class)
 class AdminLoanStatisticsServiceTest {
@@ -60,11 +67,15 @@ class AdminLoanStatisticsServiceTest {
     @Mock
     private LoanStatisticsRepository repository;
 
+    @Mock
+    private PortfolioHistoryReader historyReader;
+
     private AdminLoanStatisticsService service;
 
     @BeforeEach
     void setUp() {
-        service = new AdminLoanStatisticsService(repository, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new AdminLoanStatisticsService(repository, historyReader, TransactionOperations.withoutTransaction(),
+                Clock.fixed(NOW, ZoneOffset.UTC));
         authenticateAs("ROLE_ADMIN");
     }
 
@@ -218,7 +229,7 @@ class AdminLoanStatisticsServiceTest {
         assertThat(summary.applications().byStatus()).containsEntry("APPROVED", 8L)
                 .containsEntry("REJECTED", 4L).containsEntry("PENDING_REVIEW", 0L).hasSize(8);
         assertThat(summary.applications().byFundingStatus())
-                .containsExactly(entry("REQUESTED", 2L), entry("FULLY_FUNDED", 5L));
+                .containsExactly(entry("REQUESTED", 2L), entry("FULLY_FUNDED", 5L), entry("EXPIRED", 0L));
         assertThat(summary.collections().openCases()).isEqualTo(4);
         assertThat(summary.collections().openByStage()).containsExactly(
                 entry("EARLY_REMINDER", 3L), entry("ATTENTION", 0L), entry("NPL", 1L),
@@ -304,6 +315,74 @@ class AdminLoanStatisticsServiceTest {
         assertThat(series.to()).isEqualTo(LocalDate.of(2026, 10, 8));
         assertThat(series.from()).isEqualTo(LocalDate.of(2026, 9, 9));
         assertThat(series.points()).hasSize(30);
+    }
+
+    @Test
+    void seriesRebuildsEndOfBucketPortfolioFromHistoryAndSkipsFutureBuckets() {
+        stubEmptySeries();
+        List<HistoryLoanRow> loans = List.of(new HistoryLoanRow(1L, 101L, "LC-1", "f1"),
+                new HistoryLoanRow(2L, 102L, "LC-2", "f2"), new HistoryLoanRow(3L, 103L, "LC-3", "f3"));
+        when(repository.findLoansDisbursedBefore(any())).thenReturn(loans);
+        // Khoản 1: giải ngân 1/6, kỳ 15/6 trả đủ ngày 30/9 (tới hết 27/9 đã quá hạn 104 ngày, nhóm 3 nợ xấu).
+        // Khoản 2: giải ngân 2/10, chưa có kỳ tới hạn. Khoản 3: Fineract không đọc được.
+        when(historyReader.read(loans)).thenReturn(Map.of(
+                1L, new LoanServicingHistory("LC-1", List.of(
+                        new PrincipalMovement(LocalDate.of(2026, 6, 1), new BigDecimal("1000")),
+                        new PrincipalMovement(LocalDate.of(2026, 9, 30), new BigDecimal("-100"))),
+                        List.of(new Installment(LocalDate.of(2026, 6, 15), LocalDate.of(2026, 9, 30)),
+                                new Installment(LocalDate.of(2026, 11, 1), null))),
+                2L, new LoanServicingHistory("LC-2", List.of(
+                        new PrincipalMovement(LocalDate.of(2026, 10, 2), new BigDecimal("3000"))),
+                        List.of(new Installment(LocalDate.of(2026, 11, 2), null)))));
+
+        // Hôm nay là 8/10 (thứ Năm): cột tuần 28/9 lấy cuối ngày 4/10, cột 5/10 lấy hôm nay, cột 12/10 chưa tới.
+        LoanStatisticsSeriesResponse series = service.series(
+                LocalDate.of(2026, 9, 21), LocalDate.of(2026, 10, 12), StatisticsBucket.WEEK);
+
+        assertThat(series.portfolioHistory())
+                .isEqualTo(new LoanStatisticsSeriesResponse.PortfolioHistory(3, 1));
+        PortfolioPosition week21 = series.points().get(0).portfolio();
+        assertThat(week21.asOf()).isEqualTo(LocalDate.of(2026, 9, 27));
+        assertThat(week21.loans()).isEqualTo(1);
+        assertThat(week21.principalOutstanding()).isEqualByComparingTo("1000.00");
+        assertThat(week21.nplPrincipalOutstanding()).isEqualByComparingTo("1000.00");
+        assertThat(week21.nplRatioPercent()).isEqualByComparingTo("100.00");
+        assertThat(week21.debtGroups().get(2).loans()).isEqualTo(1);
+        PortfolioPosition week28 = series.points().get(1).portfolio();
+        assertThat(week28.asOf()).isEqualTo(LocalDate.of(2026, 10, 4));
+        assertThat(week28.loans()).isEqualTo(2);
+        assertThat(week28.principalOutstanding()).isEqualByComparingTo("3900.00");
+        assertThat(week28.nplPrincipalOutstanding()).isEqualByComparingTo("0.00");
+        assertThat(week28.nplRatioPercent()).isEqualByComparingTo("0.00");
+        assertThat(week28.debtGroups()).extracting(LoanStatisticsSeriesResponse.DebtGroupPosition::loans)
+                .containsExactly(2L, 0L, 0L, 0L, 0L);
+        assertThat(series.points().get(2).portfolio().asOf()).isEqualTo(LocalDate.of(2026, 10, 8));
+        assertThat(series.points().get(3).portfolio()).isNull();
+    }
+
+    @Test
+    void seriesLeavesPortfolioEmptyWhenNoLoanHistoryCouldBeRead() {
+        stubEmptySeries();
+        List<HistoryLoanRow> loans = List.of(new HistoryLoanRow(1L, 101L, "LC-1", "f1"));
+        when(repository.findLoansDisbursedBefore(any())).thenReturn(loans);
+        when(historyReader.read(loans)).thenReturn(Map.of());
+
+        LoanStatisticsSeriesResponse series = service.series(D1, D5, StatisticsBucket.DAY);
+
+        assertThat(series.points()).allSatisfy(point -> assertThat(point.portfolio()).isNull());
+        assertThat(series.portfolioHistory()).isEqualTo(new LoanStatisticsSeriesResponse.PortfolioHistory(1, 1));
+    }
+
+    @Test
+    void seriesReportsZeroPortfolioWhenThereAreNoLoansYet() {
+        stubEmptySeries();
+
+        LoanStatisticsSeriesResponse series = service.series(D1, D5, StatisticsBucket.DAY);
+
+        PortfolioPosition first = series.points().get(0).portfolio();
+        assertThat(first.loans()).isZero();
+        assertThat(first.principalOutstanding()).isEqualByComparingTo("0.00");
+        assertThat(first.nplRatioPercent()).isNull();
     }
 
     @Test

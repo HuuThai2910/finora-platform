@@ -1,10 +1,13 @@
 package com.finora.loan.integration.fineract.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.finora.loan.domain.servicing.LoanServicingHistory;
 import com.finora.loan.domain.servicing.LoanServicingSnapshot;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -40,6 +43,56 @@ public class FineractServicingHttpClient implements FineractServicingGateway {
                 money(summary, "penaltyChargesOutstanding"), money(summary, "totalOutstanding"), overdue,
                 overdueSince, Math.max(0, dpd), dates.nextDueDate(), dates.nextDueAmount(),
                 optionalDate(loan.path("timeline").path("expectedMaturityDate")));
+    }
+
+    @Override
+    public LoanServicingHistory readHistory(Long fineractLoanId) {
+        JsonNode loan = executor.execute(FineractCallGroup.SERVICING, "read-servicing-history", () ->
+                client.get().uri("/loans/{id}?associations=repaymentSchedule,transactions", fineractLoanId)
+                        .headers(executor::authenticate).retrieve().body(JsonNode.class));
+        if (loan == null || !loan.isObject()) {
+            throw new FineractIntegrationException("FINERACT_RESPONSE_INVALID",
+                    "Fineract không trả dữ liệu lịch sử khoản vay", false, null);
+        }
+        return new LoanServicingHistory(requiredText(loan, "externalId"), principalMovements(loan.path("transactions")),
+                installments(loan.path("repaymentSchedule").path("periods")));
+    }
+
+    /**
+     * Giải ngân cộng số tiền giải ngân; giao dịch khác (trả nợ, xóa nợ, hoàn tiền...) trừ phần gốc của nó.
+     * Bỏ giao dịch đã đảo và giao dịch dồn tích lãi (accrual không động tới gốc).
+     */
+    private List<LoanServicingHistory.PrincipalMovement> principalMovements(JsonNode transactions) {
+        List<LoanServicingHistory.PrincipalMovement> movements = new ArrayList<>();
+        if (!transactions.isArray()) return movements;
+        for (JsonNode transaction : transactions) {
+            LocalDate date = optionalDate(transaction.path("date"));
+            JsonNode type = transaction.path("type");
+            if (date == null || transaction.path("manuallyReversed").asBoolean(false)
+                    || type.path("accrual").asBoolean(false)) {
+                continue;
+            }
+            BigDecimal amount = type.path("disbursement").asBoolean(false)
+                    ? money(transaction, "amount")
+                    : money(transaction, "principalPortion").negate();
+            if (amount.signum() != 0) {
+                movements.add(new LoanServicingHistory.PrincipalMovement(date, amount));
+            }
+        }
+        return movements;
+    }
+
+    /** Dòng đầu của lịch là dòng giải ngân (không có số kỳ), không phải một kỳ phải trả. */
+    private List<LoanServicingHistory.Installment> installments(JsonNode periods) {
+        List<LoanServicingHistory.Installment> installments = new ArrayList<>();
+        if (!periods.isArray()) return installments;
+        for (JsonNode period : periods) {
+            LocalDate due = optionalDate(period.path("dueDate"));
+            if (!period.hasNonNull("period") || due == null) continue;
+            installments.add(new LoanServicingHistory.Installment(due,
+                    optionalDate(period.path("obligationsMetOnDate"))));
+        }
+        return installments;
     }
 
     private Long positiveId(JsonNode node, String field) {

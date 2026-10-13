@@ -40,6 +40,14 @@ public interface PaymentClient {
      * @param settlementReference khóa chống trùng phía Payment; gọi lại cùng mã phải trả cùng kết
      *                          quả và chỉ chuyển tiền một lần
      */
+    /**
+     * Chuyển tiền khả dụng từ ví nhà đầu tư này sang ví nhà đầu tư khác, không phí — dùng để trả
+     * lại khoản trả nợ Payment đã chia nhầm cho chủ cũ của Note. Gọi bằng service account; gọi lại
+     * cùng {@code transferReference} chỉ chuyển một lần.
+     */
+    PaymentTransferResult transferBetweenInvestors(
+            String fromInvestorId, String toInvestorId, BigDecimal amount, String transferReference);
+
     PaymentTransferResult settleFromHold(
             String holdReference,
             String orderReference,

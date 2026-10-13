@@ -15,6 +15,11 @@ public record LoanFundingRequestedEventData(
         Integer termMonths,
         String repaymentMethod,
         String termsVersion,
-        String termsHash
+        String termsHash,
+        /**
+         * ID logic người vay (claim {@code user_id}), không phải PII. Investment dùng để chặn
+         * người vay tự góp vốn khoản của mình. Trường bổ sung v1: producer cũ để null.
+         */
+        String borrowerId
 ) {
 }

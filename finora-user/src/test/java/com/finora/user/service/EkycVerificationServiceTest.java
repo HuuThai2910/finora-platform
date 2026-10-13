@@ -66,6 +66,9 @@ class EkycVerificationServiceTest {
     @Mock
     private CicMappingTaskRepository cicMappingTaskRepository;
 
+    @Mock
+    private KeycloakAdminService keycloakAdminService;
+
     private EkycVerificationService service;
     private UserProfile profile;
 
@@ -77,7 +80,7 @@ class EkycVerificationServiceTest {
 
         service = new EkycVerificationService(
                 userProfileRepository, aiEkycClient, rateLimitService, draftStore, cryptoProperties,
-                cicMappingTaskRepository,
+                cicMappingTaskRepository, keycloakAdminService,
                 Clock.fixed(Instant.parse("2026-10-03T00:00:00Z"), ZoneOffset.UTC));
 
         // Đăng ký không thu họ tên — hồ sơ khởi đầu trống thông tin định danh

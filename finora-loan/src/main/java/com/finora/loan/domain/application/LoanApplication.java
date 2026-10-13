@@ -260,6 +260,9 @@ public class LoanApplication {
     @Column(name = "funding_completed_at")
     private Instant fundingCompletedAt;
 
+    @Column(name = "funding_expired_at")
+    private Instant fundingExpiredAt;
+
     @Version
     @Column(nullable = false)
     private Long version;
@@ -652,6 +655,44 @@ public class LoanApplication {
         allocationHash = normalizedHash;
         allocationSnapshotJson = normalizedSnapshot;
         fundingCompletedAt = completedAt;
+        updatedBy = requireText(actorId, "actorId");
+        updatedAt = now;
+        return true;
+    }
+
+    /**
+     * Ghi nhận đợt gọi vốn hết hạn mà chưa đủ vốn. Chỉ nhận từ {@code REQUESTED} và đúng
+     * {@code fundingRound} đang chờ; gửi lại cùng kết quả trả {@code false}. Đã chốt đủ vốn thì
+     * không thể hết hạn nữa — event như vậy là mâu thuẫn dữ liệu, ném conflict để vào DLT.
+     *
+     * @return {@code true} nếu trạng thái vừa đổi
+     */
+    public boolean markFundingExpired(
+            Long listingId,
+            Integer expiredRound,
+            Instant expiredAt,
+            String actorId,
+            Instant now
+    ) {
+        if (listingId == null || expiredRound == null || expiredAt == null) {
+            throw new IllegalArgumentException("Thông tin hết hạn gọi vốn không đầy đủ");
+        }
+        if (!Objects.equals(fundingRound, expiredRound)) {
+            throw LoanDomainException.conflict(
+                    "FUNDING_ROUND_MISMATCH",
+                    "Kết quả hết hạn gọi vốn không thuộc đợt đang chờ của hồ sơ");
+        }
+        if (fundingStatus == LoanFundingStatus.EXPIRED) {
+            return false;
+        }
+        if (fundingStatus != LoanFundingStatus.REQUESTED) {
+            throw LoanDomainException.conflict(
+                    "LOAN_FUNDING_NOT_REQUESTED",
+                    "Hồ sơ không ở trạng thái chờ gọi vốn nên không thể hết hạn");
+        }
+        fundingStatus = LoanFundingStatus.EXPIRED;
+        investmentListingId = listingId;
+        fundingExpiredAt = expiredAt;
         updatedBy = requireText(actorId, "actorId");
         updatedAt = now;
         return true;

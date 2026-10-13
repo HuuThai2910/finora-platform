@@ -210,6 +210,53 @@ class LoanApplicationDecisionTest {
                 .extracting("code").isEqualTo("CONFLICTING_FULLY_FUNDED_EVENT");
     }
 
+    @Test
+    void fundingExpiryClosesRequestedRoundOnceAndNeverOverridesFullyFunded() {
+        LoanApplication application = scoringApplication(10L);
+        application.completeScoring(
+                10L, AiRecommendation.APPROVED, pricing("A", "12.0000", "-0.5000"),
+                105L, "AI_DECISION_V17", "SYSTEM", NOW.plusSeconds(3));
+        application.prepareTermsConfirmation(
+                TermsConfirmationStatus.AUTO_AUTHORIZED, "LOAN_TERMS_V1", "a".repeat(64),
+                NOW.plusSeconds(3600), "SYSTEM", NOW.plusSeconds(4));
+        assertThat(application.requestFunding(1, 1, "SYSTEM", NOW.plusSeconds(5))).isTrue();
+
+        assertThatThrownBy(() -> application.markFundingExpired(20L, 2, NOW.plusSeconds(6), "SYSTEM", NOW))
+                .isInstanceOf(LoanDomainException.class)
+                .extracting("code").isEqualTo("FUNDING_ROUND_MISMATCH");
+
+        assertThat(application.markFundingExpired(20L, 1, NOW.plusSeconds(6), "SYSTEM", NOW.plusSeconds(7)))
+                .isTrue();
+        assertThat(application.getFundingStatus()).isEqualTo(LoanFundingStatus.EXPIRED);
+        assertThat(application.getFundingExpiredAt()).isEqualTo(NOW.plusSeconds(6));
+        assertThat(application.markFundingExpired(20L, 1, NOW.plusSeconds(6), "SYSTEM", NOW.plusSeconds(8)))
+                .isFalse();
+        // Đợt đã hết hạn thì kết quả đủ vốn đến muộn cũng không được lập Contract.
+        assertThatThrownBy(() -> application.markFullyFunded(
+                20L, new BigDecimal("50000000.00"), 1L, "b".repeat(64), "[{\"commitmentId\":1}]",
+                NOW.plusSeconds(9), "SYSTEM", NOW.plusSeconds(9)))
+                .isInstanceOf(LoanDomainException.class)
+                .extracting("code").isEqualTo("LOAN_FUNDING_NOT_REQUESTED");
+    }
+
+    @Test
+    void fullyFundedApplicationCannotExpire() {
+        LoanApplication application = scoringApplication(10L);
+        application.completeScoring(
+                10L, AiRecommendation.APPROVED, pricing("A", "12.0000", "-0.5000"),
+                105L, "AI_DECISION_V17", "SYSTEM", NOW.plusSeconds(3));
+        application.prepareTermsConfirmation(
+                TermsConfirmationStatus.AUTO_AUTHORIZED, "LOAN_TERMS_V1", "a".repeat(64),
+                NOW.plusSeconds(3600), "SYSTEM", NOW.plusSeconds(4));
+        application.requestFunding(1, 1, "SYSTEM", NOW.plusSeconds(5));
+        application.markFullyFunded(20L, new BigDecimal("50000000.00"), 1L, "b".repeat(64),
+                "[{\"commitmentId\":1}]", NOW.plusSeconds(6), "SYSTEM", NOW.plusSeconds(6));
+
+        assertThatThrownBy(() -> application.markFundingExpired(20L, 1, NOW.plusSeconds(7), "SYSTEM", NOW))
+                .isInstanceOf(LoanDomainException.class)
+                .extracting("code").isEqualTo("LOAN_FUNDING_NOT_REQUESTED");
+    }
+
     private LoanApplication scoringApplication(Long assessmentId) {
         LoanApplication application = submittedApplication();
         application.startEligibility("SYSTEM", NOW.plusSeconds(1));

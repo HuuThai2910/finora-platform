@@ -44,6 +44,9 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
     /** Tên attribute trên Keycloak, phải khớp {@code user.attribute} của protocol mapper "user-id". */
     private static final String USER_ID_ATTRIBUTE = "user_id";
 
+    /** Phải khớp {@code user.attribute} của protocol mapper "ekyc-status". */
+    private static final String EKYC_STATUS_ATTRIBUTE = "ekyc_status";
+
     private final KeycloakAdminProperties properties;
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -226,6 +229,29 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
                     keycloakUserId, userId, e);
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR,
                     "Không thể hoàn tất khởi tạo tài khoản, vui lòng thử lại sau");
+        }
+    }
+
+    @Override
+    public void setEkycStatusAttribute(String keycloakUserId, String ekycStatus) {
+        try {
+            var userResource = getRealmResource().users().get(keycloakUserId);
+            UserRepresentation user = userResource.toRepresentation();
+            Map<String, List<String>> attributes = user.getAttributes() != null
+                    ? new HashMap<>(user.getAttributes())
+                    : new HashMap<>();
+            if (List.of(ekycStatus).equals(attributes.get(EKYC_STATUS_ATTRIBUTE))) {
+                return;
+            }
+            attributes.put(EKYC_STATUS_ATTRIBUTE, List.of(ekycStatus));
+            user.setAttributes(attributes);
+            userResource.update(user);
+            log.info("Đã ghi ekyc_status vào Keycloak: keycloakUserId={}, ekycStatus={}",
+                    keycloakUserId, ekycStatus);
+        } catch (Exception e) {
+            log.error("Lỗi ghi ekyc_status vào Keycloak: keycloakUserId={}", keycloakUserId, e);
+            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Không thể cập nhật trạng thái xác minh, vui lòng thử lại sau");
         }
     }
 

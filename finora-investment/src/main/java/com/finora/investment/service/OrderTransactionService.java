@@ -37,4 +37,7 @@ public interface OrderTransactionService {
      * Hủy lệnh đã cam kết và nhả tiền về ví.
      */
     OrderResponse cancelOrder(String orderReference);
+
+    /** Ghi nhận Payment đã nhả khoản giữ của một lệnh đã kết thúc; gọi lại không đổi gì. */
+    void markHoldReleased(Long orderId);
 }
