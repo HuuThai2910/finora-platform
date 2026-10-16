@@ -319,10 +319,12 @@ services:
     env_file: ../finora-loan/.env
     environment:
       <<: *keycloak-jwt
-      # Profile `local` bật bản giả hồ sơ người vay — Loan chưa có provider nào khác.
       SPRING_PROFILES_ACTIVE: local
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       AI_SERVICE_URL: http://ai:8000
+      # eKYC người vay đọc từ User bằng token của người vay khi nộp hồ sơ (W2-KYC); `mock` chỉ cho test/E2E.
+      FINORA_BORROWER_PROFILE_PROVIDER: ${FINORA_BORROWER_PROFILE_PROVIDER:-user}
+      USER_SERVICE_URL: http://user:8085
       FINERACT_BASE_URL: http://fineract:8443/fineract-provider/api/v1
       FINERACT_BOOKING_PROVIDER: ${FINERACT_BOOKING_PROVIDER:-mock}
       FINERACT_OFFICE_ID: ${FINERACT_OFFICE_ID:-1}

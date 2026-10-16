@@ -508,6 +508,9 @@ services:
       FINERACT_CLIENT_LEGAL_FORM_ID: ${FINERACT_CLIENT_LEGAL_FORM_ID:-1}
       AI_SERVICE_URL: http://ai:8000
       SPRING_PROFILES_ACTIVE: local
+      # eKYC người vay đọc từ User bằng token của người vay khi nộp hồ sơ (W2-KYC); `mock` chỉ cho test/E2E.
+      FINORA_BORROWER_PROFILE_PROVIDER: ${FINORA_BORROWER_PROFILE_PROVIDER:-user}
+      USER_SERVICE_URL: http://user:8085
     ports:
       - "127.0.0.1:${LOAN_HOST_PORT:-8081}:8081"
     depends_on:

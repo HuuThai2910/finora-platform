@@ -210,6 +210,14 @@ finora:
       fineract-reason-id: ${FINERACT_RESCHEDULE_REASON_ID:}
       terms-version: ${LOAN_RESTRUCTURE_TERMS_VERSION:LOAN_RESTRUCTURE_TERMS_V1}
       terms-text: "Tôi xác nhận FINORA sẽ thẩm định đề nghị; nếu đạt, toàn bộ nhà đầu tư đang nắm Note phải đồng ý và Apache Fineract phải áp dụng thành công thì lịch mới mới có hiệu lực. Trong thời gian chờ, tôi vẫn thanh toán theo lịch hiện tại."
+  # Nguồn eKYC/tuổi người vay đọc lúc nộp hồ sơ (W2-KYC, D4): `user` chuyển tiếp token người vay sang finora-user;
+  # `mock` (VERIFIED, 30 tuổi) chỉ dùng cho test và stack E2E, không phải dữ liệu thật.
+  borrower-profile:
+    provider: ${FINORA_BORROWER_PROFILE_PROVIDER:user}
+  user:
+    base-url: ${USER_SERVICE_URL:http://localhost:8085}
+    connect-timeout: ${USER_CONNECT_TIMEOUT:2s}
+    read-timeout: ${USER_READ_TIMEOUT:3s}
   borrower-eligibility:
     minimum-age: ${BORROWER_MINIMUM_AGE:18}
     maximum-age: ${BORROWER_MAXIMUM_AGE:65}

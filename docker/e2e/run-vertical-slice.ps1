@@ -13,6 +13,8 @@ param(
     [switch]$SkipRepayment,
     [switch]$Drills,
     [switch]$KeepProductActive,
+    # Chỉ kiểm cổng eKYC khi nộp hồ sơ; Loan phải chạy với start-local-services.ps1 -BorrowerProfileProvider user.
+    [switch]$KycGate,
     [int]$StepTimeoutSeconds = 300
 )
 
@@ -70,7 +72,7 @@ Set-E2EEvidence 'environment' ([ordered]@{
         disbursement = 'mock provider (không chuyển tiền ra ngoài)'
         fineract = 'Fineract 1.15 local thật'
         blockchain = 'MOCK proof ledger (không phải Fabric)'
-        borrowerKyc = 'Loan profile local mock VERIFIED (adapter KYC thật thuộc Wave 2)'
+        borrowerKyc = $(if ($KycGate) { 'Adapter User thật: Loan chuyển tiếp token người vay tới /api/v1/users/me/kyc-summary' } else { 'Loan borrower profile mock VERIFIED/30 tuổi (FINORA_BORROWER_PROFILE_PROVIDER=mock; luồng đầy đủ không dùng ảnh CCCD giả)' })
         investorEkyc = 'INVESTMENT_REQUIRE_EKYC=false chỉ trong stack E2E'
     }
 })
@@ -787,6 +789,57 @@ function Invoke-DuplicateDrills {
 $admin = $null
 $product = $null
 $result = 'FAIL'
+function Invoke-KycGateCheck {
+    <#
+      W2-KYC trên stack thật (Loan chạy với -BorrowerProfileProvider user): người vay mới chưa eKYC đọc được tóm tắt
+      eKYC của chính mình qua Gateway, còn Loan chuyển tiếp token người vay sang User và từ chối hồ sơ trước khi tạo.
+      Không dùng ảnh CCCD giả nên không kiểm nhánh VERIFIED ở đây; nhánh đó có trong integration test.
+    #>
+    param($Borrower, $Product)
+    Write-E2EStep 'Cổng eKYC khi nộp hồ sơ (adapter User thật)'
+    $summary = Invoke-E2EHttp -Method GET -Uri "$GatewayUrl/api/v1/users/me/kyc-summary" -Token $Borrower.Token
+    Assert-E2EStatus -Response $summary -Expected 200 -Step 'Đọc tóm tắt eKYC'
+    $fields = @($summary.Json.PSObject.Properties | ForEach-Object { $_.Name } | Sort-Object)
+    $expectedFields = @('age', 'documentVerified', 'ekycCompletedAt', 'ekycStatus', 'userId')
+    Add-E2ECheck -Name 'kyc.summary-no-pii' -Passed (($fields -join ',') -eq ($expectedFields -join ',')) -Detail ($fields -join ',')
+    Add-E2ECheck -Name 'kyc.summary-own-user' -Passed ([string](Field $summary.Json 'userId') -eq [string]$Borrower.UserId) `
+        -Detail "userId=$(Field $summary.Json 'userId') ekycStatus=$(Field $summary.Json 'ekycStatus')"
+    $body = [ordered]@{
+        loanProductId = [long](Field $Product 'id')
+        requestedAmount = $LoanAmount
+        requestedTermMonths = $TermMonths
+        purposeCode = 'EDUCATION'
+        purposeDetail = $null
+        declaredMonthlyIncome = [decimal]30000000
+        employmentLengthMonths = 48
+        educationLevel = 'UNIVERSITY'
+        homeOwnership = 'MORTGAGE'
+        monthlyDebtObligations = [decimal]3000000
+        expectedDisbursementDate = (Get-Today)
+        pricingDisclosureVersion = $PricingDisclosureVersion
+        pricingDisclosureAccepted = $true
+    }
+    $submit = Invoke-E2EHttp -Method POST -Uri "$LoanUrl/api/v1/loan-applications" -Token $Borrower.Token `
+        -Headers @{ 'Idempotency-Key' = (New-E2EKey -Prefix 'kyc-gate') } -Body $body
+    $code = Get-E2EErrorCode -Response $submit
+    Add-E2ECheck -Name 'kyc.unverified-submit-rejected' -Passed ($submit.Status -eq 409 -and $code -eq 'BORROWER_KYC_REQUIRED') `
+        -Detail "HTTP $($submit.Status) code=$code"
+    $mine = Invoke-E2EHttp -Method GET -Uri "$LoanUrl/api/v1/loan-applications/me" -Token $Borrower.Token
+    Assert-E2EStatus -Response $mine -Expected 200 -Step 'Danh sách hồ sơ của người vay'
+    $count = [long](Field $mine.Json 'totalElements')
+    Add-E2ECheck -Name 'kyc.no-application-created' -Passed ($count -eq 0) -Detail "totalElements=$count"
+    Set-E2EEvidence 'kycGate' ([ordered]@{
+        provider = 'user'
+        summary = [ordered]@{
+            userId = (Field $summary.Json 'userId'); ekycStatus = (Field $summary.Json 'ekycStatus')
+            documentVerified = (Field $summary.Json 'documentVerified'); age = (Field $summary.Json 'age')
+            fields = $fields
+        }
+        submit = [ordered]@{ status = $submit.Status; code = $code }
+        borrowerApplications = $count
+    })
+}
+
 $failure = $null
 try {
     Assert-Preflight
@@ -804,23 +857,27 @@ try {
     })
 
     $product = Initialize-E2EProduct -Admin $admin
-    $application = Submit-Application -Borrower $borrower -Product $product
-    Complete-Underwriting -Borrower $borrower -Admin $admin -Application $application
-    $listing = Wait-Listing -Borrower $borrower -Investor $investor -Application $application
-    $null = Fund-Listing -Investor $investor -Listing $listing
-    $heldBeforeDisbursement = (Get-Wallet -Actor $investor).Held
-    $borrowerBeforeDisbursement = Get-Wallet -Actor $borrower
-    $contractNumber = Sign-Contract -Borrower $borrower -Investor $investor -Application $application -Listing $listing
-    $loan = Wait-Disbursement -Borrower $borrower -Investor $investor -Application $application -ContractNumber $contractNumber `
-        -InvestorHeldBefore $heldBeforeDisbursement -BorrowerBefore $borrowerBeforeDisbursement
-    $repaymentId = $null
-    if (-not $SkipRepayment) {
-        $paid = Pay-Installment -Borrower $borrower -Investor $investor -Application $application -Loan $loan
-        $repaymentId = $paid.RepaymentId
-    }
-    $null = Collect-KafkaEvidence -Application $application -ContractNumber $contractNumber -RepaymentId $repaymentId
-    if ($Drills -and $repaymentId) {
-        Invoke-DuplicateDrills -Investor $investor -Application $application -ContractNumber $contractNumber -RepaymentId $repaymentId
+    if ($KycGate) {
+        Invoke-KycGateCheck -Borrower $borrower -Product $product
+    } else {
+        $application = Submit-Application -Borrower $borrower -Product $product
+        Complete-Underwriting -Borrower $borrower -Admin $admin -Application $application
+        $listing = Wait-Listing -Borrower $borrower -Investor $investor -Application $application
+        $null = Fund-Listing -Investor $investor -Listing $listing
+        $heldBeforeDisbursement = (Get-Wallet -Actor $investor).Held
+        $borrowerBeforeDisbursement = Get-Wallet -Actor $borrower
+        $contractNumber = Sign-Contract -Borrower $borrower -Investor $investor -Application $application -Listing $listing
+        $loan = Wait-Disbursement -Borrower $borrower -Investor $investor -Application $application -ContractNumber $contractNumber `
+            -InvestorHeldBefore $heldBeforeDisbursement -BorrowerBefore $borrowerBeforeDisbursement
+        $repaymentId = $null
+        if (-not $SkipRepayment) {
+            $paid = Pay-Installment -Borrower $borrower -Investor $investor -Application $application -Loan $loan
+            $repaymentId = $paid.RepaymentId
+        }
+        $null = Collect-KafkaEvidence -Application $application -ContractNumber $contractNumber -RepaymentId $repaymentId
+        if ($Drills -and $repaymentId) {
+            Invoke-DuplicateDrills -Investor $investor -Application $application -ContractNumber $contractNumber -RepaymentId $repaymentId
+        }
     }
     $failedChecks = @((Get-E2EContext).Checks | Where-Object { -not $_.passed })
     $result = if ($failedChecks.Count -eq 0) { 'PASS' } else { 'FAIL' }

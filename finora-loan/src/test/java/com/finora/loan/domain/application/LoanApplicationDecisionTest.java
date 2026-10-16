@@ -5,6 +5,9 @@ import com.finora.loan.domain.pricing.RiskBasedPricingResult;
 import com.finora.loan.domain.product.LoanProduct;
 import com.finora.loan.domain.product.RepaymentMethod;
 import com.finora.loan.domain.scoring.AiRecommendation;
+import com.finora.loan.domain.scoring.BorrowerKycStatus;
+import com.finora.loan.domain.scoring.BorrowerProfileSource;
+import com.finora.loan.domain.scoring.IncomeVerificationStatus;
 import com.finora.loan.exception.LoanDomainException;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -299,6 +302,26 @@ class LoanApplicationDecisionTest {
                 new BigDecimal(finalRate),
                 "RISK_GRADE_RATE_V1"
         );
+    }
+
+    @Test
+    void kycSnapshotMustBeVerifiedAndIsCapturedOnlyOnce() {
+        LoanApplication application = submittedApplication();
+
+        assertThatThrownBy(() -> application.attachKycSnapshot(kyc(BorrowerKycStatus.PENDING)))
+                .isInstanceOf(LoanDomainException.class)
+                .extracting("code").isEqualTo("BORROWER_KYC_REQUIRED");
+
+        application.attachKycSnapshot(kyc(BorrowerKycStatus.VERIFIED));
+        assertThat(application.getKycSnapshot().getKycStatus()).isEqualTo(BorrowerKycStatus.VERIFIED);
+        assertThat(application.getKycSnapshot().getSource()).isEqualTo(BorrowerProfileSource.USER_SERVICE);
+        assertThatThrownBy(() -> application.attachKycSnapshot(kyc(BorrowerKycStatus.VERIFIED)))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    private static BorrowerKycSnapshot kyc(BorrowerKycStatus status) {
+        return BorrowerKycSnapshot.capture(status, 27, "USER-KYC-BORROWER-001", "USER_KYC_SUMMARY_V1",
+                IncomeVerificationStatus.NOT_VERIFIED, BorrowerProfileSource.USER_SERVICE, NOW);
     }
 
     private LoanApplication submittedApplication() {

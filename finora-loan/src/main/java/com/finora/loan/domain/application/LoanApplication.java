@@ -70,6 +70,10 @@ public class LoanApplication {
     @Embedded
     private ApplicantFinancialSnapshot financialSnapshot;
 
+    /** eKYC và tuổi chụp lúc nộp (W2-KYC); {@code null} với hồ sơ nộp trước Loan V29. */
+    @Embedded
+    private BorrowerKycSnapshot kycSnapshot;
+
     @Column(name = "product_code_snapshot", nullable = false, length = 50, updatable = false)
     private String productCodeSnapshot;
 
@@ -343,6 +347,21 @@ public class LoanApplication {
         application.createdAt = now;
         application.updatedAt = now;
         return application;
+    }
+
+    /**
+     * Gắn snapshot eKYC trước lần insert đầu tiên (cột không cho update). Chỉ người vay đã {@code VERIFIED} được nộp hồ
+     * sơ (D4); service đã chặn trước khi gọi Fineract, kiểm lại ở đây để không đường ghi nào bỏ qua được bất biến này.
+     */
+    public void attachKycSnapshot(BorrowerKycSnapshot snapshot) {
+        if (kycSnapshot != null || id != null) {
+            throw new IllegalStateException("Snapshot eKYC chỉ gắn một lần trước khi lưu hồ sơ");
+        }
+        Objects.requireNonNull(snapshot, "kycSnapshot");
+        if (snapshot.getKycStatus() != com.finora.loan.domain.scoring.BorrowerKycStatus.VERIFIED) {
+            throw LoanDomainException.conflict("BORROWER_KYC_REQUIRED", "Người vay chưa hoàn tất xác minh eKYC");
+        }
+        kycSnapshot = snapshot;
     }
 
     /** Snapshot được insert sau Application để lấy identity ID nhưng vẫn trong cùng local transaction. */

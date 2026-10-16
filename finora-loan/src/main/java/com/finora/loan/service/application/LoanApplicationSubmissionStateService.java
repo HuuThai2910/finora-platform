@@ -5,6 +5,7 @@ import com.finora.loan.domain.application.ActorType;
 import com.finora.loan.domain.application.ApplicantFinancialSnapshot;
 import com.finora.loan.domain.application.EducationLevel;
 import com.finora.loan.domain.application.HomeOwnership;
+import com.finora.loan.domain.application.BorrowerKycSnapshot;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.application.LoanApplicationStatus;
 import com.finora.loan.domain.application.LoanApplicationStatusHistory;
@@ -79,7 +80,8 @@ public class LoanApplicationSubmissionStateService {
             String disclosureVersion,
             CreateLoanApplicationRequest request,
             ApplicationSubmissionContext expected,
-            ScheduleCalculationResult scheduleResult
+            ScheduleCalculationResult scheduleResult,
+            BorrowerKycSnapshot kycSnapshot
     ) {
         // Write lock ngăn update/deactivate/sync Product xen vào lúc đối chiếu snapshot vừa tính từ Fineract.
         LoanProduct product = productRepository.findByIdForSubmit(request.loanProductId())
@@ -123,6 +125,8 @@ public class LoanApplicationSubmissionStateService {
                 disclosureVersion,
                 now
         );
+        // eKYC chụp lúc nộp đi cùng hồ sơ trong một lần insert; worker chấm điểm đọc lại bản này (W2-KYC).
+        application.attachKycSnapshot(kycSnapshot);
         applicationRepository.saveAndFlush(application);
         // Lưu schedule riêng vì payload nhiều kỳ; Application chỉ giữ ID tham chiếu snapshot đã sử dụng.
         ScheduleCalculationSnapshot calculation = ScheduleCalculationSnapshot.submission(

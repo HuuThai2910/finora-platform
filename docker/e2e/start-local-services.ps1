@@ -7,6 +7,9 @@ param(
     [string]$OutDir,
     [switch]$Build,
     [switch]$Offline,
+    # Nguồn eKYC người vay của Loan: mock (mặc định, người vay E2E chưa eKYC) hoặc user (adapter User thật, W2-KYC).
+    [ValidateSet('mock', 'user')]
+    [string]$BorrowerProfileProvider = 'mock',
     [int]$StartTimeoutSeconds = 300
 )
 
@@ -71,8 +74,11 @@ $catalog = [ordered]@{
     loan = @{
         Module = 'finora-loan'; Port = 8081; Heap = '320m'
         Env = [ordered]@{
-            # Profile local bật mock borrower profile; adapter KYC thật thuộc Wave 2 (quyết định #3).
             SPRING_PROFILES_ACTIVE = 'local'
+            # Người vay E2E là tài khoản mới chưa eKYC và kịch bản không dùng ảnh CCCD giả (D11): dùng mock borrower
+            # profile (VERIFIED, 30 tuổi, nhãn hồ sơ giả lập). Môi trường khác dùng adapter User thật (W2-KYC).
+            FINORA_BORROWER_PROFILE_PROVIDER = $BorrowerProfileProvider
+            USER_SERVICE_URL = 'http://localhost:8085'
             # Chữ ký tự động chỉ dùng MOCK + CLICK_WRAP_MVP; VNPT SmartCA cần người duyệt trên app.
             FINORA_SIGNATURE_PROVIDER = 'MOCK'
             # Kỳ trả nợ cần khoản vay thật trong Fineract; booking mock sinh ID giả.

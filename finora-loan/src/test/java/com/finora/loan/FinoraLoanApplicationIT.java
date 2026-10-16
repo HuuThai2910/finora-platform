@@ -20,6 +20,7 @@ import com.finora.loan.integration.fineract.contract.ScheduleCalculationRequest;
 import com.finora.loan.integration.fineract.contract.ScheduleCalculationResult;
 import com.finora.loan.integration.fineract.contract.SchedulePeriod;
 import com.finora.loan.integration.profile.provider.BorrowerProfileProvider;
+import com.finora.loan.integration.profile.provider.BorrowerProfileUnavailableException;
 import com.finora.loan.integration.profile.contract.BorrowerProfileResult;
 import com.finora.loan.messaging.event.FundingAllocationEventData;
 import com.finora.loan.messaging.event.LoanFullyFundedEventData;
@@ -933,6 +934,45 @@ class FinoraLoanApplicationIT {
                         .content("{\"version\":" + first.path("version").asLong() + ",\"reason\":\"Đổi kế hoạch\"}"))
                 .andExpect(status().isOk());
         submitApplication(product, "exposure-5-" + UUID.randomUUID());
+    }
+
+    @Test
+    void onlyVerifiedBorrowerCanSubmitAndKycSnapshotIsStoredWithApplication() throws Exception {
+        JsonNode product = createActiveProduct();
+        JsonNode submitted = submitApplication(product, "kyc-ok-" + UUID.randomUUID());
+        // Hồ sơ hợp lệ giữ snapshot eKYC lúc nộp; worker chấm điểm dùng lại bản này (W2-KYC).
+        var snapshot = jdbcTemplate.queryForMap(
+                "select kyc_snapshot_status, kyc_snapshot_age, kyc_snapshot_source, kyc_snapshot_captured_at"
+                        + " from loan_applications where id = ?", submitted.path("id").asLong());
+        assertThat(snapshot.get("kyc_snapshot_status")).isEqualTo("VERIFIED");
+        assertThat(((Number) snapshot.get("kyc_snapshot_age")).intValue()).isEqualTo(30);
+        assertThat(snapshot.get("kyc_snapshot_source")).isEqualTo("MOCK_USER_PROFILE");
+        assertThat(snapshot.get("kyc_snapshot_captured_at")).isNotNull();
+
+        when(borrowerProfileProvider.getBorrowerProfile(anyString(), any())).thenReturn(new BorrowerProfileResult(
+                "BORROWER-001", null, 30, BorrowerKycStatus.PENDING, null, null,
+                IncomeVerificationStatus.NOT_VERIFIED, BorrowerProfileSource.USER_SERVICE, Instant.now()));
+        org.mockito.Mockito.clearInvocations(scheduleGateway);
+        mockMvc.perform(post("/api/v1/loan-applications")
+                        .header("Idempotency-Key", "kyc-pending-" + UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(applicationJson(product.path("id").asLong(), "EDUCATION", null)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("BORROWER_KYC_REQUIRED"));
+        // Chặn trước Fineract: hồ sơ không được nhận thì không tính lịch.
+        org.mockito.Mockito.verify(scheduleGateway, org.mockito.Mockito.never()).calculateSchedule(any());
+
+        when(borrowerProfileProvider.getBorrowerProfile(anyString(), any())).thenThrow(
+                new BorrowerProfileUnavailableException("USER_UNREACHABLE", "finora-user không phản hồi", null));
+        mockMvc.perform(post("/api/v1/loan-applications")
+                        .header("Idempotency-Key", "kyc-outage-" + UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(applicationJson(product.path("id").asLong(), "EDUCATION", null)))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("USER_PROFILE_UNAVAILABLE"));
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from loan_applications where borrower_id = 'BORROWER-001'", Integer.class))
+                .isEqualTo(1);
     }
 
     private JsonNode submitAndScoreApplication() throws Exception {
