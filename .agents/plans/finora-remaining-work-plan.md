@@ -2,10 +2,10 @@
 task_id: FINORA-REMAINING
 title: Hoàn thiện FINORA sau vertical slice giải ngân và servicing
 owner: Both
-status: DRAFT
+status: ACTIVE
 depends_on: [P5, P6]
 created_at: 2026-10-16
-updated_at: 2026-10-16
+updated_at: 2026-10-17
 ---
 
 # FINORA-REMAINING — Kế hoạch chi tiết phần việc còn lại
@@ -81,7 +81,7 @@ phải kiểm tra state tại đúng SoR, ledger/event và khả năng retry.
 
 | ID | Ưu tiên | Owner | Phạm vi | Trạng thái | Kết quả cần đạt |
 |---|---|---|---|---|---|
-| R0 | P0 | Both | Source/docs | `IN_PROGRESS` | Backend, web, mobile cùng mốc code; roadmap/rule khớp code |
+| R0 | P0 | Both | Source/docs | `DONE` | Backend, web, mobile cùng mốc code; roadmap/rule khớp code |
 | R1 | P0 | Both | E2E | `READY` | Một script/checklist chạy sạch từ đăng ký đến một kỳ trả nợ |
 | R2 | P0 | Thai | Loan/Payment/Fineract | `READY` | Restart/timeout/duplicate không giải ngân hoặc thu tiền hai lần |
 | R3 | P0 | Hai | Investment | `READY` | Order–hold, Note activation, ownership và portfolio tự repair |
@@ -110,6 +110,9 @@ phải kiểm tra state tại đúng SoR, ledger/event và khả năng retry.
 - Ba repo sạch sau push và `HEAD` đã có trên `origin/main`.
 - Không còn `../../cic-service`, `http://cic:9000` hoặc mô tả backend là skeleton trong cấu hình chính.
 - Skill `finora-engineering` vẫn pass validator; không thay đổi rule nếu rule đang đúng.
+
+R0 hoàn tất ngày 2026-10-17 tại các commit backend `c1ca1ba`, web `ac4ad2a` và mobile
+`531f5ee`; commit tài liệu xác nhận cuối có thể nằm sau SHA backend nêu trên.
 
 ## 5. R1 — Bộ E2E vertical slice lặp lại được
 
