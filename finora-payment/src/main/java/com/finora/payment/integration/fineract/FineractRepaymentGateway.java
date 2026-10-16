@@ -34,7 +34,10 @@ public class FineractRepaymentGateway implements RepaymentCoreGateway {
     public ScheduledRepaymentCoreQuote scheduledRepaymentQuote(Long fineractLoanId) {
         try {
             JsonNode template = get("/loans/%d/transactions/template?command=repayment".formatted(fineractLoanId));
-            BigDecimal amount = money(template.path("total"), "amount");
+            // Fineract 1.15 trả nghĩa vụ của kỳ kế tiếp ở field `amount` cấp gốc của template
+            // (cùng principal/interest/fee/penaltyPortion); template không có object `total`.
+            // Đọc sai chỗ sẽ ra 0 và chặn toàn bộ lượt trả kỳ thường.
+            BigDecimal amount = money(template, "amount");
             if (amount.signum() <= 0) {
                 throw new FineractRepaymentException("FINERACT_NO_SCHEDULED_DUE",
                         "Khoản vay không có nghĩa vụ đến hạn để thanh toán", false, null);
@@ -115,7 +118,8 @@ public class FineractRepaymentGateway implements RepaymentCoreGateway {
             LocalDate maturity = date(loan.path("timeline").path("expectedMaturityDate"),
                     "expectedMaturityDate");
             NextDue nextDue = nextDue(loan.path("repaymentSchedule").path("periods"));
-            return new PartialPrepaymentCoreSnapshot(transactionDate, money(due.path("total"), "amount"),
+            // `scheduledDue` là nghĩa vụ Fineract yêu cầu xử lý cùng giao dịch, lấy cùng nguồn với kỳ thường.
+            return new PartialPrepaymentCoreSnapshot(transactionDate, money(due, "amount"),
                     money(payoff, "amount"), money(loan.path("summary"), "principalOutstanding"),
                     nextDue.date(), nextDue.amount(), termMonths(loan, disbursed, maturity),
                     disbursed, maturity);
@@ -176,8 +180,10 @@ public class FineractRepaymentGateway implements RepaymentCoreGateway {
             JsonNode transactions = loan.path("transactions");
             if (!transactions.isArray()) return Optional.empty();
             for (JsonNode transaction : transactions) {
+                // Fineract 1.15 đánh dấu giao dịch đã đảo bằng `manuallyReversed`. Giao dịch đã đảo không
+                // còn ghi nợ vào core nên không được coi là repayment đã ghi để tiếp tục chia tiền.
                 if (repaymentReference.equals(transaction.path("externalId").asText())
-                        && !transaction.path("reversed").asBoolean(false)) {
+                        && !transaction.path("manuallyReversed").asBoolean(false)) {
                     long transactionId = transaction.path("id").asLong();
                     if (transactionId <= 0) throw new FineractRepaymentException("FINERACT_RESPONSE_INVALID",
                             "Transaction đối soát không có id", true, null);

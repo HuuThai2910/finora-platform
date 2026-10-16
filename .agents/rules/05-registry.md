@@ -41,6 +41,7 @@ phần Investment trước merge:
 | `finora.loan.funding-requested` | Loan | `investment-loan-funding` | Tạo market listing từ exact terms đã được borrower cho phép |
 | `finora.investment.loan-fully-funded` | Investment | `loan-investment-funding` | Trả allocation bất biến để Loan lập hợp đồng nhiều bên |
 | `finora.investment.loan-funding-expired` | Investment | `loan-investment-funding` | Đợt gọi vốn hết hạn chưa đủ vốn; Loan đặt `fundingStatus = EXPIRED`, không lập Contract |
+| `finora.loan.funding-cancelled` | Loan | `investment-loan-funding` | Đã đủ vốn nhưng không giải ngân (Contract `DECLINED`/`EXPIRED` hoặc `DisbursementFailed` khi saga còn `WAITING_PAYMENT`); Investment hủy commitment, listing `CANCELLED` và nhả hold |
 | `finora.loan.investor-signature-requested` | Loan | `investment-loan-funding` | Gắn Contract/PDF chung vào listing; Notification consumer bổ sung sau |
 | `finora.loan.borrower-signature-requested` | Loan | Chưa đăng ký | Báo tất cả lender đã ký; Notification consumer bổ sung sau |
 | `finora.loan.contract-activated` | Loan | `investment-loan-funding` | Investment cập nhật Contract có hiệu lực; Payment/Blockchain bổ sung sau |
@@ -51,6 +52,17 @@ phần Investment trước merge:
 | `finora.loan.rescheduled` | Loan | `investment-loan-funding` | Fineract đã approve lịch cơ cấu; Investment cập nhật maturity marker, không tự tính schedule |
 | `finora.payment.repayment-distributed` | Payment | `loan-repayment-distributed`, `investment-loan-funding`, `blockchain-group` | Loan/Investment cập nhật projection; Blockchain chỉ neo SHA-256 data, không lưu payload tài chính thô |
 | `finora.investment.note-servicing-changed` | Investment | `notification-investor-servicing` | Fan-out thông báo servicing cho chủ Note; dedup delivery, không chứa PII |
+
+Topic giải ngân và quyền sở hữu Note (đã chạy trong code; bổ sung vào registry ngày 2026-10-17 sau khi đối
+chiếu `application.yml` của Loan/Payment/Investment):
+
+| Topic | Producer | Consumer group | Tác dụng |
+|---|---|---|---|
+| `finora.loan.disbursement-requested` | Loan | `payment-group` | Saga đã bền vững; Payment capture hold và credit ví người vay theo `sagaId` |
+| `finora.payment.disbursement-completed` | Payment | `loan-investment-funding` | Loan ghi disbursement vào Fineract bằng external ID |
+| `finora.payment.disbursement-failed` | Payment | `loan-investment-funding` | Saga `PAYMENT_FAILED`; còn `WAITING_PAYMENT` thì Loan phát `finora.loan.funding-cancelled` |
+| `finora.loan.disbursed` | Loan | `investment-loan-funding`, `payment-servicing` | Investment phát hành Note; Payment mở tài khoản thu nợ |
+| `finora.investment.note-ownership-changed` | Investment | `payment-servicing` | Payment cập nhật projection chủ Note để chia tiền trả nợ |
 
 Payload và consumer hiện có được mô tả tại
 [`docs/integrations/LOAN-INVESTMENT-EVENTS.md`](../../docs/integrations/LOAN-INVESTMENT-EVENTS.md).

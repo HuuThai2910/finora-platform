@@ -240,6 +240,33 @@ class LoanApplicationDecisionTest {
     }
 
     @Test
+    void fundingCancellationOnlyClosesFullyFundedRoundOnce() {
+        LoanApplication application = scoringApplication(10L);
+        application.completeScoring(
+                10L, AiRecommendation.APPROVED, pricing("A", "12.0000", "-0.5000"),
+                105L, "AI_DECISION_V17", "SYSTEM", NOW.plusSeconds(3));
+        application.prepareTermsConfirmation(
+                TermsConfirmationStatus.AUTO_AUTHORIZED, "LOAN_TERMS_V1", "a".repeat(64),
+                NOW.plusSeconds(3600), "SYSTEM", NOW.plusSeconds(4));
+        application.requestFunding(1, 1, "SYSTEM", NOW.plusSeconds(5));
+
+        // Chưa đủ vốn thì không có allocation/tiền giữ để bồi hoàn; hết hạn gọi vốn đi luồng LoanFundingExpired.
+        assertThatThrownBy(() -> application.markFundingCancelled("CONTRACT_EXPIRED", "SYSTEM", NOW.plusSeconds(6)))
+                .isInstanceOf(LoanDomainException.class)
+                .extracting("code").isEqualTo("LOAN_FUNDING_NOT_FULLY_FUNDED");
+
+        application.markFullyFunded(20L, new BigDecimal("50000000.00"), 1L, "b".repeat(64),
+                "[{\"commitmentId\":1}]", NOW.plusSeconds(6), "SYSTEM", NOW.plusSeconds(6));
+        assertThat(application.markFundingCancelled("CONTRACT_EXPIRED", "SYSTEM", NOW.plusSeconds(7))).isTrue();
+        assertThat(application.getFundingStatus()).isEqualTo(LoanFundingStatus.CANCELLED);
+        assertThat(application.getFundingCancelledAt()).isEqualTo(NOW.plusSeconds(7));
+        assertThat(application.getFundingCancelReason()).isEqualTo("CONTRACT_EXPIRED");
+        // Hai nguồn (hết hạn ký và giải ngân lỗi) gọi lại không được phát bồi hoàn lần hai.
+        assertThat(application.markFundingCancelled("DISBURSEMENT_FAILED", "SYSTEM", NOW.plusSeconds(8))).isFalse();
+        assertThat(application.getFundingCancelReason()).isEqualTo("CONTRACT_EXPIRED");
+    }
+
+    @Test
     void fullyFundedApplicationCannotExpire() {
         LoanApplication application = scoringApplication(10L);
         application.completeScoring(

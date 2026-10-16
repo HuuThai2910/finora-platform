@@ -28,6 +28,7 @@ import com.finora.loan.repository.contract.LoanContractStatusHistoryRepository;
 import com.finora.loan.repository.application.LoanApplicationRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
 import com.finora.loan.support.HashingService;
+import com.finora.loan.service.funding.LoanFundingCancellationService;
 import com.finora.loan.service.outbox.OutboxService;
 import com.finora.loan.service.disbursement.DisbursementSagaService;
 import java.time.Clock;
@@ -54,6 +55,7 @@ public class LoanContractStateService {
     private final Clock clock;
     private final OutboxService outboxService;
     private final DisbursementSagaService disbursementSagaService;
+    private final LoanFundingCancellationService fundingCancellationService;
 
     /**
      * Kiểm tra nhanh trước external call; transaction commit vẫn kiểm tra lại dưới pessimistic lock.
@@ -490,5 +492,16 @@ public class LoanContractStateService {
                         now
                 )
         );
+        if (contract.isMultiParty()) {
+            // Contract nhiều bên chỉ được lập sau LoanFullyFunded: tiền nhà đầu tư đang bị giữ theo allocation
+            // đã khóa, nên phải phát bồi hoàn trong cùng transaction đóng Contract để không khóa tiền vô hạn.
+            fundingCancellationService.cancel(
+                    contract.getApplicationId(),
+                    contract.getContractNumber(),
+                    contract.getStatus() == LoanContractStatus.DECLINED
+                            ? LoanFundingCancellationService.CONTRACT_DECLINED
+                            : LoanFundingCancellationService.CONTRACT_EXPIRED,
+                    now);
+        }
     }
 }

@@ -9,10 +9,12 @@ spring:
             uri: http://localhost:8081
             predicates:
               - Path=/api/v1/loans/**,/api/v1/loan-products/**,/api/v1/loan-purposes/**,/api/v1/loan-applications/**,/api/v1/loan-contracts/**,/api/v1/investor/loan-contracts/**,/api/v1/investor/loan-applications/**
+          # Route khớp theo thứ tự khai báo: route này phải đứng trước loan-admin-service để
+          # /api/v1/admin/repayment-reconciliation/** của Payment không bị Loan nuốt mất.
           - id: payment-service
             uri: http://localhost:8082
             predicates:
-              - Path=/api/v1/wallets/**,/api/v1/transactions/**
+              - Path=/api/v1/wallets/**,/api/v1/transactions/**,/api/v1/repayments/**,/api/v1/admin/repayment-reconciliation/**
           - id: blockchain-service
             uri: http://localhost:8083
             predicates:

@@ -16,10 +16,11 @@ spring:
             uri: http://loan:8081
             predicates:
               - Path=/api/v1/loans/**,/api/v1/loan-products/**,/api/v1/loan-purposes/**,/api/v1/loan-applications/**,/api/v1/loan-contracts/**,/api/v1/investor/loan-contracts/**,/api/v1/investor/loan-applications/**
+          # Phải đứng trước loan-admin-service để đối soát repayment của Payment không bị Loan nuốt mất.
           - id: payment-service
             uri: http://payment:8082
             predicates:
-              - Path=/api/v1/wallets/**,/api/v1/transactions/**
+              - Path=/api/v1/wallets/**,/api/v1/transactions/**,/api/v1/repayments/**,/api/v1/admin/repayment-reconciliation/**
           - id: blockchain-service
             uri: http://blockchain:8083
             predicates:
@@ -51,3 +52,8 @@ spring:
             uri: http://ai:8000
             predicates:
               - Path=/api/v1/ai/**
+          # Profile ghi đè toàn bộ danh sách route nên phải khai báo lại route Notification của bản gốc.
+          - id: notification-service
+            uri: http://notification:8086
+            predicates:
+              - Path=/api/v1/notifications/**

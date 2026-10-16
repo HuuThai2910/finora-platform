@@ -15,6 +15,9 @@ import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.messaging.event.InvestorSignatureRequestedEventData;
 import com.finora.investment.messaging.event.LoanContractActivatedEventData;
 import com.finora.investment.messaging.event.LoanDisbursedEventData;
+import com.finora.investment.messaging.event.LoanFundingCancelledEventData;
+import com.finora.investment.messaging.event.LoanFundingRequestedEventData;
+import com.finora.investment.service.messaging.LoanFundingCancelledHandler;
 import com.finora.common.enums.investment.OrderStatus;
 import com.finora.investment.client.PaymentClient;
 import com.finora.investment.client.impl.StubPaymentClient;
@@ -104,6 +107,12 @@ class FundingFlowIT {
 
     @Autowired
     private LoanDisbursedEventHandler loanDisbursedEventHandler;
+
+    @Autowired
+    private LoanFundingCancelledHandler loanFundingCancelledHandler;
+
+    @Autowired
+    private com.finora.investment.service.messaging.LoanFundingRequestedHandler loanFundingRequestedHandler;
 
     @Autowired
     private InvestmentOrderRepository orderRepository;
@@ -540,6 +549,111 @@ class FundingFlowIT {
         // Quét lại không nhả lần hai.
         assertThat(orderRepository.findReleasePending(org.springframework.data.domain.PageRequest.of(0, 100)))
                 .noneMatch(item -> item.getOrderReference().equals(order.orderReference()));
+    }
+
+    @Test
+    @DisplayName("Đủ vốn nhưng Loan hủy (hợp đồng hết hạn): listing CANCELLED, worker trả tiền giữ đúng một lần")
+    void loanFundingCancellationReleasesHeldMoneyExactlyOnce() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        actAs("INVESTOR-CANCEL");
+        BigDecimal before = stubPayment().availableBalance("INVESTOR-CANCEL");
+        OrderResponse order = fundingService.placeOrder(created.listingId(), "key-cancel-funded",
+                new PlaceOrderRequest(new BigDecimal("10000000.00")));
+        SecurityContextHolder.clearContext();
+        var funded = listingRepository.findById(created.listingId()).orElseThrow();
+        assertThat(funded.getStatus()).isEqualTo(ListingStatus.FULLY_FUNDED);
+
+        UUID eventId = UUID.randomUUID();
+        LoanFundingCancelledEventData event = cancellationOf(funded, funded.getAllocationHash(), "CONTRACT_EXPIRED");
+        loanFundingCancelledHandler.handle(eventId, Instant.now(), event);
+        // Kafka giao trùng cùng eventId và một bản phát lại với eventId khác đều không hủy/nhả tiền lần hai.
+        loanFundingCancelledHandler.handle(eventId, Instant.now(), event);
+        loanFundingCancelledHandler.handle(UUID.randomUUID(), Instant.now(), event);
+
+        var cancelled = listingRepository.findById(created.listingId()).orElseThrow();
+        assertThat(cancelled.getStatus()).isEqualTo(ListingStatus.CANCELLED);
+        assertThat(cancelled.getCancellationReason()).isEqualTo("CONTRACT_EXPIRED");
+        assertThat(cancelled.getCancelledAt()).isNotNull();
+        assertThat(cancelled.getCommittedAmount()).isEqualByComparingTo("0.00");
+        assertThat(commitmentRepository.findByListingIdAndStatus(created.listingId(), CommitmentStatus.CANCELLED))
+                .hasSize(1);
+        var cancelledOrder = orderRepository.findByOrderReference(order.orderReference()).orElseThrow();
+        assertThat(cancelledOrder.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(cancelledOrder.getRejectedReasonCode()).isEqualTo("LOAN_FUNDING_CANCELLED");
+        // API market trả đúng mã lý do để app/web giải thích vì sao đợt gọi vốn bị hủy.
+        MarketListingResponse view = listingService.detail(created.listingId());
+        assertThat(view.status()).isEqualTo("CANCELLED");
+        assertThat(view.cancellationReason()).isEqualTo("CONTRACT_EXPIRED");
+        assertThat(view.cancelledAt()).isNotNull();
+
+        assertThat(fundingMaintenance.releasePendingHolds(100)).isGreaterThanOrEqualTo(1);
+        assertThat(stubPayment().availableBalance("INVESTOR-CANCEL")).isEqualByComparingTo(before);
+        assertThat(orderRepository.findReleasePending(org.springframework.data.domain.PageRequest.of(0, 100)))
+                .noneMatch(item -> item.getOrderReference().equals(order.orderReference()));
+    }
+
+    @Test
+    @DisplayName("Yêu cầu hủy không khớp allocation đã khóa bị từ chối, tiền vẫn được giữ")
+    void loanFundingCancellationRejectsMismatchedAllocation() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        actAs("INVESTOR-CANCEL-MISMATCH");
+        fundingService.placeOrder(created.listingId(), "key-cancel-mismatch",
+                new PlaceOrderRequest(new BigDecimal("10000000.00")));
+        SecurityContextHolder.clearContext();
+        var funded = listingRepository.findById(created.listingId()).orElseThrow();
+
+        assertThatThrownBy(() -> loanFundingCancelledHandler.handle(UUID.randomUUID(), Instant.now(),
+                cancellationOf(funded, "f".repeat(64), "CONTRACT_DECLINED")))
+                .isInstanceOf(InvestmentDomainException.class)
+                .extracting("code").isEqualTo("FUNDING_CANCELLATION_MISMATCH");
+        assertThat(listingRepository.findById(created.listingId()).orElseThrow().getStatus())
+                .isEqualTo(ListingStatus.FULLY_FUNDED);
+        assertThat(commitmentRepository.findByListingIdAndStatus(created.listingId(), CommitmentStatus.ACTIVE))
+                .hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Phần vốn đã khóa để giải ngân thì không được hủy gọi vốn (tránh trả tiền hai lần)")
+    void loanFundingCancellationRefusedAfterCommitmentsFinalized() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        actAs("INVESTOR-CANCEL-FINAL");
+        fundingService.placeOrder(created.listingId(), "key-cancel-final",
+                new PlaceOrderRequest(new BigDecimal("10000000.00")));
+        SecurityContextHolder.clearContext();
+        var funded = listingRepository.findById(created.listingId()).orElseThrow();
+        noteIssuanceService.finalizeCommitments(created.listingId());
+
+        assertThatThrownBy(() -> loanFundingCancelledHandler.handle(UUID.randomUUID(), Instant.now(),
+                cancellationOf(funded, funded.getAllocationHash(), "DISBURSEMENT_FAILED")))
+                .isInstanceOf(InvestmentDomainException.class)
+                .extracting("code").isEqualTo("FUNDING_ALREADY_DISBURSED");
+        assertThat(listingRepository.findById(created.listingId()).orElseThrow().getStatus())
+                .isEqualTo(ListingStatus.FULLY_FUNDED);
+    }
+
+    @Test
+    @DisplayName("LoanFundingRequested có mục đích gồm nhãn và 500 ký tự chi tiết vẫn tạo được listing")
+    void acceptsLongBorrowerPurposeFromLoan() {
+        long loanId = LOAN_SEQUENCE.incrementAndGet();
+        // Đúng cách Loan ghép: nhãn LoanPurpose + ": " + chi tiết người vay tự nhập (tối đa 500 ký tự).
+        String purpose = "Mục đích khác: " + "x".repeat(500);
+        loanFundingRequestedHandler.handle(UUID.randomUUID(), Instant.now(), new LoanFundingRequestedEventData(
+                loanId, "LA-TEST-" + loanId, 1, 1, "SP-01", purpose, null, "B", 700,
+                "10000000.00", "15.0000", 12, "ANNUITY", "LOAN_TERMS_V1", "a".repeat(64), "BORROWER-LONG"));
+
+        var listing = listingRepository.findAll().stream()
+                .filter(item -> item.getLoanId().equals(loanId)).findFirst().orElseThrow();
+        assertThat(listing.getPurpose()).isEqualTo(purpose);
+        assertThat(listing.getRegion()).isEqualTo("Không công bố");
+        assertThat(listing.getStatus()).isEqualTo(ListingStatus.OPEN);
+    }
+
+    private LoanFundingCancelledEventData cancellationOf(
+            com.finora.investment.domain.listing.MarketListing listing, String allocationHash, String reasonCode) {
+        return new LoanFundingCancelledEventData(
+                listing.getLoanId(), listing.getApplicationNumber(), listing.getId(), listing.getFundingRound(),
+                "LC-CANCEL-" + listing.getId(), listing.getAllocationVersion(), allocationHash,
+                reasonCode, Instant.now());
     }
 
     @Test

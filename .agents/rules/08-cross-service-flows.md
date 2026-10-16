@@ -94,11 +94,11 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 **Contract chuẩn:** xem
 [`docs/integrations/LOAN-INVESTMENT-EVENTS.md`](../../docs/integrations/LOAN-INVESTMENT-EVENTS.md).
 
-**CURRENT STATE (2026-09-21):** Loan đã ghi các event vòng đời Contract vào transactional outbox local cùng transaction với aggregate/history. Relay có lease, claim token, retry giới hạn và dead-letter; Kafka adapter đã có broker acknowledgement, partition key theo aggregate, trace headers và allowlist theo exact event/version. Publisher vẫn mặc định tắt và chưa có route/topic hoạt động. Các event Contract nội bộ chưa phải event listing, chưa có consumer và không tự kích hoạt Investment.
+**CURRENT STATE (2026-10-17):** Loan ghi event vòng đời vào transactional outbox cùng transaction với aggregate/history. Relay có lease, claim token, retry giới hạn và dead-letter; Kafka adapter có broker acknowledgement, partition key theo aggregate, trace headers và route cấu hình theo exact event type + version trong `application.yml`. Publisher/consumer luôn bật (không còn cờ tắt). Chỉ event ghi bằng `recordForPublication` mới đi Kafka; event chỉ dùng nội bộ ghi bằng `record`. Investment consume `LoanFundingRequested`, `InvestorSignatureRequested`, `LoanContractActivated`, `LoanDisbursed`, `LoanFundingCancelled` và các event servicing.
 
 **Idempotency:** admin/sign command dùng key và optimistic version; một Application tối đa một Contract trong MVP; Investment unique theo `loanId + listingVersion`.
 
-**Failure:** Contract hết hạn/decline → không listing; sign cạnh tranh chỉ một commit; Investment chưa tạo projection → outbox retry/DLT, Loan không publish event mới trùng để “chữa” lỗi. Listing projection phải rebuild được từ event/source API có kiểm soát.
+**Failure:** decline/expiry điều khoản trước gọi vốn → không listing. Contract nhiều bên chỉ có sau khi đủ vốn, nên khi Contract bị `DECLINED`/`EXPIRED` thì Loan chuyển funding `FULLY_FUNDED → CANCELLED` và ghi `LoanFundingCancelled.v1` cùng transaction; Investment đối chiếu allocation, hủy commitment/order, listing `CANCELLED` và worker nhả hold. Không dùng event này khi đã có commitment `FINALIZED`. Sign cạnh tranh chỉ một commit; Investment chưa tạo projection → outbox retry/DLT, Loan không publish event mới trùng để “chữa” lỗi. Listing projection phải rebuild được từ event/source API có kiểm soát.
 
 ## F04 — Đặt vốn và giữ tiền
 
@@ -116,7 +116,7 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 
 **Idempotency:** `investmentOrderId` cho hold; unique commitment theo order; funded event unique theo `loanId + fundingRound`.
 
-**Failure/compensation:** Payment từ chối → order `REJECTED`; lỗi tạo commitment sau hold → Investment yêu cầu Payment release bằng reference hold; release được retry idempotently. Concurrent order MUST NOT làm overfund hoặc âm ví.
+**Failure/compensation:** Payment từ chối → order `REJECTED`; lỗi tạo commitment sau hold → Investment yêu cầu Payment release bằng reference hold; release được retry idempotently. Concurrent order MUST NOT làm overfund hoặc âm ví. Đã đủ vốn nhưng Loan phát `LoanFundingCancelled.v1` (Contract `DECLINED`/`EXPIRED` hoặc giải ngân thất bại trước capture) → Investment khóa listing, hủy commitment `ACTIVE` và order với mã `LOAN_FUNDING_CANCELLED`, listing `CANCELLED`; worker nhả hold như nhánh hết hạn.
 
 **Hết hạn gọi vốn:** listing `OPEN` quá `fundingClosesAt` → Investment (cùng transaction, khóa listing) chuyển
 `CLOSED`, huỷ commitment/order còn `ACTIVE`, trừ tiến độ và ghi outbox `LoanFundingExpired.v1`
@@ -178,7 +178,7 @@ Phần Payment do Hải viết theo yêu cầu, owner Payment (Thái) cần revi
 
 **Correlation:** mọi command/event mang `sagaId`, `loanId`, `step`, `attempt`, `eventId`.
 
-**Failure/compensation:** transfer lỗi trước khi provider xác nhận → Payment retry hoặc phát failed, không tạo Note; tiền đã chuyển nhưng Fineract disburse lỗi → `REPAIR_REQUIRED`, retry/reconcile và tuyệt đối không chuyển tiền lần hai; Note activation lỗi sau disbursement → consumer retry/DLT/repair, không đảo ledger; Fabric/Notification lỗi không rollback giải ngân. Contract đã đủ chữ ký vẫn `EFFECTIVE`; lỗi giải ngân được xử lý trên Saga riêng.
+**Failure/compensation:** transfer lỗi trước khi provider xác nhận → Payment retry hoặc phát failed, không tạo Note. `DisbursementFailed` đến khi saga còn `WAITING_PAYMENT` (Payment đã trả hold về `HELD`, chưa capture) → saga `PAYMENT_FAILED`, Loan funding `CANCELLED` và `LoanFundingCancelled.v1` (`DISBURSEMENT_FAILED`) để Investment hủy commitment và nhả tiền cho nhà đầu tư; event trùng không phát lần hai. Tiền đã chuyển nhưng Fineract disburse lỗi → `REPAIR_REQUIRED`, retry/reconcile và tuyệt đối không chuyển tiền lần hai; hoàn tiền sau khi đã capture là thao tác đối soát thủ công thuộc R2, không đi qua event bù trừ. Note activation lỗi sau disbursement → consumer retry/DLT/repair, không đảo ledger; Fabric/Notification lỗi không rollback giải ngân. Contract đã đủ chữ ký vẫn `EFFECTIVE`; lỗi giải ngân được xử lý trên Saga riêng và client hiển thị theo funding `CANCELLED`.
 
 **Restart:** Saga state phải durable; restart tiếp tục từ bước cuối đã xác nhận, không chạy lại side effect không idempotent.
 

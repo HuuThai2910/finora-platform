@@ -15,6 +15,7 @@ import com.finora.loan.repository.application.LoanApplicationRepository;
 import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.disbursement.DisbursementSagaRepository;
 import com.finora.loan.repository.messaging.ProcessedEventRepository;
+import com.finora.loan.service.funding.LoanFundingCancellationService;
 import com.finora.loan.service.outbox.OutboxService;
 import com.finora.loan.service.servicing.ServicingActivationService;
 import java.time.Clock;
@@ -41,6 +42,7 @@ public class DisbursementSagaService {
     private final CoreLoanBookingGateway coreGateway;
     private final Clock clock;
     private final TransactionTemplate transactionTemplate;
+    private final LoanFundingCancellationService fundingCancellationService;
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void start(LoanContract contract, LoanApplication application, List<ContractParty> parties, Instant now) {
@@ -77,9 +79,17 @@ public class DisbursementSagaService {
         if (processedEventRepository.existsByEventId(eventId)) return;
         DisbursementSaga saga = locked(data.sagaId());
         requireIdentity(saga, data.loanApplicationId(), data.contractNumber(), saga.getListingId());
-        saga.paymentFailed(data.errorCode(), data.errorMessage(), clock.instant());
+        DisbursementSagaStatus previousStatus = saga.getStatus();
+        Instant now = clock.instant();
+        saga.paymentFailed(data.errorCode(), data.errorMessage(), now);
+        if (previousStatus == DisbursementSagaStatus.WAITING_PAYMENT) {
+            // Chỉ khi Payment báo thất bại lúc tiền chưa chuyển mới được trả tiền giữ cho nhà đầu tư. Saga đã
+            // qua bước nhận tiền mà vẫn nhận failed là dữ liệu mâu thuẫn: không tự hủy vốn, để đối soát R2.
+            fundingCancellationService.cancel(saga.getLoanApplicationId(), saga.getContractNumber(),
+                    LoanFundingCancellationService.DISBURSEMENT_FAILED, now);
+        }
         processedEventRepository.save(ProcessedEvent.create(eventId, "DisbursementFailed", 1,
-                "finora-payment", data.sagaId().toString(), occurredAt, clock.instant()));
+                "finora-payment", data.sagaId().toString(), occurredAt, now));
     }
 
     @Transactional(readOnly = true)

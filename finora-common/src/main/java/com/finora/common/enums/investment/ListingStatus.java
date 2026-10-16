@@ -8,7 +8,8 @@ package com.finora.common.enums.investment;
  * đặt lệnh được. Quản trị đặt mệnh giá rồi duyệt thì chuyển sang OPEN.</p>
  *
  * <p>OPEN → FULLY_FUNDED khi tổng cam kết chạm mục tiêu; OPEN → CLOSED khi hết hạn
- * mà chưa gọi đủ. CANCELLED dành cho trường hợp finora-loan rút khoản vay khỏi sàn.</p>
+ * mà chưa gọi đủ. FULLY_FUNDED → CANCELLED khi finora-loan phát {@code LoanFundingCancelled}: hợp đồng
+ * nhiều bên bị từ chối/hết hạn ký hoặc giải ngân thất bại trước khi Payment capture tiền giữ.</p>
  */
 public enum ListingStatus {
     DRAFT,

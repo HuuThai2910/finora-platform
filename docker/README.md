@@ -24,7 +24,7 @@ Docker Compose giữ PostgreSQL riêng từng service để làm việc khi mấ
 | `user` | `finora-user-redis` | `6381` | `user-redis-data` |
 | `investment` | `finora-investment-postgres` | `15437` | `investment-postgres-data` |
 | `core` | `finora-keycloak` | `8180` | `keycloak-import` (file realm đã render) |
-| `demo` | `finora-user` + Keycloak + Redis + AI + CIC | `8085`, `8180`, `6381`, `8000`, `9000` | Database User/Keycloak/CIC nằm ngoài Compose |
+| `demo` | Kafka + `finora-user` + Keycloak + Redis + AI | `9092`, `8085`, `8180`, `6381`, `8000` | Database User/Keycloak nằm ngoài Compose; CIC là Node đã deploy qua `CIC_SERVICE_URL` |
 | `mail` | `finora-mailpit` | `8025` UI, `1025` SMTP | không lưu trữ lâu dài (tối đa 500 thư) |
 
 Database PostgreSQL của Keycloak và `finora-user` không nằm trong Compose; chúng có thể
@@ -204,7 +204,10 @@ Blockchain: jdbc:postgresql://localhost:15435/finora_blockchain
 Investment: jdbc:postgresql://localhost:15437/finora_investment
 ```
 
-Smoke script luôn thêm profile `core` để kiểm tra Kafka/Keycloak. Nếu chỉ cần database Loan hằng ngày, dùng lệnh `docker compose ... loan-postgres` ở mục 3 để không bật core.
+Smoke script luôn thêm profile `core` để kiểm tra Keycloak; profile `core` không có Kafka nên smoke này
+không chứng minh broker sẵn sàng. Kafka nằm ở profile `kafka`/`demo` và được kiểm tra trong runbook
+[`docs/testing/E2E-VERTICAL-SLICE.md`](../docs/testing/E2E-VERTICAL-SLICE.md). Nếu chỉ cần database Loan hằng
+ngày, dùng lệnh `docker compose ... loan-postgres` ở mục 3 để không bật core.
 
 Không có `-KeepRunning`, script sẽ dừng và xóa container của đúng scope sau smoke nhưng giữ volume. `-Stop` dùng để dừng scope đã chọn.
 

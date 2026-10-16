@@ -16,13 +16,8 @@ import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.mapper.InvestmentMapper;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
 import com.finora.investment.repository.MarketListingRepository;
-import com.finora.investment.repository.InvestmentOrderRepository;
-import com.finora.investment.domain.order.InvestmentOrder;
-import com.finora.common.enums.investment.OrderStatus;
 import com.finora.investment.messaging.event.LoanFundingExpiredEventData;
 import com.finora.investment.service.outbox.InvestmentOutboxService;
-import java.util.Map;
-import java.util.function.Function;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
@@ -55,8 +50,8 @@ public class MarketListingServiceImpl implements MarketListingService {
     private final InvestmentCommitmentRepository commitmentRepository;
     private final InvestmentMapper mapper;
     private final FundingSettingsService settingsService;
-    private final InvestmentOrderRepository orderRepository;
     private final InvestmentOutboxService outboxService;
+    private final ListingCommitmentCanceller commitmentCanceller;
 
     @Override
     @Transactional
@@ -290,7 +285,8 @@ public class MarketListingServiceImpl implements MarketListingService {
                 continue;
             }
             BigDecimal raised = listing.getCommittedAmount();
-            int cancelled = cancelActiveCommitments(listing, now);
+            int cancelled = commitmentCanceller.cancelActive(listing, "LISTING_EXPIRED",
+                    "Khoản vay hết hạn gọi vốn mà chưa đủ vốn; tiền giữ được trả lại ví", SYSTEM_EXPIRY_ACTOR, now);
             listing.setStatus(ListingStatus.CLOSED);
             listing.setUpdatedBy(SYSTEM_EXPIRY_ACTOR);
             listing.setUpdatedAt(now);
@@ -313,35 +309,6 @@ public class MarketListingServiceImpl implements MarketListingService {
         return closed;
     }
 
-    /** Huỷ phần vốn ACTIVE và lệnh của chúng; trả số phần vốn đã huỷ. */
-    private int cancelActiveCommitments(MarketListing listing, Instant now) {
-        List<InvestmentCommitment> active =
-                commitmentRepository.findByListingIdAndStatus(listing.getId(), CommitmentStatus.ACTIVE);
-        if (active.isEmpty()) {
-            return 0;
-        }
-        // Đọc lệnh của cả lô trong một truy vấn thay vì mỗi phần vốn một lần.
-        Map<Long, InvestmentOrder> orders = orderRepository
-                .findAllById(active.stream().map(InvestmentCommitment::getOrderId).toList())
-                .stream().collect(Collectors.toMap(InvestmentOrder::getId, Function.identity()));
-        BigDecimal released = BigDecimal.ZERO;
-        for (InvestmentCommitment commitment : active) {
-            commitment.setStatus(CommitmentStatus.CANCELLED);
-            commitment.setCancelledAt(now);
-            commitment.setUpdatedBy(SYSTEM_EXPIRY_ACTOR);
-            commitment.setUpdatedAt(now);
-            released = released.add(commitment.getAmount());
-
-            InvestmentOrder order = orders.get(commitment.getOrderId());
-            order.setStatus(OrderStatus.CANCELLED);
-            order.setRejectedReasonCode("LISTING_EXPIRED");
-            order.setRejectedReasonDetail("Khoản vay hết hạn gọi vốn mà chưa đủ vốn; tiền giữ được trả lại ví");
-            order.setUpdatedBy(SYSTEM_EXPIRY_ACTOR);
-            order.setUpdatedAt(now);
-        }
-        listing.setCommittedAmount(listing.getCommittedAmount().subtract(released));
-        return active.size();
-    }
 
     private MarketListing requireListing(Long listingId) {
         return listingRepository.findById(listingId)

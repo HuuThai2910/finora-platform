@@ -229,7 +229,8 @@ class AdminLoanStatisticsServiceTest {
         assertThat(summary.applications().byStatus()).containsEntry("APPROVED", 8L)
                 .containsEntry("REJECTED", 4L).containsEntry("PENDING_REVIEW", 0L).hasSize(8);
         assertThat(summary.applications().byFundingStatus())
-                .containsExactly(entry("REQUESTED", 2L), entry("FULLY_FUNDED", 5L), entry("EXPIRED", 0L));
+                .containsExactly(entry("REQUESTED", 2L), entry("FULLY_FUNDED", 5L), entry("EXPIRED", 0L),
+                        entry("CANCELLED", 0L));
         assertThat(summary.collections().openCases()).isEqualTo(4);
         assertThat(summary.collections().openByStage()).containsExactly(
                 entry("EARLY_REMINDER", 3L), entry("ATTENTION", 0L), entry("NPL", 1L),

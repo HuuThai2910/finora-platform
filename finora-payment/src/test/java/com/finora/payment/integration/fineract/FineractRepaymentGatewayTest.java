@@ -1,6 +1,7 @@
 package com.finora.payment.integration.fineract;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -17,18 +18,79 @@ import org.springframework.web.client.RestClient;
 class FineractRepaymentGatewayTest {
 
     @Test
-    void readsScheduledAmountFromOfficialRepaymentTemplate() {
+    void readsScheduledAmountFromTopLevelFieldOfFineractRepaymentTemplate() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://fineract.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         FineractRepaymentGateway gateway = gateway(builder);
         server.expect(requestTo("http://fineract.test/loans/77/transactions/template?command=repayment"))
-                .andRespond(withSuccess("{\"total\":{\"amount\":1250000.00}}", MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess(repaymentTemplateJson("2680000.000000"), MediaType.APPLICATION_JSON));
         server.expect(requestTo("http://fineract.test/loans/77"))
                 .andRespond(withSuccess("{\"summary\":{\"totalOverdue\":250000.00}}", MediaType.APPLICATION_JSON));
 
         ScheduledRepaymentCoreQuote quote = gateway.scheduledRepaymentQuote(77L);
-        assertThat(quote.amount()).isEqualByComparingTo("1250000.00");
+        assertThat(quote.amount()).isEqualByComparingTo("2680000.00");
         assertThat(quote.overdueAmount()).isEqualByComparingTo("250000.00");
+        server.verify();
+    }
+
+    @Test
+    void rejectsRepaymentTemplateWithoutScheduledDueBeforeReadingLoan() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://fineract.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        FineractRepaymentGateway gateway = gateway(builder);
+        server.expect(requestTo("http://fineract.test/loans/77/transactions/template?command=repayment"))
+                .andRespond(withSuccess(repaymentTemplateJson("0"), MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> gateway.scheduledRepaymentQuote(77L))
+                .isInstanceOfSatisfying(FineractRepaymentException.class, exception -> {
+                    assertThat(exception.code()).isEqualTo("FINERACT_NO_SCHEDULED_DUE");
+                    assertThat(exception.outcomeUnknown()).isFalse();
+                });
+        server.verify();
+    }
+
+    @Test
+    void partialPrepaymentSnapshotReadsScheduledDueFromRepaymentTemplate() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://fineract.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        FineractRepaymentGateway gateway = gateway(builder);
+        server.expect(requestTo("http://fineract.test/loans/77/transactions/template?command=repayment"))
+                .andRespond(withSuccess(repaymentTemplateJson("2000000.000000"), MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://fineract.test/loans/77/transactions/template"
+                        + "?command=prepayLoan&dateFormat=dd%20MMMM%20yyyy&locale=en"
+                        + "&transactionDate=03%20October%202026"))
+                .andRespond(withSuccess("{\"amount\":20100000.00}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://fineract.test/loans/77?associations=repaymentSchedule"))
+                .andRespond(withSuccess("""
+                        {"termFrequency":12,"termPeriodFrequencyType":{"id":2},
+                         "timeline":{"actualDisbursementDate":[2026,9,1],
+                                     "expectedMaturityDate":[2027,9,1]},
+                         "summary":{"principalOutstanding":20000000.00},
+                         "repaymentSchedule":{"periods":[
+                           {"dueDate":[2026,10,1],"totalOutstandingForPeriod":2000000.00}]}}
+                        """, MediaType.APPLICATION_JSON));
+
+        PartialPrepaymentCoreSnapshot snapshot =
+                gateway.partialPrepaymentSnapshot(77L, LocalDate.of(2026, 10, 3));
+
+        assertThat(snapshot.scheduledDue()).isEqualByComparingTo("2000000.00");
+        assertThat(snapshot.payoffAmount()).isEqualByComparingTo("20100000.00");
+        assertThat(snapshot.outstandingPrincipal()).isEqualByComparingTo("20000000.00");
+        assertThat(snapshot.nextDueDate()).isEqualTo(LocalDate.of(2026, 10, 1));
+        assertThat(snapshot.originalTermMonths()).isEqualTo(12);
+        server.verify();
+    }
+
+    @Test
+    void reconciliationIgnoresManuallyReversedTransaction() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://fineract.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        FineractRepaymentGateway gateway = gateway(builder);
+        server.expect(requestTo("http://fineract.test/loans/77?associations=transactions,repaymentSchedule"))
+                .andRespond(withSuccess(loanJson().replace("\"manuallyReversed\": false",
+                        "\"manuallyReversed\": true"), MediaType.APPLICATION_JSON));
+
+        assertThat(gateway.findPostedRepayment(77L, "FINORA-REPAY-abc")).isEmpty();
         server.verify();
     }
 
@@ -99,10 +161,31 @@ class FineractRepaymentGatewayTest {
         return new FineractRepaymentGateway(builder.build(), properties);
     }
 
+    /**
+     * Shape thật của {@code GET /loans/{id}/transactions/template?command=repayment} trên Fineract 1.15.0
+     * (đọc từ fixture local ngày 2026-10-17, bỏ danh sách payment type). Tiền nằm ở field cấp gốc.
+     */
+    private String repaymentTemplateJson(String amount) {
+        return """
+                {
+                  "type": {"id": 2, "code": "loanTransactionType.repayment", "value": "Repayment"},
+                  "date": [2026, 11, 6],
+                  "currency": {"code": "VND", "decimalPlaces": 0},
+                  "amount": %s,
+                  "netDisbursalAmount": 30000000.000000,
+                  "principalPortion": 2355000.000000,
+                  "interestPortion": 325000.000000,
+                  "feeChargesPortion": 0,
+                  "penaltyChargesPortion": 0,
+                  "manuallyReversed": false
+                }
+                """.formatted(amount);
+    }
+
     private String loanJson() {
         return """
                 {
-                  "transactions": [{"id": 501, "externalId": "FINORA-REPAY-abc", "reversed": false}],
+                  "transactions": [{"id": 501, "externalId": "FINORA-REPAY-abc", "manuallyReversed": false}],
                   "summary": {
                     "principalOutstanding": 9200.00,
                     "interestOutstanding": 900.00,

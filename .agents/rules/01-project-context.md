@@ -13,7 +13,7 @@ là hai repository riêng nằm cùng workspace.
 - Core/identity/integration: Apache Fineract 1.15, Keycloak, Kafka, Redis, PostgreSQL,
   SmartCA UAT, ZaloPay sandbox/mock và CIC Node deploy ngoài Compose.
 
-## CURRENT STATE — cập nhật 2026-10-16
+## CURRENT STATE — cập nhật 2026-10-17
 
 - Luồng chính đã chạy xuyên service: đăng nhập/eKYC, tạo và chấm điểm hồ sơ, admin duyệt,
   niêm yết gọi vốn, nhà đầu tư giữ tiền, hợp đồng nhiều bên, SmartCA UAT, giải ngân ví,
@@ -34,12 +34,17 @@ là hai repository riêng nằm cùng workspace.
 - PostgreSQL 17/Neon là persistence chính theo database-per-service; Docker PostgreSQL là
   fallback offline/test. Fineract có hai database riêng và chỉ được truy cập qua API.
 - Code đã có Flyway, Testcontainers/integration tests, outbox/idempotent consumer ở các luồng
-  tài chính chính. Chưa có một bộ E2E lặp lại tự động bao phủ toàn bộ vertical slice và các ca
-  restart/unknown outcome giữa tất cả service.
+  tài chính chính. Bộ E2E R1A (`docker/e2e/`) chạy tự động từ đăng ký tới phân bổ một kỳ trả nợ trên
+  Fineract thật, nhưng với KYC người vay mock trong Loan, chữ ký `MOCK`, nạp/giải ngân provider `mock`
+  và proof `MOCK`. Ca restart/unknown outcome, sáu fixture servicing và test clock vẫn thuộc R1B.
+- Trả kỳ với Fineract thật chỉ chạy được từ Wave 1 (2026-10-17) sau khi sửa field repayment template;
+  còn defect P0 mở về ngày nghiệp vụ UTC và ngày giải ngân dự kiến khi booking (B06, B07 trong plan tồn đọng).
 
 Nguồn tổng hợp việc còn lại là
 [`../plans/finora-remaining-work-plan.md`](../plans/finora-remaining-work-plan.md). Roadmap đội
-vẫn là bảng phân công; plan tồn đọng là thứ tự hoàn thiện và acceptance evidence hiện hành.
+vẫn là bảng phân công; plan tồn đọng `ACTIVE` là thứ tự hoàn thiện và acceptance evidence hiện hành.
+R1 được chạy hai vòng: baseline để phát hiện lỗi, rồi acceptance sau R2/R3; policy của hợp đồng cũ/mới
+phải được khóa bằng version trước khi nghiệm thu toàn bộ servicing.
 
 ## TARGET STATE
 

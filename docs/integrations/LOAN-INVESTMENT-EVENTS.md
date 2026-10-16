@@ -71,7 +71,8 @@ eKYC và bảng luật không đi qua Kafka và Investment không chép các s�
 | `LoanContractActivated` v1 / `finora.loan.contract-activated` | Loan → Investment; Blockchain/Notification là consumer kế tiếp | Tất cả lender và borrower đã ký; Contract chuyển `EFFECTIVE` | Investment đánh dấu khoản đầu tư có hiệu lực. Trong cùng transaction kích hoạt, Loan tạo durable Saga/outbox `DisbursementRequested`; event này không được hiểu là đã giải ngân | `eventId`; mỗi consumer có `processed_events`; side effect tài chính có idempotency key riêng |
 | `DisbursementRequested` v2 / `finora.loan.disbursement-requested` | Loan → Payment | Contract đã `EFFECTIVE`, Loan đã tạo durable Saga | Payment lưu yêu cầu duy nhất theo `sagaId`, capture/đối chiếu từng `paymentHoldReference` và gọi provider ngoài transaction | unique `sagaId`; provider reference/idempotency dùng cùng `sagaId` |
 | `DisbursementCompleted` v1 / `finora.payment.disbursement-completed` | Payment → Loan | Provider xác nhận tiền đã chuyển và Payment đã lưu reference | Loan ghi nhận Fineract bằng external ID, không yêu cầu Payment chuyển lại | `eventId` + `sagaId`; `paymentReference` unique |
-| `DisbursementFailed` v1 / `finora.payment.disbursement-failed` | Payment → Loan | Lỗi cuối cùng, không còn retry tự động trong Payment | Loan giữ Contract `EFFECTIVE`, saga thành `PAYMENT_FAILED` để vận hành xử lý | `eventId` + `sagaId` |
+| `DisbursementFailed` v1 / `finora.payment.disbursement-failed` | Payment → Loan | Lỗi cuối cùng, không còn retry tự động trong Payment | Loan giữ Contract `EFFECTIVE`, saga thành `PAYMENT_FAILED` để vận hành xử lý; nếu saga còn `WAITING_PAYMENT` thì cùng transaction ghi `LoanFundingCancelled` để nhà đầu tư được nhả tiền giữ | `eventId` + `sagaId` |
+| `LoanFundingCancelled` v1 / `finora.loan.funding-cancelled` | Loan → Investment | Đợt gọi vốn đã đủ vốn nhưng khoản vay chắc chắn không giải ngân: Contract nhiều bên `DECLINED`/`EXPIRED`, hoặc `DisbursementFailed` đến khi saga còn `WAITING_PAYMENT` | Investment khóa listing, đối chiếu allocation, hủy commitment `ACTIVE` và lệnh tương ứng, chuyển listing `CANCELLED`; worker bảo trì nhả từng hold theo mã lệnh. Đã có commitment `FINALIZED` hoặc `disbursedAt` thì từ chối (DLT) vì tiền đã capture | `eventId` trong `processed_events`; Loan chỉ chuyển `fundingStatus FULLY_FUNDED → CANCELLED` một lần nên event logic chỉ sinh một lần; replay với `eventId` mới là no-op khi listing đã `CANCELLED` |
 | `LoanDisbursed` v1 / `finora.loan.disbursed` | Loan → Investment, Notification, Blockchain | Payment success và Fineract đã ghi disbursement | Investment `ACTIVE → FINALIZED` commitments và phát hành Note; các consumer khác chỉ tạo projection/proof/thông báo | `eventId`; Note unique theo commitment/sequence |
 | `NoteOwnershipChanged` v1 / `finora.investment.note-ownership-changed` | Investment → Payment | Note vừa phát hành hoặc đổi chủ trên chợ thứ cấp | Payment cập nhật read model chủ Note để kỳ trả tiếp theo chuyển tiền đúng người đang sở hữu | `eventId`; `noteId` unique; event cũ hơn `changedAt` không ghi đè event mới |
 | `RepaymentDistributed` v1 / `finora.payment.repayment-distributed` | Payment → Loan, Investment, Blockchain | Ví người vay đã bị trừ, Fineract đã phân bổ và ledger phân phối đã cân bằng | Loan cập nhật projection; Investment cộng gốc/lãi/phần phí trả trước của Note và đóng Note khi hết gốc; Blockchain chỉ neo SHA-256 của `data` | `eventId`; unique `repaymentId`/`fineractTransactionId`; `processed_events` |
@@ -187,6 +188,36 @@ Payment. `LoanDisbursed` mới xác nhận toàn bộ happy path bắt buộc (P
 - `DisbursementFailed` trả `sagaId`, application/contract ID và mã lỗi đã lọc; không chứa raw provider body.
 - `LoanDisbursed` trả thêm `fineractLoanId` và `disbursedAt`; đây là trigger duy nhất để tạo Note.
 
+### 5.3a `LoanFundingCancelled` v1 — bù trừ khi không giải ngân
+
+```json
+{
+  "loanApplicationId": 123,
+  "applicationNumber": "LA-2026-000123",
+  "listingId": 456,
+  "fundingRound": 1,
+  "contractNumber": "LC-2026-000123",
+  "allocationVersion": 1,
+  "allocationHash": "<sha256 hex của allocation đã khóa>",
+  "reasonCode": "CONTRACT_EXPIRED",
+  "cancelledAt": "2026-10-17T03:00:00Z"
+}
+```
+
+- `reasonCode` chỉ nhận `CONTRACT_DECLINED`, `CONTRACT_EXPIRED` hoặc `DISBURSEMENT_FAILED`; giá trị khác bị
+  Investment từ chối. Payload không mang lý do tự do hoặc PII.
+- Investment chỉ hủy khi `loanApplicationId`, `applicationNumber`, `fundingRound`, `allocationVersion`,
+  `allocationHash` và `contractNumber` (nếu listing đã gắn) khớp listing `FULLY_FUNDED`. Sai lệch nghĩa là
+  hai service không cùng một allocation: fail closed, không nhả tiền theo phỏng đoán.
+- Lệnh bị hủy mang `rejectedReasonCode = LOAN_FUNDING_CANCELLED` và mô tả tiếng Việt; tiền được trả qua
+  `FundingMaintenanceService.releasePendingHolds` (idempotent theo mã lệnh), không gọi Payment trong
+  transaction consumer.
+- Phía Loan, `funding.status = CANCELLED` kèm `cancelledAt`, `cancelReason`. Contract giữ nguyên trạng thái
+  thật (`DECLINED`/`EXPIRED`, hoặc `EFFECTIVE` khi giải ngân thất bại); client phải ưu tiên trạng thái
+  funding để không hiển thị “hợp đồng đang hiệu lực” cho khoản vay sẽ không được giải ngân.
+- Ngoài phạm vi v1: giải ngân thất bại sau khi Payment đã capture (saga đã qua `WAITING_PAYMENT`) cần
+  hoàn tiền/đối soát thủ công thuộc R2; event này không được dùng để đảo bút toán đã capture.
+
 ### 5.4 Quyền sở hữu Note và repayment v1
 
 `NoteOwnershipChanged.v1` mang `loanApplicationId`, `listingId`, `currency`, `reason`, `reference`,
@@ -270,6 +301,12 @@ Loan APPROVED + exact terms được phép
   → FULLY_SIGNED/EFFECTIVE
   → WAITING_PAYMENT → CORE_BOOKING → COMPLETED
   → Investment FINALIZED commitments + ACTIVE Notes
+
+Nhánh bù trừ (không giải ngân):
+Contract DECLINED/EXPIRED  ─┐
+DisbursementFailed khi saga ├→ Loan funding CANCELLED + LoanFundingCancelled
+  còn WAITING_PAYMENT      ─┘   → Investment listing CANCELLED, commitment/order CANCELLED
+                                → worker nhả hold, ví nhà đầu tư trở lại số dư khả dụng
 ```
 
 Luồng Investment là bắt buộc. Loan không tạo Contract ngay sau terms consent;
@@ -332,8 +369,12 @@ khi restart. Mốc đúng là:
 `MOCK` chỉ dành cho local/dev. Khi dùng `VNPT_SMART_CA`, Loan lưu một giao dịch async riêng cho mỗi
 investor, mobile poll endpoint refresh có giới hạn và chỉ mở lượt borrower sau khi mọi lender đã ký.
 Môi trường UAT hiện dùng signer test cố định từ secret cấu hình; production phải ánh xạ signer theo
-danh tính người dùng thay vì dùng chung signer cố định. Mobile gọi mọi REST qua Gateway; route
-`/api/v1/investor/loan-contracts/**` thuộc Loan, còn Market/Portfolio thuộc Investment.
+danh tính người dùng thay vì dùng chung signer cố định. Theo `finora-mobile/.env.example` hiện hành,
+mobile gọi Loan (`8081`), Investment (`8084`) và Payment (`8082`) trực tiếp; auth/user và API không khai
+báo URL riêng đi qua Gateway (`8080`). Gateway đã có route cho `/api/v1/repayments/**` và
+`/api/v1/admin/repayment-reconciliation/**` (đặt trước route admin của Loan) nên client có thể chuyển dần
+sang Gateway mà không đổi path. Route `/api/v1/investor/loan-contracts/**` thuộc Loan, còn
+Market/Portfolio thuộc Investment.
 
 Tài liệu này là đặc tả kỹ thuật cho khóa luận, không thay thế phê duyệt pháp lý về mẫu hợp đồng hoặc
 hình thức chữ ký của từng bên trước production.

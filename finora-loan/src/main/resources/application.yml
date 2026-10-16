@@ -179,6 +179,9 @@ finora:
         - event-type: LoanRescheduleConsentRequested
           event-version: 1
           topic: ${LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC:finora.loan.reschedule-consent-requested}
+        - event-type: LoanFundingCancelled
+          event-version: 1
+          topic: ${LOAN_FUNDING_CANCELLED_TOPIC:finora.loan.funding-cancelled}
     disbursement:
       worker-delay: ${LOAN_DISBURSEMENT_WORKER_DELAY:5000}
     servicing-sync:

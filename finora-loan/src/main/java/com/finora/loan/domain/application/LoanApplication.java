@@ -263,6 +263,12 @@ public class LoanApplication {
     @Column(name = "funding_expired_at")
     private Instant fundingExpiredAt;
 
+    @Column(name = "funding_cancelled_at")
+    private Instant fundingCancelledAt;
+
+    @Column(name = "funding_cancel_reason", length = 40)
+    private String fundingCancelReason;
+
     @Version
     @Column(nullable = false)
     private Long version;
@@ -693,6 +699,32 @@ public class LoanApplication {
         fundingStatus = LoanFundingStatus.EXPIRED;
         investmentListingId = listingId;
         fundingExpiredAt = expiredAt;
+        updatedBy = requireText(actorId, "actorId");
+        updatedAt = now;
+        return true;
+    }
+
+    /**
+     * Hủy đợt gọi vốn đã đủ vốn khi khoản vay chắc chắn không được giải ngân. Chỉ nhận từ
+     * {@code FULLY_FUNDED}: allocation đã khóa nên Investment cần một tín hiệu nghiệp vụ để trả tiền
+     * đang giữ. Gọi lại khi đã hủy trả {@code false} để hai luồng (hết hạn ký và giải ngân lỗi) không
+     * phát event bồi hoàn lần hai.
+     *
+     * @return {@code true} nếu trạng thái vừa đổi và cần ghi outbox
+     */
+    public boolean markFundingCancelled(String reasonCode, String actorId, Instant now) {
+        String normalizedReason = requireText(reasonCode, "reasonCode");
+        if (fundingStatus == LoanFundingStatus.CANCELLED) {
+            return false;
+        }
+        if (fundingStatus != LoanFundingStatus.FULLY_FUNDED) {
+            throw LoanDomainException.conflict(
+                    "LOAN_FUNDING_NOT_FULLY_FUNDED",
+                    "Chỉ đợt gọi vốn đã đủ vốn mới có tiền giữ cần hủy");
+        }
+        fundingStatus = LoanFundingStatus.CANCELLED;
+        fundingCancelledAt = Objects.requireNonNull(now, "now");
+        fundingCancelReason = normalizedReason;
         updatedBy = requireText(actorId, "actorId");
         updatedAt = now;
         return true;

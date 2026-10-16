@@ -65,24 +65,31 @@ idempotency và acceptance evidence. CIC Node được xem là dependency bên n
 
 ```text
 R0 Đồng bộ source và tài liệu
- → R1 E2E demo lặp lại được
- → R2 Saga/Fineract/financial recovery
- → R3 Investment projection và reconciliation
- → R4 Hoàn thiện tiền ngoài hệ thống
- → R5 Chữ ký PDF và blockchain proof
- → R6 Notification, security, observability, deployment
- → R7 AI/secondary market/auto-invest nâng cao
+ → R1A chạy baseline E2E, ghi nhận sai lệch và khóa G-POLICY
+ → R2 Saga/Fineract/financial recovery || R3 Investment projection/reconciliation
+ → R1B chạy lại E2E và toàn bộ regression servicing
+ → R8A security gate tối thiểu
+ → R4 tiền ngoài hệ thống
+ → R5 PDF || R6 Blockchain || R7 Notification
+ → R8B security hardening || R9 observability/deployment
+ → R10 AI || R11 secondary market/auto-invest nâng cao
 ```
 
-R1–R3 là cổng trước khi mở rộng R4–R7. Không gọi một tính năng là hoàn tất chỉ vì UI trả `200`;
-phải kiểm tra state tại đúng SoR, ledger/event và khả năng retry.
+`||` nghĩa là hai workstream có thể chạy song song nếu không sửa cùng contract/vùng ownership. R1A
+không đòi mọi fault test phải xanh: mục tiêu là dựng baseline lặp lại và ghi defect có evidence. R1B chỉ
+được nghiệm thu sau R2/R3, nhờ đó không tạo vòng phụ thuộc “phải sửa xong mới được phép tìm lỗi”.
+
+R1B–R3 và G-POLICY là cổng trước khi mở rộng R4–R7. R8A là cổng riêng trước mọi provider tiền/chữ ký
+ngoài hệ thống. Không gọi một tính năng là hoàn tất chỉ vì UI trả `200`; phải kiểm tra state tại đúng
+SoR, ledger/event và khả năng retry.
 
 ## 3. Danh mục tồn đọng
 
 | ID | Ưu tiên | Owner | Phạm vi | Trạng thái | Kết quả cần đạt |
 |---|---|---|---|---|---|
 | R0 | P0 | Both | Source/docs | `DONE` | Backend, web, mobile cùng mốc code; roadmap/rule khớp code |
-| R1 | P0 | Both | E2E | `READY` | Một script/checklist chạy sạch từ đăng ký đến một kỳ trả nợ |
+| R1 | P0 | Both | E2E | `IN_PROGRESS` | R1A baseline tự động đã chạy thật ngày 2026-10-17; R1B chạy sạch core và toàn bộ servicing sau R2/R3 |
+| G-POLICY | P0 | Both | Policy/Contract | `READY` | Khoản vay cũ/mới dùng đúng policy version và hợp đồng/quote/UI cùng một công thức |
 | R2 | P0 | Thai | Loan/Payment/Fineract | `READY` | Restart/timeout/duplicate không giải ngân hoặc thu tiền hai lần |
 | R3 | P0 | Hai | Investment | `READY` | Order–hold, Note activation, ownership và portfolio tự repair |
 | R4 | P1 | Thai | Payment | `BACKLOG` | Rút tiền và provider disbursement sandbox chạy thật, đối soát được |
@@ -93,6 +100,63 @@ phải kiểm tra state tại đúng SoR, ledger/event và khả năng retry.
 | R9 | P1 | Both | Ops | `BACKLOG` | Health, metrics, alert, replay/DLT và deployment tái lập được |
 | R10 | P2 | Hai | AI | `BACKLOG` | Backtest/champion-challenger, fraud và early warning có metric |
 | R11 | P2 | Hai + Thai | Investment/Payment | `IN_PROGRESS` | Secondary market/auto-invest qua concurrency/reconciliation E2E |
+
+## 3a. Quyết định owner ngày 2026-10-17
+
+Thái chốt trong phiên rà soát ngày 2026-10-17 và cho phép agent chọn phương án được khuyến nghị cho các
+lựa chọn kỹ thuật còn lại, miễn phù hợp nghiệp vụ và chạy ổn định trong FINORA. Không quyết định nào dưới đây
+được mô tả là yêu cầu pháp luật nếu không có dẫn chiếu trong `docs/LEGAL-COMPLIANCE.md`.
+
+| # | Quyết định | Loại | Wave |
+|---|---|---|---|
+| D1 | CIC theo bản Node đã deploy; không phát triển lại CIC trong repo | Phạm vi | Đã áp dụng |
+| D2 | Sửa lỗi hiện tại và làm luôn backlog theo wave; được sửa module của Hải để đồng bộ, đánh dấu “Hải review trước merge” | Ownership | 1–3 |
+| D3 | Security (R8) tạm hoãn, chỉ sửa khi gắn trực tiếp với contract giữa service | Phạm vi | Sau wave 3 |
+| D4 | Loan dùng adapter KYC thật của User; chỉ borrower `VERIFIED` được nộp hồ sơ; mock chỉ còn cho test/E2E | Nghiệp vụ | 2 |
+| D5 | Hạn mức dư nợ của một borrower 100.000.000 VND, cấu hình được, nhãn `NEEDS_PRIMARY_SOURCE` (policy demo, chưa phải luật) | Policy demo | 2 |
+| D6 | Nhà đầu tư tick xác nhận rủi ro (lưu version + thời điểm) trước lệnh sơ cấp (`LEGAL-DISCLOSURE-02`) | Nghiệp vụ | 2 |
+| D7 | Ngày nghiệp vụ của Loan và Payment là `Asia/Ho_Chi_Minh` | Nghiệp vụ | 2 |
+| D8 | Hợp đồng bị từ chối/hết hạn ký hoặc giải ngân thất bại → event bù trừ, Investment hủy cam kết và nhả hold | Contract | 1 (xong) |
+| D9 | Phạt chậm trả giữ 0 cho hợp đồng hiện hành; chưa có write-off | Policy | Giữ nguyên |
+| D10 | Trả trước một phần thu `scheduledDue + prepaidPrincipal`; quote cũ giữ snapshot | Policy | Giữ nguyên |
+| D11 | E2E tự động: tài khoản mới mỗi lần, OTP đọc Redis User local, eKYC investor tắt chỉ trong stack E2E, ký MOCK, Auto-Invest tắt, admin demo, ghi dữ liệu test lên Neon/Fineract/Kafka dev | Kiểm thử | 1 (xong) |
+| D12 | Commit theo wave trên nhánh `feat/finora-remaining-wave-<n>`, không push khi chưa được yêu cầu | Quy trình | 1–3 |
+| D13 | R5 dùng PAdES-B-B với VNPT SmartCA UAT (ký hash, nhúng CMS bằng incremental update) | Kỹ thuật | 3 |
+| D14 | R6 dựng Hyperledger Fabric local thật thay ledger MOCK | Kỹ thuật | 3 |
+
+## 3b. Defect register
+
+Nguồn: rà soát code ngày 2026-10-16/17 và evidence R1A (`docker/e2e/out/r1a-*.json`, không commit).
+`Fixed` chỉ dùng khi có test hoặc evidence chạy thật đi kèm.
+
+| ID | Mức | Workstream | Vấn đề và bằng chứng | Trạng thái |
+|---|---|---|---|---|
+| B01 | P0 | R2 | Payment đọc `total.amount` của repayment template; Fineract 1.15 trả `amount` cấp gốc nên mọi lệnh trả kỳ bị từ chối. Test xanh vì IT mock gateway | Fixed Wave 1 — unit test payload thật + E2E trả kỳ `COMPLETED` |
+| B02 | P0 | R2 | Đối soát dò `reversed`, Fineract dùng `manuallyReversed` | Fixed Wave 1 — unit test |
+| B03 | P0 | R9 | Gateway thiếu route `/api/v1/repayments/**`; admin repayment reconciliation bị route sang Loan; profile `docker` thiếu route Notification | Fixed Wave 1 — E2E trả nợ qua Gateway |
+| B04 | P0 | R3 | `market_listings.purpose` VARCHAR(100) trong khi Loan gửi nhãn + 500 ký tự; listing vào DLT | Fixed Wave 1 — Investment V15 + IT |
+| B05 | P0 | R2/R3 | Không có bù trừ khi đã đủ vốn mà hợp đồng bị từ chối/hết hạn hoặc giải ngân thất bại; tiền nhà đầu tư bị giữ vô thời hạn | Fixed Wave 1 — `LoanFundingCancelled` v1, Loan V27, IT Loan/Investment |
+| B06 | P0 | G-POLICY | Loan/Payment dùng `Clock.systemUTC()`: từ 00:00–07:00 giờ VN, Fineract ghi giải ngân/trả nợ vào ngày hôm trước; hợp đồng ghi kỳ đầu 17/11 còn Fineract 16/11 (evidence R1A-BIZDATE) | Open → Wave 2 (D7) |
+| B07 | P0 | R2 | Booking dùng `expectedDisbursementDate` của lúc nộp hồ sơ, `submittedOnDate` = ngày booking. Fineract từ chối khi ngày booking muộn hơn (`error.msg.loan.submittal.cannot.be.after.expected.disbursement.date`, kiểm bằng `calculateLoanSchedule`) → luồng thật (gọi vốn tới 14 ngày, ký tới 7 ngày) sẽ `REPAIR_REQUIRED` sau khi tiền đã chuyển | Open → Wave 2, cùng G-POLICY về lịch theo ngày giải ngân thực tế |
+| B08 | P0 | R2 | Saga `CORE_BOOKING` không được nhận lại sau khi service chết giữa chừng | Open → Wave 2 |
+| B09 | P0 | R2 | Payment disbursement `PROCESSING`/`RECONCILIATION_REQUIRED` không có worker phục hồi; truy vấn top-20 có thể bỏ đói | Open → Wave 2 |
+| B10 | P1 | R2 | Payment POST Fineract thành công nhưng GET sau đó lỗi HTTP bị coi là thất bại → hoàn tiền + `FAILED` | Open → Wave 2 |
+| B11 | P1 | R2 | Outbox Payment `send().get()` không timeout | Open → Wave 2 |
+| B12 | P1 | R2 | `DisbursementSaga.paymentFailed` ghi đè mọi trạng thái trừ `COMPLETED` (bù trừ Wave 1 đã chặn ở `WAITING_PAYMENT`) | Open → Wave 2 |
+| B13 | P1 | R2 | Lỗi Fineract khi đọc nghĩa vụ trả nợ trả `500 INTERNAL_ERROR` thay vì mã nghiệp vụ | Open → Wave 2 |
+| B14 | P1 | R3 | Investment `LoanDisbursed` yêu cầu listing `EFFECTIVE`, sai thứ tự event vào DLT và không tự replay | Open → Wave 2 |
+| B15 | P1 | R3 | Admin `finalize`/`activate-notes` không có guard trạng thái; web hiện nút nguy hiểm | Open → Wave 2 |
+| B16 | P1 | R3 | Portfolio chỉ đọc Note `ACTIVE`, khoản `DEFAULTED`/`CLOSED` biến mất khỏi danh mục | Open → Wave 2 |
+| B17 | P1 | G-POLICY | Cấu hình phí tất toán hiện hành áp ngược cho hợp đồng cũ (chưa có policy version snapshot) | Open → Wave 2 |
+| B18 | P1 | Legal | Thiếu kiểm hạn mức dư nợ (`LEGAL-LIMIT-01`) và xác nhận rủi ro nhà đầu tư (`LEGAL-DISCLOSURE-02`) | Open → Wave 2 (D5, D6) |
+| B19 | P1 | Loan/User | Loan chỉ có `BorrowerProfileProvider` mock (VERIFIED, 30 tuổi) | Open → Wave 2 (D4) |
+| B20 | P1 | FE | Mobile tự tính số tiền trả kỳ; web gọi API duyệt listing không còn tồn tại và hiện thông điệp sai | Open → Wave 2 |
+| B21 | P1 | R9/R2 | DB Loan dùng chung chứa khoản vay trỏ tới Fineract local của máy khác; worker sync log lỗi 404 kèm stack trace ở mọi chu kỳ 10 giây, mapping Product↔Fineract không dùng chung được giữa máy | Open → Wave 2 (backoff/repair) và R9 (environment matrix) |
+| B22 | P2 | R9 | DB dev dùng chung chậm 1–3 migration so với `main` (Loan V26, Investment V13–V14, Payment V11 chỉ được áp khi chạy E2E) | Open → R9 (CI/migration discipline) |
+| B23 | P2 | R9 | Payment khai báo `spring-boot-starter-data-redis` nhưng không dùng Redis | Open → R9 |
+| B24 | P2 | R7 | `BorrowerSignatureRequested` chưa có consumer; người vay không nhận thông báo đến lượt ký | Open → Wave 3 (R7) |
+| B25 | P2 | DOC | `finora-loan/plans/` bị git-ignore nên link LN-009/010/015 trong tài liệu chung không mở được ở máy khác | Open — chờ owner quyết định có commit plan Loan hay không |
+| S01 | P1 | R8 | Tự đăng ký `ADMIN`; AI không xác thực (kể cả `PUT config`); endpoint nội bộ Notification `permitAll`; `mock-complete` không gắn môi trường; PIN token dùng lại được trong TTL; URL Neon mặc định trong `application.yml` của Loan | Deferred theo D3 |
 
 ## 4. R0 — Đồng bộ source, roadmap và tài liệu
 
@@ -115,6 +179,24 @@ R0 hoàn tất ngày 2026-10-17 tại các commit backend `c1ca1ba`, web `ac4ad2
 `531f5ee`; commit tài liệu xác nhận cuối có thể nằm sau SHA backend nêu trên.
 
 ## 5. R1 — Bộ E2E vertical slice lặp lại được
+
+### Hai checkpoint
+
+- **R1A — Baseline/discovery:** dựng môi trường và dữ liệu xác định, chạy happy path một lần, ghi lại
+  mọi sai lệch bằng trace/saga/event/business reference. Fault case được phép đỏ nhưng phải tái hiện được
+  và được chuyển thành defect thuộc R2 hoặc R3.
+- **R1B — Regression/acceptance:** sau khi R2/R3 hoàn tất, chạy lại cùng dữ liệu và tất cả fault case.
+  Chỉ R1B xanh mới được gọi core flow là ổn định.
+
+### Trạng thái R1A ngày 2026-10-17
+
+Bộ chạy tự động nằm ở `docker/e2e/` (task plan
+[`R1A-e2e-vertical-slice-baseline.md`](R1A-e2e-vertical-slice-baseline.md), runbook
+[`E2E-VERTICAL-SLICE.md`](../../docs/testing/E2E-VERTICAL-SLICE.md)). Trên stack local với Fineract thật,
+AI v17, CIC Node đã deploy, ký `MOCK`, nạp/giải ngân provider `mock` và proof `MOCK`, kịch bản đi hết từ đăng ký
+tới phân bổ một kỳ trả nợ; kết quả từng lần chạy và defect phát hiện được ghi trong task plan R1A và defect
+register mục 3b. R1A chưa thay R1B: restart giữa saga, timeout Fineract, sáu fixture servicing và test clock
+vẫn chờ R2/R3.
 
 ### Luồng demo chuẩn
 
@@ -139,6 +221,28 @@ Borrower đăng nhập/eKYC
 | Note | Investor thấy khoản đầu tư đang hiệu lực | Note/ownership snapshot/version |
 | Trả kỳ | Borrower giảm tiền, investor nhận phần của mình | Fineract transaction + distribution ledger/outbox |
 
+### Bộ servicing bắt buộc sau happy path
+
+Mỗi cơ chế dùng một khoản vay/fixture độc lập để kết quả không phụ thuộc thứ tự chạy:
+
+1. Trả đúng một kỳ.
+2. Trả thiếu rồi khắc phục nghĩa vụ quá hạn.
+3. Trả trước một phần gốc, không thu lãi tương lai và áp đúng policy fee/version.
+4. Tất toán toàn bộ, đóng Loan/Note và phân bổ tiền đúng ownership snapshot.
+5. Cơ cấu kỳ hạn: admin thẩm định, toàn bộ chủ Note biểu quyết, chỉ khi đồng thuận mới đổi lịch Fineract.
+6. Default/CIC/cure: chuyển nhóm theo DPD liên tục, không cộng dồn các episode đã chữa; trả đủ quá hạn
+   tạo episode phục hồi nhưng không xóa lịch sử.
+
+### Fixture thời gian và reset
+
+- Có lệnh seed/reset dữ liệu test theo namespace/run ID; không sửa tay database và không dùng PII thật.
+- Test quá hạn 10/91/181/361 ngày dùng test clock hoặc fixture Fineract riêng chỉ bật trong profile test;
+  tuyệt đối không cho API “đổi ngày” xuất hiện ở demo/prod.
+- Mỗi fixture ghi rõ Product/servicing policy version, borrower, investor, số dư đầu, ngày nghiệp vụ và
+  expected schedule/ledger/Note/CIC result.
+- CIC Node là dependency ngoài FINORA: baseline phải kiểm tra contract/version, timeout và lỗi không
+  sẵn sàng; không phát triển lại CIC trong repository này.
+
 ### Ca lỗi tối thiểu
 
 - Gửi lặp cùng idempotency key.
@@ -149,11 +253,38 @@ Borrower đăng nhập/eKYC
 
 ### Acceptance
 
-- Có script hoặc checklist tạo dữ liệu sạch và kết quả mong đợi theo từng SoR.
-- Chạy lại không cần sửa DB tay; duplicate không tăng/giảm tiền lần hai.
-- Có trace/saga/event ID để lần theo toàn luồng.
+- R1A có script/checklist tạo dữ liệu sạch, kết quả mong đợi theo từng SoR và defect list gán đúng R2/R3.
+- R1B chạy lại không cần sửa DB tay; core happy path và sáu cơ chế servicing đều xanh.
+- Duplicate/restart/event trễ không tăng/giảm tiền lần hai; có trace/saga/event ID để lần theo toàn luồng.
+- Báo cáo tách rõ dependency nào thật, sandbox, mock hoặc fail-closed.
 
-## 6. R2 — Saga, Fineract và financial recovery
+## 6. G-POLICY — Phiên bản chính sách và điều khoản hợp đồng
+
+### Cách hiểu nghiệp vụ
+
+Khoản vay đã ký phải giữ nguyên cách tính đã cam kết. Khi FINORA đổi phí hoặc công thức, chỉ hợp đồng
+mới sau ngày hiệu lực dùng phiên bản mới; không lấy cấu hình hiện tại áp ngược cho khoản vay cũ.
+
+### Việc phải chốt trong task con
+
+- Một policy version bất biến gồm ngày hiệu lực, dải kỳ hạn, rate/minimum fee, cách chia 80/20,
+  quy tắc không thu lãi tương lai và lựa chọn rút ngắn kỳ/giảm tiền kỳ.
+- Product/Contract lưu hoặc tham chiếu snapshot policy đã công bố; PDF/text/hash và borrower consent
+  dùng cùng version. Artifact đã ký không được render lại bằng policy mới.
+- Quote trả trước/tất toán trả về policy version, thời điểm tính, principal, accrued interest, từng phí,
+  phần investor/FINORA và expiry; web/mobile chỉ hiển thị breakdown backend trả về.
+- Migration/rollout nêu rõ khoản vay legacy dùng công thức nào; không “nâng cấp” hợp đồng đang hiệu lực
+  bằng update hàng loạt.
+- Dẫn `LEGAL-DISCLOSURE-01`, `LEGAL-CONTRACT-01`, `LEGAL-SERVICING-01`; tách điều pháp luật yêu cầu,
+  policy demo FINORA và giới hạn kỹ thuật.
+
+### Acceptance
+
+- Test cùng ngày giao dịch trên hai hợp đồng có policy version khác nhau cho đúng hai kết quả đã cam kết.
+- PDF, quote, Payment/Fineract breakdown, mobile và event evidence cùng version/công thức.
+- Thay cấu hình hiện tại không làm đổi quote hợp lệ hoặc nghĩa vụ của hợp đồng cũ.
+
+## 7. R2 — Saga, Fineract và financial recovery
 
 ### Mục tiêu nghiệp vụ
 
@@ -185,7 +316,7 @@ gọi HTTP. Worker dùng processing lease; hết lease phải reconcile trước
 - Ledger cân bằng và principal/schedule không lệch sau mọi ca lỗi.
 - `LEGAL-PAYMENT-01` và `LEGAL-SERVICING-01` được dẫn trong task triển khai.
 
-## 7. R3 — Investment reconciliation và projection rebuild
+## 8. R3 — Investment reconciliation và projection rebuild
 
 ### Việc còn lại
 
@@ -207,7 +338,7 @@ gọi HTTP. Worker dùng processing lease; hết lease phải reconcile trước
 - Rebuild cho ra tổng principal/interest/cashflow bằng ledger/event nguồn.
 - Một event trùng không tạo Note, ownership hoặc portfolio entry thứ hai.
 
-## 8. R4 — Tiền ngoài FINORA
+## 9. R4 — Tiền ngoài FINORA
 
 ### Current state
 
@@ -217,7 +348,10 @@ gọi HTTP. Worker dùng processing lease; hết lease phải reconcile trước
 
 ### Việc còn lại
 
+- Chỉ bắt đầu sau G-POLICY, R1B–R3 và security gate R8A.
 - Chọn rõ phạm vi demo: ZaloPay sandbox top-up + mock payout, hoặc provider payout sandbox thật.
+  Phương án khuyến nghị đã chọn ngày 2026-10-17: ZaloPay sandbox top-up + mock payout có callback HMAC và
+  đối soát; payout thật chỉ mở sau legal review `LEGAL-PAYMENT-01`.
 - Thêm withdrawal/payout request, provider reference, callback/query status và reconciliation.
 - Không cộng/trừ ví chỉ dựa trên redirect mobile; callback phải xác thực chữ ký và idempotent.
 - Batch/admin reconciliation: provider amount/status ↔ Payment transaction/ledger.
@@ -230,7 +364,7 @@ gọi HTTP. Worker dùng processing lease; hết lease phải reconcile trước
 - Tổng provider settlement khớp ledger; mismatch vào queue đối soát.
 - Tuân `LEGAL-PAYMENT-01` và phải legal review trước mọi môi trường tiền thật.
 
-## 9. R5 — Chữ ký PDF nhiều bên
+## 10. R5 — Chữ ký PDF nhiều bên
 
 ### Current state
 
@@ -243,6 +377,11 @@ nguyên bytes; trạng thái “đã ký” hiện được chứng minh bằng 
 2. **PAdES:** dùng SDK/contract chính thức để nhúng chữ ký theo incremental update; lender ký trước,
    mỗi lender tiếp theo ký bản mới, borrower ký cuối và hash/version phải theo chuỗi tài liệu.
 
+Quyết định 2026-10-17 (D13): chọn hướng 2 ở mức PAdES-B-B với VNPT SmartCA UAT — PDFBox chuẩn bị chữ ký
+external theo incremental update, SmartCA ký hash (`sign_type: hash`), BouncyCastle đóng gói CMS. Trước khi
+code phải xác nhận `get_certificate` trả chứng thư DER đầy đủ; chứng thư UAT không phải chữ ký số có giá trị
+pháp lý production.
+
 ### Acceptance nếu chọn PAdES
 
 - PDF mở bằng trình đọc chuẩn thấy chữ ký/chứng thư và kiểm tra được integrity.
@@ -250,7 +389,7 @@ nguyên bytes; trạng thái “đã ký” hiện được chứng minh bằng 
 - Retry cùng signer/document version không tạo hai chữ ký.
 - Contract state chỉ active khi signer bắt buộc hoàn tất; `LEGAL-CONTRACT-01` được review.
 
-## 10. R6 — Blockchain proof và Fabric
+## 11. R6 — Blockchain proof và Fabric
 
 ### Current state
 
@@ -269,6 +408,8 @@ Fabric adapter thật cố ý fail-closed; contract/disbursement consumer và qu
 
 ### Việc còn lại
 
+- Quyết định 2026-10-17 (D14): dựng Hyperledger Fabric local thật; kiểm RAM máy dev trước khi bật cùng
+  stack E2E, ledger `MOCK` vẫn là mặc định khi Fabric tắt.
 - Duyệt event contract từng mốc; thêm consumer idempotent.
 - Dựng Fabric network/chaincode/identity, submit/query adapter và receipt thật.
 - Explorer/query theo business reference và integrity reconciliation DB ↔ chain.
@@ -280,7 +421,7 @@ Fabric adapter thật cố ý fail-closed; contract/disbursement consumer và qu
 - Duplicate/restart không tạo proof logic thứ hai.
 - `LEGAL-DATA-01` và `LEGAL-CONTRACT-01` được kiểm tra trước rollout.
 
-## 11. R7 — Notification hoàn chỉnh
+## 12. R7 — Notification hoàn chỉnh
 
 ### Current state
 
@@ -295,7 +436,19 @@ preference, provider push/SMS/email đầy đủ và bounded retry/DLT cho mọi
 - Push provider adapter, token lifecycle, opt-in/preference và redaction nội dung màn khóa.
 - Dedup theo source event + recipient + channel; delivery lỗi không rollback nghiệp vụ.
 
-## 12. R8 — Security, privacy và audit
+## 13. R8 — Security, privacy và audit
+
+### R8A — Gate tối thiểu trước provider bên ngoài
+
+- Negative authorization test cho borrower/investor/admin/service account trên resource thật.
+- Callback/webhook bắt buộc xác thực chữ ký, chống replay, idempotent và không tin redirect từ client.
+- Secret scan, tách credential dev/demo, redaction token/CCCD/document/signature/provider payload.
+- Rate limit cho login, eKYC, top-up, quote và mutation tiền/chữ ký.
+
+R8A phải đạt trước R4 và trước khi bật SmartCA/provider ngoài môi trường local. Không cần chờ toàn bộ
+hardening production mới chạy R5–R7 bằng mock/fail-closed.
+
+### R8B — Hardening trước release
 
 - Chốt JWT claim/role/resource authorization xuyên Gateway và service; test borrower/investor/admin.
 - Admin RBAC chi tiết cho duyệt hồ sơ, servicing, reconcile và replay.
@@ -307,7 +460,7 @@ preference, provider push/SMS/email đầy đủ và bounded retry/DLT cho mọi
 Acceptance: negative authorization tests, secret scan và PII/log review có evidence; người dùng không
 đọc/sửa tài nguyên của người khác chỉ bằng cách đổi ID.
 
-## 13. R9 — Observability, vận hành và deployment
+## 14. R9 — Observability, vận hành và deployment
 
 - Một lệnh dựng dependency cần thiết; health/readiness không chỉ kiểm tra mở cổng.
 - Trace ID đi qua HTTP, outbox/Kafka, saga và provider; dashboard cho DLT, outbox lag,
@@ -315,8 +468,14 @@ Acceptance: negative authorization tests, secret scan và PII/log review có evi
 - Runbook cho restart, replay, manual reconcile và rollback migration tương thích.
 - Backup/restore test cho từng database; không dùng chung credential giữa service.
 - CI chạy validator rules, Java verify, web build, mobile typecheck và contract tests.
+- Có environment matrix local/test/demo: dependency nào Docker, IDE, external URL, sandbox hoặc mock;
+  env bắt buộc/tuỳ chọn và health check nghiệp vụ tương ứng.
+- Pin/kiểm tra compatibility PostgreSQL 17 với Flyway/driver và nâng version có migration test, không bỏ
+  qua cảnh báo compatibility chỉ vì ứng dụng vẫn khởi động.
+- Monitor CIC Node như dependency ngoài: timeout/error-rate/contract smoke; outage không được tạo điểm
+  mặc định hoặc đánh dấu hồ sơ đạt.
 
-## 14. R10/R11 — Phần mở rộng sau phase gate
+## 15. R10/R11 — Phần mở rộng sau phase gate
 
 ### AI
 
@@ -331,7 +490,7 @@ Acceptance: negative authorization tests, secret scan và PII/log review có evi
   SSE reconnect và reconciliation Payment ↔ Note transfer.
 - Đây không phải blocker cho demo primary-market repayment.
 
-## 15. Bản đồ dữ liệu hiện hành ở mức service
+## 16. Bản đồ dữ liệu hiện hành ở mức service
 
 Plan này không thêm bảng. Quan hệ logic cần giữ khi viết task con:
 
@@ -354,7 +513,7 @@ Fineract loan/transaction                    BlockchainProof/NotificationDeliver
 Các mũi tên chéo service là quan hệ bằng external/business ID và event, không phải foreign key và
 không cho phép join database chéo.
 
-## 16. Test matrix tổng hợp
+## 17. Test matrix tổng hợp
 
 | Nhóm | Happy | Validation | Duplicate | Concurrency | Timeout/restart | Reconcile |
 |---|---:|---:|---:|---:|---:|---:|
@@ -366,9 +525,12 @@ không cho phép join database chéo.
 | Reschedule/default | Có | Có | Có | consent race | event trễ | Bắt buộc |
 | Blockchain/notification | Có | Có | Bắt buộc | worker lease | provider outage | Bắt buộc |
 
-## 17. Definition of Done cuối hệ thống
+Mỗi ô “Có/Bắt buộc” phải trỏ tới test ID/evidence cụ thể. Repayment/prepayment bao gồm đủ sáu fixture
+ở R1; overdue/default dùng test clock thay vì thay ngày trực tiếp trong database.
 
-- R1–R3 đạt trước khi gọi luồng core là ổn định.
+## 18. Definition of Done cuối hệ thống
+
+- G-POLICY, R1B–R3 đạt trước khi gọi luồng core là ổn định.
 - Không có chỉnh DB tay trong kịch bản demo chuẩn.
 - Mọi thay đổi tiền cân bằng và truy được bằng business/external reference.
 - Fineract, Payment, Investment và Loan hội tụ cùng một trạng thái sau restart/event trễ.
@@ -376,8 +538,12 @@ không cho phép join database chéo.
 - Tài liệu, event catalog, env example và UI test guide khớp code cùng commit.
 - Các hạng mục production chưa làm được ghi rõ là mock/sandbox/backlog, không mô tả quá khả năng.
 
-## 18. Nghiệm thu plan
+## 19. Nghiệm thu plan
 
-Plan ở trạng thái `DRAFT` cho tới khi Thái/Hải chốt owner và thứ tự R1–R11. Khi bắt đầu workstream,
-tạo task plan cụ thể và liên kết vào roadmap; khi hoàn tất, ghi command/test evidence và commit SHA
-thay vì chỉ đổi trạng thái bằng mô tả.
+Plan tổng hợp đang `ACTIVE`; đây là thứ tự điều phối, không thay thế task plan chi tiết. Mỗi workstream
+mới vẫn bắt đầu bằng task plan `DRAFT`, chỉ chuyển `APPROVED` khi owner chốt phạm vi/contract. Khi hoàn
+tất, ghi command/test evidence, commit SHA và bản đồ code thực tế thay vì chỉ đổi trạng thái bằng mô tả.
+
+Trạng thái trong `finora-web/PLAN.md` và `finora-mobile/PLAN.md` là trạng thái nghiệm thu task, không phải
+kết luận rằng toàn bộ code của luồng chưa tồn tại. `READY_FOR_REVIEW` nghĩa là code/build đã có nhưng vẫn
+chờ owner/UAT; `IN_PROGRESS` hoặc `DRAFT` phải ghi rõ phần hiện hành và phần hardening còn dự kiến.

@@ -98,6 +98,7 @@ class FinoraLoanApplicationIT {
     @Autowired CreditScoringOrchestrator scoringOrchestrator;
     @Autowired LoanTermsConfirmationExpiryStateService termsExpiryStateService;
     @Autowired LoanFullyFundedHandler fullyFundedHandler;
+    @Autowired com.finora.loan.service.contract.LoanContractStateService contractStateService;
     @Autowired PinTokenService pinTokenService;
     @Autowired HashingService hashingService;
     @Autowired AiCreditProperties aiCreditProperties;
@@ -537,6 +538,62 @@ class FinoraLoanApplicationIT {
                     .contains("INVESTOR-001")
                     .doesNotContain("CHƯA TÍCH HỢP");
         }
+    }
+
+    @Test
+    void expiredFundedContractCancelsFundingAndPublishesCompensationOnce() throws Exception {
+        JsonNode submitted = submitAndScoreApplication();
+        String applicationNumber = submitted.path("applicationNumber").asText();
+        JsonNode review = objectMapper.readTree(mockMvc.perform(
+                        get("/api/v1/admin/loan-applications/{number}/review", applicationNumber))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+        mockMvc.perform(post("/api/v1/admin/loan-applications/{number}/approve", applicationNumber)
+                        .header("Idempotency-Key", "approve-" + UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"applicationVersion":%d,"assessmentId":%d,"decisionReasonCode":"POLICY_APPROVED"}
+                                """.formatted(review.path("version").asLong(),
+                                review.path("assessment").path("assessmentId").asLong())))
+                .andExpect(status().isOk());
+        List<FundingAllocationEventData> allocations = List.of(new FundingAllocationEventData(
+                101L, "INVESTOR-001", "50000000.00", "100.000000", "HOLD-INVESTOR-001"));
+        String allocationHash = hashingService.sha256Text(hashingService.toJson(allocations));
+        fullyFundedHandler.handle(UUID.randomUUID(), Instant.now(), new LoanFullyFundedEventData(
+                submitted.path("id").asLong(), applicationNumber, 9002L, 1,
+                "50000000.00", "VND", 1L, allocationHash, Instant.now(), allocations));
+        Long contractId = jdbcTemplate.queryForObject("SELECT id FROM loan_contracts", Long.class);
+
+        // Không ai ký trong hạn: lùi created_at để vẫn thỏa ck_loan_contract_expiry (expires_at > created_at).
+        jdbcTemplate.update("""
+                UPDATE loan_contracts
+                SET created_at = now() - interval '2 hours', expires_at = now() - interval '1 minute'
+                WHERE id = ?
+                """, contractId);
+        assertThat(contractStateService.expireOne(contractId)).isTrue();
+        assertThat(contractStateService.expireOne(contractId)).isFalse();
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM loan_contracts WHERE id = ?", String.class, contractId)).isEqualTo("EXPIRED");
+        assertThat(jdbcTemplate.queryForMap(
+                "SELECT funding_status, funding_cancel_reason FROM loan_applications WHERE application_number = ?",
+                applicationNumber))
+                .containsEntry("funding_status", "CANCELLED")
+                .containsEntry("funding_cancel_reason", "CONTRACT_EXPIRED");
+        // queryForObject chỉ nhận đúng một dòng: event bồi hoàn không được ghi lặp khi worker chạy lại.
+        JsonNode cancelled = objectMapper.readTree(jdbcTemplate.queryForObject("""
+                SELECT payload_json::text FROM loan_outbox_events
+                WHERE event_type = 'LoanFundingCancelled' AND event_version = 1 AND publishable = true
+                """, String.class));
+        assertThat(cancelled.path("applicationNumber").asText()).isEqualTo(applicationNumber);
+        assertThat(cancelled.path("listingId").asLong()).isEqualTo(9002L);
+        assertThat(cancelled.path("allocationVersion").asLong()).isEqualTo(1L);
+        assertThat(cancelled.path("allocationHash").asText()).isEqualTo(allocationHash);
+        assertThat(cancelled.path("reasonCode").asText()).isEqualTo("CONTRACT_EXPIRED");
+        mockMvc.perform(get("/api/v1/loan-applications/{number}", applicationNumber))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.funding.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.funding.cancelReason").value("CONTRACT_EXPIRED"));
     }
 
     @Test
