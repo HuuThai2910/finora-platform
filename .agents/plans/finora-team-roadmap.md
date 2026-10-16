@@ -98,8 +98,8 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 |---|---|---|---|---|
 | P1-B01 | User | Đồng bộ Keycloak identity và user profile | User API + authorization + migration | `BACKLOG` |
 | P1-B02 | User | KYC application/state machine, document metadata | Không lưu/log ảnh nhạy cảm sai chỗ | `BACKLOG` |
-| P1-B03 | AI | eKYC technical API: OCR contract (đã thu hẹp 2026-08-22: bỏ face/liveness; engine duy nhất Gemini 2.5 Flash, bắt buộc GEMINI_API_KEY) | Model/provider version + reason | `DONE` — OCR chạy trong luồng eKYC hai mặt CCCD |
-| P1-B04 | User | Orchestrate eKYC và manual review | Event KYC version 1 | `BACKLOG` |
+| P1-B03 | AI | eKYC technical API: `/document` (QR → MRZ check digit → cấu trúc số định danh, Gemini chỉ điền chỗ trống trên ảnh đã che chân dung) + `/liveness` (thử thách ngẫu nhiên, YuNet/SFace) — EKYC-002, 2026-10-16 | Model/threshold version + reason codes | `IN_PROGRESS` — code xong, chờ chạy thử trên máy thật |
+| P1-B04 | User | Orchestrate eKYC và manual review | Đồng ý điều khoản, lượt xác minh, bằng chứng S3, duyệt tay (EKYC-002); event KYC version 1 vẫn chưa có | `IN_PROGRESS` — luồng + duyệt tay xong (EKYC-002), chưa phát event |
 | P1-B05 | AI | Credit preprocessing/model registry/predictor | Model package chống train/serve skew | `BACKLOG` |
 | P1-B06 | AI | Credit scoring + reason codes/XAI cơ bản | Contract fixture cho Loan | `BACKLOG` |
 | P1-B07 | Notification | Template/trạng thái gửi cho KYC và hồ sơ | Idempotency theo source event | `BACKLOG` |

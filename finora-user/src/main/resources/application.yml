@@ -38,8 +38,8 @@ spring:
       port: ${USER_REDIS_PORT:6381}
       password: ${USER_REDIS_PASSWORD:}
 
-  # Feign — một lần xác minh eKYC chạy OCR, FaceMesh và nhận dạng khuôn mặt,
-  # có thể mất vài chục giây nên read-timeout mặc định là không đủ.
+  # Feign — bước đọc thẻ eKYC ở finora-ai giải QR, đọc MRZ bằng Tesseract, tìm chân dung (YuNet/SFace)
+  # và có thể hỏi Gemini điền chỗ trống; AI xử lý tuần tự nên một lần gọi có thể mất vài chục giây.
   cloud:
     openfeign:
       client:
@@ -48,8 +48,18 @@ spring:
             connect-timeout: 3000
             read-timeout: 60000
 
+  # Video liveness gửi multipart (≤ 10 MB) hoặc tối đa 20 ảnh tĩnh (≤ 1,5 MB mỗi ảnh).
+  # Vượt giới hạn → 413 PAYLOAD_TOO_LARGE (UploadExceptionHandler).
+  servlet:
+    multipart:
+      max-file-size: 12MB
+      max-request-size: 40MB
+
 server:
   port: 8085
+  tomcat:
+    # Đọc nốt phần thân bị từ chối để client nhận được JSON 413 thay vì kết nối bị cắt ngang.
+    max-swallow-size: 50MB
 
 # Keycloak Admin Client — tạo user, gán role, đổi mật khẩu
 keycloak:
@@ -80,9 +90,39 @@ finora:
       lease-duration: ${USER_CIC_MAPPING_LEASE_DURATION:2m}
       initial-retry-delay: ${USER_CIC_MAPPING_INITIAL_RETRY_DELAY:30s}
       max-retry-delay: ${USER_CIC_MAPPING_MAX_RETRY_DELAY:15m}
-  # AI service — OCR CCCD, active liveness và so khớp khuôn mặt
+  # AI service — đọc thẻ (/document) và kiểm tra khuôn mặt (/liveness) của eKYC, chấm điểm tín dụng.
+  # Route eKYC chỉ gọi nội bộ: header X-Internal-Token phải bằng AI_INTERNAL_TOKEN ở finora-ai.
   ai:
     url: ${AI_SERVICE_URL:http://localhost:8000}
+    internal-token: ${AI_INTERNAL_TOKEN:}
+    connect-timeout: 3s
+    liveness-read-timeout: 60s
+  # eKYC (EKYC-002): điều khoản đồng ý, kho bằng chứng S3 và worker quét dọn.
+  ekyc:
+    consent:
+      version: ekyc-2026-10
+      contact-email: ${EKYC_CONSENT_CONTACT_EMAIL:}
+      storage-location: ${EKYC_STORAGE_LOCATION_TEXT:hệ thống lưu trữ thử nghiệm của FINORA}
+      server-location: ${EKYC_SERVER_LOCATION_TEXT:Malaysia}
+      effective-date: ${EKYC_CONSENT_EFFECTIVE_DATE:16/10/2026}
+      mentions-gemini: ${EKYC_CONSENT_MENTIONS_GEMINI:true}
+    # Tắt mặc định: chưa có kho thì eKYC dừng ở STORAGE_UNAVAILABLE, không xác minh khi thiếu bằng chứng.
+    # Dev local: SeaweedFS (docker/docker-compose.yml, profile ekyc) ở http://localhost:9100, path-style.
+    # Deploy: Amazon S3 — bỏ trống endpoint và path-style, đặt region của bucket.
+    storage:
+      enabled: ${EKYC_EVIDENCE_ENABLED:false}
+      endpoint: ${EKYC_S3_ENDPOINT:}
+      region: ${EKYC_S3_REGION:us-east-1}
+      bucket: ${EKYC_S3_BUCKET:finora-ekyc}
+      path-style: ${EKYC_S3_PATH_STYLE:false}
+      access-key: ${EKYC_S3_ACCESS_KEY:}
+      secret-key: ${EKYC_S3_SECRET_KEY:}
+      env: ${EKYC_S3_ENV:dev}
+      retention-days: ${EKYC_EVIDENCE_RETENTION_DAYS:30}
+    sweeper:
+      enabled: ${EKYC_SWEEPER_ENABLED:true}
+      interval-ms: ${EKYC_SWEEPER_INTERVAL_MS:3600000}
+      initial-delay-ms: ${EKYC_SWEEPER_INITIAL_DELAY_MS:300000}
   crypto:
     hmac-secret: ${FINORA_HMAC_SECRET:change-me-in-production-hmac-secret-key-32chars}
     aes-secret: ${FINORA_AES_SECRET:change-me-prod-aes-256-key-32ch!}

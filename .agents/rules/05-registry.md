@@ -18,7 +18,8 @@ Thay đổi giá trị trong bảng MUST cập nhật cấu hình, tài liệu l
 | Payment PostgreSQL offline    |        15434 host local; 5432 nội bộ | PostgreSQL 17, `payment-postgres`, volume/user riêng                                                                                                          |
 | Blockchain PostgreSQL offline |        15435 host local; 5432 nội bộ | PostgreSQL 17, `blockchain-postgres`, volume/user riêng                                                                                                       |
 | User PostgreSQL               |                       5432 host local | PostgreSQL cài trên máy host, DB `finora_user` (không còn container `user-postgres`)                                                                          |
-| User Redis                    |         6381 host local; 6379 nội bộ | Redis 7, `user-redis`, volume riêng; OTP reset password + rate limit đăng nhập                                                                                |
+| User Redis                    |         6381 host local; 6379 nội bộ | Redis 7, `user-redis`, volume riêng; OTP reset password + rate limit đăng nhập; eKYC: bản nháp mã hoá, thử thách liveness, bộ đếm, chống phát lại (EKYC-002) |
+| eKYC evidence S3 (SeaweedFS, dev) | 9100 host local (`127.0.0.1`); 8333 nội bộ | `chrislusf/seaweedfs:4.48`, profile `ekyc`, volume `seaweedfs-data`, bucket `finora-ekyc`, object `ekyc/{env}/{userProfileId}/{attemptId}/…`; chỉ finora-user ghi/đọc. Deploy dùng Amazon S3 (chưa bật: `EKYC_EVIDENCE_ENABLED=false`) |
 | Investment PostgreSQL offline |        15437 host local; 5432 nội bộ | PostgreSQL 17, `investment-postgres`, volume/user riêng                                                                                                       |
 | Notification PostgreSQL offline |      15438 host local; 5432 nội bộ | PostgreSQL 17, `notification-postgres`, volume/user riêng                                                                                                     |
 | Payment Redis                 |         6380 host local; 6379 nội bộ | Redis 7, password/volume riêng của Payment                                                                                                                    |
@@ -70,7 +71,9 @@ CURRENT STATE: Fineract 1.15.0/PostgreSQL 18.3 local đã healthy và tenant aut
 smoke pass ngày 2026-08-03; Product V2 `PROGRESSIVE` + advanced allocation đã được Fineract local chấp
 nhận ngày 2026-10-04. Loan V2 50 triệu và repayment thật 5 triệu đã chứng minh principal còn 45 triệu
 và `REAMORTIZATION` trên 6 kỳ; Kafka broker local cũng đã publish/consume envelope v1. Chưa có
-MinIO hoặc Fabric network/chaincode. Mail local dùng Mailpit (profile `mail`), thay cho MailHog.
+Fabric network/chaincode. Mail local dùng Mailpit (profile `mail`), thay cho MailHog. Bằng chứng eKYC dùng
+SeaweedFS local (profile `ekyc`, thay MinIO đã ngừng phát hành ngày 2026-10-16); route
+`/api/v1/ai/ekyc/**` của AI chỉ gọi nội bộ với header `X-Internal-Token` (`AI_INTERNAL_TOKEN`), gateway chặn từ ngoài.
 
 ## Phân bổ dự kiến — chưa phải thành phần đang chạy
 

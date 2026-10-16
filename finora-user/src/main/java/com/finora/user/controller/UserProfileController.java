@@ -2,6 +2,7 @@ package com.finora.user.controller;
 
 import com.finora.common.dto.BaseResponse;
 import com.finora.common.security.SecurityUtils;
+import com.finora.user.dto.request.EkycConfirmRequest;
 import com.finora.user.dto.request.EkycVerifyRequest;
 import com.finora.user.dto.response.EkycResultResponse;
 import com.finora.user.dto.response.UserProfileResponse;
@@ -18,8 +19,8 @@ import java.util.UUID;
 /**
  * Controller hồ sơ người dùng — xem hồ sơ và xác minh eKYC (CCCD).
  * <p>
- * Không còn API cập nhật/khai CCCD tay: thông tin định danh được điền từ OCR
- * khi quét eKYC. Tất cả endpoint yêu cầu xác thực (JWT từ Keycloak).
+ * Không còn API cập nhật/khai CCCD tay: thông tin định danh được điền từ thẻ
+ * khi xác minh eKYC. Tất cả endpoint yêu cầu xác thực (JWT từ Keycloak).
  * <p>
  * Endpoint eKYC ({@code ekyc-verify}) trả bao {@link BaseResponse} theo contract
  * mà mobile đã tích hợp; endpoint hồ sơ trả DTO trực tiếp.
@@ -39,13 +40,13 @@ public class UserProfileController {
         return ResponseEntity.ok(userProfileService.getMyProfile(keycloakUserId));
     }
 
-    // ── eKYC — Xác minh giấy tờ ────────────────────────────────────
+    // ── eKYC — quét thẻ và xác nhận (EKYC-002 mục 3.2, 3.5) ─────────
 
     /**
-     * Bước quét eKYC: gửi ảnh hai mặt CCCD, nhận về bản nháp thông tin OCR.
+     * Bước quét thẻ: gửi ảnh hai mặt thẻ (kèm QR nếu app đã đọc được), nhận bản nháp có nhãn nguồn
+     * từng trường, hoặc yêu cầu chụp lại/từ chối.
      * <p>
-     * Hồ sơ CHƯA được lưu ở bước này — bản nháp nằm trên server chờ người dùng
-     * soát rồi xác nhận qua {@code ekyc-confirm}; sai thông tin thì quét lại.
+     * Hồ sơ CHƯA được lưu ở bước này — bản nháp nằm trên server chờ bước kiểm tra khuôn mặt và xác nhận.
      */
     @PostMapping("/profile/ekyc-verify")
     @PreAuthorize("hasAuthority('user:cccd:scan')")
@@ -58,14 +59,16 @@ public class UserProfileController {
     }
 
     /**
-     * Bước xác nhận eKYC: người dùng đồng ý với bản nháp thì hồ sơ mới được lưu
-     * và chuyển VERIFIED. Không nhận dữ liệu từ client — bản nháp đọc từ server
-     * để người dùng không sửa được thông tin đã OCR.
+     * Bước xác nhận: cần đã qua kiểm tra khuôn mặt. Body tuỳ chọn {@code {"edits": {...}}} chỉ sửa được
+     * trường {@code editable}; dữ liệu còn lại đọc từ bản nháp phía server để client không sửa được
+     * thông tin đã đọc từ thẻ.
      */
     @PostMapping("/profile/ekyc-confirm")
     @PreAuthorize("hasAuthority('user:cccd:scan')")
-    public BaseResponse<EkycResultResponse> confirmEkyc() {
+    public BaseResponse<EkycResultResponse> confirmEkyc(
+            @Valid @RequestBody(required = false) EkycConfirmRequest request) {
         UUID keycloakUserId = SecurityUtils.getCurrentKeycloakUserId();
-        return BaseResponse.success(ekycVerificationService.confirm(keycloakUserId));
+        return BaseResponse.success(ekycVerificationService.confirm(
+                keycloakUserId, request == null ? null : request.edits()));
     }
 }

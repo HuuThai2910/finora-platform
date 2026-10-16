@@ -14,7 +14,15 @@ env/
 # lc_clean.csv nặng 128MB — git không hợp với file lớn, commit vào là repo phình
 # vĩnh viễn và không xóa được khỏi lịch sử. Lấy file từ nguồn ngoài rồi đặt vào đây.
 data/
+# Ngoại lệ: dữ liệu tra cứu nhỏ đi kèm code (63 mã tỉnh cho luật số định danh eKYC),
+# không phải dữ liệu huấn luyện — phải nằm trong repo thì service mới chạy được.
+!app/ml/ekyc/data/
 
 # LƯU Ý: models/ KHÔNG bị bỏ qua. Vì data/ không commit nên không ai clone về mà
 # huấn luyện lại được — gói model (.pkl + .json) phải nằm trong repo thì service
 # mới chạy được. File .json còn là tài liệu về mô hình: đọc và diff được qua git.
+#
+# Ngoại lệ: model khuôn mặt YuNet/SFace của OpenCV Zoo (eKYC) là file nhị phân của
+# bên thứ ba (~38 MB). Tải bằng scripts/download_face_models.py (ghim SHA-256);
+# Dockerfile.ai tự chạy script này lúc build.
+models/face/*.onnx

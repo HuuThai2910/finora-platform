@@ -72,6 +72,22 @@ public class UserProfile {
     @Column(name = "id_number_encrypted", length = 500)
     private String idNumberEncrypted;
 
+    /** Đời thẻ đã xác minh (CCCD_CHIP_2021, CAN_CUOC_2024…) — theo kết luận của finora-ai */
+    @Column(name = "id_card_type", length = 30)
+    private String idCardType;
+
+    /** Ngày cấp thẻ đã xác minh */
+    @Column(name = "id_issue_date")
+    private LocalDate idIssueDate;
+
+    /** Ngày hết hạn thẻ đã xác minh; {@code null} khi thẻ không thời hạn hoặc không đọc được */
+    @Column(name = "id_expiry_date")
+    private LocalDate idExpiryDate;
+
+    /** Nơi đăng ký khai sinh (chỉ in trên thẻ Căn cước 2024) */
+    @Column(name = "birth_registration_place", length = 500)
+    private String birthRegistrationPlace;
+
     /** Hash SHA-256 của số điện thoại — dùng để tra cứu trùng lặp */
     @Column(name = "phone_hash", length = 64)
     private String phoneHash;
@@ -127,14 +143,49 @@ public class UserProfile {
     // ── eKYC state transitions ────────────────────────────────────────
 
     /**
-     * Đánh dấu đã xác minh giấy tờ (CCCD hai mặt). Luồng hiện tại không có
-     * xác minh khuôn mặt nên {@code livenessVerified}/{@code faceMatchScore}
-     * giữ nguyên giá trị mặc định.
+     * Hồ sơ đã xác minh: giấy tờ hai mặt đạt và khuôn mặt đã được kiểm tra (tự động hoặc nhân viên duyệt).
+     *
+     * @param faceMatchScore   điểm so khớp khuôn mặt video với ảnh chân dung trên thẻ; {@code null} nếu AI không đo được
+     * @param livenessVerified {@code true} khi liveness đạt hoặc ở vùng xám đã được người duyệt chấp nhận
+     * @param completedAt      thời điểm có kết luận cuối
      */
-    public void markEkycDocumentVerified() {
+    public void markEkycVerified(Double faceMatchScore, boolean livenessVerified, Instant completedAt) {
         this.ekycStatus = EkycStatus.VERIFIED;
         this.documentVerified = true;
-        this.ekycCompletedAt = Instant.now();
+        this.livenessVerified = livenessVerified;
+        this.faceMatchScore = faceMatchScore;
+        this.ekycCompletedAt = completedAt;
+    }
+
+    /**
+     * Hồ sơ đã gửi và chờ nhân viên duyệt. Trường định danh <b>chưa</b> được ghi: chỉ ghi khi nhân viên
+     * duyệt, để dữ liệu chưa được xác nhận không lọt vào hồ sơ và claim.
+     */
+    public void markEkycManualReview() {
+        this.ekycStatus = EkycStatus.MANUAL_REVIEW;
+    }
+
+    /** Nhân viên từ chối hồ sơ; người dùng được xác minh lại từ đầu. */
+    public void markEkycFailed(Instant decidedAt) {
+        this.ekycStatus = EkycStatus.FAILED;
+        this.documentVerified = false;
+        this.livenessVerified = false;
+        this.faceMatchScore = null;
+        this.ekycCompletedAt = decidedAt;
+    }
+
+    /**
+     * Người dùng rút lại đồng ý eKYC: hồ sơ trở về chưa xác minh. Số định danh (hash + bản mã hoá)
+     * vẫn giữ để một CCCD không mở được nhiều tài khoản bằng cách rút đồng ý rồi quét lại ở tài khoản khác.
+     */
+    public void resetEkycAfterConsentWithdrawal() {
+        if (ekycStatus == EkycStatus.VERIFIED || ekycStatus == EkycStatus.MANUAL_REVIEW) {
+            this.ekycStatus = EkycStatus.PENDING;
+            this.ekycCompletedAt = null;
+        }
+        this.documentVerified = false;
+        this.livenessVerified = false;
+        this.faceMatchScore = null;
     }
 
     // ── Lifecycle callbacks ──────────────────────────────────────────

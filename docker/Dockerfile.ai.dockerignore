@@ -4,6 +4,8 @@
 !finora-ai/requirements.txt
 !finora-ai/app/
 !finora-ai/app/**
+!finora-ai/scripts/
+!finora-ai/scripts/download_face_models.py
 !finora-ai/models/
 !finora-ai/models/credit/
 !finora-ai/models/credit/model_v17.0.0.pkl
@@ -13,3 +15,10 @@
 !finora-ai/models/fraud/model_v1.1.0.json
 !finora-ai/config/
 !finora-ai/config/product_config.json
+# Mẫu sau ghi đè mẫu trước: chặn lại những thư mục lớn nằm trong finora-ai/ (môi trường
+# ảo, dữ liệu huấn luyện) và model mặt trên máy dev — model mặt được tải, kiểm hash trong
+# stage build.
+finora-ai/.venv/
+finora-ai/data/
+finora-ai/models/face/
+**/__pycache__/
