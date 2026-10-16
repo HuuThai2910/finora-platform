@@ -193,7 +193,7 @@ Phần Payment do Hải viết theo yêu cầu, owner Payment (Thái) cần revi
 5. Payment phát `RepaymentDistributed` với breakdown/reference tối thiểu.
 6. Loan cập nhật servicing projection từ Fineract response/reliable event; Investment cập nhật Note/portfolio và phát projection event theo chủ Note; Blockchain ghi proof; Notification lưu delivery in-app idempotent.
 7. Worker Loan đồng bộ Fineract định kỳ; khi DPD thay đổi, Loan ghi outbox
-   `LoanDelinquencyChanged.v1`. CIC mock consume idempotent để thêm một phiên bản lịch sử
+   `LoanDelinquencyChanged.v1`. CIC Node deploy ngoài Compose consume idempotent để thêm một phiên bản lịch sử
    quá hạn/nhóm nợ. Event chỉ mang `borrowerId`; mapping CCCD nằm riêng trong CIC và event
    đến trước mapping được giữ bền vững để replay.
 
@@ -217,7 +217,7 @@ test PostgreSQL chứng minh borrower → clearing → current Note owner và ou
 `FINORA-FINERACT-V3` với `PROGRESSIVE` + advanced allocation + `NEXT_INSTALLMENT` để ưu tiên rút ngắn
 kỳ; V2 `REAMORTIZATION` và V1 vẫn được đọc tương thích. Trả trước không thu lãi tương lai; tổng phí theo
 policy được chia 80% cho chủ Note theo dư nợ và 20% cho FINORA, có field/event riêng để đối soát. Loan đã phát
-`LoanDelinquencyChanged.v1`; CIC mock đã có consumer, processed-event và pending-mapping
+`LoanDelinquencyChanged.v1`; CIC Node ngoài Compose đã có consumer, processed-event và pending-mapping
 queue. Loan V21 tự mở/đóng từng collection episode, tăng stage theo DPD, chuyển `DEFAULTED`
 từ DPD 91, cure về `ACTIVE` và cung cấp admin queue/audit action append-only. Loan V23 đã fail-closed và
 lưu incident riêng khi servicing snapshot sai core identity, external ID, principal giải ngân hoặc tổng

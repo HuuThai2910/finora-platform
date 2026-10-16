@@ -2,6 +2,10 @@
 
 > Đây là tài liệu làm việc chung cho con người và AI. Hải hoặc Thái mở file này phải xác định được giai đoạn hiện tại, phần mình sở hữu, dependency cần chốt với người kia và điều kiện để chuyển giai đoạn. Cập nhật cột trạng thái trong cùng PR với công việc liên quan.
 
+> Snapshot rà soát code ngày 2026-10-16 và thứ tự hoàn thiện còn lại nằm tại
+> [`finora-remaining-work-plan.md`](finora-remaining-work-plan.md). Roadmap này giữ vai trò phân công;
+> plan tồn đọng là danh sách ưu tiên và acceptance evidence hiện hành.
+
 ## 1. Cách sử dụng
 
 ### Trạng thái task
@@ -78,7 +82,7 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 | P0-A03 | Thái | Hoàn thiện Flyway/Testcontainers PostgreSQL cho Payment trong foundation P0-A06 | Hải review pattern vùng chung | `REVIEW` |
 | P0-A06 | Thái + Hải | [Chuyển Loan/Payment/Blockchain/User/Investment và Keycloak sang PostgreSQL 17, mỗi thành phần một database riêng](P0-A06-postgresql-neon-migration.md); Loan schema theo [LN-001A](../../finora-loan/plans/LN-001A-postgresql-neon-migration.md) | Docker PostgreSQL chỉ offline/test; mỗi service persistent dùng Neon Project riêng | `REVIEW` |
 | P0-B01 | Hải | Nền PostgreSQL/Flyway/Testcontainers cho User và Investment đã thuộc P0-A06; migration/index nghiệp vụ thêm cùng entity đầu tiên, Python Ruff/Pytest vẫn áp dụng cho AI | Thái review contract và pattern vùng chung | `IN_PROGRESS` |
-| P0-A02 | Thái | Outbox + idempotent consumer reference implementation phía Java do Thái sở hữu | Hải dùng contract, không sửa module | `BACKLOG` |
+| P0-A02 | Thái | Outbox + idempotent consumer reference implementation phía Java do Thái sở hữu | Hải dùng contract, không sửa module | `REVIEW` — Loan/Payment/Investment đã có outbox/processed-event trong luồng chính; còn chuẩn hóa contract và chaos evidence |
 | P0-B02 | Hải | Notification consumer reference, retry/DLT/idempotency | Thái cung cấp event fixture | `REVIEW` — PostgreSQL in-app delivery, Kafka consumer servicing và dedup source event đã có; bounded retry/DLT/provider push còn thuộc P7-B09 |
 | P0-C03 | Thái + Hải | Trace ID HTTP/Kafka, JSON logging, Actuator/readiness; HTTP baseline Loan ở [LN-002](../../finora-loan/plans/LN-002-security-error-observability.md) | Thái triển khai HTTP Loan; Kafka trace làm khi có flow thật; Hải hậu kiểm | `IN_PROGRESS` |
 | P0-C04 | Thái + Hải | Neon-first cho mọi service có persistence; Docker PostgreSQL riêng từng service làm offline/test fallback ([plan](P0-C04-local-docker-infrastructure.md)) | Thái và Hải cùng chịu trách nhiệm module của mình; vùng chung phải được hai bên đọc được | `REVIEW` |
@@ -96,13 +100,13 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 
 | ID | Module | Công việc | Đầu ra bắt buộc | Trạng thái |
 |---|---|---|---|---|
-| P1-B01 | User | Đồng bộ Keycloak identity và user profile | User API + authorization + migration | `BACKLOG` |
-| P1-B02 | User | KYC application/state machine, document metadata | Không lưu/log ảnh nhạy cảm sai chỗ | `BACKLOG` |
+| P1-B01 | User | Đồng bộ Keycloak identity và user profile | User API + authorization + migration | `REVIEW` — đăng nhập/profile/role và mobile đã nối; còn security/resource-auth hardening |
+| P1-B02 | User | KYC application/state machine, document metadata | Không lưu/log ảnh nhạy cảm sai chỗ | `REVIEW` — eKYC OCR hai mặt và state hiện hành đã có; còn retention/PII review |
 | P1-B03 | AI | eKYC technical API: OCR contract (đã thu hẹp 2026-08-22: bỏ face/liveness; engine duy nhất Gemini 2.5 Flash, bắt buộc GEMINI_API_KEY) | Model/provider version + reason | `DONE` — OCR chạy trong luồng eKYC hai mặt CCCD |
-| P1-B04 | User | Orchestrate eKYC và manual review | Event KYC version 1 | `BACKLOG` |
-| P1-B05 | AI | Credit preprocessing/model registry/predictor | Model package chống train/serve skew | `BACKLOG` |
-| P1-B06 | AI | Credit scoring + reason codes/XAI cơ bản | Contract fixture cho Loan | `BACKLOG` |
-| P1-B07 | Notification | Template/trạng thái gửi cho KYC và hồ sơ | Idempotency theo source event | `BACKLOG` |
+| P1-B04 | User | Orchestrate eKYC và manual review | Event KYC version 1 | `REVIEW` — orchestration/API hiện hành đã có; còn E2E retry/manual-review evidence |
+| P1-B05 | AI | Credit preprocessing/model registry/predictor | Model package chống train/serve skew | `REVIEW` — model v17/versioned feature package đã chạy; governance/backtest thuộc P7-B04 |
+| P1-B06 | AI | Credit scoring + reason codes/XAI cơ bản | Contract fixture cho Loan | `REVIEW` — scoring/explain đã tích hợp Loan; còn contract/E2E baseline |
+| P1-B07 | Notification | Template/trạng thái gửi cho KYC và hồ sơ | Idempotency theo source event | `IN_PROGRESS` — in-app delivery đã có; còn ma trận template và push provider |
 
 ### Thái
 
@@ -189,7 +193,7 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 | P4-A02 | Payment | Capture commitments và disbursement ledger | Financial idempotency | `REVIEW` — capture theo hold reference, cần E2E restart |
 | P4-A03 | Loan | [LN-012: Fineract projection/reconciliation](../../finora-loan/plans/LN-012-fineract-servicing-reconciliation.md) | Không lặp side effect; repair khi tiền đã chuyển nhưng core lỗi | `REVIEW` — projection/API/event, stale/manual reconcile, incident V23 và quarantine/replay V24 đã có; empty/upgrade schema test xanh |
 | P4-A04 | Blockchain | Fabric adapter submit/query | Hash only, no PII | `BACKLOG` |
-| P4-A05 | Blockchain | Retry/DLT/submission status | Không rollback nghiệp vụ đã commit | `BACKLOG` |
+| P4-A05 | Blockchain | Retry/DLT/submission status | Không rollback nghiệp vụ đã commit | `REVIEW` — proof store có lease/retry/DLT và mock receipt; Fabric transport thật còn P4-A04 |
 
 ### Hải
 
@@ -198,7 +202,7 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 | P4-B01 | Investment | Finalize commitments sau `LoanDisbursed` | Idempotent + version check | `READY_FOR_REVIEW` |
 | P4-B02 | Investment | Activate Notes sau disbursement | Ownership snapshot/version | `READY_FOR_REVIEW` |
 | P4-B03 | Investment | Repair Note activation | Không đảo ledger Payment | `BACKLOG` |
-| P4-B04 | Notification | Saga success/failure notification | Không rollback Saga | `BACKLOG` |
+| P4-B04 | Notification | Saga success/failure notification | Không rollback Saga | `IN_PROGRESS` — nền in-app/idempotency đã có; còn đủ template success/failure và provider push |
 
 **Contract phải chốt:** finalize/unfinalize commitment, capture/disbursement, `DisbursementCompleted/Failed`, Note activation, proof request/reference; mọi message có `sagaId`, `loanId`, `step`, `attempt`, `eventId`.
 
@@ -216,7 +220,7 @@ P1–P3 có thể chồng lấn có kiểm soát khi contract liên quan đã `R
 | P5-A02 | Payment | Collect/manual payment/auto-debit cơ bản | Provider/idempotency reference | `IN_PROGRESS` — manual wallet collection đã có |
 | P5-A03 | Payment | [LN-013: Ghi repayment vào Fineract](../../finora-loan/plans/LN-013-repayment-schedule-boundary.md), [PM-006: đối soát](../../finora-payment/plans/PM-006-repayment-reconciliation.md) và dùng core breakdown | External transaction idempotency + reconciliation | `REVIEW` — kỳ thường, quá hạn, tất toán và partial V2 đã có; Testcontainers xanh; Fineract V2 thật đã chứng minh re-amortization; Kafka broker smoke xanh |
 | P5-A04 | Payment | Phân bổ investor wallets | Balanced ledger | `IN_PROGRESS` — current Note owner projection + balanced distribution đã có; integration test chứng minh ví/Note/outbox cân bằng, còn consumer Investment thật |
-| P5-A05 | Loan/CIC mock | [LN-014: Consume overdue/default và cập nhật credit profile](../../finora-loan/plans/LN-014-delinquency-credit-profile.md) | Không chạy lại collection | `REVIEW` — CIC đã tách nhóm hiện tại/lịch sử, có cooldown/manual-review policy; DPD/group, cure về 0, idempotency/pending mapping và Investment risk projection đã có |
+| P5-A05 | Loan/CIC Node | [LN-014: Consume overdue/default và cập nhật credit profile](../../finora-loan/plans/LN-014-delinquency-credit-profile.md) | Không chạy lại collection | `REVIEW` — DPD/group, cure về 0, idempotency/pending mapping và Investment risk projection đã có; CIC là dependency deploy ngoài Compose qua `CIC_SERVICE_URL` |
 | P5-A06 | Blockchain | Repayment proof | Reconciliation reference | `REVIEW` — consume `RepaymentDistributed.v1`, chỉ neo SHA-256 data, unique source event |
 
 ### Hải
@@ -257,8 +261,8 @@ Các task có thể chạy song song theo ownership, nhưng mỗi task vẫn ph�
 | P7-A01 | Loan | [LN-017: Product V2/V3 và trả nợ sớm](../../finora-loan/plans/LN-017-fineract-product-v2-partial-prepayment.md) | P5 | `REVIEW` — V3 dùng `NEXT_INSTALLMENT`; trả trước không thu lãi tương lai; phí theo dải thời gian được chia 80/20 và công bố trong Contract V2; V2/V1 giữ tương thích |
 | P7-A02 | Loan | [LN-015: Tái cơ cấu/gia hạn](../../finora-loan/plans/LN-015-loan-restructuring.md) | P5 + consent contract | `REVIEW` — borrower/admin API, durable Fineract reconcile, Loan–Investment consent event và mobile biểu quyết đã có; chờ Hải review Investment/vùng chung |
 | P7-A03 | Loan | [LN-016: NPL policy/dashboard](../../finora-loan/plans/LN-016-collection-default.md) | P5 + reporting | `REVIEW` — V21, episode thu hồi, DPD stage/default-cure, admin API/audit action và trang quản trị servicing đã có |
-| P7-A04 | Loan | SmartCA adapter | Contract/sandbox ký số | `BACKLOG` |
-| P7-A05 | Payment | Payment gateway nạp/rút thật hoặc sandbox | P3 | `BACKLOG` |
+| P7-A04 | Loan | SmartCA adapter và bằng chứng PDF | Contract/sandbox ký số | `IN_PROGRESS` — VNPT SmartCA UAT ký hash/receipt đã chạy; PDF chưa nhúng chữ ký PAdES nhiều bên |
+| P7-A05 | Payment | Payment gateway nạp/rút thật hoặc sandbox | P3 | `IN_PROGRESS` — mock + ZaloPay sandbox top-up có HMAC callback; payout/rút tiền và ZaloPay disbursement thật còn thiếu |
 | P7-A06 | Payment | Auto-debit nâng cao | P5 | `BACKLOG` |
 | P7-A07 | Blockchain | Explorer | P4 | `BACKLOG` |
 | P7-A08 | Blockchain | Integrity reconciliation | P4/P5 | `BACKLOG` |
@@ -335,6 +339,7 @@ Thêm dòng mới, không sửa mất lịch sử đã dùng để triển khai.
 | 2026-09-27 | P2-A02/P2-A03/F03–F04 | Bỏ nhánh Contract demo và cờ rollout: Loan luôn ghi `LoanFundingRequested`, Investment luôn consume/publish qua Kafka; Contract chỉ sinh sau `LoanFullyFunded`. Investment tách V4 legacy và nâng schema tương thích qua V5–V6 | Thái triển khai; Hải review migration Investment và tài liệu chung trước merge | Không đổi payload/topic; xóa toggle runtime, messaging trở thành luồng bắt buộc | Review |
 | 2026-09-28 | P3/P4/F04–F05 | Nối Payment thật cho Investment, thêm top-up mock/ZaloPay sandbox, truyền `paymentHoldReference` xuyên allocation/Contract/Saga, capture ledger rồi giải ngân; mobile dùng ví thật và hiển thị trạng thái giải ngân | Thái triển khai; Hải đã cho phép cập nhật Investment, vẫn cần review trước merge | Có — nâng `LoanFullyFunded` và `DisbursementRequested` lên v2 vì thêm trường bắt buộc | Review |
 | 2026-09-28 | P3/F05 | Sửa bút toán giải ngân ví: sau capture phải ghi có `borrower AVAILABLE`; worker bù idempotent các giao dịch `COMPLETED` legacy còn nằm ở clearing, không sửa ledger cũ | Thái triển khai; Hải review luồng Investment–Payment trước merge | Không đổi event version/payload | Review |
+| 2026-10-16 | R0/P0–P7 | Rà soát code và tạo plan tồn đọng tổng hợp; CIC chuyển sang Node deploy ngoài Compose, web/mobile servicing dùng UI mới, các gap production được tách rõ khỏi demo core | Thái yêu cầu; cả hai owner review | Có — local env/Compose và nguồn tài liệu hiện hành | Draft review |
 
 ## 15. Quy tắc cập nhật roadmap
 

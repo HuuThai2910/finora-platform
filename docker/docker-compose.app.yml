@@ -210,8 +210,8 @@ services:
       AI_SERVICE_URL: http://ai:8000
       # finora-notification không nằm trong compose này; chạy riêng trên máy thì vẫn gọi được.
       NOTIFICATION_SERVICE_URL: http://host.docker.internal:8086
-      # CIC chạy ở compose demo/host; task DB sẽ tự retry nếu service chưa sẵn sàng.
-      CIC_SERVICE_URL: ${CIC_SERVICE_URL:-http://host.docker.internal:9000}
+      # CIC là dịch vụ Node đã deploy; task DB sẽ tự retry nếu endpoint chưa sẵn sàng.
+      CIC_SERVICE_URL: ${CIC_SERVICE_URL:-https://cic-service-node.vercel.app}
       USER_CIC_MAPPING_ENABLED: "${USER_CIC_MAPPING_ENABLED:-true}"
       CIC_INTERNAL_API_KEY: "${CIC_INTERNAL_API_KEY:-}"
     ports:

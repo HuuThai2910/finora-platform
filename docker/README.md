@@ -80,7 +80,7 @@ docker compose --env-file docker/.env -f docker/docker-compose.yml --profile loa
 
 ## 4. Các scope khác
 
-### Chạy bộ tích hợp User + Keycloak + AI + CIC
+### Chạy bộ tích hợp User + Keycloak + AI
 
 Compose chuẩn dùng profile `demo`; không cần file compose thứ hai:
 
@@ -94,7 +94,8 @@ Trước khi chạy, cập nhật `docker/.env` theo `docker/.env.example`:
 - `KEYCLOAK_DB_URL` là JDBC URL đầy đủ của database Keycloak; Neon cần
   hậu tố `?sslmode=require`.
 - `USER_DB_URL`, `USER_DB_USERNAME`, `USER_DB_PASSWORD` trỏ tới database User.
-- `CIC_DB_URL`, `CIC_DB_USERNAME`, `CIC_DB_PASSWORD` trỏ tới database CIC.
+- `CIC_SERVICE_URL` trỏ tới CIC Node đã deploy, mặc định
+  `https://cic-service-node.vercel.app/`; Compose không còn build CIC Java cũ.
 - `CIC_INTERNAL_API_KEY` bảo vệ API nội bộ tạo mapping borrowerId–CCCD; phải dùng cùng giá trị
   ở client nội bộ gọi CIC và không commit secret thật.
 - `USER_CIC_MAPPING_ENABLED=true` bật worker User. Sau eKYC, User tự đăng ký mapping vào CIC;
@@ -109,15 +110,13 @@ Health:
 Keycloak: http://localhost:8180/realms/finora/.well-known/openid-configuration
 User:     http://localhost:8085/actuator/health
 AI:       http://localhost:8000/health
-CIC:      http://localhost:9000/actuator/health
+CIC:      https://cic-service-node.vercel.app/
 ```
 
-Compose build CIC từ repository ngang cấp `../cic-service` và AI gọi qua DNS nội bộ
-`http://cic:9000`. CIC sở hữu Flyway/database riêng; AI chỉ gọi REST và không đọc DB CIC.
-CIC đồng thời consume `finora.loan.delinquency-changed` qua group
-`cic-loan-delinquency`; Compose tự dùng broker nội bộ `kafka:29092`.
-User gọi CIC qua DNS nội bộ `http://cic:9000`; hai container phải nhận cùng
-`CIC_INTERNAL_API_KEY`. Migration User V4 tự backfill task cho hồ sơ `VERIFIED` cũ.
+AI và User chỉ gọi CIC qua REST bằng `CIC_SERVICE_URL`, không đọc database CIC.
+`CIC_INTERNAL_API_KEY` vẫn phải khớp với cấu hình endpoint nội bộ của bản Node khi bật
+đồng bộ borrower mapping. Migration User V4 tự backfill task cho hồ sơ `VERIFIED` cũ;
+endpoint tạm lỗi thì task được giữ trong PostgreSQL User để retry.
 
 ### Chạy AI v17 cho LN-007
 

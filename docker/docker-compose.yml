@@ -254,7 +254,7 @@ services:
     restart: unless-stopped
     container_name: finora-ai
     environment:
-      CIC_SERVICE_URL: ${CIC_SERVICE_URL:-http://cic:9000}
+      CIC_SERVICE_URL: ${CIC_SERVICE_URL:-https://cic-service-node.vercel.app}
       USER_SERVICE_URL: ${AI_USER_SERVICE_URL:-http://user:8085}
       KEYCLOAK_TOKEN_URL: ${AI_KEYCLOAK_TOKEN_URL:-http://keycloak:8080/realms/finora/protocol/openid-connect/token}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-finora-user-client}
@@ -262,9 +262,6 @@ services:
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
     ports:
       - "127.0.0.1:${AI_HOST_PORT:-8000}:8000"
-    depends_on:
-      cic:
-        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -377,42 +374,6 @@ services:
     networks:
       - finora-network
 
-  # ============ CIC MOCK SERVICE ============
-  # Source nam o repo ngang cap voi finora-platform. CIC dung database Neon
-  # rieng va Flyway cua chinh service; AI chi goi REST, khong doc DB CIC.
-  cic:
-    profiles: ["demo"]
-    build:
-      context: ../../cic-service
-      dockerfile: Dockerfile
-    image: finora/cic:demo
-    restart: unless-stopped
-    container_name: finora-cic
-    environment:
-      SPRING_DATASOURCE_URL: "${CIC_DB_URL}"
-      SPRING_DATASOURCE_USERNAME: "${CIC_DB_USERNAME}"
-      SPRING_DATASOURCE_PASSWORD: "${CIC_DB_PASSWORD}"
-      CIC_PORT: "9000"
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      CIC_KAFKA_CONSUMER_ENABLED: "${CIC_KAFKA_CONSUMER_ENABLED:-true}"
-      CIC_LOAN_DELINQUENCY_GROUP: "${CIC_LOAN_DELINQUENCY_GROUP:-cic-loan-delinquency}"
-      LOAN_DELINQUENCY_CHANGED_TOPIC: "${LOAN_DELINQUENCY_CHANGED_TOPIC:-finora.loan.delinquency-changed}"
-      CIC_INTERNAL_API_KEY: "${CIC_INTERNAL_API_KEY}"
-      TZ: Asia/Ho_Chi_Minh
-    ports:
-      - "127.0.0.1:${CIC_HOST_PORT:-9000}:9000"
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000'"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 60s
-    depends_on:
-      kafka:
-        condition: service_healthy
-    networks:
-      - finora-network
-
   # ============ USER APPLICATION (DEMO INTEGRATION) ============
   # Database nam ngoai Compose (Neon hoac PostgreSQL host). Profile `user` van
   # chi bat Redis de khong thay doi workflow IntelliJ cu; profile `demo` moi
@@ -443,7 +404,7 @@ services:
       KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM:-finora}/protocol/openid-connect/certs
       AI_SERVICE_URL: http://ai:8000
       NOTIFICATION_SERVICE_URL: ${NOTIFICATION_SERVICE_URL:-http://host.docker.internal:8086}
-      CIC_SERVICE_URL: http://cic:9000
+      CIC_SERVICE_URL: ${CIC_SERVICE_URL:-https://cic-service-node.vercel.app}
       USER_CIC_MAPPING_ENABLED: "${USER_CIC_MAPPING_ENABLED:-true}"
       CIC_INTERNAL_API_KEY: "${CIC_INTERNAL_API_KEY}"
       FINORA_AES_SECRET: "${FINORA_AES_SECRET}"
@@ -458,8 +419,6 @@ services:
       keycloak:
         condition: service_healthy
       user-redis:
-        condition: service_healthy
-      cic:
         condition: service_healthy
     healthcheck:
       # eclipse-temurin jammy co bash; /dev/tcp la tinh nang cua bash, khong phai dash.
