@@ -116,3 +116,6 @@ Payment: EarlySettlementQuoteService.create | PartialPrepaymentQuoteService.crea
 
 Nhánh hợp đồng `LOAN_TERMS_V1` không được chạy trên stack thật vì hợp đồng mới đều là V2; nhánh này có ở unit test
 và integration test của Payment.
+
+Phí đúng biểu phí, nhưng tổng báo giá 8.728.000 của lần chạy trên gồm 253.000 lãi các kỳ chưa đến (B29): Fineract
+tắt tính lại lãi nên `prepayLoan` trả toàn bộ lãi còn lại. Task này chỉ sửa phần phí; phần lãi theo B28/B29.

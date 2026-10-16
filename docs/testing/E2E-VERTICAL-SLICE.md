@@ -66,6 +66,7 @@ powershell -ExecutionPolicy Bypass -File docker/e2e/run-vertical-slice.ps1 -Dril
 | `-SkipRepayment` | Dừng sau khi giải ngân và phát hành Note |
 | `-KeepProductActive` | Không ngừng Product E2E sau khi chạy (mặc định ngừng để borrower thật không thấy) |
 | `-LoanAmount`, `-TermMonths` | Mặc định 10.000.000 VND, 6 tháng; số tiền phải chia hết mệnh giá Note |
+| `-Servicing` | Cơ chế servicing sau giải ngân (R1B): `Installment` (mặc định, trả một kỳ + báo giá tất toán), `PartialPrepayment` (trả kỳ + 3.000.000 gốc), `EarlySettlement` (tất toán, người vay nạp mock phần phí thiếu). Lãi tương lai bị thu được ghi defect `R1B-PREPAY-FUTURE-INTEREST`/`R1B-SETTLE-FUTURE-INTEREST` |
 | `-KycGate` | Chỉ kiểm cổng eKYC (W2-KYC): người vay mới đọc `/users/me/kyc-summary` qua Gateway và bị Loan từ chối `409 BORROWER_KYC_REQUIRED`, không có hồ sơ nào được tạo. Cần launcher chạy với `-BorrowerProfileProvider user` |
 
 Mỗi lần chạy tạo tài khoản mới `e2e.borrower.<run>@finora.test` và `e2e.investor.<run>@finora.test`, nên

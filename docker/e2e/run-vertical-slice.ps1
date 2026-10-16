@@ -15,6 +15,9 @@ param(
     [switch]$KeepProductActive,
     # Chỉ kiểm cổng eKYC khi nộp hồ sơ; Loan phải chạy với start-local-services.ps1 -BorrowerProfileProvider user.
     [switch]$KycGate,
+    # R1B: cơ chế servicing chạy sau giải ngân, mỗi lần chạy một khoản vay riêng để kết quả không phụ thuộc thứ tự.
+    [ValidateSet('Installment', 'PartialPrepayment', 'EarlySettlement')]
+    [string]$Servicing = 'Installment',
     [int]$StepTimeoutSeconds = 300
 )
 
@@ -871,6 +874,184 @@ function Invoke-KycGateCheck {
     })
 }
 
+function Invoke-ServicingRepayment {
+    <# Gửi lệnh trả trước/tất toán theo báo giá, kiểm gửi lại cùng khóa, chờ COMPLETED và trừ ví đúng một lần. #>
+    param($Borrower, [string]$Path, $QuoteId, [decimal]$Total, [string]$Label)
+    $borrowerBefore = Get-Wallet -Actor $Borrower
+    $key = New-E2EKey -Prefix 'servicing'
+    $pinToken = Get-PinToken -Actor $Borrower -Scope REPAYMENT
+    $created = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/repayments/$Path" -Token $Borrower.Token `
+        -Headers @{ 'Idempotency-Key' = $key; 'X-Pin-Token' = $pinToken } -Body @{ quoteId = $QuoteId }
+    Assert-E2EStatus -Response $created -Expected 200, 201 -Step "Gửi lệnh $Label"
+    $repaymentId = Field $created.Json 'repaymentId'
+    $again = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/repayments/$Path" -Token $Borrower.Token `
+        -Headers @{ 'Idempotency-Key' = $key; 'X-Pin-Token' = $pinToken } -Body @{ quoteId = $QuoteId }
+    Add-E2ECheck -Name "servicing.idempotent-replay" -Passed ((Field $again.Json 'repaymentId') -eq $repaymentId) -Detail "HTTP $($again.Status)"
+    $repayment = Wait-Step -Description "$Label COMPLETED" -Probe {
+        $detail = Invoke-E2EHttp -Method GET -Uri "$GatewayUrl/api/v1/repayments/$repaymentId" -Token $Borrower.Token
+        $status = Field $detail.Json 'status'
+        if ($status -eq 'COMPLETED') { return @{ Done = $true; Value = $detail.Json } }
+        if ($status -in 'FAILED', 'RECONCILIATION_REQUIRED') { return @{ Fatal = "status=$status error=$(Field $detail.Json 'errorCode')" } }
+        return @{ State = $status }
+    }
+    $borrowerAfter = Get-Wallet -Actor $Borrower
+    Add-E2ECheck -Name 'servicing.borrower-debited-once' -Passed (($borrowerBefore.Available - $borrowerAfter.Available) -eq $Total) `
+        -Detail "debit=$(Format-E2EMoney ($borrowerBefore.Available - $borrowerAfter.Available)) quote=$(Format-E2EMoney $Total)"
+    return [pscustomobject]@{ RepaymentId = $repaymentId; Repayment = $repayment }
+}
+
+function Test-FeeFollowsContract {
+    <# Phí theo biểu phí hợp đồng V2: max(gốc tính phí × tỷ lệ, 100.000), nhà đầu tư 80% (HALF_UP như Payment). #>
+    param($Quote, [decimal]$FeeBase, [string]$Name)
+    $rate = [decimal](Field $Quote 'feeRate')
+    $fee = Money (Field $Quote 'platformFee')
+    $investorShare = Money (Field $Quote 'investorFeeShare')
+    $expected = if ($rate -eq 0) { [decimal]0 } else { [Math]::Max([Math]::Round($FeeBase * $rate, 2, [MidpointRounding]::AwayFromZero), [decimal]100000) }
+    Add-E2ECheck -Name $Name -Passed ((Field $Quote 'policyVersion') -eq 'AGRIBANK_REFERENCE_FINORA_2026_V2' -and $fee -eq $expected `
+        -and $investorShare -eq [Math]::Round($fee * [decimal]0.8, 2, [MidpointRounding]::AwayFromZero)) `
+        -Detail "policy=$(Field $Quote 'policyVersion') rate=$rate base=$(Format-E2EMoney $FeeBase) fee=$(Format-E2EMoney $fee) investor=$(Format-E2EMoney $investorShare)"
+}
+
+function Invoke-PartialPrepaymentFixture {
+    <#
+      R1B fixture 3: trả kỳ đến hạn + 3.000.000 gốc trả thêm. Không thu lãi tương lai của phần gốc trả thêm; Fineract
+      giảm gốc đúng phần gốc của kỳ + gốc trả thêm; nhà đầu tư nhận gốc + lãi + 80% phí.
+    #>
+    param($Borrower, $Investor, $Application, $Loan)
+    Write-E2EStep 'Fixture trả trước một phần'
+    $applicationId = [long](Field $Application 'id')
+    $prepaid = [decimal]3000000
+    # Lãi của kỳ đang đến hạn theo Fineract trước khi trả: phần lãi vượt mức này là lãi của kỳ tương lai.
+    $dueTemplate = Invoke-E2EFineractGet -BaseUrl $FineractUrl -Path "/loans/$($Loan.FineractLoanId)/transactions/template?command=repayment" `
+        -Username $FineractUser -Password $FineractPassword -Tenant $FineractTenant
+    $dueInterest = Money (Field $dueTemplate 'interestPortion')
+    $quote = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/repayments/partial-prepayment-quotes" -Token $Borrower.Token `
+        -Body @{ loanApplicationId = $applicationId; prepaidPrincipal = $prepaid }
+    Assert-E2EStatus -Response $quote -Expected 200 -Step 'Báo giá trả trước một phần'
+    $total = Money (Field $quote.Json 'totalAmount')
+    $scheduledDue = Money (Field $quote.Json 'scheduledDue')
+    $principalBefore = Money (Field $quote.Json 'outstandingPrincipalBefore')
+    Test-FeeFollowsContract -Quote $quote.Json -FeeBase $prepaid -Name 'prepayment.fee-matches-contract'
+    $investorBefore = Get-Wallet -Actor $Investor
+    $result = Invoke-ServicingRepayment -Borrower $Borrower -Path 'partial-prepayment' -QuoteId (Field $quote.Json 'quoteId') `
+        -Total $total -Label 'trả trước một phần'
+    $repayment = $result.Repayment
+    $principal = Money (Field $repayment 'principalAmount'); $interest = Money (Field $repayment 'interestAmount')
+    $investorFee = Money (Field $quote.Json 'investorFeeShare')
+    $coreLoan = Get-FineractLoan -FineractLoanId $Loan.FineractLoanId -Associations 'transactions'
+    $coreOutstanding = Money (Field $coreLoan 'summary.principalOutstanding')
+    $externalId = "FINORA-REPAY-$($result.RepaymentId)"
+    $posted = @(Field $coreLoan 'transactions' | Where-Object { (Field $_ 'externalId') -eq $externalId -and -not (Field $_ 'manuallyReversed') })
+    Add-E2ECheck -Name 'prepayment.fineract-posted-once' -Passed ($posted.Count -eq 1) -Detail "externalId=$externalId count=$($posted.Count)"
+    Add-E2ECheck -Name 'prepayment.core-principal-reduced' -Passed ($coreOutstanding -eq ($principalBefore - $principal)) `
+        -Detail "before=$(Format-E2EMoney $principalBefore) principalPaid=$(Format-E2EMoney $principal) core=$(Format-E2EMoney $coreOutstanding)"
+    $futureInterest = $interest - $dueInterest
+    if ($futureInterest -gt 0) {
+        # Hợp đồng V2: không thu lãi của các tháng tương lai trên phần gốc trả thêm.
+        Add-E2EDefect -Id 'R1B-PREPAY-FUTURE-INTEREST' -Workstream 'R2' -Summary 'Trả trước một phần thu lãi của kỳ tương lai' `
+            -Evidence "interestPaid=$(Format-E2EMoney $interest) dueInterest=$(Format-E2EMoney $dueInterest) futureInterest=$(Format-E2EMoney $futureInterest) prepaidToPrincipal=$(Format-E2EMoney ($principal - (Money (Field $dueTemplate 'principalPortion'))))"
+    }
+    $expectedInvestor = $principal + $interest + $investorFee
+    $investorAfter = Wait-Step -Description 'Ví investor nhận gốc + lãi + phần phí' -Probe {
+        $wallet = Get-Wallet -Actor $Investor
+        if (($wallet.Available - $investorBefore.Available) -ge $expectedInvestor) { return @{ Done = $true; Value = $wallet } }
+        return @{ State = "available=$(Format-E2EMoney $wallet.Available)" }
+    }
+    Add-E2ECheck -Name 'prepayment.investor-credited-once' -Passed (($investorAfter.Available - $investorBefore.Available) -eq $expectedInvestor) `
+        -Detail "credit=$(Format-E2EMoney ($investorAfter.Available - $investorBefore.Available)) expected=$(Format-E2EMoney $expectedInvestor)"
+    $projection = Wait-Step -Description 'Loan projection theo gốc Fineract' -Probe {
+        $detail = Invoke-E2EHttp -Method GET -Uri "$LoanUrl/api/v1/loans/$($Loan.LoanNumber)" -Token $Borrower.Token
+        $outstanding = Money (Field $detail.Json 'principalOutstanding')
+        if ($outstanding -eq $coreOutstanding) { return @{ Done = $true; Value = $detail.Json } }
+        return @{ State = "principalOutstanding=$(Format-E2EMoney $outstanding)" }
+    }
+    Set-E2EEvidence 'servicingFixture' ([ordered]@{
+        type = 'PARTIAL_PREPAYMENT'; quoteId = (Field $quote.Json 'quoteId'); repaymentId = $result.RepaymentId
+        scheduledDue = (Format-E2EMoney $scheduledDue); prepaidPrincipal = (Format-E2EMoney $prepaid)
+        fee = (Format-E2EMoney (Money (Field $quote.Json 'platformFee'))); policyVersion = (Field $quote.Json 'policyVersion')
+        total = (Format-E2EMoney $total); principalPaid = (Format-E2EMoney $principal); interestPaid = (Format-E2EMoney $interest)
+        corePrincipalBefore = (Format-E2EMoney $principalBefore); corePrincipalAfter = (Format-E2EMoney $coreOutstanding)
+        investorCredit = (Format-E2EMoney ($investorAfter.Available - $investorBefore.Available))
+        loanProjection = [ordered]@{ principalOutstanding = (Field $projection 'principalOutstanding'); nextDueDate = [string](Field $projection 'nextDueDate') }
+    })
+}
+
+function Invoke-EarlySettlementFixture {
+    <#
+      R1B fixture 4: tất toán toàn bộ. Người vay nạp thêm phần phí; Fineract đóng khoản vay, Loan chuyển SETTLED, Note
+      đóng và danh mục giữ vị thế CLOSED với tổng đã nhận (B16).
+    #>
+    param($Borrower, $Investor, $Application, $Loan)
+    Write-E2EStep 'Fixture tất toán toàn bộ'
+    $applicationId = [long](Field $Application 'id')
+    $quote = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/repayments/early-settlement-quotes" -Token $Borrower.Token `
+        -Body @{ loanApplicationId = $applicationId }
+    Assert-E2EStatus -Response $quote -Expected 200 -Step 'Báo giá tất toán'
+    $total = Money (Field $quote.Json 'totalAmount')
+    $principalPortion = Money (Field $quote.Json 'principalPortion')
+    Test-FeeFollowsContract -Quote $quote.Json -FeeBase $principalPortion -Name 'settlement.fee-matches-contract'
+    $quotedInterest = Money (Field $quote.Json 'interestPortion')
+    $coreBefore = Get-FineractLoan -FineractLoanId $Loan.FineractLoanId -Associations 'transactions'
+    $disbursedOn = Format-FineractDate (Field $coreBefore 'timeline.actualDisbursementDate')
+    if ([string](Field $quote.Json 'transactionDate') -eq $disbursedOn -and $quotedInterest -gt 0) {
+        # Tất toán ngay ngày giải ngân: chưa có ngày nào phát sinh lãi, mọi khoản lãi trong báo giá là lãi tương lai.
+        Add-E2EDefect -Id 'R1B-SETTLE-FUTURE-INTEREST' -Workstream 'R2' -Summary 'Tất toán thu lãi của các tháng tương lai' `
+            -Evidence "transactionDate=$(Field $quote.Json 'transactionDate') disbursedOn=$disbursedOn interestPortion=$(Format-E2EMoney $quotedInterest)"
+    }
+    $wallet = Get-Wallet -Actor $Borrower
+    if ($wallet.Available -lt $total) {
+        # Tiền giải ngân chưa đủ trả phí tất toán: nạp mock đúng phần thiếu như người vay nạp ví.
+        # API nạp ví chỉ nhận số nguyên đồng: làm tròn lên phần thiếu.
+        $missing = [long][Math]::Ceiling($total - $wallet.Available)
+        $topUpKey = New-E2EKey -Prefix 'topup-borrower'
+        $topUp = Invoke-E2EHttp -Method POST -Uri "$PaymentUrl/api/v1/wallets/me/top-ups" -Token $Borrower.Token -Headers @{ 'Idempotency-Key' = $topUpKey } -Body @{ amount = $missing }
+        Assert-E2EStatus -Response $topUp -Expected 200, 201 -Step 'Người vay nạp phần thiếu'
+        $complete = Invoke-E2EHttp -Method POST -Uri "$PaymentUrl/api/v1/wallets/me/top-ups/$(Field $topUp.Json 'topUpId')/mock-complete" -Token $Borrower.Token -EmptyJsonBody
+        Assert-E2EStatus -Response $complete -Expected 200 -Step 'Hoàn tất nạp mock của người vay'
+    }
+    $investorBefore = Get-Wallet -Actor $Investor
+    $result = Invoke-ServicingRepayment -Borrower $Borrower -Path 'early-settlement' -QuoteId (Field $quote.Json 'quoteId') `
+        -Total $total -Label 'tất toán'
+    $repayment = $result.Repayment
+    $principal = Money (Field $repayment 'principalAmount'); $interest = Money (Field $repayment 'interestAmount')
+    $investorFee = Money (Field $quote.Json 'investorFeeShare')
+    $coreLoan = Get-FineractLoan -FineractLoanId $Loan.FineractLoanId -Associations 'transactions'
+    $coreStatus = Field $coreLoan 'status.code'
+    Add-E2ECheck -Name 'settlement.fineract-closed' -Passed ($coreStatus -like 'loanStatusType.closed*') `
+        -Detail "status=$coreStatus principalOutstanding=$(Field $coreLoan 'summary.principalOutstanding')"
+    $expectedInvestor = $principal + $interest + $investorFee
+    $investorAfter = Wait-Step -Description 'Ví investor nhận toàn bộ gốc + lãi + phần phí' -Probe {
+        $current = Get-Wallet -Actor $Investor
+        if (($current.Available - $investorBefore.Available) -ge $expectedInvestor) { return @{ Done = $true; Value = $current } }
+        return @{ State = "available=$(Format-E2EMoney $current.Available)" }
+    }
+    Add-E2ECheck -Name 'settlement.investor-credited-once' -Passed (($investorAfter.Available - $investorBefore.Available) -eq $expectedInvestor) `
+        -Detail "credit=$(Format-E2EMoney ($investorAfter.Available - $investorBefore.Available)) expected=$(Format-E2EMoney $expectedInvestor)"
+    $loanDetail = Wait-Step -Description 'Loan chuyển SETTLED' -Probe {
+        $detail = Invoke-E2EHttp -Method GET -Uri "$LoanUrl/api/v1/loans/$($Loan.LoanNumber)" -Token $Borrower.Token
+        if ((Field $detail.Json 'status') -eq 'SETTLED') { return @{ Done = $true; Value = $detail.Json } }
+        return @{ State = "status=$(Field $detail.Json 'status')" }
+    }
+    $loanId = [long](Field $Application 'id')
+    $position = Wait-Step -Description 'Danh mục giữ vị thế CLOSED (B16)' -Probe {
+        $response = Invoke-E2EHttp -Method GET -Uri "$InvestmentUrl/api/v1/investments/portfolio" -Token $Investor.Token
+        $item = @(Field $response.Json 'positions' | Where-Object { [long](Field $_ 'loanId') -eq $loanId }) | Select-Object -First 1
+        if ($null -ne $item -and (Field $item 'status') -eq 'CLOSED') { return @{ Done = $true; Value = $item } }
+        return @{ State = "position=$(if ($item) { Field $item 'status' } else { 'không có' })" }
+    }
+    Add-E2ECheck -Name 'settlement.portfolio-position-closed' -Passed ((Money (Field $position 'outstandingPrincipal')) -eq 0 `
+        -and (Money (Field $position 'principalRepaid')) -eq $LoanAmount) `
+        -Detail "status=$(Field $position 'status') principalRepaid=$(Field $position 'principalRepaid') fee=$(Field $position 'prepaymentFeeReceived')"
+    Set-E2EEvidence 'servicingFixture' ([ordered]@{
+        type = 'EARLY_SETTLEMENT'; quoteId = (Field $quote.Json 'quoteId'); repaymentId = $result.RepaymentId
+        principal = (Format-E2EMoney $principal); interest = (Format-E2EMoney $interest)
+        fee = (Format-E2EMoney (Money (Field $quote.Json 'platformFee'))); policyVersion = (Field $quote.Json 'policyVersion')
+        total = (Format-E2EMoney $total); fineractStatus = $coreStatus; loanStatus = (Field $loanDetail 'status')
+        investorCredit = (Format-E2EMoney ($investorAfter.Available - $investorBefore.Available))
+        portfolioPosition = [ordered]@{ status = (Field $position 'status'); principalRepaid = (Field $position 'principalRepaid'); prepaymentFeeReceived = (Field $position 'prepaymentFeeReceived') }
+    })
+}
+
 $failure = $null
 try {
     Assert-Preflight
@@ -902,9 +1083,15 @@ try {
             -InvestorHeldBefore $heldBeforeDisbursement -BorrowerBefore $borrowerBeforeDisbursement
         $repaymentId = $null
         if (-not $SkipRepayment) {
-            $paid = Pay-Installment -Borrower $borrower -Investor $investor -Application $application -Loan $loan
-            $repaymentId = $paid.RepaymentId
-            Test-SettlementQuotePolicy -Borrower $borrower -Application $application
+            switch ($Servicing) {
+                'PartialPrepayment' { Invoke-PartialPrepaymentFixture -Borrower $borrower -Investor $investor -Application $application -Loan $loan }
+                'EarlySettlement' { Invoke-EarlySettlementFixture -Borrower $borrower -Investor $investor -Application $application -Loan $loan }
+                default {
+                    $paid = Pay-Installment -Borrower $borrower -Investor $investor -Application $application -Loan $loan
+                    $repaymentId = $paid.RepaymentId
+                    Test-SettlementQuotePolicy -Borrower $borrower -Application $application
+                }
+            }
         }
         $null = Collect-KafkaEvidence -Application $application -ContractNumber $contractNumber -RepaymentId $repaymentId
         if ($Drills -and $repaymentId) {

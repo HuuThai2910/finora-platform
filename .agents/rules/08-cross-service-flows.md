@@ -258,6 +258,11 @@ queue” mô tả bản CIC Java cũ. Bản CIC Node đang deploy (`/api/v1/suc-
 vẫn phát `LoanDelinquencyChanged.v1` nhưng hiện không có consumer CIC; lịch sử quá hạn của FINORA chưa được ghi sang
 CIC. Theo D1 không phát triển lại CIC trong repo này; owner quyết định phạm vi. Định danh mapping xem B26.
 
+**Đính chính 2026-10-17 (B28, B29):** câu “Trả trước không thu lãi tương lai” chưa đúng với Fineract thật. Sản phẩm
+Fineract của Loan tắt `isInterestRecalculationEnabled`, nên báo giá tất toán (`prepayLoan`) gồm toàn bộ lãi các kỳ
+còn lại và khoản trả thêm theo `NEXT_INSTALLMENT` trả trọn kỳ tương lai kể cả lãi (fixture `r1b-*-20261017-063*`).
+Payment đúng khi đọc nghĩa vụ từ Fineract; cấu hình core phải đổi. Hướng sửa chờ owner duyệt.
+
 ## F07 — Tất toán sớm hoặc tái cơ cấu
 
 **Trigger:** borrower yêu cầu hoặc admin khởi tạo theo policy. **Orchestrator:** Loan.
