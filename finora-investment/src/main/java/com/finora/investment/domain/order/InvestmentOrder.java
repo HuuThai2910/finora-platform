@@ -74,6 +74,13 @@ public class InvestmentOrder {
     @Column(name = "rejected_reason_detail", length = 500)
     private String rejectedReasonDetail;
 
+    /** Phiên bản công bố rủi ro nhà đầu tư đã xác nhận trước lệnh sơ cấp; trống với lệnh cũ/Auto-Invest. */
+    @Column(name = "risk_acknowledged_version", length = 50)
+    private String riskAcknowledgedVersion;
+
+    @Column(name = "risk_acknowledged_at")
+    private Instant riskAcknowledgedAt;
+
     @Version
     @Column(nullable = false)
     private Long version;

@@ -72,6 +72,51 @@ class FineractCoreLoanBookingGatewayTest {
         server.verify();
     }
 
+    @Test
+    void booksEveryCoreDateOnTheVietnamBusinessDateOfActualDisbursement() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://fineract.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        // 03:00 ngày 17/10 giờ Việt Nam là 20:00Z ngày 16/10: core phải ghi ngày 17/10, không lùi theo UTC.
+        FineractCoreLoanBookingGateway gateway = new FineractCoreLoanBookingGateway(
+                builder.build(), passThroughExecutor(),
+                new FineractBookingProperties(1L, 1L, 1L, "en", "yyyy-MM-dd"),
+                Clock.fixed(Instant.parse("2026-10-16T20:00:00Z"), java.time.ZoneId.of("Asia/Ho_Chi_Minh")));
+
+        server.expect(requestTo("http://fineract.test/clients?externalId=FINORA-BORROWER-BORROWER-1"))
+                .andRespond(withSuccess("{\"pageItems\":[]}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://fineract.test/clients"))
+                .andExpect(content().string(Matchers.containsString("\"activationDate\":\"2026-10-17\"")))
+                .andRespond(withSuccess("{\"resourceId\":2}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://fineract.test/loans?externalId=LC-1"))
+                .andRespond(withSuccess("{\"pageItems\":[]}", MediaType.APPLICATION_JSON));
+        // Hợp đồng ghi ngày dự kiến 01/10 (lúc nộp hồ sơ); gọi vốn và ký kéo dài nên booking phải dùng ngày thực tế,
+        // nếu không Fineract từ chối vì ngày nộp sau ngày giải ngân dự kiến.
+        server.expect(requestTo("http://fineract.test/loans"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().string(Matchers.allOf(
+                        Matchers.containsString("\"expectedDisbursementDate\":\"2026-10-17\""),
+                        Matchers.containsString("\"submittedOnDate\":\"2026-10-17\""))))
+                .andRespond(withSuccess("{\"resourceId\":3}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://fineract.test/loans/3"))
+                .andRespond(withSuccess("{\"status\":{\"pendingApproval\":true}}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://fineract.test/loans/3?command=approve"))
+                .andExpect(content().string(Matchers.allOf(
+                        Matchers.containsString("\"approvedOnDate\":\"2026-10-17\""),
+                        Matchers.containsString("\"expectedDisbursementDate\":\"2026-10-17\""))))
+                .andRespond(withSuccess("{\"resourceId\":3}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://fineract.test/loans/3"))
+                .andRespond(withSuccess("{\"status\":{\"approved\":true}}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://fineract.test/loans/3?command=disburse"))
+                .andExpect(content().string(Matchers.containsString("\"actualDisbursementDate\":\"2026-10-17\"")))
+                .andRespond(withSuccess("{\"resourceId\":3}", MediaType.APPLICATION_JSON));
+
+        gateway.bookAndDisburse(new CoreLoanBookingGateway.CoreLoanBookingCommand(
+                1L, "LC-1", "BORROWER-1", 2L, new BigDecimal("50000000"), 6,
+                new BigDecimal("15"), "FINORA-FINERACT-V2", LocalDate.of(2026, 10, 1), "PAY-1"));
+
+        server.verify();
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
     private FineractRequestExecutor passThroughExecutor() {
         FineractRequestExecutor executor = mock(FineractRequestExecutor.class);

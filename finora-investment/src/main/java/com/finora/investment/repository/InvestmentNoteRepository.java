@@ -26,6 +26,8 @@ public interface InvestmentNoteRepository extends JpaRepository<InvestmentNote, 
 
     List<InvestmentNote> findByInvestorIdAndStatus(String investorId, NoteStatus status);
 
+    List<InvestmentNote> findByInvestorIdAndStatusIn(String investorId, List<NoteStatus> statuses);
+
     List<InvestmentNote> findByLoanIdAndStatus(Long loanId, NoteStatus status);
 
     List<InvestmentNote> findByLoanIdAndStatusIn(Long loanId, List<NoteStatus> statuses);

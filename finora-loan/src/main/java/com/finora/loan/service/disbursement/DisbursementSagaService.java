@@ -1,5 +1,6 @@
 package com.finora.loan.service.disbursement;
 
+import com.finora.loan.config.DisbursementSagaProperties;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.contract.ContractParty;
 import com.finora.loan.domain.contract.ContractPartyType;
@@ -19,17 +20,18 @@ import com.finora.loan.service.funding.LoanFundingCancellationService;
 import com.finora.loan.service.outbox.OutboxService;
 import com.finora.loan.service.servicing.ServicingActivationService;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class DisbursementSagaService {
@@ -43,6 +45,7 @@ public class DisbursementSagaService {
     private final Clock clock;
     private final TransactionTemplate transactionTemplate;
     private final LoanFundingCancellationService fundingCancellationService;
+    private final DisbursementSagaProperties properties;
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void start(LoanContract contract, LoanApplication application, List<ContractParty> parties, Instant now) {
@@ -79,12 +82,10 @@ public class DisbursementSagaService {
         if (processedEventRepository.existsByEventId(eventId)) return;
         DisbursementSaga saga = locked(data.sagaId());
         requireIdentity(saga, data.loanApplicationId(), data.contractNumber(), saga.getListingId());
-        DisbursementSagaStatus previousStatus = saga.getStatus();
         Instant now = clock.instant();
-        saga.paymentFailed(data.errorCode(), data.errorMessage(), now);
-        if (previousStatus == DisbursementSagaStatus.WAITING_PAYMENT) {
-            // Chỉ khi Payment báo thất bại lúc tiền chưa chuyển mới được trả tiền giữ cho nhà đầu tư. Saga đã
-            // qua bước nhận tiền mà vẫn nhận failed là dữ liệu mâu thuẫn: không tự hủy vốn, để đối soát R2.
+        // Chỉ khi saga còn chờ Payment (tiền chưa capture) mới hủy gọi vốn để trả tiền giữ cho nhà đầu tư. Event mâu
+        // thuẫn với saga đã nhận tiền/đang ghi core bị domain từ chối và vào DLT, không tự hủy vốn.
+        if (saga.paymentFailed(data.errorCode(), data.errorMessage(), now)) {
             fundingCancellationService.cancel(saga.getLoanApplicationId(), saga.getContractNumber(),
                     LoanFundingCancellationService.DISBURSEMENT_FAILED, now);
         }
@@ -92,21 +93,36 @@ public class DisbursementSagaService {
                 "finora-payment", data.sagaId().toString(), occurredAt, now));
     }
 
+    /** Saga chờ ghi core, chờ retry, hoặc đang ghi core nhưng đã hết lease (worker trước có thể đã chết). */
     @Transactional(readOnly = true)
     public List<Long> dueIds() {
         return sagaRepository.findDueIds(List.of(DisbursementSagaStatus.CORE_BOOKING_PENDING,
-                DisbursementSagaStatus.RETRY_PENDING), clock.instant(), PageRequest.of(0, 20));
+                DisbursementSagaStatus.RETRY_PENDING, DisbursementSagaStatus.CORE_BOOKING),
+                clock.instant(), PageRequest.of(0, 20));
     }
 
+    /**
+     * Khóa saga và nhận một lần ghi core. Row lock bảo đảm hai worker cùng thấy lease hết hạn chỉ một bên nhận; bên còn
+     * lại thấy lease mới và trả {@code null}. Lease hết hạn quá số lần cho phép thì dừng ở {@code REPAIR_REQUIRED}.
+     */
     @Transactional
     public CoreBookingWork claim(Long id) {
         DisbursementSaga saga = sagaRepository.findByIdForUpdate(id).orElseThrow();
+        Instant now = clock.instant();
+        boolean leaseExpired = saga.isCoreBookingLeaseExpired(now);
         if (saga.getStatus() != DisbursementSagaStatus.CORE_BOOKING_PENDING
-                && saga.getStatus() != DisbursementSagaStatus.RETRY_PENDING) return null;
-        saga.startCoreBooking(clock.instant());
+                && saga.getStatus() != DisbursementSagaStatus.RETRY_PENDING && !leaseExpired) return null;
+        if (leaseExpired) {
+            log.warn("Lease ghi core hết hạn, nhận lại saga: sagaId={}, attempt={}", saga.getSagaId(), saga.getAttemptCount());
+            if (saga.getAttemptCount() >= properties.maxAttempts()) {
+                saga.markCoreBookingStalled(now);
+                return null;
+            }
+        }
+        saga.startCoreBooking(now, now.plus(properties.coreBookingLease()));
         LoanApplication application = applicationRepository.findById(saga.getLoanApplicationId()).orElseThrow();
         LoanContract contract = contractRepository.findByContractNumber(saga.getContractNumber()).orElseThrow();
-        return new CoreBookingWork(saga.getSagaId(), new CoreLoanBookingGateway.CoreLoanBookingCommand(
+        return new CoreBookingWork(saga.getSagaId(), saga.getAttemptCount(), new CoreLoanBookingGateway.CoreLoanBookingCommand(
                 application.getId(), contract.getContractNumber(), application.getBorrowerId(),
                 application.getFineractProductIdSnapshot(), contract.getPrincipalAmount(), contract.getTermMonths(),
                 contract.getAnnualInterestRate(), application.getCoreConfigVersionSnapshot(),
@@ -118,21 +134,27 @@ public class DisbursementSagaService {
         if (work == null) return;
         try {
             CoreLoanBookingGateway.CoreLoanBookingResult result = coreGateway.bookAndDisburse(work.command());
-            transactionTemplate.executeWithoutResult(status -> complete(work.sagaId(), result.fineractLoanId()));
+            transactionTemplate.executeWithoutResult(status ->
+                    complete(work.sagaId(), work.attempt(), result.fineractLoanId()));
         } catch (FineractIntegrationException exception) {
-            transactionTemplate.executeWithoutResult(status ->
-                    fail(work.sagaId(), exception.getCode(), exception.getMessage(), exception.isRetryable()));
+            transactionTemplate.executeWithoutResult(status -> fail(work.sagaId(), work.attempt(),
+                    exception.getCode(), exception.getMessage(), exception.isRetryable()));
         } catch (RuntimeException exception) {
-            transactionTemplate.executeWithoutResult(status ->
-                    fail(work.sagaId(), "CORE_BOOKING_UNEXPECTED", "Không ghi nhận được khoản vay vào core", false));
+            transactionTemplate.executeWithoutResult(status -> fail(work.sagaId(), work.attempt(),
+                    "CORE_BOOKING_UNEXPECTED", "Không ghi nhận được khoản vay vào core", false));
         }
     }
 
     @Transactional
-    public void complete(UUID sagaId, Long fineractLoanId) {
+    public void complete(UUID sagaId, int attempt, Long fineractLoanId) {
         DisbursementSaga saga = locked(sagaId);
         Instant now = clock.instant();
-        saga.complete(fineractLoanId, now, now);
+        if (!saga.complete(attempt, fineractLoanId, now, now)) {
+            // Lần thử cũ trả kết quả sau khi lease đã bị nhận lại: lần thử mới sẽ reconcile cùng khoản vay theo externalId.
+            log.warn("Bỏ qua kết quả core của lần thử cũ: sagaId={}, attempt={}, current={}, status={}",
+                    sagaId, attempt, saga.getAttemptCount(), saga.getStatus());
+            return;
+        }
         LoanApplication application = applicationRepository.findById(saga.getLoanApplicationId()).orElseThrow();
         LoanContract contract = contractRepository.findByContractNumber(saga.getContractNumber()).orElseThrow();
         servicingActivationService.activate(application, contract, fineractLoanId, now);
@@ -144,11 +166,14 @@ public class DisbursementSagaService {
     }
 
     @Transactional
-    public void fail(UUID sagaId, String code, String detail, boolean retryable) {
+    public void fail(UUID sagaId, int attempt, String code, String detail, boolean retryable) {
         DisbursementSaga saga = locked(sagaId);
-        boolean canRetry = retryable && saga.getAttemptCount() < 3;
-        saga.failCore(code, detail, canRetry, canRetry ? clock.instant().plus(Duration.ofSeconds(30)) : null,
-                clock.instant());
+        Instant now = clock.instant();
+        boolean canRetry = retryable && saga.getAttemptCount() < properties.maxAttempts();
+        if (!saga.failCore(attempt, code, detail, canRetry, canRetry ? now.plus(properties.retryBackoff()) : null, now)) {
+            log.warn("Bỏ qua lỗi core của lần thử cũ: sagaId={}, attempt={}, current={}, status={}",
+                    sagaId, attempt, saga.getAttemptCount(), saga.getStatus());
+        }
     }
 
     private DisbursementSaga locked(UUID sagaId) {
@@ -161,5 +186,6 @@ public class DisbursementSagaService {
             throw LoanBusinessException.conflict("DISBURSEMENT_EVENT_MISMATCH", "Kết quả giải ngân không khớp saga");
         }
     }
-    public record CoreBookingWork(UUID sagaId, CoreLoanBookingGateway.CoreLoanBookingCommand command) {}
+    /** {@code attempt} là claim token: kết quả chỉ được ghi khi saga vẫn ở đúng lần thử này. */
+    public record CoreBookingWork(UUID sagaId, int attempt, CoreLoanBookingGateway.CoreLoanBookingCommand command) {}
 }

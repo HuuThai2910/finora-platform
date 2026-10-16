@@ -45,7 +45,8 @@ public class InvestmentMapper {
                 listing.getContractStatus(),
                 listing.getFundingClosesAt(),
                 listing.getCancelledAt(),
-                listing.getCancellationReason()
+                listing.getCancellationReason(),
+                listing.getDisbursedAt()
         );
     }
 

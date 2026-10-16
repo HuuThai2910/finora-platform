@@ -7,7 +7,8 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 @Configuration
-@EnableConfigurationProperties({PaymentFineractProperties.class, EarlySettlementPolicyProperties.class})
+@EnableConfigurationProperties({PaymentFineractProperties.class, EarlySettlementPolicyProperties.class,
+        PaymentDisbursementProperties.class})
 public class PaymentFineractConfiguration {
     @Bean("paymentFineractRestClient")
     RestClient paymentFineractRestClient(PaymentFineractProperties properties, RestClient.Builder builder) {

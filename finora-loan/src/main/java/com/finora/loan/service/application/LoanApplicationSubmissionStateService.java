@@ -38,6 +38,7 @@ public class LoanApplicationSubmissionStateService {
     private final FineractProductMappingRepository mappingRepository;
     private final ScheduleCalculationSnapshotRepository calculationRepository;
     private final ApplicationNumberGenerator numberGenerator;
+    private final BorrowerExposureService exposureService;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -93,6 +94,8 @@ public class LoanApplicationSubmissionStateService {
             );
         }
         FineractProductMapping mapping = mapping(product.getCurrentCoreMappingId());
+        // Kiểm hạn mức dư nợ trong cùng transaction ghi hồ sơ, sau khóa advisory theo người vay (D5, LEGAL-LIMIT-01).
+        exposureService.requireWithinLimit(borrowerId, request.requestedAmount());
         Instant now = Instant.now(clock);
         // Dữ liệu tự khai được đóng băng tại thời điểm submit để lần chấm điểm sau có thể tái hiện chính xác.
         ApplicantFinancialSnapshot financialSnapshot = ApplicantFinancialSnapshot.capture(

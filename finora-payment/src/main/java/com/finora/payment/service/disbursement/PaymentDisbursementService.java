@@ -3,6 +3,7 @@ package com.finora.payment.service.disbursement;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finora.payment.config.PaymentDisbursementProperties;
 import com.finora.payment.domain.hold.PaymentHold;
 import com.finora.payment.domain.hold.PaymentHoldStatus;
 import com.finora.payment.domain.ledger.LedgerBalanceBucket;
@@ -24,17 +25,17 @@ import com.finora.payment.service.wallet.WalletAccountService;
 import com.finora.payment.service.wallet.WalletView;
 import java.math.BigDecimal;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
-@Service @RequiredArgsConstructor
+@Slf4j @Service @RequiredArgsConstructor
 public class PaymentDisbursementService {
  private final PaymentDisbursementRepository repository;
  private final PaymentProcessedEventRepository processedRepository;
@@ -46,6 +47,7 @@ public class PaymentDisbursementService {
  private final ObjectMapper objectMapper;
  private final Clock clock;
  private final TransactionTemplate transactionTemplate;
+ private final PaymentDisbursementProperties properties;
 
  @Transactional
  public void request(UUID eventId,DisbursementRequestedEventData data){
@@ -63,30 +65,78 @@ public class PaymentDisbursementService {
   processedRepository.save(PaymentProcessedEvent.of(eventId,"DisbursementRequested",data.sagaId().toString(),clock.instant()));
  }
 
+ /**
+  * Lệnh cần xử lý: mới/chờ retry, đang gọi provider nhưng đã hết lease (worker chết), hoặc đến lượt tra cứu đối soát.
+  * Truy vấn sắp theo {@code next_attempt_at, id} nên bản ghi lỗi lặp lại không chặn các bản ghi khác.
+  */
  @Transactional(readOnly=true)
  public List<Long> dueIds(){return repository.findDueIds(List.of(PaymentDisbursementStatus.REQUESTED,
-   PaymentDisbursementStatus.RETRY_PENDING),clock.instant(),PageRequest.of(0,20));}
+   PaymentDisbursementStatus.RETRY_PENDING,PaymentDisbursementStatus.PROCESSING,
+   PaymentDisbursementStatus.RECONCILIATION_REQUIRED),clock.instant(),PageRequest.of(0,20));}
 
  @Transactional(readOnly=true)
  public List<Long> completedAwaitingBorrowerCreditIds(){
   return repository.findCompletedAwaitingBorrowerCreditIds(PageRequest.of(0,20));
  }
 
+ /**
+  * Khóa lệnh và quyết định bước kế tiếp. Lệnh mới/chờ retry được giữ chỗ capture và nhận lease rồi mới gọi provider
+  * ngoài transaction. Lệnh còn {@code PROCESSING} sau lease chuyển sang đối soát: không biết tiền đã chuyển hay chưa
+  * nên tuyệt đối không gọi {@code disburse} lại.
+  */
  @Transactional
  public Work claim(Long id){
   PaymentDisbursement d=repository.findByIdForUpdate(id).orElseThrow();
+  Instant now=clock.instant();
+  if(d.isProcessingLeaseExpired(now)){
+   log.warn("Lệnh giải ngân hết lease khi đang gọi provider, chuyển đối soát: sagaId={}",d.getSagaId());
+   d.requireReconciliation("PAYMENT_PROCESSING_INTERRUPTED",
+    "Worker dừng khi đang gọi provider; tra cứu kết quả theo sagaId trước khi xử lý tiếp",now,now);
+   return Work.reconcile(d);
+  }
+  if(d.getStatus()==PaymentDisbursementStatus.RECONCILIATION_REQUIRED){
+   return d.getNextAttemptAt()!=null&&!d.getNextAttemptAt().isAfter(now)?Work.reconcile(d):null;
+  }
   if(d.getStatus()!=PaymentDisbursementStatus.REQUESTED&&d.getStatus()!=PaymentDisbursementStatus.RETRY_PENDING)return null;
   List<DisbursementRequestedEventData.Allocation> allocations=allocations(d);
   List<PaymentHold> holds=lockedHolds(allocations);
   requireMatchingHolds(allocations,holds,d.getAmount());
-  holds.forEach(hold->hold.reserveCapture(d.getSagaId().toString(),clock.instant()));
-  d.start(clock.instant());return new Work(d.getId(),d.getSagaId(),d.getBorrowerId(),d.getAmount(),d.getCurrency());
+  holds.forEach(hold->hold.reserveCapture(d.getSagaId().toString(),now));
+  d.start(now,now.plus(properties.processingLease()));
+  return new Work(d.getId(),d.getSagaId(),d.getBorrowerId(),d.getAmount(),d.getCurrency(),false);
  }
 
  public void execute(Long id){
   Work work=transactionTemplate.execute(status->claim(id));if(work==null)return;
+  if(work.reconcile()){reconcile(work);return;}
   PaymentProvider.PaymentProviderResult result=invokeProvider(work);
   transactionTemplate.executeWithoutResult(status->finish(work.id(),result));
+ }
+
+ /** Tra cứu provider ngoài transaction rồi khóa lại để áp kết quả; chưa có kết quả thì hẹn lần tra cứu sau. */
+ private void reconcile(Work work){
+  java.util.Optional<PaymentProvider.PaymentProviderResult> found;
+  try{found=provider.lookup(work.sagaId());}
+  catch(RuntimeException exception){
+   log.warn("Tra cứu provider lỗi khi đối soát giải ngân: sagaId={}",work.sagaId(),exception);
+   found=java.util.Optional.empty();
+  }
+  java.util.Optional<PaymentProvider.PaymentProviderResult> result=found;
+  transactionTemplate.executeWithoutResult(status->applyReconciliation(work.id(),result));
+ }
+
+ @Transactional
+ public void applyReconciliation(Long id,java.util.Optional<PaymentProvider.PaymentProviderResult> found){
+  PaymentDisbursement d=repository.findByIdForUpdate(id).orElseThrow();
+  if(d.getStatus()!=PaymentDisbursementStatus.RECONCILIATION_REQUIRED)return;
+  Instant now=clock.instant();
+  if(found.isPresent()&&!"PAYMENT_PROVIDER_UNCERTAIN".equals(found.get().errorCode())){
+   finish(id,found.get());
+   return;
+  }
+  boolean more=d.getReconciliationAttemptCount()+1<properties.reconciliationMaxAttempts();
+  d.recordReconciliationCheck(now,more?now.plus(properties.reconciliationInterval()):null);
+  if(!more)log.error("Hết lượt tra cứu provider, cần vận hành đối soát giải ngân: sagaId={}",d.getSagaId());
  }
 
  private PaymentProvider.PaymentProviderResult invokeProvider(Work work){
@@ -104,6 +154,11 @@ public class PaymentDisbursementService {
  public void finish(Long id,PaymentProvider.PaymentProviderResult result){
   PaymentDisbursement d=repository.findByIdForUpdate(id).orElseThrow();
   Instant now=clock.instant();
+  if(!d.acceptsProviderResult()){
+   // Kết quả của lần gọi cũ đến sau khi đối soát đã chốt: bỏ qua để không capture hay phát event lần hai.
+   log.warn("Bỏ qua kết quả provider đến muộn: sagaId={}, status={}",d.getSagaId(),d.getStatus());
+   return;
+  }
   if(result.success()){
    List<PaymentHold> holds=lockedHolds(allocations(d));
    LedgerPostingResult posting=capture(d,holds,now);
@@ -115,12 +170,13 @@ public class PaymentDisbursementService {
   }else{
    List<PaymentHold> holds=lockedHolds(allocations(d));
    if("PAYMENT_PROVIDER_UNCERTAIN".equals(result.errorCode())){
-    d.requireReconciliation(result.errorCode(),result.errorMessage(),now);
+    // Hold giữ CAPTURE_PENDING; worker tra cứu provider theo sagaId thay vì chuyển tiền lại.
+    d.requireReconciliation(result.errorCode(),result.errorMessage(),now,now.plus(properties.reconciliationInterval()));
     return;
    }
    holds.forEach(hold->hold.cancelCaptureReservation(d.getSagaId().toString(),now));
-   boolean retry=result.retryable()&&d.getAttemptCount()<3;
-   d.fail(result.errorCode(),result.errorMessage(),retry,retry?now.plus(Duration.ofSeconds(30)):null,now);
+   boolean retry=result.retryable()&&d.getAttemptCount()<properties.maxAttempts();
+   d.fail(result.errorCode(),result.errorMessage(),retry,retry?now.plus(properties.retryBackoff()):null,now);
    if(!retry)record(d,"DisbursementFailed",new DisbursementFailedEventData(d.getSagaId(),d.getLoanApplicationId(),
     d.getContractNumber(),result.errorCode(),result.errorMessage(),now),now);
   }
@@ -235,5 +291,10 @@ public class PaymentDisbursementService {
   if(allocated.compareTo(requested)!=0)
    throw new IllegalArgumentException("Tổng allocation không khớp số tiền giải ngân");
  }
- public record Work(Long id,UUID sagaId,String borrowerId,BigDecimal amount,String currency){}
+ /** {@code reconcile = true}: không gọi chuyển tiền, chỉ tra cứu kết quả lần gọi trước theo sagaId. */
+ public record Work(Long id,UUID sagaId,String borrowerId,BigDecimal amount,String currency,boolean reconcile){
+  static Work reconcile(PaymentDisbursement d){
+   return new Work(d.getId(),d.getSagaId(),d.getBorrowerId(),d.getAmount(),d.getCurrency(),true);
+  }
+ }
 }

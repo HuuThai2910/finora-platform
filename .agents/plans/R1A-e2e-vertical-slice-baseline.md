@@ -170,6 +170,22 @@ và investor nhận đủ 1.725.000; thông báo `REPAYMENT_CREDITED` và proof 
 luồng có đúng một `eventId`; drill phát lại `LoanDisbursed`/`RepaymentDistributed` không tạo Note, tiền, thông báo
 hay proof thứ hai. Evidence JSON nằm trong `docker/e2e/out/` (git-ignore). Thái chuyển `ACCEPTED`.
 
+Chạy lại trên code Wave 2 (ngày nghiệp vụ Việt Nam, booking theo ngày giải ngân thực tế, xác nhận rủi ro D6), trong
+khung 00:00–07:00 giờ Việt Nam để kiểm chính defect `R1A-BIZDATE`:
+
+| Run ID | Kiểm tra | Thời gian | Hồ sơ / Contract | Fineract loan / transaction | Defect |
+|---|---|---|---|---|---|
+| `r1a-20261017-044507` | 42/42 | 270 giây | `LA-6BF3EA93B5234B86B200` / `LC-F86F79EB280B42AC95B2` | 13 / 34 | Không |
+| `r1a-20261017-044938` | 42/42 | 239 giây | `LA-39334EA426AB446396A6` / `LC-682C779470FA4EF58218` | 14 / 37 | Không |
+| `r1a-20261017-052157` | 42/42 | 233 giây | `LA-A5DF13C306824C56A87F` / `LC-647A0A4DD632498A9727` | 15 / 40 | Không |
+
+Hai lần đầu bắt đầu 21:45Z và 21:49Z ngày 16/10 (04:45 và 04:49 giờ Việt Nam ngày 17/10), lần thứ ba 22:21Z (05:21).
+Hợp đồng ghi giải ngân dự kiến 2026-10-17, kỳ đầu 2026-11-17; Fineract ghi `actualDisbursementDate = 2026-10-17`, kỳ
+đầu 2026-11-17, trả kỳ 1 `transactionDate = 2026-10-17`, kỳ kế tiếp 2026-12-17. Hai lần đầu chạy jar Investment trước
+D6 (field `riskAcknowledgementVersion` bị bỏ qua); lần thứ ba chạy toàn bộ jar cuối của Wave 2 (Loan V28, Payment V13,
+Investment V16 được Flyway áp khi khởi động) và lệnh `IO-1792189342080-3e2d2` chỉ được nhận vì mang version
+`INVESTOR_RISK_V1`.
+
 ## 14. Bản đồ code thực tế
 
 - `start-local-services.ps1`: kiểm container hạ tầng, so thời điểm build `finora-user` với commit cuối của
@@ -208,9 +224,11 @@ Defect hệ thống phát hiện qua R1A (chi tiết trong defect register của
 
 - B06 `R1A-BIZDATE`: chạy lúc 03:00–04:00 giờ VN, Fineract ghi giải ngân và trả nợ ngày 2026-10-16 (ngày UTC)
   trong khi hợp đồng ghi giải ngân dự kiến 2026-10-17, kỳ đầu 2026-11-17; Fineract tính kỳ đầu 2026-11-16 và
-  projection Loan đổi sang lịch Fineract sau khi sync.
+  projection Loan đổi sang lịch Fineract sau khi sync. Đã sửa ở Wave 2 (task plan `R2-W2`), hai lần chạy lại lúc
+  04:45–04:53 giờ VN không còn lệch ngày.
 - B07: booking gửi `expectedDisbursementDate` của lúc nộp hồ sơ; `calculateLoanSchedule` xác nhận Fineract từ
-  chối khi ngày booking muộn hơn. E2E không chạm lỗi này chỉ vì cả luồng diễn ra trong vài phút.
+  chối khi ngày booking muộn hơn. E2E không chạm lỗi này chỉ vì cả luồng diễn ra trong vài phút. Đã sửa ở Wave 2:
+  mọi ngày gửi Fineract là ngày giải ngân thực tế.
 - B21–B23: DB Loan dùng chung trỏ tới Fineract của máy khác (log lỗi 404 mỗi chu kỳ sync), DB dev chậm migration,
   dependency Redis không dùng ở Payment.
 

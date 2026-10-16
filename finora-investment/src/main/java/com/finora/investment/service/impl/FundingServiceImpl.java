@@ -1,5 +1,6 @@
 package com.finora.investment.service.impl;
 
+import com.finora.investment.config.InvestorRiskDisclosureProperties;
 import com.finora.investment.service.FundingService;
 import com.finora.investment.service.InvestorEligibility;
 import com.finora.investment.service.OrderTransactionService;
@@ -53,6 +54,7 @@ public class FundingServiceImpl implements FundingService {
     private final PaymentClient paymentClient;
     private final InvestmentMapper mapper;
     private final InvestorEligibility eligibility;
+    private final InvestorRiskDisclosureProperties riskDisclosure;
 
     /**
      * Đặt một lệnh đầu tư vào khoản vay đang gọi vốn.
@@ -63,7 +65,29 @@ public class FundingServiceImpl implements FundingService {
     @Override
     public OrderResponse placeOrder(Long listingId, String idempotencyKey, PlaceOrderRequest request) {
         eligibility.requireVerifiedInvestor();
-        return placeOrderFor(SecurityUtils.getCurrentUserId(), listingId, idempotencyKey, request);
+        String investorId = SecurityUtils.getCurrentUserId();
+        // Gửi lại cùng khóa là hỏi kết quả của lệnh đã ghi nhận (xác nhận đã lưu lúc tạo lệnh). Chỉ lệnh mới phải mang
+        // xác nhận hiện hành; kiểm lại ở lần gửi lại sẽ báo lỗi cho một lệnh đã giữ tiền nếu version vừa đổi.
+        if (orderRepository.findByInvestorIdAndIdempotencyKey(investorId, idempotencyKey).isEmpty()) {
+            requireRiskAcknowledgement(request);
+        }
+        return placeOrderFor(investorId, listingId, idempotencyKey, request);
+    }
+
+    /**
+     * Nhà đầu tư phải xác nhận đúng bản công bố rủi ro hiện hành trước lệnh sơ cấp (D6, LEGAL-DISCLOSURE-02). Version cũ
+     * nghĩa là nội dung đã đổi sau khi màn hình tải: từ chối để nhà đầu tư đọc lại, không tự coi là đã đồng ý.
+     */
+    private void requireRiskAcknowledgement(PlaceOrderRequest request) {
+        String version = request.riskAcknowledgementVersion();
+        if (version == null || version.isBlank()) {
+            throw InvestmentDomainException.invalidInput("RISK_ACKNOWLEDGEMENT_REQUIRED",
+                    "Bạn cần xác nhận đã đọc và hiểu công bố rủi ro trước khi góp vốn");
+        }
+        if (!riskDisclosure.version().equals(version.trim())) {
+            throw InvestmentDomainException.conflict("RISK_DISCLOSURE_OUTDATED",
+                    "Công bố rủi ro đã được cập nhật, vui lòng đọc lại trước khi góp vốn");
+        }
     }
 
     /**

@@ -6,6 +6,7 @@ import com.finora.payment.config.EarlySettlementPolicyProperties;
 import com.finora.payment.domain.repayment.PartialPrepaymentQuote;
 import com.finora.payment.domain.servicing.PaymentLoanAccount;
 import com.finora.payment.dto.response.PartialPrepaymentQuoteResponse;
+import com.finora.payment.integration.fineract.FineractQuoteErrors;
 import com.finora.payment.integration.fineract.PartialPrepaymentCoreSnapshot;
 import com.finora.payment.integration.fineract.RepaymentCoreGateway;
 import com.finora.payment.repository.repayment.PartialPrepaymentQuoteRepository;
@@ -39,7 +40,8 @@ public class PartialPrepaymentQuoteService {
         QuotePreparation preparation = transactionTemplate.execute(status -> prepare(applicationId, borrowerId));
         if (preparation == null) throw new IllegalStateException("Không chuẩn bị được báo giá trả trước một phần");
         LocalDate today = LocalDate.now(clock);
-        PartialPrepaymentCoreSnapshot core = fineract.partialPrepaymentSnapshot(preparation.fineractLoanId(), today);
+        PartialPrepaymentCoreSnapshot core = FineractQuoteErrors.read(
+                () -> fineract.partialPrepaymentSnapshot(preparation.fineractLoanId(), today));
         if (normalized.compareTo(core.outstandingPrincipal()) >= 0) {
             throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, "PARTIAL_PREPAYMENT_AMOUNT_TOO_HIGH",
                     "Phần gốc trả trước phải nhỏ hơn gốc còn lại; dùng luồng tất toán để đóng toàn bộ khoản vay");

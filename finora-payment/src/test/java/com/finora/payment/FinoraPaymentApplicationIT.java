@@ -27,6 +27,7 @@ import com.finora.payment.repository.PaymentOutboxEventRepository;
 import com.finora.payment.repository.repayment.PaymentRepaymentRepository;
 import com.finora.payment.repository.servicing.PaymentNoteOwnershipRepository;
 import com.finora.payment.integration.fineract.RepaymentCoreGateway;
+import com.finora.payment.integration.provider.PaymentProvider;
 import com.finora.payment.integration.fineract.PartialPrepaymentCoreSnapshot;
 import com.finora.payment.integration.fineract.ScheduledRepaymentCoreQuote;
 import com.finora.payment.service.disbursement.PaymentDisbursementService;
@@ -314,6 +315,83 @@ class FinoraPaymentApplicationIT {
         assertThat(seller.getAvailableBalance()).isEqualByComparingTo("1871500.00");
     }
 
+    /**
+     * Worker chết sau khi đã giữ chỗ capture và gọi provider: hết lease thì không gọi chuyển tiền lại mà tra cứu
+     * provider theo sagaId, rồi hoàn tất đúng một lần. Kết quả lần gọi cũ đến muộn sau đó bị bỏ qua.
+     */
+    @Test
+    void interruptedDisbursementIsReconciledByLookupAndCompletedExactlyOnce() {
+        actAs("INVESTOR-LEASE");
+        TopUpResponse topUp = topUpService.create(new BigDecimal("5000000"), "topup-it-lease");
+        topUpService.completeMock(topUp.topUpId());
+        HoldResponse hold = holdTransferService.hold(new CreateHoldRequest(
+                "INVESTOR-LEASE", new BigDecimal("2000000.00"), "ORDER-LEASE"));
+        UUID sagaId = UUID.randomUUID();
+        disbursementService.request(UUID.randomUUID(), new DisbursementRequestedEventData(
+                sagaId, 110L, "LA-110", "LC-110", 210L, "BORROWER-LEASE",
+                "2000000.00", "VND", List.of(new DisbursementRequestedEventData.Allocation(
+                310L, "INVESTOR-LEASE", "2000000.00", hold.holdReference()))));
+        Long id = disbursementRepository.findBySagaId(sagaId).orElseThrow().getId();
+
+        // Mô phỏng worker chết ngay sau khi claim: lệnh còn PROCESSING, hold đang CAPTURE_PENDING.
+        assertThat(disbursementService.claim(id)).isNotNull();
+        assertThat(disbursementService.dueIds()).doesNotContain(id);
+        jdbcTemplate.update("UPDATE payment_disbursements SET next_attempt_at = now() - interval '1 second' WHERE id = ?", id);
+
+        assertThat(disbursementService.dueIds()).contains(id);
+        disbursementService.execute(id);
+
+        PaymentDisbursement reconciled = disbursementRepository.findById(id).orElseThrow();
+        assertThat(reconciled.getStatus()).isEqualTo(PaymentDisbursementStatus.COMPLETED);
+        assertThat(reconciled.getAttemptCount()).isEqualTo(1);
+        assertThat(reconciled.getProviderReference()).isEqualTo("MOCK-" + sagaId);
+        PaymentWallet borrowerWallet = walletRepository.findByOwnerTypeAndOwnerIdAndCurrency(
+                WalletOwnerType.BORROWER, "BORROWER-LEASE", "VND").orElseThrow();
+        assertThat(borrowerWallet.getAvailableBalance()).isEqualByComparingTo("2000000.00");
+
+        // Kết quả của lần gọi provider cũ đến muộn: không capture, không ghi có hay phát event lần hai.
+        long ledgerTransactions = transactionRepository.count();
+        disbursementService.finish(id, PaymentProvider.PaymentProviderResult.success("MOCK-" + sagaId));
+        assertThat(transactionRepository.count()).isEqualTo(ledgerTransactions);
+        assertThat(outboxRepository.findAll()).filteredOn(event -> "DisbursementCompleted".equals(event.getEventType()))
+                .hasSize(1);
+        assertThat(walletRepository.findByOwnerTypeAndOwnerIdAndCurrency(
+                WalletOwnerType.BORROWER, "BORROWER-LEASE", "VND").orElseThrow().getAvailableBalance())
+                .isEqualByComparingTo("2000000.00");
+    }
+
+    @Test
+    void uncertainProviderResultWaitsForLookupInsteadOfRetryingTransfer() {
+        actAs("INVESTOR-UNCERTAIN");
+        TopUpResponse topUp = topUpService.create(new BigDecimal("3000000"), "topup-it-uncertain");
+        topUpService.completeMock(topUp.topUpId());
+        HoldResponse hold = holdTransferService.hold(new CreateHoldRequest(
+                "INVESTOR-UNCERTAIN", new BigDecimal("1000000.00"), "ORDER-UNCERTAIN"));
+        UUID sagaId = UUID.randomUUID();
+        disbursementService.request(UUID.randomUUID(), new DisbursementRequestedEventData(
+                sagaId, 111L, "LA-111", "LC-111", 211L, "BORROWER-UNCERTAIN",
+                "1000000.00", "VND", List.of(new DisbursementRequestedEventData.Allocation(
+                311L, "INVESTOR-UNCERTAIN", "1000000.00", hold.holdReference()))));
+        Long id = disbursementRepository.findBySagaId(sagaId).orElseThrow().getId();
+        assertThat(disbursementService.claim(id)).isNotNull();
+
+        disbursementService.finish(id, PaymentProvider.PaymentProviderResult.failure(
+                "PAYMENT_PROVIDER_UNCERTAIN", "timeout", false));
+
+        PaymentDisbursement pending = disbursementRepository.findById(id).orElseThrow();
+        assertThat(pending.getStatus()).isEqualTo(PaymentDisbursementStatus.RECONCILIATION_REQUIRED);
+        assertThat(pending.getNextAttemptAt()).isNotNull();
+        assertThat(outboxRepository.findAll()).filteredOn(event -> "DisbursementFailed".equals(event.getEventType()))
+                .isEmpty();
+
+        jdbcTemplate.update("UPDATE payment_disbursements SET next_attempt_at = now() - interval '1 second' WHERE id = ?", id);
+        disbursementService.execute(id);
+
+        assertThat(disbursementRepository.findById(id).orElseThrow().getStatus())
+                .isEqualTo(PaymentDisbursementStatus.COMPLETED);
+        assertThat(disbursementRepository.findById(id).orElseThrow().getAttemptCount()).isEqualTo(1);
+    }
+
     @Test
     void completedLegacyDisbursementCreditsBorrowerExactlyOnce() {
         UUID sagaId = UUID.randomUUID();
@@ -321,7 +399,7 @@ class FinoraPaymentApplicationIT {
         PaymentDisbursement legacy = PaymentDisbursement.requested(
                 sagaId, 102L, "LC-LEGACY", 202L, "BORROWER-LEGACY",
                 new BigDecimal("7000000.00"), "VND", "MOCK", "[]", now);
-        legacy.start(now);
+        legacy.start(now, now.plusSeconds(120));
         legacy.complete("MOCK-LEGACY-" + sagaId, UUID.randomUUID(), now);
         legacy = disbursementRepository.saveAndFlush(legacy);
 
@@ -361,6 +439,50 @@ class FinoraPaymentApplicationIT {
     }
 
     @Test
+    void scheduledDueReturnsCoreObligationOnlyToLoanOwner() {
+        long applicationId = 521L;
+        long fineractLoanId = 721L;
+        UUID sagaId = UUID.randomUUID();
+        Instant disbursedAt = Instant.parse("2026-10-01T00:00:00Z");
+        PaymentDisbursement disbursement = PaymentDisbursement.requested(
+                sagaId, applicationId, "LC-521", 621L, "BORROWER-521",
+                new BigDecimal("10000000.00"), "VND", "MOCK", "[]", disbursedAt);
+        disbursement.start(disbursedAt, disbursedAt.plusSeconds(120));
+        disbursement.complete("MOCK-521", UUID.randomUUID(), disbursedAt);
+        disbursementRepository.saveAndFlush(disbursement);
+        servicingProjectionService.activateLoan(UUID.randomUUID(), new LoanDisbursedEventData(
+                sagaId, applicationId, "LA-521", "LC-521", 621L, "10000000.00", "VND",
+                "MOCK-521", fineractLoanId, "FINORA-FINERACT-V3", disbursedAt));
+        // Fineract trả số tiền scale 6 và đã làm tròn bội 1.000 VND; API phải trả đúng giá trị, tối đa 2 chữ số.
+        when(repaymentCoreGateway.scheduledRepaymentQuote(fineractLoanId))
+                .thenReturn(new ScheduledRepaymentCoreQuote(
+                        new BigDecimal("1725000.000000"), new BigDecimal("125000.000000")));
+
+        actAsBorrower("BORROWER-521");
+        var due = repaymentService.scheduledDue(applicationId);
+        assertThat(due.amount()).isEqualByComparingTo("1725000.00");
+        assertThat(due.amount().scale()).isEqualTo(2);
+        assertThat(due.overdueAmount()).isEqualByComparingTo("125000.00");
+        assertThat(due.repaymentType()).isEqualTo(com.finora.payment.domain.repayment.PaymentRepaymentType.OVERDUE_CURE);
+        assertThat(due.businessDate()).isEqualTo(LocalDate.now(clock));
+
+        actAsBorrower("BORROWER-OTHER");
+        assertThatThrownBy(() -> repaymentService.scheduledDue(applicationId))
+                .isInstanceOfSatisfying(com.finora.common.exception.BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("PAYMENT_LOAN_OWNER_MISMATCH"));
+
+        actAsBorrower("BORROWER-521");
+        when(repaymentCoreGateway.scheduledRepaymentQuote(fineractLoanId))
+                .thenThrow(new com.finora.payment.integration.fineract.FineractRepaymentException(
+                        "FINERACT_DUE_UNAVAILABLE", "timeout", true, null));
+        assertThatThrownBy(() -> repaymentService.scheduledDue(applicationId))
+                .isInstanceOfSatisfying(com.finora.common.exception.BusinessException.class, exception -> {
+                    assertThat(exception.getStatus()).isEqualTo(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
+                    assertThat(exception.getCode()).isEqualTo("FINERACT_REPAYMENT_QUOTE_UNAVAILABLE");
+                });
+    }
+
+    @Test
     void scheduledRepaymentMovesMoneyThroughCoreAndDistributesToCurrentNoteOwner() {
         long applicationId = 501L;
         long listingId = 601L;
@@ -370,7 +492,7 @@ class FinoraPaymentApplicationIT {
         PaymentDisbursement disbursement = PaymentDisbursement.requested(
                 sagaId, applicationId, "LC-501", listingId, "BORROWER-501",
                 new BigDecimal("10000000.00"), "VND", "MOCK", "[]", disbursedAt);
-        disbursement.start(disbursedAt);
+        disbursement.start(disbursedAt, disbursedAt.plusSeconds(120));
         disbursement.complete("MOCK-501", UUID.randomUUID(), disbursedAt);
         disbursementRepository.saveAndFlush(disbursement);
         servicingProjectionService.activateLoan(UUID.randomUUID(), new LoanDisbursedEventData(
@@ -426,7 +548,7 @@ class FinoraPaymentApplicationIT {
         PaymentDisbursement disbursement = PaymentDisbursement.requested(
                 sagaId, applicationId, "LC-502", listingId, "BORROWER-502",
                 new BigDecimal("10000000.00"), "VND", "MOCK", "[]", disbursedAt);
-        disbursement.start(disbursedAt);
+        disbursement.start(disbursedAt, disbursedAt.plusSeconds(120));
         disbursement.complete("MOCK-502", UUID.randomUUID(), disbursedAt);
         disbursementRepository.saveAndFlush(disbursement);
         servicingProjectionService.activateLoan(UUID.randomUUID(), new LoanDisbursedEventData(

@@ -80,6 +80,8 @@ management:
         include: health,info,metrics
 
 finora:
+  # Múi giờ của ngày nghiệp vụ (nộp hồ sơ, booking/giải ngân Fineract, servicing). Phải trùng múi giờ tenant Fineract.
+  business-time-zone: ${FINORA_BUSINESS_TIME_ZONE:Asia/Ho_Chi_Minh}
   # Pin-token xác nhận thao tác nhạy cảm — khoá HS256 phải GIỐNG NHAU ở finora-user
   # (bên cấp) và payment/investment/loan (bên kiểm). Mặc định chỉ dùng cho máy dev.
   pin:
@@ -182,8 +184,17 @@ finora:
         - event-type: LoanFundingCancelled
           event-version: 1
           topic: ${LOAN_FUNDING_CANCELLED_TOPIC:finora.loan.funding-cancelled}
+    # D5/LEGAL-LIMIT-01: policy demo, chưa phải hằng số pháp lý (NEEDS_PRIMARY_SOURCE). Tính dư nợ còn lại + hồ sơ
+    # đang xử lý + hồ sơ mới của một người vay.
+    borrower-exposure:
+      enabled: ${LOAN_BORROWER_EXPOSURE_ENABLED:true}
+      max-outstanding: ${LOAN_BORROWER_MAX_OUTSTANDING:100000000}
     disbursement:
       worker-delay: ${LOAN_DISBURSEMENT_WORKER_DELAY:5000}
+      max-attempts: ${LOAN_DISBURSEMENT_MAX_ATTEMPTS:3}
+      retry-backoff: ${LOAN_DISBURSEMENT_RETRY_BACKOFF:30s}
+      # Hết lease mà bước ghi Fineract chưa có kết quả (worker chết) thì worker khác nhận lại và reconcile theo externalId.
+      core-booking-lease: ${LOAN_DISBURSEMENT_CORE_BOOKING_LEASE:5m}
     servicing-sync:
       enabled: ${LOAN_SERVICING_SYNC_ENABLED:true}
       worker-delay: ${LOAN_SERVICING_SYNC_WORKER_DELAY:60000}

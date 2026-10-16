@@ -90,8 +90,8 @@ SoR, ledger/event và khả năng retry.
 | R0 | P0 | Both | Source/docs | `DONE` | Backend, web, mobile cùng mốc code; roadmap/rule khớp code |
 | R1 | P0 | Both | E2E | `IN_PROGRESS` | R1A baseline tự động đã chạy thật ngày 2026-10-17; R1B chạy sạch core và toàn bộ servicing sau R2/R3 |
 | G-POLICY | P0 | Both | Policy/Contract | `READY` | Khoản vay cũ/mới dùng đúng policy version và hợp đồng/quote/UI cùng một công thức |
-| R2 | P0 | Thai | Loan/Payment/Fineract | `READY` | Restart/timeout/duplicate không giải ngân hoặc thu tiền hai lần |
-| R3 | P0 | Hai | Investment | `READY` | Order–hold, Note activation, ownership và portfolio tự repair |
+| R2 | P0 | Thai | Loan/Payment/Fineract | `IN_PROGRESS` | Restart/timeout/duplicate không giải ngân hoặc thu tiền hai lần; Wave 2 xong B06–B13 (`R2-W2` chờ review) |
+| R3 | P0 | Hai | Investment | `IN_PROGRESS` | Order–hold, Note activation, ownership và portfolio tự repair; Wave 2 xong B14–B16 (`R3-W2` chờ Hải review) |
 | R4 | P1 | Thai | Payment | `BACKLOG` | Rút tiền và provider disbursement sandbox chạy thật, đối soát được |
 | R5 | P1 | Thai + Hai | Loan/Investment/SmartCA | `BACKLOG` | PDF có chữ ký nhúng của nhiều bên hoặc quyết định giữ receipt rời được duyệt |
 | R6 | P1 | Thai | Blockchain | `BACKLOG` | Fabric thật + proof/query/reconcile cho các mốc đã duyệt |
@@ -112,10 +112,10 @@ lựa chọn kỹ thuật còn lại, miễn phù hợp nghiệp vụ và chạy
 | D1 | CIC theo bản Node đã deploy; không phát triển lại CIC trong repo | Phạm vi | Đã áp dụng |
 | D2 | Sửa lỗi hiện tại và làm luôn backlog theo wave; được sửa module của Hải để đồng bộ, đánh dấu “Hải review trước merge” | Ownership | 1–3 |
 | D3 | Security (R8) tạm hoãn, chỉ sửa khi gắn trực tiếp với contract giữa service | Phạm vi | Sau wave 3 |
-| D4 | Loan dùng adapter KYC thật của User; chỉ borrower `VERIFIED` được nộp hồ sơ; mock chỉ còn cho test/E2E | Nghiệp vụ | 2 |
-| D5 | Hạn mức dư nợ của một borrower 100.000.000 VND, cấu hình được, nhãn `NEEDS_PRIMARY_SOURCE` (policy demo, chưa phải luật) | Policy demo | 2 |
-| D6 | Nhà đầu tư tick xác nhận rủi ro (lưu version + thời điểm) trước lệnh sơ cấp (`LEGAL-DISCLOSURE-02`) | Nghiệp vụ | 2 |
-| D7 | Ngày nghiệp vụ của Loan và Payment là `Asia/Ho_Chi_Minh` | Nghiệp vụ | 2 |
+| D4 | Loan dùng adapter KYC thật của User; chỉ borrower `VERIFIED` được nộp hồ sơ; mock chỉ còn cho test/E2E | Nghiệp vụ | 2B |
+| D5 | Hạn mức dư nợ của một borrower 100.000.000 VND, cấu hình được, nhãn `NEEDS_PRIMARY_SOURCE` (policy demo, chưa phải luật) | Policy demo | 2 (xong) |
+| D6 | Nhà đầu tư tick xác nhận rủi ro (lưu version + thời điểm) trước lệnh sơ cấp (`LEGAL-DISCLOSURE-02`) | Nghiệp vụ | 2 (xong) |
+| D7 | Ngày nghiệp vụ của Loan và Payment là `Asia/Ho_Chi_Minh` | Nghiệp vụ | 2 (xong) |
 | D8 | Hợp đồng bị từ chối/hết hạn ký hoặc giải ngân thất bại → event bù trừ, Investment hủy cam kết và nhả hold | Contract | 1 (xong) |
 | D9 | Phạt chậm trả giữ 0 cho hợp đồng hiện hành; chưa có write-off | Policy | Giữ nguyên |
 | D10 | Trả trước một phần thu `scheduledDue + prepaidPrincipal`; quote cũ giữ snapshot | Policy | Giữ nguyên |
@@ -136,22 +136,22 @@ Nguồn: rà soát code ngày 2026-10-16/17 và evidence R1A (`docker/e2e/out/r1
 | B03 | P0 | R9 | Gateway thiếu route `/api/v1/repayments/**`; admin repayment reconciliation bị route sang Loan; profile `docker` thiếu route Notification | Fixed Wave 1 — E2E trả nợ qua Gateway |
 | B04 | P0 | R3 | `market_listings.purpose` VARCHAR(100) trong khi Loan gửi nhãn + 500 ký tự; listing vào DLT | Fixed Wave 1 — Investment V15 + IT |
 | B05 | P0 | R2/R3 | Không có bù trừ khi đã đủ vốn mà hợp đồng bị từ chối/hết hạn hoặc giải ngân thất bại; tiền nhà đầu tư bị giữ vô thời hạn | Fixed Wave 1 — `LoanFundingCancelled` v1, Loan V27, IT Loan/Investment |
-| B06 | P0 | G-POLICY | Loan/Payment dùng `Clock.systemUTC()`: từ 00:00–07:00 giờ VN, Fineract ghi giải ngân/trả nợ vào ngày hôm trước; hợp đồng ghi kỳ đầu 17/11 còn Fineract 16/11 (evidence R1A-BIZDATE) | Open → Wave 2 (D7) |
-| B07 | P0 | R2 | Booking dùng `expectedDisbursementDate` của lúc nộp hồ sơ, `submittedOnDate` = ngày booking. Fineract từ chối khi ngày booking muộn hơn (`error.msg.loan.submittal.cannot.be.after.expected.disbursement.date`, kiểm bằng `calculateLoanSchedule`) → luồng thật (gọi vốn tới 14 ngày, ký tới 7 ngày) sẽ `REPAIR_REQUIRED` sau khi tiền đã chuyển | Open → Wave 2, cùng G-POLICY về lịch theo ngày giải ngân thực tế |
-| B08 | P0 | R2 | Saga `CORE_BOOKING` không được nhận lại sau khi service chết giữa chừng | Open → Wave 2 |
-| B09 | P0 | R2 | Payment disbursement `PROCESSING`/`RECONCILIATION_REQUIRED` không có worker phục hồi; truy vấn top-20 có thể bỏ đói | Open → Wave 2 |
-| B10 | P1 | R2 | Payment POST Fineract thành công nhưng GET sau đó lỗi HTTP bị coi là thất bại → hoàn tiền + `FAILED` | Open → Wave 2 |
-| B11 | P1 | R2 | Outbox Payment `send().get()` không timeout | Open → Wave 2 |
-| B12 | P1 | R2 | `DisbursementSaga.paymentFailed` ghi đè mọi trạng thái trừ `COMPLETED` (bù trừ Wave 1 đã chặn ở `WAITING_PAYMENT`) | Open → Wave 2 |
-| B13 | P1 | R2 | Lỗi Fineract khi đọc nghĩa vụ trả nợ trả `500 INTERNAL_ERROR` thay vì mã nghiệp vụ | Open → Wave 2 |
-| B14 | P1 | R3 | Investment `LoanDisbursed` yêu cầu listing `EFFECTIVE`, sai thứ tự event vào DLT và không tự replay | Open → Wave 2 |
-| B15 | P1 | R3 | Admin `finalize`/`activate-notes` không có guard trạng thái; web hiện nút nguy hiểm | Open → Wave 2 |
-| B16 | P1 | R3 | Portfolio chỉ đọc Note `ACTIVE`, khoản `DEFAULTED`/`CLOSED` biến mất khỏi danh mục | Open → Wave 2 |
-| B17 | P1 | G-POLICY | Cấu hình phí tất toán hiện hành áp ngược cho hợp đồng cũ (chưa có policy version snapshot) | Open → Wave 2 |
-| B18 | P1 | Legal | Thiếu kiểm hạn mức dư nợ (`LEGAL-LIMIT-01`) và xác nhận rủi ro nhà đầu tư (`LEGAL-DISCLOSURE-02`) | Open → Wave 2 (D5, D6) |
-| B19 | P1 | Loan/User | Loan chỉ có `BorrowerProfileProvider` mock (VERIFIED, 30 tuổi) | Open → Wave 2 (D4) |
-| B20 | P1 | FE | Mobile tự tính số tiền trả kỳ; web gọi API duyệt listing không còn tồn tại và hiện thông điệp sai | Open → Wave 2 |
-| B21 | P1 | R9/R2 | DB Loan dùng chung chứa khoản vay trỏ tới Fineract local của máy khác; worker sync log lỗi 404 kèm stack trace ở mọi chu kỳ 10 giây, mapping Product↔Fineract không dùng chung được giữa máy | Open → Wave 2 (backoff/repair) và R9 (environment matrix) |
+| B06 | P0 | G-POLICY | Loan/Payment dùng `Clock.systemUTC()`: từ 00:00–07:00 giờ VN, Fineract ghi giải ngân/trả nợ vào ngày hôm trước; hợp đồng ghi kỳ đầu 17/11 còn Fineract 16/11 (evidence R1A-BIZDATE) | Fixed Wave 2 — [`R2-W2`](R2-W2-business-date-and-financial-recovery.md); E2E 04:45 giờ VN: Fineract giải ngân và trả nợ 2026-10-17, kỳ đầu 2026-11-17 khớp hợp đồng |
+| B07 | P0 | R2 | Booking dùng `expectedDisbursementDate` của lúc nộp hồ sơ, `submittedOnDate` = ngày booking. Fineract từ chối khi ngày booking muộn hơn (`error.msg.loan.submittal.cannot.be.after.expected.disbursement.date`, kiểm bằng `calculateLoanSchedule`) → luồng thật (gọi vốn tới 14 ngày, ký tới 7 ngày) sẽ `REPAIR_REQUIRED` sau khi tiền đã chuyển | Fixed Wave 2 — [`R2-W2`](R2-W2-business-date-and-financial-recovery.md); mọi ngày gửi Fineract là ngày giải ngân thực tế, unit test + E2E |
+| B08 | P0 | R2 | Saga `CORE_BOOKING` không được nhận lại sau khi service chết giữa chừng | Fixed Wave 2 — lease + claim token, Loan V28; unit test. Restart JVM thật thuộc R1B |
+| B09 | P0 | R2 | Payment disbursement `PROCESSING`/`RECONCILIATION_REQUIRED` không có worker phục hồi; truy vấn top-20 có thể bỏ đói | Fixed Wave 2 — lease → đối soát `lookup(sagaId)`, Payment V12–V13; IT PostgreSQL. Restart JVM thật thuộc R1B |
+| B10 | P1 | R2 | Payment POST Fineract thành công nhưng GET sau đó lỗi HTTP bị coi là thất bại → hoàn tiền + `FAILED` | Fixed Wave 2 — 4xx/5xx/GET lỗi tách mã; unit test |
+| B11 | P1 | R2 | Outbox Payment `send().get()` không timeout | Fixed Wave 2 — `outbox-publish-timeout`; `PaymentOutboxPublisherTest` |
+| B12 | P1 | R2 | `DisbursementSaga.paymentFailed` ghi đè mọi trạng thái trừ `COMPLETED` (bù trừ Wave 1 đã chặn ở `WAITING_PAYMENT`) | Fixed Wave 2 — chỉ `WAITING_PAYMENT → PAYMENT_FAILED`, mâu thuẫn vào DLT; unit test |
+| B13 | P1 | R2 | Lỗi Fineract khi đọc nghĩa vụ trả nợ trả `500 INTERNAL_ERROR` thay vì mã nghiệp vụ | Fixed Wave 2 — 422/503/502 qua `FineractQuoteErrors`; unit test |
+| B14 | P1 | R3 | Investment `LoanDisbursed` yêu cầu listing `EFFECTIVE`, sai thứ tự event vào DLT và không tự replay | Fixed Wave 2 — [`R3-W2`](R3-W2-investment-event-order-and-portfolio.md); `LoanDisbursed` là bằng chứng Contract hiệu lực, IT |
+| B15 | P1 | R3 | Admin `finalize`/`activate-notes` không có guard trạng thái; web hiện nút nguy hiểm | Fixed Wave 2 — `409 LISTING_NOT_DISBURSED`, web chỉ hiện nút sửa lỗi sau giải ngân; IT + web build |
+| B16 | P1 | R3 | Portfolio chỉ đọc Note `ACTIVE`, khoản `DEFAULTED`/`CLOSED` biến mất khỏi danh mục | Fixed Wave 2 — vị thế `CLOSED/DEFAULTED`, mobile ẩn nút bán; IT |
+| B17 | P1 | G-POLICY | Cấu hình phí tất toán hiện hành áp ngược cho hợp đồng cũ (chưa có policy version snapshot) | Open → Wave 2B |
+| B18 | P1 | Legal | Thiếu kiểm hạn mức dư nợ (`LEGAL-LIMIT-01`) và xác nhận rủi ro nhà đầu tư (`LEGAL-DISCLOSURE-02`) | Fixed Wave 2 — [`W2-LEGAL`](W2-LEGAL-borrower-exposure-and-investor-acknowledgement.md): hạn mức dư nợ nội bộ (policy demo, `NEEDS_PRIMARY_SOURCE`) + xác nhận lưu version/thời điểm; IT Loan/Investment |
+| B19 | P1 | Loan/User | Loan chỉ có `BorrowerProfileProvider` mock (VERIFIED, 30 tuổi) | Open → Wave 2B (D4) |
+| B20 | P1 | FE | Mobile tự tính số tiền trả kỳ; web gọi API duyệt listing không còn tồn tại và hiện thông điệp sai | Fixed Wave 2 — `GET /repayments/scheduled-due` (IT), mobile dùng số backend, web bỏ form duyệt |
+| B21 | P1 | R9/R2 | DB Loan dùng chung chứa khoản vay trỏ tới Fineract local của máy khác; worker sync log lỗi 404 kèm stack trace ở mọi chu kỳ 10 giây, mapping Product↔Fineract không dùng chung được giữa máy | Partly fixed Wave 2 — log một dòng `warn`, không stack trace; tách DB theo môi trường vẫn thuộc R9 |
 | B22 | P2 | R9 | DB dev dùng chung chậm 1–3 migration so với `main` (Loan V26, Investment V13–V14, Payment V11 chỉ được áp khi chạy E2E) | Open → R9 (CI/migration discipline) |
 | B23 | P2 | R9 | Payment khai báo `spring-boot-starter-data-redis` nhưng không dùng Redis | Open → R9 |
 | B24 | P2 | R7 | `BorrowerSignatureRequested` chưa có consumer; người vay không nhận thông báo đến lượt ký | Open → Wave 3 (R7) |
@@ -299,6 +299,13 @@ không POST mù, không chuyển `FAILED` khi kết quả thực tế còn chưa
 - Hoàn thiện màn/admin action cho incident thật sự cần con người quyết định.
 - Chốt auto-debit chỉ sau khi manual repayment/reconciliation đạt phase gate.
 
+### Trạng thái Wave 2 ngày 2026-10-17
+
+Task plan [`R2-W2`](R2-W2-business-date-and-financial-recovery.md) (`READY_FOR_REVIEW`): ngày nghiệp vụ Việt Nam,
+booking theo ngày giải ngân thực tế, lease/claim token cho saga `CORE_BOOKING`, lease → đối soát cho khoản giải ngân
+Payment, phân loại lỗi repayment/quote và timeout outbox. Còn lại của R2: restart/timeout trên stack thật (R1B), màn
+admin cho incident cần người quyết định, auto-debit sau phase gate.
+
 ### Transaction/concurrency
 
 ```text
@@ -325,6 +332,10 @@ gọi HTTP. Worker dùng processing lease; hết lease phải reconcile trước
 3. Khóa ownership snapshot/version tại thời điểm phân bổ; test transfer cạnh repayment.
 4. Rebuild portfolio/cashflow từ event/Note state thay vì sửa số hiển thị bằng tay.
 5. Hoàn tất consumer thật của `RepaymentDistributed.v1` và servicing events cho cơ cấu/default/cure.
+
+Trạng thái Wave 2 ngày 2026-10-17: task plan [`R3-W2`](R3-W2-investment-event-order-and-portfolio.md)
+(`READY_FOR_REVIEW`, Hải review trước merge) đã làm mục 2 cho trường hợp event lệch thứ tự, guard thao tác sửa lỗi
+và giữ vị thế đã kết thúc trong danh mục. Mục 1, 3, 4, 5 còn nguyên.
 
 ### Query/index cần chứng minh trong task con
 

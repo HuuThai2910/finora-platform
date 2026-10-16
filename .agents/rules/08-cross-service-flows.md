@@ -75,6 +75,12 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 
 **Failure:** Fineract chưa functional-ready → preview trả lỗi phụ thuộc có thể thử lại, không tạo Application; UI giữ lựa chọn đã nhập và hướng dẫn thử lại sau. AI lỗi → giữ `SCORING_RETRY_PENDING`, không tạo điểm mặc định. Retry hết hạn → manual review hoặc failure state có audit.
 
+**CURRENT STATE (2026-10-17, Wave 2):** trước khi ghi hồ sơ, Loan kiểm hạn mức dư nợ tại FINORA (D5,
+[`LEGAL-LIMIT-01`](../../docs/LEGAL-COMPLIANCE.md)): gốc còn lại của khoản đang phục vụ + hồ sơ còn có thể thành khoản
+vay + hồ sơ mới ≤ `finora.loan.borrower-exposure.max-outstanding` (policy demo 100.000.000), advisory lock theo
+borrower trong transaction ghi hồ sơ; vượt thì `422 BORROWER_EXPOSURE_LIMIT_EXCEEDED`. Ngày nộp hồ sơ gửi AI theo ngày
+nghiệp vụ `Asia/Ho_Chi_Minh`.
+
 ## F03 — Duyệt, ký hợp đồng và đưa khoản vay lên sàn
 
 **Trigger:** AI auto-approve hoặc admin xử lý hồ sơ `PENDING_REVIEW`. **Orchestrator:** Loan.
@@ -130,6 +136,12 @@ mức tối thiểu. Đặt lệnh yêu cầu vai trò INVESTOR, claim `ekyc_sta
 `finora-user-client`, finora-user ghi attribute khi eKYC và mỗi lần đăng nhập) và người đặt khác `borrowerId`
 mà `LoanFundingRequested.v1` mang theo (trường bổ sung).
 
+**CURRENT STATE (2026-10-17, Wave 2):** lệnh sơ cấp mới phải mang `riskAcknowledgementVersion` khớp
+`finora.investment.risk-disclosure.version` (D6, [`LEGAL-DISCLOSURE-02`](../../docs/LEGAL-COMPLIANCE.md)); thiếu →
+`400 RISK_ACKNOWLEDGEMENT_REQUIRED`, lệch → `409 RISK_DISCLOSURE_OUTDATED`, kiểm trước khi ghi lệnh hay giữ tiền.
+Investment lưu version + thời điểm trên `investment_orders`. Gửi lại cùng `Idempotency-Key` của lệnh đã tạo trả lệnh
+cũ, không kiểm lại version. Lệnh Auto-Invest đi qua `placeOrderFor` nên không mang xác nhận từng lệnh.
+
 **CURRENT STATE (2026-09-28):** Payment đã có API wallet/top-up/hold/release/transfer, immutable balanced ledger và capture đúng từng `paymentHoldReference`. Investment mặc định gọi Payment qua HTTP và truyền hold reference trong `LoanFullyFunded.v2`; stub chỉ còn dùng trong test. Nạp tiền hỗ trợ provider `mock` và adapter ZaloPay sandbox có HMAC callback; disbursement hiện dùng provider `mock`, còn ZaloPay disbursement fail-closed vì chưa có quyền API chuyển tiền.
 
 ## F04b — Sổ lệnh chợ thứ cấp Notes
@@ -182,6 +194,17 @@ Phần Payment do Hải viết theo yêu cầu, owner Payment (Thái) cần revi
 
 **Restart:** Saga state phải durable; restart tiếp tục từ bước cuối đã xác nhận, không chạy lại side effect không idempotent.
 
+**CURRENT STATE (2026-10-17, Wave 2):** ngày nghiệp vụ của Loan/Payment là `Asia/Ho_Chi_Minh`
+(`finora.business-time-zone`). Booking Fineract dùng một ngày giải ngân thực tế cho submitted/approved/expected/actual
+disbursement, đúng điều khoản “lịch chính thức tính từ ngày giải ngân thực tế”. Bước `CORE_BOOKING` có lease
+(`core-booking-lease`, mặc định 5 phút) và claim token theo lần thử: worker chết thì worker khác nhận lại và reconcile
+Fineract theo externalId, kết quả muộn của lần thử cũ bị bỏ qua, quá `max-attempts` thì `REPAIR_REQUIRED
+(CORE_BOOKING_STALLED)`. Payment giải ngân có lease `PROCESSING` (mặc định 2 phút): hết lease thì chuyển
+`RECONCILIATION_REQUIRED` và tra cứu provider theo `sagaId` (`PaymentProvider.lookup`), không bao giờ gọi chuyển tiền
+lại; `finish` chỉ ghi kết quả khi còn `PROCESSING/RECONCILIATION_REQUIRED`. `DisbursementFailed` chỉ hợp lệ khi saga còn
+`WAITING_PAYMENT`, event mâu thuẫn vào DLT. Investment nhận `LoanDisbursed` trước event Contract (khác topic) vẫn phát
+hành Note; event Contract đến muộn không làm trạng thái lùi.
+
 ## F06 — Thu nợ và phân bổ
 
 **Trigger:** borrower thanh toán hoặc auto-debit đến hạn. **Orchestrator:** Loan cho nghĩa vụ kỳ hạn; Payment cho execution tài chính.
@@ -202,7 +225,7 @@ Phần Payment do Hải viết theo yêu cầu, owner Payment (Thái) cần revi
 **Idempotency:** `repaymentId`/`Idempotency-Key`, wallet ledger transaction và Fineract external
 reference `FINORA-REPAY-<repaymentId>` là unique.
 
-**Failure:** thiếu tiền → kết quả partial/rejected theo policy, không giả completed; lỗi projection sau ledger commit → event retry/rebuild, không chạy lại collection.
+**Failure:** thiếu tiền → kết quả partial/rejected theo policy, không giả completed; lỗi projection sau ledger commit → event retry/rebuild, không chạy lại collection. Fineract trả 4xx cho POST repayment → từ chối chắc chắn, hoàn tiền; 5xx/mất kết nối, hoặc POST đã có `resourceId` mà đọc breakdown lỗi → `RECONCILIATION_REQUIRED`, đối soát theo externalId, không hoàn tiền (Wave 2). Client lấy số tiền trả kỳ từ `GET /api/v1/repayments/scheduled-due` (đúng nghĩa vụ Fineract mà POST sẽ kiểm), không tự cộng từ projection.
 
 **Chủ Note đổi giữa chừng:** Payment phân bổ theo projection ownership (cập nhật bất đồng bộ qua
 `NoteOwnershipChanged`, chỉ đổi chủ — dư nợ chỉ lấy từ event lúc tạo, sau đó Payment tự giảm). Investment

@@ -184,7 +184,7 @@ class OrderBookStreamIT {
                 .build());
         actAs("OBS-SELLER", "ROLE_INVESTOR");
         fundingService.placeOrder(listing.listingId(), "obs-fund",
-                new PlaceOrderRequest(new BigDecimal("3000000.00")));
+                new PlaceOrderRequest(new BigDecimal("3000000.00"), "INVESTOR_RISK_V1"));
         noteIssuanceService.finalizeCommitments(listing.listingId());
         noteIssuanceService.activateNotes(listing.listingId());
         SecurityContextHolder.clearContext();

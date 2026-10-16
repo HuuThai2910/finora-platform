@@ -41,6 +41,7 @@ $RedisContainer = 'finora-user-redis'
 $BlockchainDbContainer = 'finora-blockchain-postgres'
 $PricingDisclosureVersion = 'RATE_DISCLOSURE_V2'
 $ProductRate = [decimal]'12.0000'
+$RiskDisclosureVersion = 'INVESTOR_RISK_V1'
 $TopUpAmount = $LoanAmount
 
 function Get-Setting {
@@ -460,7 +461,8 @@ function Fund-Listing {
     $listingId = [long](Field $Listing 'listingId')
     $orderKey = New-E2EKey -Prefix 'order'
     $pinToken = Get-PinToken -Actor $Investor -Scope INVEST
-    $orderBody = @{ amount = $LoanAmount }
+    # D6/LEGAL-DISCLOSURE-02: lệnh sơ cấp gửi kèm version công bố rủi ro nhà đầu tư vừa xác nhận trên màn hình.
+    $orderBody = @{ amount = $LoanAmount; riskAcknowledgementVersion = $RiskDisclosureVersion }
     $order = Invoke-E2EHttp -Method POST -Uri "$InvestmentUrl/api/v1/investments/listings/$listingId/orders" -Token $Investor.Token `
         -Headers @{ 'Idempotency-Key' = $orderKey; 'X-Pin-Token' = $pinToken } -Body $orderBody
     Assert-E2EStatus -Response $order -Expected 201 -Step 'Đặt lệnh góp vốn'

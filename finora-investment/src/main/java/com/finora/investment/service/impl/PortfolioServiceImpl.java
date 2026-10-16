@@ -52,7 +52,10 @@ public class PortfolioServiceImpl implements PortfolioService {
 
         List<InvestmentCommitment> commitments = commitmentRepository.findByInvestorIdAndStatusIn(
                 investorId, List.of(CommitmentStatus.ACTIVE, CommitmentStatus.FINALIZED));
-        List<InvestmentNote> notes = noteRepository.findByInvestorIdAndStatus(investorId, NoteStatus.ACTIVE);
+        // Đọc cả Note đã tất toán/nợ xấu: khoản vay đã thu hết hoặc vỡ nợ vẫn là một phần lịch sử đầu tư; bỏ qua sẽ làm
+        // vị thế biến mất và tổng gốc/lãi đã nhận bị giảm ngay sau khi tất toán.
+        List<InvestmentNote> notes = noteRepository.findByInvestorIdAndStatusIn(
+                investorId, List.of(NoteStatus.ACTIVE, NoteStatus.DEFAULTED, NoteStatus.CLOSED));
 
         // Nạp listing của cả danh mục bằng một truy vấn thay vì tra từng khoản một,
         // vì một nhà đầu tư có thể nắm hàng trăm Note trên hàng chục khoản vay.
@@ -85,6 +88,7 @@ public class PortfolioServiceImpl implements PortfolioService {
         BigDecimal interestTotal = ZERO_MONEY;
         BigDecimal prepaymentFeeTotal = ZERO_MONEY;
         BigDecimal weightedRateNumerator = BigDecimal.ZERO;
+        BigDecimal earningOutstandingTotal = ZERO_MONEY;
 
         for (Map.Entry<Long, List<InvestmentNote>> entry : notesByLoan.entrySet()) {
             List<InvestmentNote> loanNotes = entry.getValue();
@@ -98,14 +102,21 @@ public class PortfolioServiceImpl implements PortfolioService {
             BigDecimal interest = sum(loanNotes, InvestmentNote::getInterestReceived);
             BigDecimal prepaymentFee = sum(loanNotes, InvestmentNote::getPrepaymentFeeReceived);
 
+            NoteStatus positionStatus = positionStatus(loanNotes);
+            // Vốn còn nằm trong khoản vay gồm cả dư nợ của khoản nợ xấu (vẫn là tiền nhà đầu tư chưa thu hồi).
             outstandingTotal = outstandingTotal.add(outstanding);
             principalRepaidTotal = principalRepaidTotal.add(repaid);
             interestTotal = interestTotal.add(interest);
             prepaymentFeeTotal = prepaymentFeeTotal.add(prepaymentFee);
             // Lãi suất bình quân phải theo trọng số dư nợ: 100 triệu ở 12% và 1 triệu ở 20%
-            // thì danh mục gần 12% chứ không phải 16%.
+            // thì danh mục gần 12% chứ không phải 16%. Chỉ dư nợ đang sinh lãi (Note ACTIVE) được tính.
+            BigDecimal earningOutstanding = loanNotes.stream()
+                    .filter(note -> note.getStatus() == NoteStatus.ACTIVE)
+                    .map(InvestmentNote::getOutstandingPrincipal)
+                    .reduce(ZERO_MONEY, BigDecimal::add);
+            earningOutstandingTotal = earningOutstandingTotal.add(earningOutstanding);
             weightedRateNumerator = weightedRateNumerator.add(
-                    outstanding.multiply(sample.getAnnualInterestRate()));
+                    earningOutstanding.multiply(sample.getAnnualInterestRate()));
 
             positions.add(new PortfolioPositionResponse(
                     entry.getKey(),
@@ -121,7 +132,7 @@ public class PortfolioServiceImpl implements PortfolioService {
                     interest.toPlainString(),
                     prepaymentFee.toPlainString(),
                     sharePercentOf(listing, principal),
-                    NoteStatus.ACTIVE.name(),
+                    positionStatus.name(),
                     servicing == null ? 0 : servicing.getDaysPastDue(),
                     servicing == null ? 1 : servicing.getDebtGroup(),
                     servicing == null || servicing.getOverdueAmount() == null
@@ -134,9 +145,9 @@ public class PortfolioServiceImpl implements PortfolioService {
 
         positions.sort(Comparator.comparing(PortfolioPositionResponse::loanId));
 
-        BigDecimal weightedAverageRate = outstandingTotal.signum() == 0
+        BigDecimal weightedAverageRate = earningOutstandingTotal.signum() == 0
                 ? BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP)
-                : weightedRateNumerator.divide(outstandingTotal, 4, RoundingMode.HALF_UP);
+                : weightedRateNumerator.divide(earningOutstandingTotal, 4, RoundingMode.HALF_UP);
 
         return new PortfolioResponse(
                 pendingAmount.toPlainString(),
@@ -145,11 +156,18 @@ public class PortfolioServiceImpl implements PortfolioService {
                 interestTotal.toPlainString(),
                 prepaymentFeeTotal.toPlainString(),
                 principalRepaidTotal.add(interestTotal).add(prepaymentFeeTotal).toPlainString(),
-                notes.size(),
+                (int) notes.stream().filter(note -> note.getStatus() == NoteStatus.ACTIVE).count(),
                 positions.size(),
                 weightedAverageRate,
                 positions
         );
+    }
+
+    /** Còn Note đang sinh dòng tiền thì vị thế ACTIVE; không còn mà có Note nợ xấu thì DEFAULTED; còn lại đã tất toán. */
+    private static NoteStatus positionStatus(List<InvestmentNote> loanNotes) {
+        if (loanNotes.stream().anyMatch(note -> note.getStatus() == NoteStatus.ACTIVE)) return NoteStatus.ACTIVE;
+        if (loanNotes.stream().anyMatch(note -> note.getStatus() == NoteStatus.DEFAULTED)) return NoteStatus.DEFAULTED;
+        return NoteStatus.CLOSED;
     }
 
     /** Các phần vốn đã cam kết của nhà đầu tư hiện tại, kể cả khoản vay chưa giải ngân. */

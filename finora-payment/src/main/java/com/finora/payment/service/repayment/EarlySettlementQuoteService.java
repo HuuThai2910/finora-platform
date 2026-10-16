@@ -7,6 +7,7 @@ import com.finora.payment.domain.repayment.EarlySettlementQuote;
 import com.finora.payment.domain.servicing.PaymentLoanAccount;
 import com.finora.payment.dto.response.EarlySettlementQuoteResponse;
 import com.finora.payment.integration.fineract.EarlySettlementCoreQuote;
+import com.finora.payment.integration.fineract.FineractQuoteErrors;
 import com.finora.payment.integration.fineract.RepaymentCoreGateway;
 import com.finora.payment.repository.repayment.EarlySettlementQuoteRepository;
 import com.finora.payment.repository.servicing.PaymentLoanAccountRepository;
@@ -35,7 +36,8 @@ public class EarlySettlementQuoteService {
         QuotePreparation preparation = transactionTemplate.execute(status -> prepare(loanApplicationId, borrowerId));
         if (preparation == null) throw new IllegalStateException("Không chuẩn bị được báo giá tất toán");
         LocalDate today = LocalDate.now(clock);
-        EarlySettlementCoreQuote core = fineract.earlySettlementQuote(preparation.fineractLoanId(), today);
+        EarlySettlementCoreQuote core = FineractQuoteErrors.read(
+                () -> fineract.earlySettlementQuote(preparation.fineractLoanId(), today));
         EarlySettlementFeeCalculator.Fee fee = feeCalculator.calculate(core);
         var now = clock.instant();
         EarlySettlementQuote saved = transactionTemplate.execute(status -> {

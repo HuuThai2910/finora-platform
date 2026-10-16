@@ -71,7 +71,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "finora.loan.contract.expiry-worker-enabled=false",
         "spring.kafka.listener.auto-startup=false",
         "finora.loan.outbox.publisher-delay=3600000",
-        "finora.signature.provider=mock"
+        "finora.signature.provider=mock",
+        // Hạn mức dư nợ là cấu hình; IT dùng 150 triệu vì các test N+1 nộp ba hồ sơ 50 triệu cho cùng người vay.
+        "finora.loan.borrower-exposure.max-outstanding=150000000"
 })
 // Tắt security filter: test này kiểm thử nghiệp vụ vay, còn danh tính người gọi đã
 // được thay bằng mock CurrentUserProvider. Phân quyền có test riêng ở tầng đơn vị.
@@ -905,6 +907,32 @@ class FinoraLoanApplicationIT {
                   .andExpect(status().isCreated())
                   .andReturn().getResponse().getContentAsString();
         return objectMapper.readTree(createdBody);
+    }
+
+    @Test
+    void borrowerExposureLimitCountsOpenApplicationsAndRejectsOverLimit() throws Exception {
+        JsonNode product = createActiveProduct();
+        // Ba hồ sơ 50 triệu đang xử lý: tổng 150 triệu, đúng hạn mức cấu hình của IT nên vẫn nhận.
+        JsonNode first = submitApplication(product, "exposure-1-" + UUID.randomUUID());
+        submitApplication(product, "exposure-2-" + UUID.randomUUID());
+        submitApplication(product, "exposure-3-" + UUID.randomUUID());
+
+        mockMvc.perform(post("/api/v1/loan-applications")
+                        .header("Idempotency-Key", "exposure-4-" + UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(applicationJson(product.path("id").asLong(), "EDUCATION", null)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("BORROWER_EXPOSURE_LIMIT_EXCEEDED"));
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from loan_applications where borrower_id = 'BORROWER-001'", Integer.class))
+                .isEqualTo(3);
+
+        // Hồ sơ đã rút không còn tính vào dư nợ: nộp lại được.
+        mockMvc.perform(post("/api/v1/loan-applications/{number}/withdraw", first.path("applicationNumber").asText())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"version\":" + first.path("version").asLong() + ",\"reason\":\"Đổi kế hoạch\"}"))
+                .andExpect(status().isOk());
+        submitApplication(product, "exposure-5-" + UUID.randomUUID());
     }
 
     private JsonNode submitAndScoreApplication() throws Exception {

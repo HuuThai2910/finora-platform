@@ -98,9 +98,12 @@ vì mapping Product↔Fineract nằm trong DB Loan dùng chung còn Fineract là
 - Ca restart giữa saga, Fineract timeout, sáu fixture servicing và test clock thuộc R1B.
 - Nhánh bù trừ `LoanFundingCancelled` được chứng minh bằng integration test Loan/Investment; drill hết hạn ký
   trên stack thật cần test clock (R1B).
-- DB Loan dùng chung chứa khoản vay của máy khác mà Fineract local không có: worker sync log lỗi 404 liên tục.
-  Không ảnh hưởng khoản vay của lần chạy nhưng làm log nhiễu (defect R1A-ENV-FINERACT trong plan tổng).
-- Chạy từ 00:00 đến 07:00 giờ Việt Nam sẽ thấy defect ngày nghiệp vụ `R1A-BIZDATE` (Loan/Payment dùng ngày UTC).
+- DB Loan dùng chung chứa khoản vay của máy khác mà Fineract local không có: worker sync ghi một dòng `warn` cho mỗi
+  khoản không đồng bộ được (B21). Không ảnh hưởng khoản vay của lần chạy; tách DB theo môi trường thuộc R9.
+- Ngày nghiệp vụ Loan/Payment là `Asia/Ho_Chi_Minh` từ Wave 2 (`FINORA_BUSINESS_TIME_ZONE`); chạy từ 00:00 đến 07:00
+  giờ Việt Nam không còn lệch ngày `R1A-BIZDATE`.
+- Lệnh góp vốn phải gửi `riskAcknowledgementVersion` khớp `INVESTMENT_RISK_DISCLOSURE_VERSION` (mặc định
+  `INVESTOR_RISK_V1`); harness gửi sẵn giá trị này.
 
 ## 8. Xử lý sự cố
 
@@ -112,4 +115,6 @@ vì mapping Product↔Fineract nằm trong DB Loan dùng chung còn Fineract là
 | Lệnh gọi launcher không bao giờ kết thúc | Không pipe output của launcher (`\| Select-Object`, `\| Tee-Object`): JVM con giữ handle stdout nên pipeline không nhận EOF; chạy launcher trực tiếp |
 | `OTP đăng ký … hết 30 giây` | Redis User không phải `finora-user-redis` hoặc User không ghi OTP |
 | Trả nợ `400 VALIDATION_FAILED` | Gửi số tiền quá 2 chữ số thập phân (Fineract trả scale 6) |
+| Đặt lệnh `400 RISK_ACKNOWLEDGEMENT_REQUIRED` hoặc `409 RISK_DISCLOSURE_OUTDATED` | Thiếu hoặc lệch version xác nhận rủi ro so với cấu hình Investment |
+| Nộp hồ sơ `422 BORROWER_EXPOSURE_LIMIT_EXCEEDED` | Người vay E2E dùng lại tài khoản cũ còn hồ sơ mở; harness tạo tài khoản mới mỗi lần |
 | `PENDING_REVIEW nhưng assessment=FAILED` | AI không phản hồi; xem log Loan và container `finora-ai` |

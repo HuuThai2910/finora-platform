@@ -26,7 +26,6 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
-import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.HexFormat;
 import java.util.List;
@@ -139,7 +138,8 @@ public class TopUpService {
         WalletView wallet = walletAccountService.open(ownerResolver.currentOwnerType(), ownerId, "VND");
         PaymentWallet entity = walletRepository.findByWalletId(wallet.walletId()).orElseThrow();
         UUID id = UUID.randomUUID();
-        String prefix = DateTimeFormatter.ofPattern("yyMMdd").withZone(ZoneOffset.UTC).format(clock.instant());
+        // ZaloPay yêu cầu app_trans_id bắt đầu bằng ngày yyMMdd theo GMT+7; dùng ngày nghiệp vụ của clock.
+        String prefix = DateTimeFormatter.ofPattern("yyMMdd").withZone(clock.getZone()).format(clock.instant());
         String providerOrderId = prefix + "_" + id.toString().replace("-", "").substring(0, 20);
         return topUpRepository.save(PaymentTopUp.prepare(
                 id, entity, amount, provider.name(), providerOrderId, key, hash, clock.instant()));

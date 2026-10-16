@@ -23,7 +23,7 @@ class LoanMigrationUpgradeIT {
             .withPassword("finora_test");
 
     @Test
-    void existingV4DatabaseUpgradesThroughV27WithoutRecreatingOldTables() throws Exception {
+    void existingV4DatabaseUpgradesThroughV28WithoutRecreatingOldTables() throws Exception {
         Flyway.configure()
                 .dataSource(POSTGRESQL.getJdbcUrl(), POSTGRESQL.getUsername(), POSTGRESQL.getPassword())
                 .locations("classpath:db/migration")
@@ -37,7 +37,7 @@ class LoanMigrationUpgradeIT {
                 .load();
         upgraded.migrate();
 
-        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("27");
+        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("28");
         assertThat(upgraded.info().pending()).isEmpty();
         try (Connection connection = POSTGRESQL.createConnection("");
              Statement statement = connection.createStatement();
@@ -234,6 +234,21 @@ class LoanMigrationUpgradeIT {
                      """)) {
             assertThat(result.next()).isTrue();
             assertThat(result.getInt(1)).isEqualTo(3);
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT indexname, indexdef
+                     FROM pg_indexes
+                     WHERE schemaname = 'public'
+                       AND tablename = 'loan_disbursement_sagas'
+                       AND indexname IN ('idx_loan_disbursement_saga_due', 'idx_loan_disbursement_saga_worker_due')
+                     """)) {
+            // V28 thay index worker cũ: saga CORE_BOOKING hết lease cũng phải được quét bằng index.
+            assertThat(result.next()).isTrue();
+            assertThat(result.getString("indexname")).isEqualTo("idx_loan_disbursement_saga_worker_due");
+            assertThat(result.getString("indexdef")).contains("CORE_BOOKING_PENDING", "RETRY_PENDING", "'CORE_BOOKING'");
+            assertThat(result.next()).isFalse();
         }
     }
 }

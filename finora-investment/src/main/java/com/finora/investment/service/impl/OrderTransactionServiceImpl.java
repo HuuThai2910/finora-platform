@@ -70,6 +70,8 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
                 .status(OrderStatus.PENDING_FUNDS)
                 .idempotencyKey(idempotencyKey)
                 .requestHash(requestHash)
+                .riskAcknowledgedVersion(request.riskAcknowledgementVersion())
+                .riskAcknowledgedAt(request.riskAcknowledgementVersion() == null ? null : now)
                 .createdBy(investorId)
                 .updatedBy(investorId)
                 .createdAt(now)

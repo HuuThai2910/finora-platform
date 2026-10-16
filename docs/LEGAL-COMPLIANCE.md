@@ -43,6 +43,11 @@
 - Các mức **100 triệu đồng trên một giải pháp và 400 triệu đồng trên toàn bộ giải pháp** được [Tạp chí Ngân hàng thuộc hệ thống NHNN](https://tapchinganhang.gov.vn/dam-bao-an-toan-va-hieu-qua-giao-dich-cho-vay-tren-nen-tang-so-16569.html) dẫn lại theo Quyết định 2866/QĐ-NHNN ngày 22-07-2025, nhưng đội dự án chưa lưu được bản toàn văn quyết định gốc có thể đối chiếu trực tiếp. Link này là nguồn ngành để truy vết, không thay thế văn bản gốc.
 - Trạng thái: `NEEDS_PRIMARY_SOURCE`. Không được gọi hai con số này là constraint pháp lý đã xác minh trong code/plan. Có thể giữ `100 triệu` như giới hạn nghiệp vụ demo của Product cho tới khi bổ sung nguồn gốc.
 - Trước production phải có User/CIC adapter và phép kiểm tra **dư nợ**, không chỉ kiểm tra số tiền của hồ sơ mới.
+- Hiện trạng 2026-10-17 (quyết định D5): khi nộp hồ sơ, Loan cộng gốc còn lại của các khoản đang phục vụ, số tiền của
+  các hồ sơ còn có thể thành khoản vay và hồ sơ mới; vượt `finora.loan.borrower-exposure.max-outstanding` (mặc định
+  100.000.000 đồng) thì trả `422 BORROWER_EXPOSURE_LIMIT_EXCEEDED`. Đây là policy demo cấu hình được, chỉ tính dư nợ
+  tại FINORA; chưa cộng dư nợ ở nền tảng khác nên chưa đáp ứng mức toàn thị trường (cần CIC thật, `LEGAL-OPEN-02`).
+  Thiết kế: [`W2-LEGAL`](../.agents/plans/W2-LEGAL-borrower-exposure-and-investor-acknowledgement.md).
 
 ### `LEGAL-DISCLOSURE-01` — Công bố lãi và lịch trả
 
@@ -61,7 +66,13 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 - Điều 11 khoản 2 điểm d: dữ liệu khách hàng được chia sẻ minh bạch giữa các bên tham gia nhưng phải bảo mật với bên không liên quan. API `GET /api/v1/investor/loan-applications/{applicationNumber}/borrower-profile` của Loan chỉ trả cho tài khoản `ROLE_INVESTOR` và chỉ với hồ sơ đã được đưa lên sàn; hồ sơ khác trả 404 như không tồn tại.
 - `LAW-DATA-2025` (tối thiểu hóa): không trả họ tên, CCCD, số điện thoại, email, địa chỉ, `borrowerId`, ghi chú/lịch sử xử lý của admin hay request/response AI thô. Phương án sử dụng vốn vẫn là chữ người vay tự nhập (đã hiện trên listing từ trước).
 - Giải thích SHAP (`modelExplanation`, kể cả bản gộp `tom_tat`) và thông điệp gửi người vay chỉ dành cho thẩm định viên. Đây là quyết định nghiệp vụ của nhóm ngày 2026-10-10, không phải yêu cầu của văn bản: SHAP thô có đặc trưng rò rỉ nhãn (`int_rate`) dễ đọc sai, còn phần gợi ý viết cho chính người vay.
-- Tuổi/eKYC hiện lấy từ provider giả lập của Loan; app phải ghi rõ "hồ sơ giả lập" khi `profileSource = MOCK_USER_PROFILE`. Còn thiếu trước production: User adapter thật cho tuổi/eKYC và ghi nhận xác nhận của nhà đầu tư rằng đã được cung cấp đủ thông tin (khoản 8 điểm c Điều 22 yêu cầu "có xác nhận của khách hàng").
+- Tuổi/eKYC hiện lấy từ provider giả lập của Loan; app phải ghi rõ "hồ sơ giả lập" khi `profileSource = MOCK_USER_PROFILE`. Còn thiếu trước production: User adapter thật cho tuổi/eKYC (defect B19).
+- Xác nhận của nhà đầu tư (khoản 8 điểm c Điều 22, quyết định D6 ngày 2026-10-17): lệnh góp vốn sơ cấp mới phải mang
+  `riskAcknowledgementVersion` khớp bản hiện hành (`INVESTOR_RISK_V1`); Investment lưu version và thời điểm trên lệnh
+  (migration V16), thiếu thì `400`, version cũ thì `409`. Câu xác nhận trên app gồm việc đã được cung cấp và đã xem
+  thông tin khoản vay cùng hồ sơ người vay ẩn danh, và rủi ro không được bảo đảm vốn. Câu chữ là policy FINORA, cần
+  legal review trước production. Lệnh Auto-Invest chưa có xác nhận từng lệnh; owner phải quyết định cách lấy xác nhận
+  trước khi bật Auto-Invest ngoài demo.
 
 ### `LEGAL-AI-01` — Chấm điểm, tự động duyệt và khả năng giải trình
 
@@ -135,11 +146,11 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 
 | Chức năng | Service sở hữu | Mã pháp lý | Kiểm soát đang có | Còn thiếu trước production |
 |---|---|---|---|---|
-| Cấu hình Product | Loan | `LEGAL-RATE-01`, `LEGAL-TERM-01`, `LEGAL-LIMIT-01` | Domain + Flyway chặn thứ tự rate, 20% và 24 tháng | Primary source giới hạn dư nợ; legal sign-off cho mô hình pháp nhân |
+| Cấu hình Product và nộp hồ sơ | Loan | `LEGAL-RATE-01`, `LEGAL-TERM-01`, `LEGAL-LIMIT-01` | Domain + Flyway chặn thứ tự rate, 20% và 24 tháng; hạn mức dư nợ tại FINORA khi nộp hồ sơ (policy demo 100 triệu) | Primary source giới hạn dư nợ; dư nợ liên nền tảng qua CIC thật; legal sign-off cho mô hình pháp nhân |
 | Catalog/preview/nộp hồ sơ | Loan + Web/Mobile | `LEGAL-DISCLOSURE-01` | Base rate và initial schedule snapshot; disclosure version | UI hiển thị đủ min/base/max, phí và câu chữ đã được duyệt |
 | Chấm điểm AI v17 | AI + Loan | `LEGAL-AI-01`, `LEGAL-DATA-01` | Versioned decision, snapshot/hash, bounded retry | User contract cho identity; retention/access review; kiểm thử fairness |
 | Định giá sau scoring | Loan + Fineract | `LEGAL-RATE-01`, `LEGAL-AI-01` | Grade adjustment, clamp, final schedule snapshot | Admin UI hiển thị so sánh base/final; quy trình phê duyệt policy |
-| Hồ sơ người vay cho nhà đầu tư | Loan + Mobile | `LEGAL-DISCLOSURE-02`, `LEGAL-DATA-01` | API chỉ đọc, `ROLE_INVESTOR`, chỉ hồ sơ đã lên sàn, allowlist không định danh và không SHAP; app ghi rõ hồ sơ giả lập | Xác nhận "đã được cung cấp đủ thông tin" của nhà đầu tư; User adapter thật cho tuổi/eKYC |
+| Hồ sơ người vay cho nhà đầu tư | Loan + Investment + Mobile | `LEGAL-DISCLOSURE-02`, `LEGAL-DATA-01` | API chỉ đọc, `ROLE_INVESTOR`, chỉ hồ sơ đã lên sàn, allowlist không định danh và không SHAP; app ghi rõ hồ sơ giả lập; xác nhận của nhà đầu tư lưu version/thời điểm trên lệnh sơ cấp | User adapter thật cho tuổi/eKYC; legal review câu xác nhận; cách xác nhận cho Auto-Invest |
 | Duyệt, xác nhận điều khoản và ký | Loan + Investment + Mobile | `LEGAL-DISCLOSURE-01`, `LEGAL-CONTRACT-01`, `LEGAL-SERVICING-01` | Outcome-based non-worsening gate; PDF nhiều bên bất biến; từng bên ký cùng hash; hợp đồng V2 công bố policy trả trước/cơ cấu; event qua outbox | Legal review hình thức ký và biểu phí production; danh tính/chứng thư SmartCA riêng từng bên; PAdES nếu yêu cầu |
 | Bằng chứng toàn vẹn | Blockchain + service nguồn | `LEGAL-CONTRACT-01`, `LEGAL-DATA-01` | Durable hash-only proof, idempotency/retry/DLT local; mock được phân biệt; Fabric fail-closed | Event contract đã duyệt, Fabric network/chaincode, access/retention và legal review cách trình bày bằng chứng |
 | Giải ngân/trả nợ | Loan + Payment + Fineract + Investment | `LEGAL-PAYMENT-01`, `LEGAL-SERVICING-01` | Wallet/top-up/hold/capture, ledger cân bằng, quote trả trước có snapshot policy, phí chia 80/20, Fineract là nguồn breakdown; ZaloPay top-up sandbox và disbursement mock | Đối tác tài khoản/ví được phép, provider giải ngân/repayment thật, legal review phạm vi áp dụng và biểu phí |

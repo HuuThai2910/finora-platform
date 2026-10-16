@@ -26,10 +26,15 @@ public class LoanDisbursedEventHandler{
   if(processed.existsByEventId(eventId))return;
   MarketListing listing=listings.findByIdForUpdate(data.listingId()).orElseThrow(()->
    InvestmentDomainException.notFound("LISTING_NOT_FOUND","Không tìm thấy listing cần hoàn tất giải ngân"));
+  // LoanDisbursed chỉ được Loan phát sau khi Contract EFFECTIVE và tiền đã chuyển, nên chính nó chứng minh Contract
+  // hiệu lực. Event Contract (topic khác) đến muộn không được làm Note kẹt trong DLT; chỉ từ chối khi tham chiếu mâu thuẫn.
   if(!listing.getLoanId().equals(data.loanApplicationId())||!listing.getApplicationNumber().equals(data.applicationNumber())
-    ||!data.contractNumber().equals(listing.getContractNumber())||!"EFFECTIVE".equals(listing.getContractStatus()))
+    ||data.contractNumber()==null
+    ||(listing.getContractNumber()!=null&&!data.contractNumber().equals(listing.getContractNumber())))
    throw InvestmentDomainException.conflict("LOAN_DISBURSED_MISMATCH","LoanDisbursed không khớp listing/hợp đồng");
   requireFinancialResult(listing,data);
+  listing.setContractNumber(data.contractNumber());
+  listing.setContractStatus("EFFECTIVE");
   notes.finalizeCommitments(listing.getId());
   notes.activateNotes(listing.getId());
   var ownership = noteRepository.findByLoanIdAndStatus(listing.getLoanId(), NoteStatus.ACTIVE).stream()

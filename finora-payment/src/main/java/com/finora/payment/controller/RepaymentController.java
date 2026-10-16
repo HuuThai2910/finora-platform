@@ -9,6 +9,7 @@ import com.finora.payment.dto.request.CreatePartialPrepaymentQuoteRequest;
 import com.finora.payment.dto.request.CreatePartialPrepaymentRequest;
 import com.finora.payment.dto.response.EarlySettlementQuoteResponse;
 import com.finora.payment.dto.response.RepaymentResponse;
+import com.finora.payment.dto.response.ScheduledDueResponse;
 import com.finora.payment.dto.response.PartialPrepaymentQuoteResponse;
 import com.finora.payment.service.repayment.PaymentRepaymentService;
 import com.finora.payment.service.repayment.EarlySettlementQuoteService;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -37,6 +39,12 @@ public class RepaymentController {
     public RepaymentResponse create(@RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody CreateRepaymentRequest request) {
         return service.create(request.loanApplicationId(), request.amount(), request.transactionDate(), idempotencyKey);
+    }
+
+    /** Nghĩa vụ hiện tại theo Fineract để client hiển thị và gửi đúng số tiền trả kỳ; chỉ đọc, không trừ ví. */
+    @GetMapping("/scheduled-due")
+    public ScheduledDueResponse scheduledDue(@RequestParam Long loanApplicationId) {
+        return service.scheduledDue(loanApplicationId);
     }
 
     @PostMapping("/early-settlement-quotes")

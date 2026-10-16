@@ -22,6 +22,13 @@
 `LoanApplication` kết thúc vai trò sau khi hợp đồng được giải ngân. Khoản vay đang phục vụ phải có
 `FinoraLoan` riêng. Không dùng trạng thái hồ sơ vay để thay trạng thái dư nợ.
 
+**Ngày nghiệp vụ và lịch chính thức (D7, 2026-10-17):** mọi ngày nghiệp vụ — nộp hồ sơ, ngày giải ngân ghi vào
+Fineract, ngày trả nợ, ngày tính báo giá — lấy theo `Asia/Ho_Chi_Minh` (`FINORA_BUSINESS_TIME_ZONE`), trùng múi giờ
+tenant Fineract. Hợp đồng quy định thời hạn và lịch chính thức tính từ ngày giải ngân thực tế, nên Loan ghi Fineract
+bằng chính ngày giải ngân thực tế; lịch trong PDF là lịch dự kiến theo ngày giải ngân dự kiến. Sản phẩm tính lãi theo kỳ
+nên số tiền mỗi kỳ không đổi, chỉ ngày đến hạn dịch theo ngày giải ngân. Lịch chính thức sau giải ngân là projection
+đọc từ Fineract; thông báo lịch chính thức cho người vay thuộc R7.
+
 ## 2. Thứ tự triển khai
 
 1. Trả nợ đúng kỳ (happy case), cập nhật lịch, ledger và Note.

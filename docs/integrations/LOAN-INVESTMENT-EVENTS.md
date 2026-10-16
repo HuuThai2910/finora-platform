@@ -323,6 +323,14 @@ Loan luôn ghi `LoanFundingRequested` và chỉ tạo Contract sau `LoanFullyFun
   không làm tròn giảm tiền vay. Phase sau có thể hỗ trợ partial Note bằng contract mới.
 - Loan nhận funded amount/hash sai: giữ trạng thái cũ và đưa event vào retry/DLT; không tạo Contract.
 - Notification lỗi không rollback trạng thái Contract; Notification tự retry theo delivery history.
+- Thứ tự giữa các topic không được bảo đảm (Wave 2): Investment chấp nhận `LoanContractActivated` khi chưa nhận
+  `InvestorSignatureRequested`, và `LoanDisbursed` khi chưa nhận event Contract — `LoanDisbursed` tự chứng minh Contract
+  đã `EFFECTIVE`. Event đến muộn chỉ bổ sung tham chiếu, không đưa trạng thái lùi; tham chiếu Contract/hash khác nhau
+  vẫn là mâu thuẫn và vào DLT.
+- `DisbursementFailed` đến khi saga Loan không còn `WAITING_PAYMENT` là mâu thuẫn và vào DLT; Payment chỉ phát event này
+  sau khi đã trả hold về `HELD`.
+- Market listing (REST) trả thêm `cancelledAt`, `cancellationReason` và `disbursedAt`; quản trị chỉ được khóa vốn/phát hành
+  Note thủ công (sửa lỗi) khi đã có `disbursedAt`, nếu không backend trả `409 LISTING_NOT_DISBURSED`.
 
 ## 8. Bản đồ tham chiếu
 

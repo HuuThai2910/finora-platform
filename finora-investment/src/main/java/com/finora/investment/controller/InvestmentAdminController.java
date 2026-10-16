@@ -64,16 +64,16 @@ public class InvestmentAdminController {
         return settingsService.update(request);
     }
 
-    /** Khóa toàn bộ phần vốn của khoản vay trước khi giải ngân. */
+    /** Sửa lỗi: khóa phần vốn của khoản vay đã giải ngân (Loan đã phát LoanDisbursed). */
     @PostMapping("/listings/{listingId}/finalize")
     public Map<String, Object> finalizeCommitments(@PathVariable Long listingId) {
-        return Map.of("finalizedCount", noteIssuanceService.finalizeCommitments(listingId));
+        return Map.of("finalizedCount", noteIssuanceService.finalizeCommitmentsAfterDisbursement(listingId));
     }
 
-    /** Xé nhỏ phần vốn đã khóa thành các Note. */
+    /** Sửa lỗi: phát hành Note còn thiếu cho khoản vay đã giải ngân. */
     @PostMapping("/listings/{listingId}/activate-notes")
     public Map<String, Object> activateNotes(@PathVariable Long listingId) {
-        return Map.of("issuedNoteCount", noteIssuanceService.activateNotes(listingId));
+        return Map.of("issuedNoteCount", noteIssuanceService.activateNotesAfterDisbursement(listingId));
     }
 
     @GetMapping("/commitments/{commitmentId}/notes")

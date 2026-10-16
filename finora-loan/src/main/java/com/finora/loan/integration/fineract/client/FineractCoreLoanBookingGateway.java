@@ -22,30 +22,36 @@ public class FineractCoreLoanBookingGateway implements CoreLoanBookingGateway{
  private final FineractBookingProperties properties;
  private final Clock clock;
 
+ /**
+  * Ghi khoản vay vào Fineract theo ngày giải ngân thực tế. Hợp đồng quy định thời hạn vay và lịch chính thức tính từ
+  * ngày giải ngân thực tế, nên mọi ngày core của lần ghi này dùng chung một {@code bookingDate} (ngày nghiệp vụ Việt
+  * Nam). Gửi ngày dự kiến lúc nộp hồ sơ sẽ bị Fineract từ chối khi gọi vốn/ký kéo dài qua ngày đó.
+  */
  @Override public CoreLoanBookingResult bookAndDisburse(CoreLoanBookingCommand c){
   properties.requireConfigured();
-  long clientId=ensureClient(c.borrowerId());
-  long loanId=ensureLoan(clientId,c);
+  LocalDate bookingDate=LocalDate.now(clock);
+  long clientId=ensureClient(c.borrowerId(),bookingDate);
+  long loanId=ensureLoan(clientId,c,bookingDate);
   JsonNode loan=get("/loans/"+loanId,"read-loan");
   if(!loan.path("status").path("active").asBoolean(false)){
-   if(loan.path("status").path("pendingApproval").asBoolean(false))approve(loanId,c);
+   if(loan.path("status").path("pendingApproval").asBoolean(false))approve(loanId,c,bookingDate);
    loan=get("/loans/"+loanId,"read-approved-loan");
-   if(!loan.path("status").path("active").asBoolean(false))disburse(loanId,c);
+   if(!loan.path("status").path("active").asBoolean(false))disburse(loanId,c,bookingDate);
   }
   return new CoreLoanBookingResult(loanId);
  }
 
- private long ensureClient(String borrowerId){
+ private long ensureClient(String borrowerId,LocalDate bookingDate){
   String external="FINORA-BORROWER-"+borrowerId;
   Long existing=find("/clients?externalId="+external);
   if(existing!=null)return existing;
   Map<String,Object> body=new LinkedHashMap<>();body.put("officeId",properties.officeId());
   body.put("firstname","FINORA");body.put("lastname","Borrower");body.put("externalId",external);
   body.put("legalFormId",properties.clientLegalFormId());
-  body.put("active",true);body.put("activationDate",LocalDate.now(clock).toString());common(body);
+  body.put("active",true);body.put("activationDate",bookingDate.toString());common(body);
   return resource(post("/clients",body,"create-client"));
  }
- private long ensureLoan(long clientId,CoreLoanBookingCommand c){
+ private long ensureLoan(long clientId,CoreLoanBookingCommand c,LocalDate bookingDate){
   String external=c.contractNumber();Long existing=find("/loans?externalId="+external);if(existing!=null)return existing;
   Map<String,Object> body=new LinkedHashMap<>();body.put("clientId",clientId);body.put("productId",c.productId());
   body.put("externalId",external);body.put("principal",c.principal());body.put("loanTermFrequency",c.termMonths());
@@ -53,14 +59,14 @@ public class FineractCoreLoanBookingGateway implements CoreLoanBookingGateway{
   body.put("repaymentEvery",1);body.put("repaymentFrequencyType",2);body.put("interestRatePerPeriod",c.annualRate());
   body.put("amortizationType",1);body.put("interestType",0);body.put("interestCalculationPeriodType",1);
   body.put("transactionProcessingStrategyCode",FineractStrategyResolver.strategy(c.coreConfigVersion()));
-  body.put("expectedDisbursementDate",c.disbursementDate().toString());body.put("submittedOnDate",LocalDate.now(clock).toString());common(body);
+  body.put("expectedDisbursementDate",bookingDate.toString());body.put("submittedOnDate",bookingDate.toString());common(body);
   return resource(post("/loans",body,"create-loan"));
  }
- private void approve(long id,CoreLoanBookingCommand c){Map<String,Object>b=new LinkedHashMap<>();
-  b.put("approvedOnDate",LocalDate.now(clock).toString());b.put("approvedLoanAmount",c.principal());
-  b.put("expectedDisbursementDate",c.disbursementDate().toString());common(b);post("/loans/"+id+"?command=approve",b,"approve-loan");}
- private void disburse(long id,CoreLoanBookingCommand c){Map<String,Object>b=new LinkedHashMap<>();
-  b.put("actualDisbursementDate",LocalDate.now(clock).toString());b.put("transactionAmount",c.principal());
+ private void approve(long id,CoreLoanBookingCommand c,LocalDate bookingDate){Map<String,Object>b=new LinkedHashMap<>();
+  b.put("approvedOnDate",bookingDate.toString());b.put("approvedLoanAmount",c.principal());
+  b.put("expectedDisbursementDate",bookingDate.toString());common(b);post("/loans/"+id+"?command=approve",b,"approve-loan");}
+ private void disburse(long id,CoreLoanBookingCommand c,LocalDate bookingDate){Map<String,Object>b=new LinkedHashMap<>();
+  b.put("actualDisbursementDate",bookingDate.toString());b.put("transactionAmount",c.principal());
   b.put("paymentTypeId",properties.paymentTypeId());b.put("note","FINORA "+c.paymentReference());common(b);
   post("/loans/"+id+"?command=disburse",b,"disburse-loan");}
  private void common(Map<String,Object>b){b.put("dateFormat",properties.dateFormat());b.put("locale",properties.locale());}

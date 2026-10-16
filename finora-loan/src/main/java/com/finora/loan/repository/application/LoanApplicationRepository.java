@@ -22,6 +22,28 @@ import org.springframework.data.repository.query.Param;
  */
 public interface LoanApplicationRepository extends JpaRepository<LoanApplication, Long> {
 
+    /**
+     * Khóa advisory trong transaction theo người vay để hai lần kiểm hạn mức dư nợ không cùng đọc tổng cũ. Khóa tự nhả
+     * khi transaction kết thúc; không khóa bảng hay hàng của người vay khác.
+     */
+    @Query(value = "select cast(pg_advisory_xact_lock(hashtext(:key)) as varchar)", nativeQuery = true)
+    Object lockBorrowerExposure(@Param("key") String key);
+
+    /** Tổng số tiền đề nghị của các hồ sơ còn có thể thành khoản vay và chưa thành khoản vay. */
+    @Query("""
+            select coalesce(sum(application.requestedAmount), 0) from LoanApplication application
+            where application.borrowerId = :borrowerId
+              and application.status in :statuses
+              and (application.fundingStatus is null or application.fundingStatus not in :closedFunding)
+              and (application.termsConfirmationStatus is null or application.termsConfirmationStatus not in :closedTerms)
+              and not exists (select loan.id from FinoraLoan loan where loan.loanApplicationId = application.id)
+            """)
+    java.math.BigDecimal sumOpenRequestedAmount(
+            @Param("borrowerId") String borrowerId,
+            @Param("statuses") Collection<LoanApplicationStatus> statuses,
+            @Param("closedFunding") Collection<com.finora.loan.domain.application.LoanFundingStatus> closedFunding,
+            @Param("closedTerms") Collection<com.finora.loan.domain.application.TermsConfirmationStatus> closedTerms);
+
     Optional<LoanApplication> findByApplicationNumber(String applicationNumber);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

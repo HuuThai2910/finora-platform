@@ -1,6 +1,7 @@
 package com.finora.investment.service.impl;
 
 import com.finora.investment.service.NoteIssuanceService;
+import com.finora.common.enums.investment.ListingStatus;
 import com.finora.investment.domain.listing.MarketListing;
 import com.finora.investment.domain.note.InvestmentNote;
 import com.finora.common.enums.investment.CommitmentStatus;
@@ -42,6 +43,30 @@ public class NoteIssuanceServiceImpl implements NoteIssuanceService {
     private final InvestmentCommitmentRepository commitmentRepository;
     private final InvestmentNoteRepository noteRepository;
     private final InvestmentMapper mapper;
+
+    @Override
+    @Transactional
+    public int finalizeCommitmentsAfterDisbursement(Long listingId) {
+        requireDisbursed(listingId);
+        return finalizeCommitments(listingId);
+    }
+
+    @Override
+    @Transactional
+    public int activateNotesAfterDisbursement(Long listingId) {
+        requireDisbursed(listingId);
+        return activateNotes(listingId);
+    }
+
+    private void requireDisbursed(Long listingId) {
+        MarketListing listing = listingRepository.findByIdForUpdate(listingId)
+                .orElseThrow(() -> InvestmentDomainException.notFound(
+                        "LISTING_NOT_FOUND", "Không tìm thấy khoản vay trên sàn"));
+        if (listing.getStatus() != ListingStatus.FULLY_FUNDED || listing.getDisbursedAt() == null) {
+            throw InvestmentDomainException.conflict("LISTING_NOT_DISBURSED",
+                    "Chỉ khóa vốn và phát hành Note sau khi Loan xác nhận đã giải ngân khoản vay");
+        }
+    }
 
     /**
      * Khóa toàn bộ phần vốn của một khoản vay trước khi Payment bắt tiền thật (F05 bước 2).

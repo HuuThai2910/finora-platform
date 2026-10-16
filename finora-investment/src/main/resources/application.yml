@@ -63,6 +63,9 @@ finora:
     # Chặn đặt lệnh/bật Auto-Invest khi token chưa có claim ekyc_status=VERIFIED. Realm đang chạy
     # phải có mapper ekyc-status (docker/keycloak/add-ekyc-claim-mapper.sh) rồi đăng nhập lại.
     require-ekyc: ${INVESTMENT_REQUIRE_EKYC:true}
+    # D6/LEGAL-DISCLOSURE-02: version công bố rủi ro nhà đầu tư phải xác nhận trước lệnh sơ cấp; đổi nội dung thì tăng version.
+    risk-disclosure:
+      version: ${INVESTMENT_RISK_DISCLOSURE_VERSION:INVESTOR_RISK_V1}
     payment:
       mode: ${INVESTMENT_PAYMENT_MODE:http}
       base-url: ${PAYMENT_SERVICE_URL:http://localhost:8082/api/v1}

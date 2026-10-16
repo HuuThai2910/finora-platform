@@ -17,6 +17,8 @@ import com.finora.payment.domain.servicing.PaymentLoanAccount;
 import com.finora.payment.domain.servicing.PaymentNoteOwnership;
 import com.finora.payment.domain.wallet.WalletOwnerType;
 import com.finora.payment.dto.response.RepaymentResponse;
+import com.finora.payment.dto.response.ScheduledDueResponse;
+import com.finora.payment.integration.fineract.FineractQuoteErrors;
 import com.finora.payment.integration.fineract.FineractRepaymentException;
 import com.finora.payment.integration.fineract.RepaymentCoreCommand;
 import com.finora.payment.integration.fineract.RepaymentCoreGateway;
@@ -80,7 +82,8 @@ public class PaymentRepaymentService {
                 loanApplicationId, borrowerId, normalized, effectiveDate, idempotencyKey));
         if (preparation == null) throw new IllegalStateException("Không chuẩn bị được lệnh trả nợ");
         if (preparation.replay() != null) return preparation.replay();
-        ScheduledRepaymentCoreQuote quote = fineract.scheduledRepaymentQuote(preparation.fineractLoanId());
+        ScheduledRepaymentCoreQuote quote = FineractQuoteErrors.read(
+                () -> fineract.scheduledRepaymentQuote(preparation.fineractLoanId()));
         if (normalized.compareTo(quote.amount()) != 0) {
             throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, "REPAYMENT_AMOUNT_NOT_SCHEDULED_DUE",
                     "Số tiền phải bằng nghĩa vụ hiện tại từ Fineract: " + quote.amount().toPlainString());
@@ -181,6 +184,37 @@ public class PaymentRepaymentService {
                             LedgerDirection.CREDIT, quote.getTotalAmount()))));
         return RepaymentResponse.from(repayments.save(PaymentRepayment.partialPrepayment(idempotencyKey,
                 account, quote, posting.transactionId(), clock.instant())));
+    }
+
+    /**
+     * Đọc nghĩa vụ hiện tại từ Fineract cho đúng người vay sở hữu khoản vay, không trừ tiền và không ghi gì. Mobile dùng
+     * số này thay cho projection để lệnh trả nợ không bị từ chối vì lệch nghĩa vụ.
+     */
+    public ScheduledDueResponse scheduledDue(Long loanApplicationId) {
+        String borrowerId = SecurityUtils.getCurrentUserId();
+        PaymentLoanAccount account = transactionTemplate.execute(status -> requireOwnedActiveAccount(loanApplicationId, borrowerId));
+        if (account == null) throw new IllegalStateException("Không đọc được khoản vay");
+        ScheduledRepaymentCoreQuote quote = FineractQuoteErrors.read(
+                () -> fineract.scheduledRepaymentQuote(account.getFineractLoanId()));
+        BigDecimal overdue = quote.overdueAmount().setScale(2, java.math.RoundingMode.UNNECESSARY);
+        return new ScheduledDueResponse(account.getLoanApplicationId(),
+                quote.amount().setScale(2, java.math.RoundingMode.UNNECESSARY), overdue, account.getCurrency(),
+                overdue.signum() > 0 ? PaymentRepaymentType.OVERDUE_CURE : PaymentRepaymentType.SCHEDULED,
+                LocalDate.now(clock));
+    }
+
+    private PaymentLoanAccount requireOwnedActiveAccount(Long loanApplicationId, String borrowerId) {
+        PaymentLoanAccount account = loanAccounts.findByLoanApplicationId(loanApplicationId)
+                .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "PAYMENT_LOAN_NOT_FOUND",
+                        "Khoản vay chưa sẵn sàng để thu nợ"));
+        if (!account.getBorrowerId().equals(borrowerId)) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "PAYMENT_LOAN_OWNER_MISMATCH",
+                    "Khoản vay không thuộc người dùng hiện tại");
+        }
+        if (account.getStatus() != PaymentLoanAccount.Status.ACTIVE) {
+            throw new BusinessException(HttpStatus.CONFLICT, "PAYMENT_LOAN_NOT_ACTIVE", "Khoản vay không còn hoạt động");
+        }
+        return account;
     }
 
     private CollectionPreparation prepareCollection(Long loanApplicationId, String borrowerId, BigDecimal amount,
