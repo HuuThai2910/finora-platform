@@ -95,16 +95,9 @@ finora:
     reconciliation-worker-delay: ${PAYMENT_RECONCILIATION_WORKER_DELAY:30000}
     core-posting-stale-after: ${PAYMENT_CORE_POSTING_STALE_AFTER:1m}
     early-settlement:
-      policy-version: ${PAYMENT_EARLY_SETTLEMENT_POLICY_VERSION:AGRIBANK_REFERENCE_FINORA_2026_V2}
+      # Tỷ lệ phí, mức tối thiểu và cách chia nằm trong biểu phí hợp đồng đã ký (EarlySettlementPolicyCatalog),
+      # không cấu hình bằng biến môi trường để không áp ngược cho khoản vay cũ (G-POLICY-W2).
       quote-ttl: ${PAYMENT_EARLY_SETTLEMENT_QUOTE_TTL:15m}
-      short-term-first-band-rate: ${PAYMENT_EARLY_SETTLEMENT_SHORT_FIRST_RATE:0.01}
-      short-term-second-band-rate: ${PAYMENT_EARLY_SETTLEMENT_SHORT_SECOND_RATE:0.005}
-      short-term-first-band-end: ${PAYMENT_EARLY_SETTLEMENT_SHORT_FIRST_END:0.50}
-      short-term-free-after: ${PAYMENT_EARLY_SETTLEMENT_SHORT_FREE_AFTER:0.70}
-      medium-term-year-one-rate: ${PAYMENT_EARLY_SETTLEMENT_MEDIUM_YEAR_ONE_RATE:0.02}
-      medium-term-year-two-rate: ${PAYMENT_EARLY_SETTLEMENT_MEDIUM_YEAR_TWO_RATE:0.015}
-      minimum-fee: ${PAYMENT_EARLY_SETTLEMENT_MINIMUM_FEE:100000}
-      investor-share-rate: ${PAYMENT_EARLY_SETTLEMENT_INVESTOR_SHARE_RATE:0.80}
     fineract:
       base-url: ${FINERACT_BASE_URL:http://localhost:18443/fineract-provider/api/v1}
       tenant-id: ${FINERACT_TENANT_ID:default}

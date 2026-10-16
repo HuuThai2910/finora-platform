@@ -2,7 +2,7 @@
 task_id: W2-KYC
 title: Loan lấy trạng thái eKYC và tuổi người vay thật từ User khi nộp hồ sơ
 owner: Thai
-status: IN_PROGRESS
+status: READY_FOR_REVIEW
 depends_on: [R1A]
 created_at: 2026-10-17
 updated_at: 2026-10-17
@@ -135,4 +135,61 @@ Lỗi `BORROWER_KYC_REQUIRED` khi nộp hiện thông điệp backend kèm nút 
 
 ## 7. Bản đồ code thực tế
 
-Điền sau khi triển khai.
+```text
+POST /api/v1/loan-applications
+ → LoanApplicationController.submit
+ → LoanApplicationServiceImpl.submit
+     submissionState.findExisting (idempotency, trả hồ sơ cũ không gọi User)
+     requireVerifiedBorrower(borrowerId)                    ngoài transaction
+       BorrowerProfileProvider.getBorrowerProfile
+         user: UserServiceBorrowerProfileProvider → RestClient userRestClient
+               GET {finora.user.base-url}/api/v1/users/me/kyc-summary, Authorization của request
+         mock: LocalMockBorrowerProfileProvider (test/E2E)
+       BorrowerProfileUnavailableException → 503 USER_PROFILE_UNAVAILABLE
+       kycStatus ≠ VERIFIED → 409 BORROWER_KYC_REQUIRED
+       BorrowerKycSnapshots.from(profile)
+     scheduleGateway.calculateSchedule                    ngoài transaction
+     LoanApplicationSubmissionStateService.persist         @Transactional
+       BorrowerExposureService.requireWithinLimit (D5)
+       LoanApplication.submit → attachKycSnapshot (domain chặn khác VERIFIED) → saveAndFlush
+
+CreditScoringOrchestrator.processApplication (worker)
+ → BorrowerEligibilityService.evaluate(applicationId, borrowerId, application.getKycSnapshot())
+     có snapshot → BorrowerKycSnapshots.toProfile → BorrowerEligibilityPolicy.evaluate
+     không snapshot + provider đọc được ở nền (mock) → provider
+     không snapshot + provider user → INVALID_PROFILE / KYC_SNAPSHOT_MISSING
+ → BorrowerEligibilityStateService.persist (borrower_eligibility_checks, nguồn USER_SERVICE hoặc MOCK_USER_PROFILE)
+
+GET /api/v1/users/me/kyc-summary (finora-user, quyền user:profile:read)
+ → UserProfileController.getMyKycSummary → KycSummaryService.summaryOf
+     UserProfileRepository.findByKeycloakUserId → KycSummaryResponse (tuổi theo Asia/Ho_Chi_Minh)
+```
+
+- Cấu hình: `UserServiceProperties` (`finora.user.*`) và `UserClientConfig` chỉ tạo khi provider là `user`;
+  `application.yml` mặc định `user`, `application-local.yml` đọc `FINORA_BORROWER_PROFILE_PROVIDER` (mặc định `user`),
+  compose truyền `USER_SERVICE_URL=http://user:8085`, launcher E2E nhận `-BorrowerProfileProvider mock|user`
+  (mặc định `mock`).
+- Migration Loan V29: bảy cột `kyc_snapshot_*`, CHECK đủ-hoặc-trống và CHECK giá trị enum.
+- Mobile: `useApplyForm` nhận mã `BORROWER_KYC_REQUIRED`, `ApplyFormSubmitBar` hiện “Xác minh eKYC ngay” mở
+  `Hồ sơ → EkycCapture`.
+
+## 8. Sai khác so với thiết kế
+
+- Thêm bất biến ở domain (`LoanApplication.attachKycSnapshot` từ chối snapshot khác `VERIFIED`) để không đường ghi
+  nào bỏ qua được D4, ngoài cổng ở service.
+- Không thêm bảng snapshot riêng: value object nhúng trong `loan_applications`; bảng `borrower_eligibility_checks` có
+  sẵn vẫn là bằng chứng của bước kiểm điều kiện.
+
+## 9. Bằng chứng kiểm thử
+
+| Lớp | Test | Kết quả |
+|---|---|---|
+| User unit | `KycSummaryServiceTest` (4: tuổi theo ngày Việt Nam lúc 01:00 VN, hồ sơ chưa eKYC không có tuổi, không tìm thấy, contract chỉ 5 field) | 65 unit + 1 IT PASS |
+| Loan unit | `UserServiceBorrowerProfileProviderTest` (5: chuyển tiếp đúng token, map trạng thái, User 500, lệch `userId`, worker không có token), `BorrowerEligibilityServiceTest` (3: dùng snapshot, legacy mock, legacy user → `KYC_SNAPSHOT_MISSING`), `LoanApplicationDecisionTest.kycSnapshotMustBeVerifiedAndIsCapturedOnlyOnce` | 234 unit PASS |
+| Loan IT | `FinoraLoanApplicationIT.onlyVerifiedBorrowerCanSubmitAndKycSnapshotIsStoredWithApplication` (snapshot lưu trên PostgreSQL, `409` không gọi Fineract, `503` khi User lỗi, không có hồ sơ thừa), `LoanMigrationUpgradeIT` lên V29 | 17 IT PASS (1 skip có sẵn) |
+| Mobile | `npx tsc --noEmit` | PASS |
+| Stack thật, adapter User | `kyc-20261017-054750`: launcher `-BorrowerProfileProvider user`, container User build lại từ commit `197d020`, Flyway áp Loan V29. Người vay mới 555 đọc `/users/me/kyc-summary` qua Gateway: đúng 5 field, `userId=555`, `ekycStatus=PENDING`; Loan trả `409 BORROWER_KYC_REQUIRED`; `GET /loan-applications/me` trả 0 hồ sơ | 4/4 PASS |
+| E2E R1A (provider mock) | `r1a-20261017-055223`: luồng đầy đủ sau B19, hồ sơ `LA-69A7A62B20444C82B735`, Fineract loan 16, transaction 43 | 42/42, `defects = []` |
+
+Chưa kiểm trên stack thật: nhánh người vay `VERIFIED` đi qua adapter User (cần eKYC bằng CCCD thật; kịch bản không
+dùng ảnh giả). Nhánh này được chứng minh ở integration test với provider giả lập trả `VERIFIED`.

@@ -46,7 +46,8 @@ public class PartialPrepaymentQuoteService {
             throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, "PARTIAL_PREPAYMENT_AMOUNT_TOO_HIGH",
                     "Phần gốc trả trước phải nhỏ hơn gốc còn lại; dùng luồng tất toán để đóng toàn bộ khoản vay");
         }
-        EarlySettlementFeeCalculator.Fee fee = feeCalculator.calculate(normalized,
+        // Biểu phí của chính hợp đồng (snapshot trên tài khoản), không phải biểu phí đang áp cho hợp đồng mới.
+        EarlySettlementFeeCalculator.Fee fee = feeCalculator.calculate(preparation.policyVersion(), normalized,
                 core.originalTermMonths(), core.disbursedDate(), core.maturityDate(), today);
         var now = clock.instant();
         PartialPrepaymentQuote saved = transactionTemplate.execute(status -> {
@@ -81,7 +82,8 @@ public class PartialPrepaymentQuoteService {
     }
 
     private QuotePreparation prepare(Long applicationId, String borrowerId) {
-        return new QuotePreparation(requireEligibleAccount(applicationId, borrowerId).getFineractLoanId());
+        PaymentLoanAccount account = requireEligibleAccount(applicationId, borrowerId);
+        return new QuotePreparation(account.getFineractLoanId(), account.getEarlySettlementPolicyVersion());
     }
 
     private PaymentLoanAccount requireEligibleAccount(Long applicationId, String borrowerId) {
@@ -103,5 +105,5 @@ public class PartialPrepaymentQuoteService {
         return account;
     }
 
-    private record QuotePreparation(Long fineractLoanId) {}
+    private record QuotePreparation(Long fineractLoanId, String policyVersion) {}
 }

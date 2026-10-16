@@ -75,6 +75,11 @@ Mapping `borrowerId ↔ CCCD` được đăng ký trực tiếp vào CIC qua API
 User tự tạo `user_cic_mapping_tasks` cùng transaction xác nhận eKYC, dùng `keycloakUserId`
 làm `borrowerId` và retry có lease. Task chỉ giữ `user_profile_id`; không sao chép CCCD thô.
 
+Kiểm ngày 2026-10-17: Loan/Investment/Payment/AI dùng claim `user_id` (ID hồ sơ) làm `borrowerId`, khác khóa
+`keycloakUserId` của mapping (defect B26, chờ owner chốt một định danh). Bản CIC Node đang deploy chỉ có API tra cứu
+điểm theo CCCD, chưa có endpoint mapping hay consumer Kafka (B27); worker mapping của User mặc định tắt
+(`USER_CIC_MAPPING_ENABLED=false`).
+
 CURRENT STATE: Keycloak và `finora-user` dùng PostgreSQL cài trực tiếp trên máy host
 (`localhost:5432`, database `keycloak` và `finora_user`); Docker chỉ còn chạy Keycloak và
 `user-redis` cho luồng auth. Đăng ký / đăng nhập / quên mật khẩu đã smoke pass end-to-end

@@ -722,6 +722,37 @@ function Pay-Installment {
     return [pscustomobject]@{ RepaymentId = $repaymentId; InvestorAvailable = $investorAfter.Available }
 }
 
+function Test-SettlementQuotePolicy {
+    <#
+      G-POLICY-W2: hợp đồng LOAN_TERMS_V2 ghi biểu phí AGRIBANK_REFERENCE_FINORA_2026_V2, LoanDisbursed mang phiên bản đó
+      sang Payment. Lập báo giá tất toán (không chuyển tiền, hết hạn sau 15 phút) để kiểm phí tính theo đúng hợp đồng.
+    #>
+    param($Borrower, $Application)
+    Write-E2EStep 'Báo giá tất toán theo biểu phí hợp đồng'
+    $applicationId = [long](Field $Application 'id')
+    $quote = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/repayments/early-settlement-quotes" -Token $Borrower.Token `
+        -Body @{ loanApplicationId = $applicationId }
+    Assert-E2EStatus -Response $quote -Expected 200 -Step 'Lập báo giá tất toán'
+    $policyVersion = Field $quote.Json 'policyVersion'
+    $principal = Money (Field $quote.Json 'principalPortion')
+    $fee = Money (Field $quote.Json 'platformFee')
+    $investorShare = Money (Field $quote.Json 'investorFeeShare')
+    $finoraShare = Money (Field $quote.Json 'finoraFeeShare')
+    $rate = [decimal](Field $quote.Json 'feeRate')
+    # Biểu phí V2: tỷ lệ theo dải thời gian, phí khác 0 tối thiểu 100.000, nhà đầu tư 80% (làm tròn HALF_UP như Payment).
+    $expectedFee = if ($rate -eq 0) { [decimal]0 } else { [Math]::Max([Math]::Round($principal * $rate, 2, [MidpointRounding]::AwayFromZero), [decimal]100000) }
+    Add-E2ECheck -Name 'settlement.contract-policy' -Passed ($policyVersion -eq 'AGRIBANK_REFERENCE_FINORA_2026_V2') -Detail "policyVersion=$policyVersion"
+    Add-E2ECheck -Name 'settlement.fee-matches-contract' -Passed (($fee -eq $expectedFee) -and ($investorShare + $finoraShare -eq $fee) `
+        -and ($investorShare -eq [Math]::Round($fee * [decimal]0.8, 2, [MidpointRounding]::AwayFromZero))) `
+        -Detail "rate=$rate principal=$(Format-E2EMoney $principal) fee=$(Format-E2EMoney $fee) investor=$(Format-E2EMoney $investorShare) finora=$(Format-E2EMoney $finoraShare)"
+    Set-E2EEvidence 'settlementQuote' ([ordered]@{
+        quoteId = (Field $quote.Json 'quoteId'); policyVersion = $policyVersion; feeRate = [string]$rate
+        principal = (Format-E2EMoney $principal); platformFee = (Format-E2EMoney $fee)
+        investorFeeShare = (Format-E2EMoney $investorShare); finoraFeeShare = (Format-E2EMoney $finoraShare)
+        totalAmount = (Format-E2EMoney (Money (Field $quote.Json 'totalAmount'))); status = (Field $quote.Json 'status')
+    })
+}
+
 function Collect-KafkaEvidence {
     param($Application, [string]$ContractNumber, [string]$RepaymentId)
     Write-E2EStep 'Event Kafka của luồng'
@@ -873,6 +904,7 @@ try {
         if (-not $SkipRepayment) {
             $paid = Pay-Installment -Borrower $borrower -Investor $investor -Application $application -Loan $loan
             $repaymentId = $paid.RepaymentId
+            Test-SettlementQuotePolicy -Borrower $borrower -Application $application
         }
         $null = Collect-KafkaEvidence -Application $application -ContractNumber $contractNumber -RepaymentId $repaymentId
         if ($Drills -and $repaymentId) {

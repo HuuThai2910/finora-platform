@@ -18,6 +18,7 @@ import com.finora.loan.domain.disbursement.DisbursementSaga;
 import com.finora.loan.domain.disbursement.DisbursementSagaStatus;
 import com.finora.loan.integration.fineract.client.CoreLoanBookingGateway;
 import com.finora.loan.messaging.event.DisbursementFailedEventData;
+import com.finora.loan.messaging.event.LoanDisbursedEventData;
 import com.finora.loan.repository.application.LoanApplicationRepository;
 import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.disbursement.DisbursementSagaRepository;
@@ -146,6 +147,24 @@ class DisbursementSagaServiceTest {
     }
 
     @Test
+    void completedCoreBookingPublishesLoanDisbursedWithContractFeePolicy() {
+        DisbursementSaga saga = coreBookingSaga(NOW);
+        when(sagaRepository.findBySagaIdForUpdate(saga.getSagaId())).thenReturn(Optional.of(saga));
+        stubApplicationAndContract();
+
+        serviceAt(NOW.plusSeconds(5)).complete(saga.getSagaId(), 1, 9001L);
+
+        // Payment tính phí trả trước theo biểu phí hợp đồng mang trong LoanDisbursed (G-POLICY-W2).
+        org.mockito.ArgumentCaptor<Object> data = org.mockito.ArgumentCaptor.forClass(Object.class);
+        verify(outboxService).recordForPublication(org.mockito.ArgumentMatchers.eq("DisbursementSaga"), anyString(),
+                org.mockito.ArgumentMatchers.eq("LoanDisbursed"), org.mockito.ArgumentMatchers.eq(1), data.capture());
+        LoanDisbursedEventData event = (LoanDisbursedEventData) data.getValue();
+        assertThat(event.fineractLoanId()).isEqualTo(9001L);
+        assertThat(event.earlySettlementPolicyVersion()).isEqualTo("AGRIBANK_REFERENCE_FINORA_2026_V2");
+        assertThat(saga.getStatus()).isEqualTo(DisbursementSagaStatus.COMPLETED);
+    }
+
+    @Test
     void retryableCoreFailureUsesConfiguredBackoffUntilMaxAttempts() {
         DisbursementSaga saga = coreBookingSaga(NOW);
         when(sagaRepository.findBySagaIdForUpdate(saga.getSagaId())).thenReturn(Optional.of(saga));
@@ -181,6 +200,7 @@ class DisbursementSagaServiceTest {
         when(contract.getContractNumber()).thenReturn("LC-E2E-1");
         when(contract.getPrincipalAmount()).thenReturn(new BigDecimal("50000000.00"));
         when(contract.getTermMonths()).thenReturn(6);
+        when(contract.getEarlySettlementPolicyVersion()).thenReturn("AGRIBANK_REFERENCE_FINORA_2026_V2");
         when(contractRepository.findByContractNumber("LC-E2E-1")).thenReturn(Optional.of(contract));
     }
 

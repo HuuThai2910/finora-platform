@@ -187,6 +187,9 @@ Payment. `LoanDisbursed` mới xác nhận toàn bộ happy path bắt buộc (P
   `BORROWER_CREDIT:<sagaId>`; không sửa hoặc xóa sổ cái cũ.
 - `DisbursementFailed` trả `sagaId`, application/contract ID và mã lỗi đã lọc; không chứa raw provider body.
 - `LoanDisbursed` trả thêm `fineractLoanId` và `disbursedAt`; đây là trigger duy nhất để tạo Note.
+- `LoanDisbursed` v1 có field optional `earlySettlementPolicyVersion` (từ 2026-10-17, G-POLICY-W2): biểu phí trả
+  trước mà hợp đồng đã công bố (`AGRIBANK_REFERENCE_FINORA_2026_V2` với `LOAN_TERMS_V2`), `null` với hợp đồng không có
+  điều khoản phí. Payment lưu một lần trên tài khoản thu nợ và tính báo giá theo nó; Investment bỏ qua field này.
 
 ### 5.3a `LoanFundingCancelled` v1 — bù trừ khi không giải ngân
 

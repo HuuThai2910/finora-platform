@@ -6,10 +6,14 @@ package com.finora.loan.service.contract;
  * <p>Loan chỉ công bố điều khoản; Payment vẫn là nguồn chuẩn tính quote và phân phối tiền. Nội dung ở đây
  * phải đổi phiên bản cùng policy Payment để người ký không nhìn thấy một cách tính khác cách hệ thống thu.</p>
  */
-final class LoanServicingContractTerms {
+public final class LoanServicingContractTerms {
 
     static final String POLICY_VERSION = "FINORA_SERVICING_TERMS_V2";
-    static final String EARLY_SETTLEMENT_POLICY_VERSION = "AGRIBANK_REFERENCE_FINORA_2026_V2";
+    /**
+     * Biểu phí trả trước in trong mọi hợp đồng mới. Hợp đồng lưu đúng giá trị này và Payment tính phí theo nó
+     * (G-POLICY-W2); đổi biểu phí phải thêm phiên bản mới ở cả hai service, không sửa phiên bản đã in.
+     */
+    public static final String EARLY_SETTLEMENT_POLICY_VERSION = "AGRIBANK_REFERENCE_FINORA_2026_V2";
 
     private LoanServicingContractTerms() {
     }

@@ -410,6 +410,10 @@ class FinoraLoanApplicationIT {
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT status FROM loan_contracts", String.class))
                 .isEqualTo("PENDING_LENDER_SIGNATURES");
+        // Hợp đồng ghi đúng biểu phí trả trước in trong điều 4 để Payment tính phí theo hợp đồng (G-POLICY-W2).
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT early_settlement_policy_version FROM loan_contracts", String.class))
+                .isEqualTo("AGRIBANK_REFERENCE_FINORA_2026_V2");
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM loan_outbox_events
                 WHERE event_type = 'InvestorSignatureRequested' AND publishable = true

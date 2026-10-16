@@ -23,7 +23,7 @@ class LoanMigrationUpgradeIT {
             .withPassword("finora_test");
 
     @Test
-    void existingV4DatabaseUpgradesThroughV29WithoutRecreatingOldTables() throws Exception {
+    void existingV4DatabaseUpgradesThroughV30WithoutRecreatingOldTables() throws Exception {
         Flyway.configure()
                 .dataSource(POSTGRESQL.getJdbcUrl(), POSTGRESQL.getUsername(), POSTGRESQL.getPassword())
                 .locations("classpath:db/migration")
@@ -37,7 +37,7 @@ class LoanMigrationUpgradeIT {
                 .load();
         upgraded.migrate();
 
-        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("29");
+        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("30");
         assertThat(upgraded.info().pending()).isEmpty();
         try (Connection connection = POSTGRESQL.createConnection("");
              Statement statement = connection.createStatement();
@@ -262,6 +262,19 @@ class LoanMigrationUpgradeIT {
             // V29 thêm snapshot eKYC lúc nộp; hồ sơ cũ để trống toàn bộ cột.
             assertThat(result.next()).isTrue();
             assertThat(result.getInt(1)).isEqualTo(7);
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT COUNT(*)
+                     FROM information_schema.columns
+                     WHERE table_schema = 'public'
+                       AND table_name = 'loan_contracts'
+                       AND column_name = 'early_settlement_policy_version'
+                     """)) {
+            // V30 ghi biểu phí trả trước mà hợp đồng đã công bố (G-POLICY-W2).
+            assertThat(result.next()).isTrue();
+            assertThat(result.getInt(1)).isEqualTo(1);
         }
     }
 }

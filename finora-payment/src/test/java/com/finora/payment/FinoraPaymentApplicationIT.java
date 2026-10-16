@@ -143,6 +143,9 @@ class FinoraPaymentApplicationIT {
     private PaymentOutboxEventRepository outboxRepository;
 
     @Autowired
+    private com.finora.payment.repository.servicing.PaymentLoanAccountRepository loanAccountRepository;
+
+    @Autowired
     private Clock clock;
 
     @MockBean
@@ -551,9 +554,10 @@ class FinoraPaymentApplicationIT {
         disbursement.start(disbursedAt, disbursedAt.plusSeconds(120));
         disbursement.complete("MOCK-502", UUID.randomUUID(), disbursedAt);
         disbursementRepository.saveAndFlush(disbursement);
+        // Hợp đồng LOAN_TERMS_V2 công bố biểu phí AGRIBANK V2; LoanDisbursed mang phiên bản đó sang Payment.
         servicingProjectionService.activateLoan(UUID.randomUUID(), new LoanDisbursedEventData(
                 sagaId, applicationId, "LA-502", "LC-502", listingId, "10000000.00", "VND",
-                "MOCK-502", fineractLoanId, "FINORA-FINERACT-V2", disbursedAt));
+                "MOCK-502", fineractLoanId, "FINORA-FINERACT-V2", disbursedAt, "AGRIBANK_REFERENCE_FINORA_2026_V2"));
         servicingProjectionService.updateOwnership(UUID.randomUUID(), new NoteOwnershipChangedEventData(
                 applicationId, listingId, "VND", "ISSUED", "NOTE-ISSUE-502", disbursedAt,
                 List.of(new NoteOwnershipChangedEventData.NoteOwner(
@@ -604,6 +608,52 @@ class FinoraPaymentApplicationIT {
         assertThat(platform.getAvailableBalance()).isEqualByComparingTo("20000.00");
         assertThat(noteOwnershipRepository.findById(802L).orElseThrow().getOutstandingPrincipal())
                 .isEqualByComparingTo("5000000.00");
+    }
+
+    @Test
+    void prepaymentFeeFollowsTheContractPolicyNotTheCurrentOne() {
+        LocalDate today = LocalDate.now(clock);
+        long disclosed = activateLoanForQuote(503L, 603L, 703L, "AGRIBANK_REFERENCE_FINORA_2026_V2");
+        long legacy = activateLoanForQuote(504L, 604L, 704L, null);
+        for (long fineractLoanId : List.of(disclosed, legacy)) {
+            when(repaymentCoreGateway.partialPrepaymentSnapshot(fineractLoanId, today))
+                    .thenReturn(new PartialPrepaymentCoreSnapshot(today, BigDecimal.ZERO.setScale(2),
+                            new BigDecimal("10500000.00"), new BigDecimal("10000000.00"),
+                            today.plusMonths(1), new BigDecimal("1800000.00"), 12,
+                            today.minusMonths(1), today.plusMonths(11)));
+        }
+
+        actAsBorrower("BORROWER-503");
+        var v2Quote = partialPrepaymentQuoteService.create(503L, new BigDecimal("5000000.00"));
+        actAsBorrower("BORROWER-504");
+        var legacyQuote = partialPrepaymentQuoteService.create(504L, new BigDecimal("5000000.00"));
+
+        // Cùng ngày, cùng số tiền: hợp đồng V2 chịu phí theo biểu phí đã ký, hợp đồng không ghi biểu phí thì không bị thu.
+        assertThat(v2Quote.policyVersion()).isEqualTo("AGRIBANK_REFERENCE_FINORA_2026_V2");
+        assertThat(v2Quote.platformFee()).isEqualByComparingTo("100000.00");
+        assertThat(legacyQuote.policyVersion()).isEqualTo("NO_FEE_DISCLOSED");
+        assertThat(legacyQuote.platformFee()).isEqualByComparingTo("0.00");
+        assertThat(legacyQuote.investorFeeShare()).isEqualByComparingTo("0.00");
+        assertThat(loanAccountRepository.findByLoanApplicationId(503L).orElseThrow().getEarlySettlementPolicyVersion())
+                .isEqualTo("AGRIBANK_REFERENCE_FINORA_2026_V2");
+        assertThat(loanAccountRepository.findByLoanApplicationId(504L).orElseThrow().getEarlySettlementPolicyVersion())
+                .isNull();
+    }
+
+    private long activateLoanForQuote(long applicationId, long listingId, long fineractLoanId, String policyVersion) {
+        UUID sagaId = UUID.randomUUID();
+        Instant disbursedAt = Instant.parse("2026-10-01T00:00:00Z");
+        String borrower = "BORROWER-" + applicationId;
+        PaymentDisbursement disbursement = PaymentDisbursement.requested(
+                sagaId, applicationId, "LC-" + applicationId, listingId, borrower,
+                new BigDecimal("10000000.00"), "VND", "MOCK", "[]", disbursedAt);
+        disbursement.start(disbursedAt, disbursedAt.plusSeconds(120));
+        disbursement.complete("MOCK-" + applicationId, UUID.randomUUID(), disbursedAt);
+        disbursementRepository.saveAndFlush(disbursement);
+        servicingProjectionService.activateLoan(UUID.randomUUID(), new LoanDisbursedEventData(
+                sagaId, applicationId, "LA-" + applicationId, "LC-" + applicationId, listingId, "10000000.00", "VND",
+                "MOCK-" + applicationId, fineractLoanId, "FINORA-FINERACT-V3", disbursedAt, policyVersion));
+        return fineractLoanId;
     }
 
     private boolean postAfterBarrier(

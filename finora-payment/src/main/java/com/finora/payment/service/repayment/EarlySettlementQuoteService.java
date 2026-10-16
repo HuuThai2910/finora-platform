@@ -38,7 +38,8 @@ public class EarlySettlementQuoteService {
         LocalDate today = LocalDate.now(clock);
         EarlySettlementCoreQuote core = FineractQuoteErrors.read(
                 () -> fineract.earlySettlementQuote(preparation.fineractLoanId(), today));
-        EarlySettlementFeeCalculator.Fee fee = feeCalculator.calculate(core);
+        // Biểu phí của chính hợp đồng (snapshot trên tài khoản), không phải biểu phí đang áp cho hợp đồng mới.
+        EarlySettlementFeeCalculator.Fee fee = feeCalculator.calculate(preparation.policyVersion(), core);
         var now = clock.instant();
         EarlySettlementQuote saved = transactionTemplate.execute(status -> {
             PaymentLoanAccount account = requireActiveAccount(loanApplicationId, borrowerId);
@@ -68,7 +69,7 @@ public class EarlySettlementQuoteService {
 
     private QuotePreparation prepare(Long applicationId, String borrowerId) {
         PaymentLoanAccount account = requireActiveAccount(applicationId, borrowerId);
-        return new QuotePreparation(account.getFineractLoanId());
+        return new QuotePreparation(account.getFineractLoanId(), account.getEarlySettlementPolicyVersion());
     }
 
     private PaymentLoanAccount requireActiveAccount(Long applicationId, String borrowerId) {
@@ -86,5 +87,5 @@ public class EarlySettlementQuoteService {
         return account;
     }
 
-    private record QuotePreparation(Long fineractLoanId) {}
+    private record QuotePreparation(Long fineractLoanId, String policyVersion) {}
 }

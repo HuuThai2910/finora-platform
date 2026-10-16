@@ -79,7 +79,10 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 [`LEGAL-LIMIT-01`](../../docs/LEGAL-COMPLIANCE.md)): gốc còn lại của khoản đang phục vụ + hồ sơ còn có thể thành khoản
 vay + hồ sơ mới ≤ `finora.loan.borrower-exposure.max-outstanding` (policy demo 100.000.000), advisory lock theo
 borrower trong transaction ghi hồ sơ; vượt thì `422 BORROWER_EXPOSURE_LIMIT_EXCEEDED`. Ngày nộp hồ sơ gửi AI theo ngày
-nghiệp vụ `Asia/Ho_Chi_Minh`.
+nghiệp vụ `Asia/Ho_Chi_Minh`. Bước 3 (W2-KYC, D4): trước Fineract, Loan chuyển tiếp token của chính người vay tới
+`GET /api/v1/users/me/kyc-summary` của User (chỉ trạng thái eKYC và tuổi, không PII); chỉ `VERIFIED` được nộp
+(`409 BORROWER_KYC_REQUIRED`), User lỗi hoặc trả dữ liệu lệch người thì `503 USER_PROFILE_UNAVAILABLE`. Snapshot
+eKYC/tuổi lưu trên hồ sơ (Loan V29) để worker kiểm điều kiện và AI dùng lại; provider `mock` chỉ còn cho test/E2E.
 
 ## F03 — Duyệt, ký hợp đồng và đưa khoản vay lên sàn
 
@@ -249,6 +252,12 @@ Kafka broker local publish/consume envelope v1 đã xanh. Notification đã cons
 `InvestorNoteServicingChanged.v1`, lưu delivery PostgreSQL và cung cấp REST cho mobile; push hệ điều hành
 vẫn cần device-token/provider receipt riêng.
 
+**Đính chính 2026-10-17 (B27):** câu “CIC Node ngoài Compose đã có consumer, processed-event và pending-mapping
+queue” mô tả bản CIC Java cũ. Bản CIC Node đang deploy (`/api/v1/suc-khoe` trả kho tệp, 1000 hồ sơ) và source
+`cic-service-node` chỉ có API tra cứu điểm theo CCCD, không consume Kafka và không có endpoint đăng ký mapping. Loan
+vẫn phát `LoanDelinquencyChanged.v1` nhưng hiện không có consumer CIC; lịch sử quá hạn của FINORA chưa được ghi sang
+CIC. Theo D1 không phát triển lại CIC trong repo này; owner quyết định phạm vi. Định danh mapping xem B26.
+
 ## F07 — Tất toán sớm hoặc tái cơ cấu
 
 **Trigger:** borrower yêu cầu hoặc admin khởi tạo theo policy. **Orchestrator:** Loan.
@@ -273,6 +282,13 @@ Loan/Investment đã nối cổng đồng thuận nhà đầu tư bằng hai eve
 trong tab Ví. Investment consume idempotent `LoanRescheduled.v1`/`LoanSettled.v1` thành lifecycle read model.
 Notification delivery không thuộc transaction tái cơ cấu; Investment phát outbox projection và
 Notification consume idempotent sau khi lịch mới đã commit.
+
+**CURRENT STATE (2026-10-17, G-POLICY-W2):** phí trả trước một phần và tất toán tính theo biểu phí của chính hợp
+đồng: Loan ghi `loan_contracts.early_settlement_policy_version` lúc tạo hợp đồng (V30), `LoanDisbursed` mang giá trị
+này, Payment lưu một lần trên `payment_loan_accounts` (V14) và tra danh mục bất biến `EarlySettlementPolicyCatalog`.
+Tỷ lệ/mức tối thiểu/cách chia không còn cấu hình bằng biến môi trường. Hợp đồng không ghi biểu phí (`LOAN_TERMS_V1`)
+hoặc tài khoản mở trước V14 dùng `NO_FEE_DISCLOSED` (phí 0); phiên bản Payment chưa biết → `409
+EARLY_SETTLEMENT_POLICY_UNKNOWN`, trả kỳ thường không bị ảnh hưởng.
 
 ## F08 — Audit Blockchain và đối chiếu
 

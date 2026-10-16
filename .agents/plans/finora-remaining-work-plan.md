@@ -89,7 +89,7 @@ SoR, ledger/event và khả năng retry.
 |---|---|---|---|---|---|
 | R0 | P0 | Both | Source/docs | `DONE` | Backend, web, mobile cùng mốc code; roadmap/rule khớp code |
 | R1 | P0 | Both | E2E | `IN_PROGRESS` | R1A baseline tự động đã chạy thật ngày 2026-10-17; R1B chạy sạch core và toàn bộ servicing sau R2/R3 |
-| G-POLICY | P0 | Both | Policy/Contract | `READY` | Khoản vay cũ/mới dùng đúng policy version và hợp đồng/quote/UI cùng một công thức |
+| G-POLICY | P0 | Both | Policy/Contract | `IN_PROGRESS` | Khoản vay cũ/mới dùng đúng policy version và hợp đồng/quote/UI cùng một công thức; Wave 2B xong biểu phí trả trước (`G-POLICY-W2`) |
 | R2 | P0 | Thai | Loan/Payment/Fineract | `IN_PROGRESS` | Restart/timeout/duplicate không giải ngân hoặc thu tiền hai lần; Wave 2 xong B06–B13 (`R2-W2` chờ review) |
 | R3 | P0 | Hai | Investment | `IN_PROGRESS` | Order–hold, Note activation, ownership và portfolio tự repair; Wave 2 xong B14–B16 (`R3-W2` chờ Hải review) |
 | R4 | P1 | Thai | Payment | `BACKLOG` | Rút tiền và provider disbursement sandbox chạy thật, đối soát được |
@@ -112,7 +112,7 @@ lựa chọn kỹ thuật còn lại, miễn phù hợp nghiệp vụ và chạy
 | D1 | CIC theo bản Node đã deploy; không phát triển lại CIC trong repo | Phạm vi | Đã áp dụng |
 | D2 | Sửa lỗi hiện tại và làm luôn backlog theo wave; được sửa module của Hải để đồng bộ, đánh dấu “Hải review trước merge” | Ownership | 1–3 |
 | D3 | Security (R8) tạm hoãn, chỉ sửa khi gắn trực tiếp với contract giữa service | Phạm vi | Sau wave 3 |
-| D4 | Loan dùng adapter KYC thật của User; chỉ borrower `VERIFIED` được nộp hồ sơ; mock chỉ còn cho test/E2E | Nghiệp vụ | 2B |
+| D4 | Loan dùng adapter KYC thật của User; chỉ borrower `VERIFIED` được nộp hồ sơ; mock chỉ còn cho test/E2E | Nghiệp vụ | 2B (xong) |
 | D5 | Hạn mức dư nợ của một borrower 100.000.000 VND, cấu hình được, nhãn `NEEDS_PRIMARY_SOURCE` (policy demo, chưa phải luật) | Policy demo | 2 (xong) |
 | D6 | Nhà đầu tư tick xác nhận rủi ro (lưu version + thời điểm) trước lệnh sơ cấp (`LEGAL-DISCLOSURE-02`) | Nghiệp vụ | 2 (xong) |
 | D7 | Ngày nghiệp vụ của Loan và Payment là `Asia/Ho_Chi_Minh` | Nghiệp vụ | 2 (xong) |
@@ -147,15 +147,17 @@ Nguồn: rà soát code ngày 2026-10-16/17 và evidence R1A (`docker/e2e/out/r1
 | B14 | P1 | R3 | Investment `LoanDisbursed` yêu cầu listing `EFFECTIVE`, sai thứ tự event vào DLT và không tự replay | Fixed Wave 2 — [`R3-W2`](R3-W2-investment-event-order-and-portfolio.md); `LoanDisbursed` là bằng chứng Contract hiệu lực, IT |
 | B15 | P1 | R3 | Admin `finalize`/`activate-notes` không có guard trạng thái; web hiện nút nguy hiểm | Fixed Wave 2 — `409 LISTING_NOT_DISBURSED`, web chỉ hiện nút sửa lỗi sau giải ngân; IT + web build |
 | B16 | P1 | R3 | Portfolio chỉ đọc Note `ACTIVE`, khoản `DEFAULTED`/`CLOSED` biến mất khỏi danh mục | Fixed Wave 2 — vị thế `CLOSED/DEFAULTED`, mobile ẩn nút bán; IT |
-| B17 | P1 | G-POLICY | Cấu hình phí tất toán hiện hành áp ngược cho hợp đồng cũ (chưa có policy version snapshot) | Open → Wave 2B |
+| B17 | P1 | G-POLICY | Cấu hình phí tất toán hiện hành áp ngược cho hợp đồng cũ (chưa có policy version snapshot) | Fixed Wave 2B — [`G-POLICY-W2`](G-POLICY-W2-early-settlement-policy-version.md): hợp đồng ghi biểu phí (Loan V30), `LoanDisbursed` mang sang Payment (V14), danh mục bất biến; hợp đồng `LOAN_TERMS_V1` không thu phí (chờ owner xác nhận); E2E `r1a-20261017-060853` |
 | B18 | P1 | Legal | Thiếu kiểm hạn mức dư nợ (`LEGAL-LIMIT-01`) và xác nhận rủi ro nhà đầu tư (`LEGAL-DISCLOSURE-02`) | Fixed Wave 2 — [`W2-LEGAL`](W2-LEGAL-borrower-exposure-and-investor-acknowledgement.md): hạn mức dư nợ nội bộ (policy demo, `NEEDS_PRIMARY_SOURCE`) + xác nhận lưu version/thời điểm; IT Loan/Investment |
-| B19 | P1 | Loan/User | Loan chỉ có `BorrowerProfileProvider` mock (VERIFIED, 30 tuổi) | Open → Wave 2B (D4) |
+| B19 | P1 | Loan/User | Loan chỉ có `BorrowerProfileProvider` mock (VERIFIED, 30 tuổi) | Fixed Wave 2B — [`W2-KYC`](W2-KYC-borrower-kyc-from-user.md): Loan chuyển tiếp token người vay tới User `/users/me/kyc-summary`, chặn người chưa `VERIFIED`, snapshot trên hồ sơ (V29); IT + kiểm thật `kyc-20261017-054750` |
 | B20 | P1 | FE | Mobile tự tính số tiền trả kỳ; web gọi API duyệt listing không còn tồn tại và hiện thông điệp sai | Fixed Wave 2 — `GET /repayments/scheduled-due` (IT), mobile dùng số backend, web bỏ form duyệt |
 | B21 | P1 | R9/R2 | DB Loan dùng chung chứa khoản vay trỏ tới Fineract local của máy khác; worker sync log lỗi 404 kèm stack trace ở mọi chu kỳ 10 giây, mapping Product↔Fineract không dùng chung được giữa máy | Partly fixed Wave 2 — log một dòng `warn`, không stack trace; tách DB theo môi trường vẫn thuộc R9 |
 | B22 | P2 | R9 | DB dev dùng chung chậm 1–3 migration so với `main` (Loan V26, Investment V13–V14, Payment V11 chỉ được áp khi chạy E2E) | Open → R9 (CI/migration discipline) |
 | B23 | P2 | R9 | Payment khai báo `spring-boot-starter-data-redis` nhưng không dùng Redis | Open → R9 |
 | B24 | P2 | R7 | `BorrowerSignatureRequested` chưa có consumer; người vay không nhận thông báo đến lượt ký | Open → Wave 3 (R7) |
 | B25 | P2 | DOC | `finora-loan/plans/` bị git-ignore nên link LN-009/010/015 trong tài liệu chung không mở được ở máy khác | Open — chờ owner quyết định có commit plan Loan hay không |
+| B26 | P2 | User/Loan | Hai định danh người vay: Loan/Investment/Payment/AI dùng claim `user_id` (ID hồ sơ, ví dụ `borrowerId=553` trong log E2E `r1a-20261017-052157`), còn `CicMappingWorker` của User đăng ký mapping CIC theo `keycloakUserId` (test `guiKeycloakUserIdLamBorrowerIdVaCccdQuaKenhNoiBo`). `SecurityUtils.getCurrentUserId` còn rơi về `sub` khi token thiếu claim. Nếu bật mapping, event `LoanDelinquencyChanged.v1` (mang `borrowerId` của Loan) không bao giờ khớp mapping | Open — owner (Thái + Hải) chốt một định danh; khuyến nghị dùng `user_id` cho mọi contract và bỏ fallback `sub`. Hiện chưa gây lỗi chạy vì worker tắt (`USER_CIC_MAPPING_ENABLED=false`) |
+| B27 | P2 | DOC/CIC | Tài liệu F06 và registry mô tả CIC Node có consumer `LoanDelinquencyChanged`, processed-event và hàng đợi chờ mapping. Kiểm ngày 2026-10-17: bản deploy (`/api/v1/suc-khoe`: kho tệp, 1000 hồ sơ) và source `cic-service-node` chỉ có API tra cứu điểm theo CCCD; `POST /api/v1/internal/borrower-mappings` không tồn tại trong source | Docs sửa ngày 2026-10-17 cho đúng hiện trạng. Theo D1 không phát triển CIC trong repo: lịch sử quá hạn của FINORA chưa được ghi sang CIC; owner quyết định có cần trong phạm vi demo |
 | S01 | P1 | R8 | Tự đăng ký `ADMIN`; AI không xác thực (kể cả `PUT config`); endpoint nội bộ Notification `permitAll`; `mock-complete` không gắn môi trường; PIN token dùng lại được trong TTL; URL Neon mặc định trong `application.yml` của Loan | Deferred theo D3 |
 
 ## 4. R0 — Đồng bộ source, roadmap và tài liệu

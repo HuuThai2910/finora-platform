@@ -22,6 +22,7 @@ import com.finora.loan.service.contract.ContractPdfArtifact;
 import com.finora.loan.service.contract.ContractPdfRenderer;
 import com.finora.loan.service.contract.ContractNumberGenerator;
 import com.finora.loan.service.contract.LoanContractCreationService;
+import com.finora.loan.service.contract.LoanServicingContractTerms;
 import com.finora.loan.service.contract.FundedContractAllocation;
 import com.finora.loan.service.outbox.OutboxService;
 import com.finora.loan.support.HashingService;
@@ -91,6 +92,8 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
                 actorId,
                 now
         );
+        // Văn bản vừa render in điều 4 với biểu phí này; Payment tính phí trả trước theo đúng giá trị lưu ở đây.
+        contract.recordEarlySettlementPolicy(LoanServicingContractTerms.EARLY_SETTLEMENT_POLICY_VERSION);
         contractRepository.saveAndFlush(contract);
         contractDocumentRepository.saveAndFlush(LoanContractDocument.create(
                 contract.getId(), pdf.artifactType(), pdf.documentVersion(), pdf.contentHash(),
@@ -163,6 +166,7 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
                 contractNumber, application.getId(), application.getBorrowerId(),
                 terms(application, finalSchedule), properties.termsVersion(), properties.documentVersion(),
                 documentContent, hashingService.sha256Text(documentContent), expiresAt, actorId, now);
+        contract.recordEarlySettlementPolicy(LoanServicingContractTerms.EARLY_SETTLEMENT_POLICY_VERSION);
         contract.initializeMultiParty();
         contractRepository.saveAndFlush(contract);
         partyRepository.save(ContractParty.borrower(contract.getId(), application.getBorrowerId(), now));

@@ -44,7 +44,9 @@ Launcher khởi động lần lượt Loan, Payment, Investment, Notification, B
 của từng module như IntelliJ và chỉ ghi đè các biến E2E: `SPRING_PROFILES_ACTIVE=local`,
 `FINORA_SIGNATURE_PROVIDER=MOCK`, `FINERACT_BOOKING_PROVIDER=fineract`, `PAYMENT_*_PROVIDER=mock`,
 `INVESTMENT_AUTO_INVEST_ENABLED=false`, `INVESTMENT_REQUIRE_EKYC=false`, Blockchain listener/worker bật với
-provider `MOCK`. Cổng đang bị IntelliJ chiếm thì launcher dừng với thông báo rõ. Log nằm ở `docker/e2e/out/logs`.
+provider `MOCK`, `FINORA_BORROWER_PROFILE_PROVIDER=mock` (người vay E2E chưa eKYC; đổi bằng
+`-BorrowerProfileProvider user`). Cổng đang bị IntelliJ chiếm thì launcher dừng với thông báo rõ. Log nằm ở
+`docker/e2e/out/logs`.
 
 Khi chạy code hiện hành, Flyway của từng service áp migration còn thiếu lên DB dev dùng chung. Lần chạy
 ngày 2026-10-17 đã đưa Loan lên V27, Investment lên V15, Payment lên V11.
@@ -64,6 +66,7 @@ powershell -ExecutionPolicy Bypass -File docker/e2e/run-vertical-slice.ps1 -Dril
 | `-SkipRepayment` | Dừng sau khi giải ngân và phát hành Note |
 | `-KeepProductActive` | Không ngừng Product E2E sau khi chạy (mặc định ngừng để borrower thật không thấy) |
 | `-LoanAmount`, `-TermMonths` | Mặc định 10.000.000 VND, 6 tháng; số tiền phải chia hết mệnh giá Note |
+| `-KycGate` | Chỉ kiểm cổng eKYC (W2-KYC): người vay mới đọc `/users/me/kyc-summary` qua Gateway và bị Loan từ chối `409 BORROWER_KYC_REQUIRED`, không có hồ sơ nào được tạo. Cần launcher chạy với `-BorrowerProfileProvider user` |
 
 Mỗi lần chạy tạo tài khoản mới `e2e.borrower.<run>@finora.test` và `e2e.investor.<run>@finora.test`, nên
 không vướng giới hạn 3 OTP/giờ và không cần xóa dữ liệu. Product dùng mã `E2E_FIX12_<6 hex của tên máy>`
@@ -83,6 +86,7 @@ vì mapping Product↔Fineract nằm trong DB Loan dùng chung còn Fineract là
 | Giải ngân | Saga `COMPLETED`; borrower +số vay; held investor về 0; Fineract `loanStatusType.active`; 10 Note `ACTIVE` | Loan + Payment + Fineract + Investment |
 | Trả kỳ | Số tiền đúng template Fineract; `COMPLETED`; borrower trừ một lần; một giao dịch `FINORA-REPAY-<id>`; `principal + interest + fee + penalty = amount` | Payment + Fineract |
 | Phân bổ | Investor nhận đủ gốc + lãi; portfolio cập nhật; Loan projection giảm dư nợ; thông báo `REPAYMENT_CREDITED`; proof `CONFIRMED` (MOCK) | Payment + Investment + Loan + Notification + Blockchain |
+| Báo giá tất toán | `policyVersion` là biểu phí in trong hợp đồng (`AGRIBANK_REFERENCE_FINORA_2026_V2`), phí = max(gốc × tỷ lệ, 100.000), nhà đầu tư 80%; chỉ lập báo giá, không chuyển tiền | Payment + Loan (hợp đồng) |
 | Kafka | Mỗi topic của luồng có đúng một `eventId` cho business key | Kafka |
 | Drill | Phát lại event không tạo Note/tiền/thông báo/proof thứ hai | Investment + Payment + Notification + Blockchain |
 

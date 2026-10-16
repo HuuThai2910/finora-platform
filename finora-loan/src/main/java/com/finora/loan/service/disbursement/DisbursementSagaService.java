@@ -162,7 +162,7 @@ public class DisbursementSagaService {
                 new LoanDisbursedEventData(sagaId, application.getId(), application.getApplicationNumber(),
                         saga.getContractNumber(), saga.getListingId(), saga.getAmount().toPlainString(),
                         saga.getCurrency(), saga.getPaymentReference(), fineractLoanId,
-                        application.getCoreConfigVersionSnapshot(), now));
+                        application.getCoreConfigVersionSnapshot(), now, contract.getEarlySettlementPolicyVersion()));
     }
 
     @Transactional

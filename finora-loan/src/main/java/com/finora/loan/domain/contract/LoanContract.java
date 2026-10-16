@@ -94,6 +94,13 @@ public class LoanContract {
     @Column(name = "document_version", nullable = false, length = 30, updatable = false)
     private String documentVersion;
 
+    /**
+     * Biểu phí trả trước mà văn bản hợp đồng đã công bố (G-POLICY-W2). {@code null} với hợp đồng {@code LOAN_TERMS_V1}
+     * không có điều khoản phí trả trước; Payment khi đó không thu phí.
+     */
+    @Column(name = "early_settlement_policy_version", length = 50, updatable = false)
+    private String earlySettlementPolicyVersion;
+
     @Column(name = "document_content", nullable = false, columnDefinition = "text", updatable = false)
     private String documentContent;
 
@@ -236,6 +243,14 @@ public class LoanContract {
         contract.createdAt = now;
         contract.updatedAt = now;
         return contract;
+    }
+
+    /** Ghi biểu phí trả trước đã in trong văn bản, một lần trước khi lưu Contract (cột không cho update). */
+    public void recordEarlySettlementPolicy(String policyVersion) {
+        if (id != null || earlySettlementPolicyVersion != null) {
+            throw new IllegalStateException("Biểu phí trả trước chỉ ghi một lần trước khi lưu hợp đồng");
+        }
+        earlySettlementPolicyVersion = requireText(policyVersion, "earlySettlementPolicyVersion");
     }
 
     /** Chuyển Contract mới tạo sang chuỗi ký lender trước, borrower sau. */
