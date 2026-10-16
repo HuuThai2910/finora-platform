@@ -3,8 +3,8 @@
 > Tài liệu này là nguồn nghiệp vụ chung cho Loan, Payment, Investment, CIC, web và mobile.
 > Đây là thiết kế kỹ thuật của đồ án, không thay thế ý kiến pháp lý hoặc biểu phí đã được các bên ký.
 
-- Phiên bản: `LOAN_SERVICING_POLICY_V1`
-- Ngày cập nhật triển khai: **2026-10-04**
+- Phiên bản: `LOAN_SERVICING_POLICY_V2`
+- Ngày cập nhật triển khai: **2026-10-11**
 - Phạm vi hiện tại: VND, khoản vay tối đa 24 tháng, Fineract là nguồn chuẩn lịch trả và phân bổ.
 - Kiểm soát pháp lý: `LEGAL-PAYMENT-01`, `LEGAL-SERVICING-01`, `LEGAL-DISCLOSURE-01` trong
   [LEGAL-COMPLIANCE.md](LEGAL-COMPLIANCE.md).
@@ -118,9 +118,10 @@ Breakdown và số tiền chính thức luôn lấy từ transaction Fineract. N
   phải đi luồng tất toán.
 - Tổng thu core là `nghĩa vụ đang đến hạn + phần gốc trả thêm`; phí FINORA được snapshot riêng và
   không ghi vào dư nợ Fineract.
-- Chỉ khoản vay snapshot `FINORA-FINERACT-V2` được dùng. Product V2 bắt buộc đồng thời có
-  `loanScheduleType=PROGRESSIVE`, `advanced-payment-allocation-strategy` và
-  `futureInstallmentAllocationRule=REAMORTIZATION`. V1 tiếp tục `mifos-standard-strategy`.
+- Khoản vay mới snapshot `FINORA-FINERACT-V3`. Product V3 dùng `loanScheduleType=PROGRESSIVE`,
+  `advanced-payment-allocation-strategy` và `futureInstallmentAllocationRule=NEXT_INSTALLMENT` để
+  ưu tiên tất toán các kỳ gần nhất, qua đó rút ngắn số kỳ còn lại. V2 vẫn đọc được và tiếp tục dùng
+  `REAMORTIZATION`; V1 dùng `mifos-standard-strategy` và không mở tính năng này.
 - Quote công bố số đang đến hạn, gốc trả thêm, phí, tổng debit, dư gốc và kỳ kế tiếp **trước giao dịch**.
   Fineract 1.15 không có endpoint giả lập lịch mới theo một số tiền chưa post, nên FINORA không tự dựng
   một lịch “sau trả” để tránh sai khác với core. Sau POST thành công, response/event mang snapshot kỳ mới
@@ -166,10 +167,13 @@ Giải thích bằng tiếng Việt:
   phạt mà Fineract yêu cầu phải xử lý trước hoặc cùng giao dịch.
 - `prepaidPrincipal` — **phần gốc người vay tự chọn trả thêm** ngoài nghĩa vụ đang đến hạn; phải lớn
   hơn 0 và nhỏ hơn toàn bộ gốc còn lại.
-- `configuredRate` — **tỷ lệ phí trả trước** lấy từ policy version đang hiệu lực: 0%, 0,5% hoặc 1%
-  tùy thời hạn và thời điểm trả.
+- `configuredRate` — **tỷ lệ phí trả trước** lấy từ policy version đang hiệu lực: 0%, 0,5%, 1%,
+  1,5% hoặc 2% tùy thời hạn và thời điểm trả.
 - `minimumFee` — **mức phí tối thiểu** của policy; hiện là 100.000 đồng khi tỷ lệ khác 0.
-- `platformFee` — **phí FINORA của hành động trả trước**, tính riêng trên `prepaidPrincipal`.
+- `platformFee` — **tổng phí trả trước**, tính riêng trên `prepaidPrincipal`; không đồng nghĩa toàn bộ
+  khoản này thuộc FINORA.
+- `investorFeeShare` — **80% phí trả trước được bù cho nhà đầu tư**, chia theo dư nợ Note.
+- `finoraFeeShare` — **20% phí trả trước thuộc FINORA**.
 - `coreAmount` — **số gửi sang Fineract** để ghi nghĩa vụ hiện tại và phần gốc trả thêm.
 - `walletDebit` — **tổng số tiền trừ ví**, bằng số gửi core cộng phí FINORA.
 
@@ -180,10 +184,9 @@ Ví dụ đối chiếu field: `scheduledDue=2.000.000`, `prepaidPrincipal=5.000
 `configuredRate` được chọn theo thời hạn/thời điểm tại bảng mục 3.3. Chỉ `coreAmount` được gửi sang
 Fineract; `platformFee` không làm tăng dư nợ hoặc thay đổi breakdown core.
 
-**Trạng thái triển khai:** API đã mở cho khoản vay V2. Ngày 2026-10-04, local Fineract 1.15 đã xác minh
-khoản vay 50.000.000 đồng trả trước 5.000.000 đồng: core ghi toàn bộ 5.000.000 vào gốc và re-amortize
-thành khoảng 833.000 đồng gốc đã trả trên mỗi kỳ trong 6 kỳ. Product V2 cũ từng tạo ở dạng
-`CUMULATIVE` phải được sửa/tạo lại thành `PROGRESSIVE`; không sửa ngầm loan account V1 đang hoạt động.
+**Trạng thái triển khai:** API mở cho V2 và V3. V3 là mặc định cho khoản vay mới và dùng
+`NEXT_INSTALLMENT`; V2 đang hoạt động giữ nguyên `REAMORTIZATION` để không sửa ngầm hợp đồng/core
+account cũ. Muốn kiểm thử hành vi rút ngắn kỳ phải tạo khoản vay V3 mới.
 
 ### 3.3 Tất toán trước hạn
 
@@ -192,16 +195,21 @@ thành khoảng 833.000 đồng gốc đã trả trên mỗi kỳ trong 6 kỳ. 
   kết quả đã phân phối để đóng read model, không tự tính lại số tất toán.
 - Sau Payment success và Fineract xác nhận đóng khoản vay, Loan chuyển `SETTLED`, Investment đóng Note.
 
-Policy phí demo tham chiếu duy nhất biểu phí Vietcombank:
+Policy phí demo V2 tham chiếu cấu trúc biểu phí trả nợ trước hạn của Agribank và được FINORA điều chỉnh
+cho khoản vay tối đa 24 tháng. Đây là policy sản phẩm của đồ án, không phải mức pháp luật ấn định:
 
 | Thời hạn hợp đồng | Thời điểm tất toán | Phí trên gốc trả trước | Tối thiểu |
 |---|---|---:|---:|
-| Tối đa 12 tháng | Trong nửa đầu thời hạn | 0,5% | 100.000 đồng |
-| Tối đa 12 tháng | Sau nửa thời hạn | Miễn phí | 0 đồng |
-| 13–24 tháng (giới hạn FINORA) | Trước ngày đáo hạn | 1% | 100.000 đồng |
+| Tối đa 12 tháng | Đã đi không quá 50% thời hạn | 1% | 100.000 đồng |
+| Tối đa 12 tháng | Trên 50% đến hết 70% thời hạn | 0,5% | 100.000 đồng |
+| Tối đa 12 tháng | Trên 70% thời hạn | Miễn phí | 0 đồng |
+| 13–24 tháng | Trong 12 tháng đầu | 2% | 100.000 đồng |
+| 13–24 tháng | Sau 12 tháng đầu đến trước đáo hạn | 1,5% | 100.000 đồng |
 
-Đây là **policy FINORA tham chiếu biểu phí Vietcombank**, không phải tỷ lệ pháp luật bắt buộc.
-Pháp luật yêu cầu công bố/thỏa thuận phí nhưng không ấn định tỷ lệ chung.
+Tất toán toàn bộ và trả trước một phần dùng cùng bảng tỷ lệ. Điểm khác duy nhất là căn cứ tính phí:
+toàn bộ gốc còn nợ đối với tất toán, hoặc phần gốc trả thêm đối với trả trước một phần. **Không thu lãi
+các tháng tương lai**; chỉ thu lãi và nghĩa vụ đã phát sinh đến ngày giao dịch. Pháp luật yêu cầu công
+bố/thỏa thuận rõ nhưng không ấn định bảng tỷ lệ trên.
 
 **Cách hiểu nghiệp vụ — công thức bằng lời:**
 
@@ -220,9 +228,9 @@ Nếu phí tính theo tỷ lệ thấp hơn mức tối thiểu thì thu mức t
 thì phí bằng 0. Khi toàn bộ số tiền được ghi nhận thành công, khoản vay kết thúc và không còn kỳ trả nợ
 tương lai.
 
-**Ví dụ đời thường:** anh C vay 24 tháng nhưng muốn đóng khoản vay sớm. Tại ngày yêu cầu, anh còn
-20.000.000 đồng tiền gốc và 300.000 đồng lãi đã phát sinh. Phí tất toán là 1% của gốc còn lại, tức
-200.000 đồng. Nếu không có phí/phạt khác, anh C cần có 20.500.000 đồng trong ví. Thanh toán thành công
+**Ví dụ đời thường:** anh C vay 24 tháng và tất toán ở tháng thứ 18. Tại ngày yêu cầu, anh còn
+20.000.000 đồng tiền gốc và 300.000 đồng lãi đã phát sinh. Phí tất toán là 1,5% của gốc còn lại, tức
+300.000 đồng. Nếu không có phí/phạt khác, anh C cần có 20.600.000 đồng trong ví. Thanh toán thành công
 thì khoản vay chuyển sang đã tất toán.
 
 **Công thức triển khai dành cho developer/QA:**
@@ -245,10 +253,27 @@ Giải thích bằng tiếng Việt:
 - `walletDebit` — tổng tiền trừ ví người vay, gồm nghĩa vụ core và phí tất toán FINORA.
 
 Ví dụ đối chiếu field: `outstandingPrincipal=20.000.000`, `accruedInterest=300.000`,
-`coreFee=0`, `penalty=0` và `configuredRate=1%` thì `earlySettlementFee=200.000`,
-`coreAmount=20.300.000` và `walletDebit=20.500.000`.
+`coreFee=0`, `penalty=0` và `configuredRate=1,5%` thì `earlySettlementFee=300.000`,
+`coreAmount=20.300.000` và `walletDebit=20.600.000`.
 
 Nếu `configuredRate = 0`, phí bằng 0 và không áp dụng mức tối thiểu.
+
+**Phân chia phí cho hai bên:** sau khi thu thành công, 80% phí trả trước được chia cho các nhà đầu tư
+theo tỷ lệ dư nợ Note tại thời điểm giao dịch; 20% được ghi nhận cho FINORA. Ví dụ phí 200.000 đồng thì
+nhà đầu tư nhận tổng cộng 160.000 đồng và FINORA nhận 40.000 đồng. Việc chia này không làm thay đổi
+số tiền người vay đã thấy và xác nhận trong quote.
+
+**Công bố trong hợp đồng mới:** `LOAN_TERMS_V2`/`CONTRACT_PDF_V2` ghi trực tiếp bảng phí phù hợp với
+thời hạn khoản vay, căn cứ tính phí của từng cơ chế, nguyên tắc không thu lãi tương lai, mức tối thiểu và
+cách chia 80/20. `FINORA_SERVICING_TERMS_V2` và biểu phí
+`AGRIBANK_REFERENCE_FINORA_2026_V2` nằm trong bytes/hash mà tất cả nhà đầu tư và người vay ký.
+Hợp đồng cũ không được render lại hoặc gắn ngược policy này; muốn test đúng phải tạo hồ sơ/hợp đồng mới.
+
+**Nguyên tắc phát hành cấu hình:** các biến `PAYMENT_EARLY_SETTLEMENT_*` chỉ là cách triển khai biểu phí
+đã công bố, không phải công cụ để tự ý đổi phí trên hợp đồng đang hiệu lực. Nếu đổi tỷ lệ, mốc thời gian,
+mức tối thiểu hoặc tỷ lệ chia phí, đội phát hành phải đồng thời cập nhật Payment, nội dung hợp đồng,
+`EARLY_SETTLEMENT_POLICY_VERSION`, test và tài liệu trước khi cho phép tạo hợp đồng mới. Không được chỉ
+đổi env Payment vì sẽ làm quote khác với điều khoản mà người vay và nhà đầu tư đã ký.
 
 ### 3.4 Khắc phục quá hạn
 
@@ -340,9 +365,10 @@ thành phần, không tạo một sổ tính nợ song song trong Loan hoặc Pa
 ### 3.5 Cơ cấu lại thời hạn trả nợ
 
 Cơ cấu là một yêu cầu riêng, không phải quyền tự động của người vay. Người vay nộp lý do và phương án;
-admin đánh giá rồi `APPROVE` hoặc `REJECT`. Chỉ sau phê duyệt Loan mới gọi Fineract reschedule và phát
-event cập nhật lịch. Trong lúc chờ, nghĩa vụ cũ vẫn có hiệu lực; nếu đến hạn mà chưa được duyệt thì vẫn
-phát sinh quá hạn theo lịch cũ.
+FINORA/admin thẩm định trước. Nếu không đạt, yêu cầu bị từ chối. Nếu đạt, Investment chốt danh sách
+chủ Note hiện tại và yêu cầu **toàn bộ nhà đầu tư liên quan đồng ý**. Loan chỉ gọi Fineract sau khi nhận
+kết quả đồng thuận đầy đủ. Trong lúc chờ, nghĩa vụ cũ vẫn có hiệu lực; nếu đến hạn mà chưa hoàn tất thì
+vẫn phát sinh quá hạn theo lịch cũ.
 
 Ba kết quả nghiệp vụ được phân biệt:
 
@@ -356,16 +382,16 @@ Ba kết quả nghiệp vụ được phân biệt:
 Phí gửi yêu cầu cơ cấu hoặc gia hạn = 0 đồng
 
 Lịch trả nợ mới
-= Lịch do hệ thống lõi tính sau khi admin phê duyệt yêu cầu
+= Lịch do hệ thống lõi tính sau khi FINORA thẩm định đạt và toàn bộ nhà đầu tư đồng ý
 ```
 
-Gửi yêu cầu không có nghĩa là đã được gia hạn. Trước khi có kết quả phê duyệt và Fineract xác nhận lịch
-mới, người vay vẫn phải trả theo lịch cũ. Nếu bỏ kỳ trong lúc chờ thì vẫn bị tính quá hạn.
+Gửi yêu cầu hoặc được FINORA thẩm định đạt chưa có nghĩa là đã được gia hạn. Trước khi toàn bộ nhà đầu
+tư đồng ý và Fineract xác nhận lịch mới, người vay vẫn phải trả theo lịch cũ.
 
 **Ví dụ đời thường:** chị E gặp khó khăn và xin kéo ngày đáo hạn thêm ba tháng. Chị không bị thu phí
-khi gửi yêu cầu. Nếu admin từ chối, lịch cũ giữ nguyên. Nếu admin đồng ý nhưng hệ thống lõi chưa cập
-nhật thành công, lịch cũ vẫn có hiệu lực. Chỉ khi hệ thống lõi trả về lịch mới, ứng dụng mới hiển thị các
-ngày và số tiền mới.
+khi gửi yêu cầu. Nếu FINORA từ chối hoặc chỉ một nhà đầu tư từ chối, lịch cũ giữ nguyên. Nếu tất cả cùng
+đồng ý nhưng hệ thống lõi chưa cập nhật thành công, lịch cũ vẫn có hiệu lực. Chỉ khi Fineract trả lịch mới,
+ứng dụng mới hiển thị ngày và số tiền mới.
 
 **Công thức triển khai dành cho developer/QA:** phiên bản hiện tại không thu một `rescheduleFee` riêng
 của FINORA:
@@ -379,13 +405,13 @@ Giải thích bằng tiếng Việt:
 - `rescheduleFee` — **phí riêng của FINORA cho việc gửi hoặc duyệt yêu cầu cơ cấu/gia hạn**. Phiên bản
   hiện tại đặt bằng 0, vì vậy thao tác này không tự tạo lệnh trừ ví.
 - Số tiền gốc, lãi, ngày đến hạn và ngày đáo hạn trong lịch mới **không nằm trong công thức trên**;
-  chúng được Fineract tính lại sau khi yêu cầu được admin duyệt thành công.
-- Trong thời gian yêu cầu còn `PENDING` hoặc bị `REJECTED`, hệ thống vẫn dùng lịch cũ. Nếu người vay
+  chúng được Fineract tính lại sau khi yêu cầu qua đủ hai cổng thẩm định và đồng thuận.
+- Trong thời gian yêu cầu còn `PENDING_REVIEW`, `PENDING_INVESTOR_CONSENT` hoặc bị từ chối, hệ thống vẫn dùng lịch cũ. Nếu người vay
   không trả theo lịch cũ thì khoản vay vẫn phát sinh quá hạn bình thường.
 
-Ví dụ đối chiếu field: khi request đang `PENDING` hoặc `REJECTED`, `rescheduleFee=0` và hệ thống vẫn
-đọc lịch cũ. Chỉ sau kết quả `APPROVED` và Fineract reschedule thành công mới lưu, phát event và hiển
-thị lịch mới.
+Ví dụ đối chiếu field: FINORA thẩm định đạt đưa request sang `PENDING_INVESTOR_CONSENT`; chưa gọi
+Fineract. Chỉ khi Investment phát kết quả đồng thuận đầy đủ, Loan mới sang `CREATE_PENDING`, áp dụng
+core và cuối cùng `COMPLETED`.
 
 Nếu sau này áp dụng phí, phải có policy version, điều khoản đã công bố/chấp thuận và quote riêng trước
 khi debit ví; không được tự suy ra phí từ số kỳ được gia hạn.
@@ -473,7 +499,7 @@ tục là breakdown gốc/lãi/phí/phạt chính thức từ Fineract, tránh c
 | Khắc phục quá hạn | Trả toàn bộ gốc/lãi còn thiếu và khoản phát sinh do chậm trả | Chỉ khi hết phần quá hạn thì số ngày quá hạn mới về 0 |
 | Trả trước một phần | Trả kỳ đang đến hạn, một phần gốc tự chọn và phí trả trước | Gốc còn nợ giảm; hệ thống tính lại các kỳ tương lai |
 | Tất toán sớm | Trả toàn bộ gốc còn lại, lãi/phí/phạt đã phát sinh và phí tất toán | Khoản vay kết thúc, không còn kỳ tương lai |
-| Cơ cấu/gia hạn | Gửi yêu cầu và chờ duyệt; hiện không thu phí yêu cầu | Lịch chỉ thay đổi sau khi admin duyệt và hệ thống lõi xác nhận |
+| Cơ cấu/gia hạn | Gửi yêu cầu; FINORA thẩm định và nhà đầu tư biểu quyết; hiện không thu phí yêu cầu | Lịch chỉ đổi sau khi tất cả nhà đầu tư đồng ý và core xác nhận |
 | Nợ xấu/thu hồi | Tiếp tục trả nghĩa vụ quá hạn; không có phí nợ xấu riêng | Trả hết quá hạn mới phục hồi; trả hết toàn bộ thì tất toán |
 
 **Bảng đối chiếu dành cho developer/QA:**
@@ -482,9 +508,9 @@ tục là breakdown gốc/lãi/phí/phạt chính thức từ Fineract, tránh c
 |---|---|---|---|
 | Trả đúng kỳ | `principal + interest + coreFee + penalty` | `0` | Fineract giảm nghĩa vụ kỳ |
 | Khắc phục quá hạn | `overduePayment` từ template Fineract | `0` ngoài khoản đã công bố trong core | Trả đủ mới đưa DPD về 0 |
-| Trả trước một phần | `scheduledDue + prepaidPrincipal + platformFee` | Theo cùng bảng phí mục 3.3, tính trên `prepaidPrincipal` | Re-amortize lịch V2 |
-| Tất toán sớm | `outstandingPrincipal + accruedInterest + coreFee + penalty + earlySettlementFee` | 0%/0,5%/1% theo policy version | Dư nợ 0, Loan/Note `SETTLED` |
-| Cơ cấu/gia hạn | Không debit khi gửi hoặc duyệt yêu cầu | `0` | Chỉ đổi lịch sau khi Fineract xác nhận |
+| Trả trước một phần | `scheduledDue + prepaidPrincipal + platformFee` | 0%–2% theo bảng mục 3.3, tính trên `prepaidPrincipal`, chia 80/20 | V3 ưu tiên rút ngắn kỳ; V2 re-amortize |
+| Tất toán sớm | `outstandingPrincipal + accruedInterest + coreFee + penalty + earlySettlementFee` | 0%–2% theo policy version, chia 80/20 | Dư nợ 0, Loan/Note `SETTLED` |
+| Cơ cấu/gia hạn | Không debit khi gửi, thẩm định hoặc biểu quyết | `0` | Chỉ đổi lịch sau đồng thuận nhà đầu tư và Fineract xác nhận |
 | Default/thu hồi | Không có giao dịch debit riêng; trả theo nghĩa vụ Fineract | `defaultFee=0` | DPD ≥ 91 → `DEFAULTED`; trả đủ quá hạn → `ACTIVE` |
 
 Các tên tiếng Anh trong bảng được giữ nguyên để khớp API và mã nguồn. Khi đọc hoặc kiểm thử, dùng phần
@@ -570,7 +596,7 @@ Các API này không cho sửa DPD, số dư hoặc stage. Polling Fineract và 
 | `repaymentId/idempotencyKey` | UUID nghiệp vụ và khóa chống thu tiền hai lần; external reference là `FINORA-REPAY-<repaymentId>` |
 | `loanApplicationId/fineractLoanId/borrowerId` | Khóa tương quan và quyền sở hữu |
 | `repaymentType` | Hiện hành: `SCHEDULED`, `OVERDUE_CURE`, `PARTIAL_PREPAYMENT`, `EARLY_SETTLEMENT` |
-| `amount/coreAmount/platformFee/currency/transactionDate` | Tổng thu, phần ghi core, phí nền tảng và ngày nghiệp vụ |
+| `amount/coreAmount/platformFee/investorFeeShare/finoraFeeShare/currency/transactionDate` | Tổng thu, phần ghi core, tổng phí trả trước, phần nhà đầu tư/FINORA và ngày nghiệp vụ |
 | `status` | `COLLECTED`, `CORE_POSTING`, `CORE_POSTED`, `COMPLETED`, `RECONCILIATION_REQUIRED`, `FAILED` |
 | `walletLedgerTransactionId/distributionLedgerTransactionId/fineractTransactionId` | Bằng chứng thu ví, phân phối ledger và transaction core |
 | `principalAmount/interestAmount/feeAmount/penaltyAmount` | Breakdown chính thức từ Fineract; tổng phải cân với amount |
@@ -588,7 +614,7 @@ Các API này không cho sửa DPD, số dư hoặc stage. Polling Fineract và 
 | `loanApplicationId/borrowerId/fineractLoanId` | Ownership và tương quan với core |
 | `transactionDate/expiresAt/status` | Báo giá chỉ dùng trong ngày nghiệp vụ và trước hạn; `ACTIVE → CONSUMED` |
 | `principal/interest/coreFee/penalty/coreAmount` | Snapshot trả về từ `prepayLoan`; tổng các phần phải bằng `coreAmount` |
-| `feeRate/platformFee/policyVersion` | Snapshot policy FINORA đã công bố, không ghi vào dư nợ Fineract |
+| `feeRate/platformFee/investorFeeShare/finoraFeeShare/policyVersion` | Snapshot policy và cách chia 80/20; không ghi vào dư nợ Fineract |
 | `totalAmount` | `coreAmount + platformFee`, đúng số tiền debit ví borrower |
 
 API backend hiện hành:
@@ -605,13 +631,13 @@ một local transaction có row lock; báo giá hết hạn/đã dùng hoặc v�
 | Field | Ý nghĩa/invariant |
 |---|---|
 | `quoteId/status/expiresAt/consumedAt` | UUID dùng đúng một lần; `ACTIVE → CONSUMED`, hiển thị `EXPIRED` khi quá TTL |
-| `loanApplicationId/borrowerId/fineractLoanId/coreConfigVersion` | Ownership và snapshot đúng khoản vay V2 |
+| `loanApplicationId/borrowerId/fineractLoanId/coreConfigVersion` | Ownership và snapshot đúng khoản vay V2/V3 |
 | `transactionDate/scheduledDue/prepaidPrincipal` | Ngày core, nghĩa vụ hiện tại và phần gốc trả thêm do borrower chọn |
 | `coreAmount` | `scheduledDue + prepaidPrincipal`, là số duy nhất gửi sang Fineract |
-| `feeRate/platformFee/policyVersion` | Snapshot biểu phí đã công bố; không cộng vào dư nợ core |
+| `feeRate/platformFee/investorFeeShare/finoraFeeShare/policyVersion` | Snapshot biểu phí và cách chia 80/20; không cộng vào dư nợ core |
 | `totalAmount` | `coreAmount + platformFee`, là số debit ví |
 | `outstandingPrincipalBefore/nextDueDateBefore/nextDueAmountBefore` | Bằng chứng core trước khi xác nhận |
-| `allocationStrategy` | Cố định `advanced-payment-allocation-strategy/REAMORTIZATION` cho V2 |
+| `allocationStrategy` | V3: `advanced-payment-allocation-strategy/NEXT_INSTALLMENT`; V2: `REAMORTIZATION` |
 
 API hiện hành:
 
@@ -629,6 +655,8 @@ Contract chi tiết nằm tại [LOAN-INVESTMENT-EVENTS.md](integrations/LOAN-IN
 | `RepaymentCollected.v1` | Payment | vận hành/Loan | Tiền đã rời ví borrower, chưa khẳng định core/distribution xong |
 | `RepaymentDistributed.v1` | Payment | Loan, Investment | Core đã xác nhận breakdown và ledger đã phân bổ |
 | `LoanDelinquencyChanged.v1` | Loan | CIC mock hiện có; Investment/Notification dự kiến | DPD/nhóm nợ nội bộ thật sự đổi |
+| `LoanRescheduleConsentRequested.v1` | Loan | Investment | FINORA thẩm định đạt; chốt chủ Note và mở biểu quyết |
+| `LoanRescheduleConsentCompleted.v1` | Investment | Loan | Tất cả nhà đầu tư đã đồng ý hoặc có ít nhất một người từ chối |
 | `LoanRescheduled.v1` | Loan | Investment, Notification | Yêu cầu cơ cấu đã duyệt và Fineract đã trả lịch mới |
 | `LoanSettled.v1` | Loan | lifecycle consumer dự kiến; Investment hiện đóng Note từ `RepaymentDistributed` | Dư nợ core bằng 0 và khoản vay đã đóng |
 
@@ -692,13 +720,13 @@ nhóm nợ cũ.
 - Tổng `principal + interest + fee + penalty` phải bằng số tiền phân bổ; phần làm tròn được ghi rõ.
 - Tất toán: quote hết hạn/đã dùng không debit ví; phí platform không gửi vào Fineract; khi
   `totalOutstanding=0`, Payment account, Loan và mọi Note liên quan đều đóng qua cùng kết quả/event.
-- Trả trước một phần V2: Product phải là `PROGRESSIVE`; quote chỉ dùng một lần; core chỉ nhận
-  `coreAmount`; response/event dùng lịch sau giao dịch từ Fineract; V1 bị từ chối trước khi debit ví.
+- Trả trước một phần V2/V3: Product phải là `PROGRESSIVE`; quote chỉ dùng một lần; core chỉ nhận
+  `coreAmount`; V3 ưu tiên `NEXT_INSTALLMENT`, V2 giữ `REAMORTIZATION`; V1 bị từ chối trước khi debit ví.
 
 ## 9. Nguồn tham chiếu
 
 Các bước nghiệm thu chạy được nằm tại [LOAN-SERVICING-E2E.md](testing/LOAN-SERVICING-E2E.md).
 
 - [Thông tư 39/2016/TT-NHNN, bản hợp nhất cập nhật 2026](https://datafiles.chinhphu.vn/cpp/files/vbpq/2026/01/06-vbhn-nhnn.pdf): Điều 13, 14, 18, 19, 23 dùng để đối chiếu lãi/phí, thứ tự thu nợ và công bố hợp đồng.
-- [Biểu phí trả nợ trước hạn Vietcombank](https://www.vietcombank.com.vn/-/media/Project/VCB-Sites/VCB/KHCN/Bieu-mau-Bieu-phi-KHCN/Bieu-phi/Vay/San-pham-vay/Bieu-Phi-Tra-No-Truoc-Han-updated.pdf?ts=20240221071228): nguồn duy nhất cho policy phí demo V1.
+- [Biểu phí tín dụng Agribank](https://www.agribank.com.vn/wcm/connect/05371a26-a0b1-4670-a5db-15046d1517f4/2020-Bieu%2Bphi%2Btin%2Bdung%2Bkem%2Btheo%2BQD%2B738%2Bcap%2Bnhat%2BQD%2B09.pdf?MOD=AJPERES): nguồn tham chiếu cấu trúc/tỷ lệ; các dải thời gian và cách chia 80/20 là policy demo FINORA V2 phải công bố trong hợp đồng.
 - [Apache Fineract 1.15.0](https://fineract.apache.org/docs/1.15.0/): nguồn kỹ thuật cho core loan/schedule/transaction.

@@ -28,6 +28,8 @@ public class PaymentRepayment {
     @Column(name = "partial_prepayment_quote_id", unique = true, updatable = false) private UUID partialPrepaymentQuoteId;
     @Column(name = "core_amount", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal coreAmount;
     @Column(name = "platform_fee", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal platformFee;
+    @Column(name = "investor_fee_share", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal investorFeeShare;
+    @Column(name = "finora_fee_share", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal finoraFeeShare;
     @Column(nullable = false, length = 3, updatable = false) private String currency;
     @Column(name = "transaction_date", nullable = false, updatable = false) private LocalDate transactionDate;
     @Enumerated(EnumType.STRING) @Column(nullable = false, length = 30) private PaymentRepaymentStatus status;
@@ -77,6 +79,8 @@ public class PaymentRepayment {
         value.repaymentType = repaymentType;
         value.coreAmount = value.amount;
         value.platformFee = BigDecimal.ZERO.setScale(2);
+        value.investorFeeShare = BigDecimal.ZERO.setScale(2);
+        value.finoraFeeShare = BigDecimal.ZERO.setScale(2);
         value.currency = account.getCurrency();
         value.transactionDate = transactionDate;
         value.status = PaymentRepaymentStatus.COLLECTED;
@@ -99,6 +103,8 @@ public class PaymentRepayment {
         value.quoteId = quote.getQuoteId();
         value.coreAmount = quote.getCoreAmount();
         value.platformFee = quote.getPlatformFee();
+        value.investorFeeShare = quote.getInvestorFeeShare();
+        value.finoraFeeShare = quote.getFinoraFeeShare();
         value.currency = account.getCurrency();
         value.transactionDate = quote.getTransactionDate();
         value.status = PaymentRepaymentStatus.COLLECTED;
@@ -121,6 +127,8 @@ public class PaymentRepayment {
         value.partialPrepaymentQuoteId = quote.getQuoteId();
         value.coreAmount = quote.getCoreAmount();
         value.platformFee = quote.getPlatformFee();
+        value.investorFeeShare = quote.getInvestorFeeShare();
+        value.finoraFeeShare = quote.getFinoraFeeShare();
         value.currency = account.getCurrency();
         value.transactionDate = quote.getTransactionDate();
         value.status = PaymentRepaymentStatus.COLLECTED;

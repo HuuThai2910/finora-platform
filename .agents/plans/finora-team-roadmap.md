@@ -254,8 +254,8 @@ Các task có thể chạy song song theo ownership, nhưng mỗi task vẫn ph�
 
 | ID | Module | Chức năng | Phụ thuộc | Trạng thái |
 |---|---|---|---|---|
-| P7-A01 | Loan | [LN-017: Product V2 và trả nợ sớm](../../finora-loan/plans/LN-017-fineract-product-v2-partial-prepayment.md) | P5 | `REVIEW` — Product V2 `PROGRESSIVE`/advanced allocation, API trả trước một phần, Payment V9–V10 và E2E Fineract thật đã hoàn tất ngày 2026-10-04; quote cố ý không dựng lịch giả định vì Fineract 1.15 không có preview theo số tiền |
-| P7-A02 | Loan | [LN-015: Tái cơ cấu/gia hạn](../../finora-loan/plans/LN-015-loan-restructuring.md) | P5 + consent contract | `REVIEW` — V20, borrower/admin API, durable Fineract reconcile, `LoanRescheduled.v1` và Investment lifecycle consumer đã có |
+| P7-A01 | Loan | [LN-017: Product V2/V3 và trả nợ sớm](../../finora-loan/plans/LN-017-fineract-product-v2-partial-prepayment.md) | P5 | `REVIEW` — V3 dùng `NEXT_INSTALLMENT`; trả trước không thu lãi tương lai; phí theo dải thời gian được chia 80/20 và công bố trong Contract V2; V2/V1 giữ tương thích |
+| P7-A02 | Loan | [LN-015: Tái cơ cấu/gia hạn](../../finora-loan/plans/LN-015-loan-restructuring.md) | P5 + consent contract | `REVIEW` — borrower/admin API, durable Fineract reconcile, Loan–Investment consent event và mobile biểu quyết đã có; chờ Hải review Investment/vùng chung |
 | P7-A03 | Loan | [LN-016: NPL policy/dashboard](../../finora-loan/plans/LN-016-collection-default.md) | P5 + reporting | `REVIEW` — V21, episode thu hồi, DPD stage/default-cure, admin API/audit action và trang quản trị servicing đã có |
 | P7-A04 | Loan | SmartCA adapter | Contract/sandbox ký số | `BACKLOG` |
 | P7-A05 | Payment | Payment gateway nạp/rút thật hoặc sandbox | P3 | `BACKLOG` |

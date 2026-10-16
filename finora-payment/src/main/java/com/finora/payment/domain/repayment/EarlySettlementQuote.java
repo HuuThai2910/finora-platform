@@ -29,6 +29,8 @@ public class EarlySettlementQuote {
     @Column(name = "penalty_portion", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal penaltyPortion;
     @Column(name = "core_amount", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal coreAmount;
     @Column(name = "platform_fee", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal platformFee;
+    @Column(name = "investor_fee_share", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal investorFeeShare;
+    @Column(name = "finora_fee_share", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal finoraFeeShare;
     @Column(name = "total_amount", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal totalAmount;
     @Column(name = "fee_rate", nullable = false, precision = 7, scale = 6, updatable = false) private BigDecimal feeRate;
     @Column(name = "policy_version", nullable = false, length = 50, updatable = false) private String policyVersion;
@@ -40,7 +42,8 @@ public class EarlySettlementQuote {
     @Column(name = "updated_at", nullable = false) private Instant updatedAt;
 
     public static EarlySettlementQuote create(PaymentLoanAccount account, EarlySettlementCoreQuote core,
-            BigDecimal feeRate, BigDecimal platformFee, String policyVersion, Instant expiresAt, Instant now) {
+            BigDecimal feeRate, BigDecimal platformFee, BigDecimal investorFeeShare,
+            BigDecimal finoraFeeShare, String policyVersion, Instant expiresAt, Instant now) {
         EarlySettlementQuote quote = new EarlySettlementQuote();
         quote.quoteId = UUID.randomUUID();
         quote.loanApplicationId = account.getLoanApplicationId();
@@ -55,6 +58,11 @@ public class EarlySettlementQuote {
         quote.coreAmount = core.amount().setScale(2);
         quote.feeRate = feeRate.setScale(6);
         quote.platformFee = platformFee.setScale(2);
+        quote.investorFeeShare = investorFeeShare.setScale(2);
+        quote.finoraFeeShare = finoraFeeShare.setScale(2);
+        if (quote.investorFeeShare.add(quote.finoraFeeShare).compareTo(quote.platformFee) != 0) {
+            throw new IllegalArgumentException("Phân bổ phí tất toán không cân");
+        }
         quote.totalAmount = quote.coreAmount.add(quote.platformFee);
         quote.policyVersion = policyVersion;
         quote.status = EarlySettlementQuoteStatus.ACTIVE;

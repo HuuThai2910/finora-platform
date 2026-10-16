@@ -29,17 +29,31 @@ public class EarlySettlementFeeCalculator {
         BigDecimal rate;
         if (term <= 12) {
             long durationDays = ChronoUnit.DAYS.between(disbursedDate, maturityDate);
-            LocalDate midpoint = disbursedDate.plusDays(Math.max(0, durationDays / 2));
-            rate = transactionDate.isAfter(midpoint)
-                    ? BigDecimal.ZERO : policy.shortTermFirstHalfRate();
+            long elapsedDays = Math.max(0, ChronoUnit.DAYS.between(disbursedDate, transactionDate));
+            BigDecimal elapsedRatio = durationDays <= 0 ? BigDecimal.ONE
+                    : BigDecimal.valueOf(elapsedDays).divide(BigDecimal.valueOf(durationDays), 8, RoundingMode.HALF_UP);
+            if (elapsedRatio.compareTo(policy.shortTermFirstBandEnd()) <= 0) {
+                rate = policy.shortTermFirstBandRate();
+            } else if (elapsedRatio.compareTo(policy.shortTermFreeAfter()) <= 0) {
+                rate = policy.shortTermSecondBandRate();
+            } else {
+                rate = BigDecimal.ZERO;
+            }
         } else {
-            rate = policy.longTermRate();
+            rate = transactionDate.isBefore(disbursedDate.plusYears(1))
+                    ? policy.mediumTermYearOneRate() : policy.mediumTermYearTwoRate();
         }
         BigDecimal fee = rate.signum() == 0 ? BigDecimal.ZERO.setScale(2)
                 : prepaidPrincipal.multiply(rate).setScale(2, RoundingMode.HALF_UP)
                         .max(policy.minimumFee());
-        return new Fee(rate.setScale(6, RoundingMode.HALF_UP), fee, policy.policyVersion());
+        BigDecimal investorShare = fee.multiply(policy.investorShareRate())
+                .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal finoraShare = fee.subtract(investorShare).setScale(2, RoundingMode.HALF_UP);
+        return new Fee(rate.setScale(6, RoundingMode.HALF_UP), fee, investorShare, finoraShare,
+                policy.policyVersion());
     }
 
-    public record Fee(BigDecimal rate, BigDecimal amount, String policyVersion) {}
+    /** Snapshot cả tỷ lệ lẫn cách chia để worker không bị ảnh hưởng khi policy runtime đổi. */
+    public record Fee(BigDecimal rate, BigDecimal amount, BigDecimal investorShare,
+            BigDecimal finoraShare, String policyVersion) {}
 }

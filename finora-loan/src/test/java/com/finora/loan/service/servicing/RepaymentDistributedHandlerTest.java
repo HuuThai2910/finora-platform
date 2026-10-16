@@ -136,7 +136,7 @@ class RepaymentDistributedHandlerTest {
     private static RepaymentDistributedEventData repayment(String overdueAmount) {
         return new RepaymentDistributedEventData(
                 UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"), "FINORA-REPAY-1",
-                "SCHEDULED", null, "0.00", 9L, 88L, 123L,
+                "SCHEDULED", null, "0.00", "0.00", "0.00", 9L, 88L, 123L,
                 "1000000.00", "800000.00", "200000.00", "0.00", "0.00",
                 "9200000.00", "800000.00", "0.00", "0.00", "10000000.00", overdueAmount,
                 "VND", LocalDate.of(2026, 10, 3), LocalDate.of(2026, 10, 21),
@@ -147,6 +147,7 @@ class RepaymentDistributedHandlerTest {
         return new RepaymentDistributedEventData(
                 UUID.fromString("bbbbbbbb-cccc-dddd-eeee-ffffffffffff"), "FINORA-REPAY-2",
                 "EARLY_SETTLEMENT", "99999999-8888-7777-6666-555555555555", "100000.00",
+                "80000.00", "20000.00",
                 9L, 88L, 124L, "11100000.00", "10000000.00", "1000000.00", "0.00", "0.00",
                 "0.00", "0.00", "0.00", "0.00", "0.00", "0.00", "VND",
                 LocalDate.of(2026, 10, 3), null, "0.00", NOW, List.of());

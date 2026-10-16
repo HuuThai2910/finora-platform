@@ -23,7 +23,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 @RequiredArgsConstructor
 public class PartialPrepaymentQuoteService {
-    static final String REQUIRED_CORE_VERSION = "FINORA-FINERACT-V2";
+    static final java.util.Set<String> SUPPORTED_CORE_VERSIONS = java.util.Set.of(
+            "FINORA-FINERACT-V2", "FINORA-FINERACT-V3");
     private final PaymentLoanAccountRepository loanAccounts;
     private final PartialPrepaymentQuoteRepository quotes;
     private final RepaymentCoreGateway fineract;
@@ -54,7 +55,8 @@ public class PartialPrepaymentQuoteService {
             }
             try {
                 return quotes.save(PartialPrepaymentQuote.create(account, core, normalized, fee.rate(),
-                        fee.amount(), fee.policyVersion(), now.plus(policy.quoteTtl()), now));
+                        fee.amount(), fee.investorShare(), fee.finoraShare(), fee.policyVersion(),
+                        now.plus(policy.quoteTtl()), now));
             } catch (IllegalArgumentException exception) {
                 throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY,
                         "PARTIAL_PREPAYMENT_AMOUNT_INVALID", exception.getMessage());
@@ -92,8 +94,8 @@ public class PartialPrepaymentQuoteService {
             throw new BusinessException(HttpStatus.CONFLICT, "PAYMENT_LOAN_NOT_ACTIVE",
                     "Khoản vay không còn hoạt động");
         }
-        if (!REQUIRED_CORE_VERSION.equals(account.getCoreConfigVersion())) {
-            throw new BusinessException(HttpStatus.CONFLICT, "PARTIAL_PREPAYMENT_REQUIRES_FINERACT_V2",
+        if (!SUPPORTED_CORE_VERSIONS.contains(account.getCoreConfigVersion())) {
+            throw new BusinessException(HttpStatus.CONFLICT, "PARTIAL_PREPAYMENT_REQUIRES_ADVANCED_CORE",
                     "Khoản vay này dùng chiến lược core cũ và không hỗ trợ tái phân bổ trả trước một phần");
         }
         return account;

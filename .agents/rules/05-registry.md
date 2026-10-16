@@ -46,6 +46,8 @@ phần Investment trước merge:
 | `finora.loan.contract-activated` | Loan | `investment-loan-funding` | Investment cập nhật Contract có hiệu lực; Payment/Blockchain bổ sung sau |
 | `finora.loan.delinquency-changed` | Loan | `cic-loan-delinquency`, `investment-loan-funding` | CIC tách nhóm hiện tại/lịch sử; Investment cập nhật DPD/nhóm nợ cho Note projection |
 | `finora.loan.settled` | Loan | `investment-loan-funding` | Investment lưu lifecycle projection; không dùng thay `RepaymentDistributed` để chia tiền/đóng Note |
+| `finora.loan.reschedule-consent-requested` | Loan | `investment-loan-funding` | Mở phiếu đồng thuận cơ cấu cho từng chủ Note hiện tại; payload không chứa PII/lý do tự do |
+| `finora.investment.reschedule-consent-completed` | Investment | `loan-investment-funding` | Trả kết quả đồng thuận cuối; Loan chỉ gọi Fineract khi tất cả nhà đầu tư chấp thuận |
 | `finora.loan.rescheduled` | Loan | `investment-loan-funding` | Fineract đã approve lịch cơ cấu; Investment cập nhật maturity marker, không tự tính schedule |
 | `finora.payment.repayment-distributed` | Payment | `loan-repayment-distributed`, `investment-loan-funding`, `blockchain-group` | Loan/Investment cập nhật projection; Blockchain chỉ neo SHA-256 data, không lưu payload tài chính thô |
 | `finora.investment.note-servicing-changed` | Investment | `notification-investor-servicing` | Fan-out thông báo servicing cho chủ Note; dedup delivery, không chứa PII |

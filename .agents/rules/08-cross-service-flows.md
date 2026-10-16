@@ -211,11 +211,12 @@ nhận `RepaymentDistributed` mà người được trả không còn là chủ 
 account (`REPAY-REDIRECT:<repaymentId>:<noteId>`, idempotent) chuyển từ chủ cũ sang chủ hiện tại; ví chủ cũ
 thiếu tiền thì giữ `PENDING` và thử lại. Người được trả chưa từng sở hữu Note → conflict, event vào DLT.
 
-**CURRENT STATE (2026-10-04):** scheduled/overdue/partial/early-settlement repayment, core breakdown,
+**CURRENT STATE (2026-10-11):** scheduled/overdue/partial/early-settlement repayment, core breakdown,
 investor distribution và Loan/Investment projection đã có. Payment có admin reconciliation; integration
 test PostgreSQL chứng minh borrower → clearing → current Note owner và outbox cân bằng. Product mới dùng
-`FINORA-FINERACT-V2` với `PROGRESSIVE` + advanced allocation; mapping V1 giữ nguyên. Local Fineract đã
-chứng minh khoản vay 50 triệu trả trước 5 triệu và re-amortize 6 kỳ. Loan đã phát
+`FINORA-FINERACT-V3` với `PROGRESSIVE` + advanced allocation + `NEXT_INSTALLMENT` để ưu tiên rút ngắn
+kỳ; V2 `REAMORTIZATION` và V1 vẫn được đọc tương thích. Trả trước không thu lãi tương lai; tổng phí theo
+policy được chia 80% cho chủ Note theo dư nợ và 20% cho FINORA, có field/event riêng để đối soát. Loan đã phát
 `LoanDelinquencyChanged.v1`; CIC mock đã có consumer, processed-event và pending-mapping
 queue. Loan V21 tự mở/đóng từng collection episode, tăng stage theo DPD, chuyển `DEFAULTED`
 từ DPD 91, cure về `ACTIVE` và cung cấp admin queue/audit action append-only. Loan V23 đã fail-closed và
@@ -231,19 +232,22 @@ vẫn cần device-token/provider receipt riêng.
 
 1. Loan tính quote có `quoteId`, expiry và rule version.
 2. Với tất toán: Payment collect theo quote, Loan đóng schedule/loan sau event thành công, Investment cập nhật Notes.
-3. Với tái cơ cấu: borrower gửi request và consent version; lịch cũ tiếp tục có hiệu lực. Admin duyệt thì
-   Loan chuyển sang `RESTRUCTURING`; worker reconcile/create/approve Fineract reschedule ngoài DB transaction,
-   đọc servicing snapshot mới rồi mới trở lại `ACTIVE`.
+3. Với tái cơ cấu: borrower gửi request và consent version; lịch cũ tiếp tục có hiệu lực. FINORA/admin
+   thẩm định đạt thì Loan phát `LoanRescheduleConsentRequested.v1`. Investment snapshot chủ Note/dư nợ,
+   yêu cầu từng nhà đầu tư quyết định và phát `LoanRescheduleConsentCompleted.v1`. Chỉ đồng thuận toàn bộ
+   mới cho Loan chuyển `RESTRUCTURING`, reconcile/create/approve Fineract reschedule ngoài DB transaction,
+   đọc servicing snapshot mới rồi trở lại `ACTIVE`; một nhà đầu tư từ chối thì giữ lịch cũ.
 4. Loan phát `LoanSettled.v1` hoặc `LoanRescheduled.v1`; consumer phụ trợ không được làm rollback core state.
 
 **Idempotency:** command theo `requestId`; payment theo `quoteId`; chỉ một active quote/transition theo policy.
 
 **Failure:** quote hết hạn hoặc version thay đổi → reject và tính lại; Payment thất bại → Loan không đổi schedule/state; consumer phụ trợ lỗi → retry từ outbox.
 
-**CURRENT STATE (2026-10-04):** backend Loan đã có V20 `loan_reschedule_requests`, API borrower/admin,
+**CURRENT STATE (2026-10-11):** backend Loan đã có `loan_reschedule_requests`, API borrower/admin,
 processing lease, bounded retry, reconcile bằng marker Fineract và outbox `LoanRescheduled.v1`. Worker mặc
 định fail-closed; chỉ bật sau khi tạo reason code trong Fineract và cấu hình `FINERACT_RESCHEDULE_REASON_ID`.
-Investment đã consume idempotent `LoanRescheduled.v1`/`LoanSettled.v1` thành lifecycle read model.
+Loan/Investment đã nối cổng đồng thuận nhà đầu tư bằng hai event trên; mobile nhà đầu tư có màn biểu quyết
+trong tab Ví. Investment consume idempotent `LoanRescheduled.v1`/`LoanSettled.v1` thành lifecycle read model.
 Notification delivery không thuộc transaction tái cơ cấu; Investment phát outbox projection và
 Notification consume idempotent sau khi lịch mới đã commit.
 

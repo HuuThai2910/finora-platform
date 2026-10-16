@@ -25,8 +25,8 @@ public record LoanRescheduleProperties(
         maximumRetryDelay = maximumRetryDelay == null ? Duration.ofMinutes(15) : maximumRetryDelay;
         termsVersion = textOrDefault(termsVersion, "LOAN_RESTRUCTURE_TERMS_V1");
         termsText = textOrDefault(termsText,
-                "Tôi xác nhận lịch trả nợ hiện tại vẫn có hiệu lực cho đến khi FINORA phê duyệt "
-                        + "và Apache Fineract xác nhận lịch cơ cấu mới.");
+                "Tôi xác nhận lịch trả nợ hiện tại vẫn có hiệu lực cho đến khi FINORA thẩm định đạt, "
+                        + "toàn bộ nhà đầu tư đang nắm Note đồng ý và Apache Fineract xác nhận lịch cơ cấu mới.");
         if (processingLease.isZero() || processingLease.isNegative()
                 || retryDelay.isZero() || retryDelay.isNegative()
                 || maximumRetryDelay.compareTo(retryDelay) < 0) {

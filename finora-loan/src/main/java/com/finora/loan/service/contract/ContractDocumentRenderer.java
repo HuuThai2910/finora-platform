@@ -58,12 +58,14 @@ public class ContractDocumentRenderer {
         line(document, "Lịch dưới đây được lập theo ngày giải ngân dự kiến. Lịch chính thức có thể được cập nhật theo ngày giải ngân thực tế.");
         appendPeriods(document, schedule.getPeriodsSnapshotJson());
         blankLine(document);
-        line(document, "4. XÁC NHẬN CỦA NGƯỜI VAY");
+        line(document, LoanServicingContractTerms.plainText(application.getRequestedTermMonths()));
+        blankLine(document);
+        line(document, "5. XÁC NHẬN CỦA NGƯỜI VAY");
         line(document, "Người vay xác nhận đã đọc số tiền vay, lãi suất, thời hạn, tổng nghĩa vụ thanh toán và toàn bộ lịch trả nợ nêu trên.");
         line(document, "Khi chọn \"Ký xác nhận\", FINORA gửi hoặc ghi nhận yêu cầu theo phương thức ký đang được hệ thống công bố; hợp đồng chỉ được xem là đã ký khi có bằng chứng hoàn tất tương ứng.");
         line(document, "Hạn xác nhận hợp đồng: " + expiresAt);
         blankLine(document);
-        line(document, "5. THÔNG TIN PHIÊN BẢN VÀ ĐỐI CHIẾU");
+        line(document, "6. THÔNG TIN PHIÊN BẢN VÀ ĐỐI CHIẾU");
         line(document, "Phiên bản điều khoản: " + termsVersion);
         line(document, "Phiên bản tài liệu: " + documentVersion);
         line(document, "Phiên bản chính sách tính lịch trả nợ: " + schedule.getCalculationPolicyVersion());
@@ -85,7 +87,7 @@ public class ContractDocumentRenderer {
         StringBuilder document = new StringBuilder(render(
                 contractNumber, application, schedule, termsVersion, documentVersion, expiresAt));
         blankLine(document);
-        line(document, "6. DANH SÁCH BÊN CHO VAY VÀ PHÂN BỔ ĐÃ KHÓA");
+        line(document, "7. DANH SÁCH BÊN CHO VAY VÀ PHÂN BỔ ĐÃ KHÓA");
         line(document, "Phiên bản phân bổ: " + allocationVersion);
         line(document, "Mã đối chiếu phân bổ: " + allocationHash);
         allocations.forEach(allocation -> line(document, String.format(

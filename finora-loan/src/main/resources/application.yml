@@ -116,9 +116,9 @@ finora:
         E: ${LOAN_GRADE_E_RATE_ADJUSTMENT:1.0000}
     contract:
       decision-policy-version: ${LOAN_DECISION_POLICY_VERSION:ADMIN_MANUAL_DECISION_V1}
-      terms-version: ${LOAN_TERMS_VERSION:LOAN_TERMS_V1}
-      # V2 thay chuỗi key=value kỹ thuật bằng văn bản tiếng Việt để borrower có thể đọc trước khi ký.
-      document-version: ${LOAN_CONTRACT_DOCUMENT_VERSION:CLICK_WRAP_TEXT_V2}
+      terms-version: ${LOAN_TERMS_VERSION:LOAN_TERMS_V2}
+      # V3 bổ sung chính sách trả trước 80/20 và cổng đồng thuận cơ cấu vào tài liệu người dùng ký.
+      document-version: ${LOAN_CONTRACT_DOCUMENT_VERSION:CLICK_WRAP_TEXT_V3}
       signature-window: ${LOAN_CONTRACT_SIGNATURE_WINDOW:7d}
       maximum-signature-window: ${LOAN_CONTRACT_MAXIMUM_SIGNATURE_WINDOW:30d}
       expiry-batch-size: ${LOAN_CONTRACT_EXPIRY_BATCH_SIZE:100}
@@ -145,6 +145,7 @@ finora:
       disbursement-completed-topic: ${PAYMENT_DISBURSEMENT_COMPLETED_TOPIC:finora.payment.disbursement-completed}
       disbursement-failed-topic: ${PAYMENT_DISBURSEMENT_FAILED_TOPIC:finora.payment.disbursement-failed}
       repayment-distributed-topic: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:finora.payment.repayment-distributed}
+      reschedule-consent-completed-topic: ${INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC:finora.investment.reschedule-consent-completed}
       publish-timeout: ${LOAN_KAFKA_PUBLISH_TIMEOUT:10s}
       # Chỉ event có publishable=true và route đúng type/version mới được relay.
       routes:
@@ -175,6 +176,9 @@ finora:
         - event-type: LoanRescheduled
           event-version: 1
           topic: ${LOAN_RESCHEDULED_TOPIC:finora.loan.rescheduled}
+        - event-type: LoanRescheduleConsentRequested
+          event-version: 1
+          topic: ${LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC:finora.loan.reschedule-consent-requested}
     disbursement:
       worker-delay: ${LOAN_DISBURSEMENT_WORKER_DELAY:5000}
     servicing-sync:
@@ -191,7 +195,7 @@ finora:
       maximum-retry-delay: ${LOAN_RESCHEDULE_MAXIMUM_RETRY_DELAY:15m}
       fineract-reason-id: ${FINERACT_RESCHEDULE_REASON_ID:}
       terms-version: ${LOAN_RESTRUCTURE_TERMS_VERSION:LOAN_RESTRUCTURE_TERMS_V1}
-      terms-text: "Tôi xác nhận lịch trả nợ hiện tại vẫn có hiệu lực cho đến khi FINORA phê duyệt và Apache Fineract xác nhận lịch cơ cấu mới."
+      terms-text: "Tôi xác nhận FINORA sẽ thẩm định đề nghị; nếu đạt, toàn bộ nhà đầu tư đang nắm Note phải đồng ý và Apache Fineract phải áp dụng thành công thì lịch mới mới có hiệu lực. Trong thời gian chờ, tôi vẫn thanh toán theo lịch hiện tại."
   borrower-eligibility:
     minimum-age: ${BORROWER_MINIMUM_AGE:18}
     maximum-age: ${BORROWER_MAXIMUM_AGE:65}
@@ -218,8 +222,8 @@ finora:
     preview-client-external-id: ${FINERACT_PREVIEW_CLIENT_EXTERNAL_ID:FINORA-PREVIEW-CLIENT}
     connect-timeout: ${FINERACT_CONNECT_TIMEOUT:3s}
     read-timeout: ${FINERACT_READ_TIMEOUT:30s}
-    # V2 chỉ áp dụng cho Product/mapping tạo mới; hồ sơ V1 giữ configVersion snapshot riêng.
-    product-config-version: ${FINERACT_PRODUCT_CONFIG_VERSION:FINORA-FINERACT-V2}
+    # V3 áp dụng cho Product/mapping tạo mới; V2 REAMORTIZATION và V1 giữ snapshot để đọc tương thích.
+    product-config-version: ${FINERACT_PRODUCT_CONFIG_VERSION:FINORA-FINERACT-V3}
     max-attempts: ${FINERACT_MAX_ATTEMPTS:3}
     retry-backoff: ${FINERACT_RETRY_BACKOFF:30s}
     retry-batch-size: ${FINERACT_RETRY_BATCH_SIZE:20}

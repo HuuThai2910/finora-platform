@@ -50,7 +50,10 @@ public class InvestmentKafkaOutboxPublisher implements InvestmentOutboxPublisher
         boolean ownershipChanged = "NoteOwnershipChanged".equals(message.eventType()) && message.eventVersion() == 1;
         boolean servicingChanged = "InvestorNoteServicingChanged".equals(message.eventType())
                 && message.eventVersion() == 1;
-        if (!fullyFunded && !fundingExpired && !ownershipChanged && !servicingChanged) {
+        boolean rescheduleConsentCompleted = "LoanRescheduleConsentCompleted".equals(message.eventType())
+                && message.eventVersion() == 1;
+        if (!fullyFunded && !fundingExpired && !ownershipChanged && !servicingChanged
+                && !rescheduleConsentCompleted) {
             throw failure("KAFKA_EVENT_ROUTE_MISSING",
                     "Event/version chưa có Kafka route được duyệt", false, null);
         }
@@ -81,6 +84,7 @@ public class InvestmentKafkaOutboxPublisher implements InvestmentOutboxPublisher
                 case "NoteOwnershipChanged" -> properties.noteOwnershipChangedTopic();
                 case "InvestorNoteServicingChanged" -> properties.noteServicingChangedTopic();
                 case "LoanFundingExpired" -> properties.fundingExpiredTopic();
+                case "LoanRescheduleConsentCompleted" -> properties.rescheduleConsentCompletedTopic();
                 default -> properties.fullyFundedTopic();
             };
             ProducerRecord<String, String> record = new ProducerRecord<>(topic, message.aggregateId(), value);

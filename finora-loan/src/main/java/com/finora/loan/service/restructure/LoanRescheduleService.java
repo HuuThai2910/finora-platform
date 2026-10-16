@@ -14,11 +14,14 @@ import com.finora.loan.dto.restructure.request.CreateLoanRescheduleRequest;
 import com.finora.loan.dto.restructure.response.LoanReschedulePolicyResponse;
 import com.finora.loan.dto.restructure.response.LoanRescheduleResponse;
 import com.finora.loan.exception.LoanBusinessException;
+import com.finora.loan.messaging.event.LoanRescheduleConsentRequestedEventData;
 import com.finora.loan.repository.restructure.LoanRescheduleRequestRepository;
 import com.finora.loan.repository.servicing.FinoraLoanRepository;
 import com.finora.loan.repository.servicing.LoanServicingProjectionRepository;
 import com.finora.loan.support.HashingService;
+import com.finora.loan.service.outbox.OutboxService;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
@@ -38,6 +41,7 @@ public class LoanRescheduleService {
     private final LoanServicingProjectionRepository projections;
     private final LoanRescheduleProperties properties;
     private final HashingService hashing;
+    private final OutboxService outbox;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -111,8 +115,15 @@ public class LoanRescheduleService {
         LoanRescheduleRequest request = locked(requestId);
         if (request.sameDecision(decisionKey)) return response(request);
         FinoraLoan loan = loans.findByIdForUpdate(request.getFinoraLoanId()).orElseThrow();
-        loan.beginRestructuring(clock.instant());
-        request.approve(SecurityUtils.getCurrentUserId(), input.comment(), decisionKey, clock.instant());
+        Instant now = clock.instant();
+        request.approveForInvestorConsent(SecurityUtils.getCurrentUserId(), input.comment(), decisionKey, now);
+        outbox.recordForPublication("LoanRescheduleRequest", requestId.toString(),
+                "LoanRescheduleConsentRequested", 1,
+                new LoanRescheduleConsentRequestedEventData(
+                        request.getRequestId(), loan.getLoanApplicationId(), loan.getLoanNumber(),
+                        request.getRequestType().name(), request.getRescheduleFromDate(),
+                        request.getAdjustedDueDate(), request.getExtraTerms(),
+                        request.getOriginalMaturityDate(), now));
         return response(request);
     }
 

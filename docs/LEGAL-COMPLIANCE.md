@@ -80,10 +80,17 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 - Adapter VNPT SmartCA UAT chỉ đọc credential từ biến môi trường, kiểm tra chứng thư, gửi hash PDF và polling trạng thái. Contract chỉ thành `SIGNED` sau khi VNPT trả chữ ký đúng `transactionId + docId`; không lưu OTP/token/private key hoặc raw signature. Fixed signer bị khóa vào host UAT và không được bật production.
 - Receipt của adapter SmartCA hiện là bằng chứng chữ ký tách rời. Không được tuyên bố PDF đã có chữ ký PAdES nhúng cho tới khi tích hợp và kiểm chứng SDK/HashSigner chính thức tương thích. Cấu hình và giới hạn được ghi tại `docs/integrations/VNPT-SMARTCA-UAT.md`.
 - `documentHash` legacy và hash PDF là bằng chứng toàn vẹn kỹ thuật; chỉ đặt trong vùng đối chiếu, không dùng thay điều khoản chính và **không tự biến thao tác click thành chữ ký số**.
-- PDF thử nghiệm phải ghi rõ bên cho vay và SmartCA chưa tích hợp. Không được vẽ chữ ký hoặc mô tả nhà đầu tư giả lập như chữ ký có hiệu lực.
-- Giai đoạn chuyển tiếp hiện tại vẫn tạo Contract/PDF demo sau khi điều khoản đã được tự cho phép hoặc borrower chấp nhận để kiểm thử các màn đọc/ký/từ chối. Không mock nhà đầu tư, không ghi chữ ký bên cho vay và không dùng artifact này để giải ngân production.
-- Khi Investment hoàn thiện, Contract song phương cuối chỉ được lập sau khi có bên cho vay xác định; dữ liệu phát triển cũ sẽ được reset/migrate có kiểm soát thay vì diễn giải PDF demo là hợp đồng song phương đã đủ chữ ký.
-- Cơ chế click-wrap vẫn là phương án mock local/dev; SmartCA hiện chỉ đủ cho UAT fixed signer. Trước production phải được legal review về hình thức ký, định danh đúng từng borrower/lender, quản trị chứng thư và bằng chứng kiểm tra chữ ký.
+- Contract nhiều bên chỉ được lập sau `LoanFullyFunded.v2`, khi danh sách nhà đầu tư, phần vốn,
+  `allocationVersion` và `allocationHash` đã khóa. Mỗi bên cho vay ký cùng PDF/hash trước, sau đó người
+  vay ký; receipt phải hiển thị bằng chứng riêng của từng bên, không dựng chữ ký giả.
+- PDF/text hợp đồng mới dùng `LOAN_TERMS_V2`, `CLICK_WRAP_TEXT_V3`, `CONTRACT_PDF_V2` và công bố chính
+  sách servicing `FINORA_SERVICING_TERMS_V2` cùng biểu phí `AGRIBANK_REFERENCE_FINORA_2026_V2`:
+  không thu lãi tương lai, bảng phí theo thời hạn, mức tối thiểu 100.000 đồng, cách chia 80/20 và cổng
+  đồng thuận cơ cấu. Artifact cũ giữ nguyên bytes/hash và
+  không tự nhận điều khoản mới.
+- Cơ chế click-wrap vẫn là phương án mock local/dev; SmartCA hiện đủ cho UAT nhưng tài khoản test có thể
+  đang dùng chung cho nhiều vai trò. Trước production phải legal review hình thức ký, xác minh đúng từng
+  borrower/lender, quản trị chứng thư và bằng chứng kiểm tra chữ ký.
 - Căn cứ đối chiếu: `LAW-CONSUMER-2023` Điều 23, 38 và `LAW-ELECTRONIC-2023` Điều 10, 11, 13, 22, 23, 38.
 
 ### `LEGAL-DATA-01` — Dữ liệu hồ sơ và CCCD
@@ -111,10 +118,11 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 ### `LEGAL-SERVICING-01` — Trả nợ, quá hạn, cơ cấu và phí trả trước
 
 - Điều 14 và Điều 23 của `CIRCULAR-LENDING-CONSOLIDATED-2026` cho phép các bên thỏa thuận phí trả nợ trước hạn và yêu cầu ghi rõ loại/mức phí trong hợp đồng; văn bản không ấn định một tỷ lệ phí trả trước chung.
-- FINORA V1 dùng một nguồn policy duy nhất là [biểu phí Vietcombank](https://www.vietcombank.com.vn/-/media/Project/VCB-Sites/VCB/KHCN/Bieu-mau-Bieu-phi-KHCN/Bieu-phi/Vay/San-pham-vay/Bieu-Phi-Tra-No-Truoc-Han-updated.pdf?ts=20240221071228). Đây là policy demo tham chiếu ngân hàng, **không phải mức pháp luật bắt buộc**; phải snapshot version/rate/minimum fee vào offer hoặc quote người vay chấp nhận.
+- FINORA V2 tham chiếu cấu trúc/tỷ lệ tại [biểu phí tín dụng Agribank](https://www.agribank.com.vn/wcm/connect/05371a26-a0b1-4670-a5db-15046d1517f4/2020-Bieu%2Bphi%2Btin%2Bdung%2Bkem%2Btheo%2BQD%2B738%2Bcap%2Bnhat%2BQD%2B09.pdf?MOD=AJPERES), sau đó điều chỉnh thành các dải thời gian phù hợp khoản vay tối đa 24 tháng. Mức tối thiểu 100.000 đồng, dải thời gian và cách chia phí 80% nhà đầu tư/20% FINORA là **policy demo FINORA**, không phải mức pháp luật bắt buộc; phải snapshot version/rate/minimum fee/cách chia vào hợp đồng và quote.
+- Trả trước một phần và tất toán toàn bộ chỉ thu lãi, phí và phạt đã phát sinh đến ngày giao dịch; không thu lãi của các tháng tương lai. Đây là thỏa thuận sản phẩm FINORA chọn để khuyến khích trả sớm, không phải cách duy nhất Bộ luật Dân sự cho phép; mẫu hợp đồng phải diễn đạt nhất quán với cách tính thực tế.
 - Theo Điều 13, lãi trên dư nợ gốc quá hạn không vượt 150% lãi suất trong hạn tương ứng; lãi chậm trả trên tiền lãi chưa trả không vượt 10%/năm. Cách tính phải dùng đúng căn cứ tiền, số ngày và day-count đã công bố; không cộng trùng trên cùng căn cứ.
 - Điều 18 là căn cứ tham chiếu thứ tự thu nợ: gốc quá hạn, lãi trên gốc quá hạn, gốc đến hạn, lãi trên gốc đến hạn. Phí/lãi chậm trả bổ sung chỉ được thu theo contract/Fineract policy đã công bố và phải giữ breakdown.
-- Cơ cấu lại thời hạn trả nợ phải có yêu cầu, đánh giá và quyết định; trạng thái chờ duyệt không tự dừng nghĩa vụ theo lịch cũ. Mọi lịch mới lấy từ Fineract và lưu audit/version.
+- Cơ cấu lại thời hạn trả nợ phải có yêu cầu, đánh giá và quyết định; trạng thái chờ duyệt không tự dừng nghĩa vụ theo lịch cũ. FINORA V2 thêm cổng toàn bộ nhà đầu tư đang nắm Note đồng ý sau thẩm định nội bộ; đây là kiểm soát hợp đồng/sản phẩm nhiều bên của FINORA, không được diễn giải thành một thủ tục pháp luật mặc định cho mọi khoản vay. Mọi lịch mới lấy từ Fineract và lưu audit/version.
 - Các mốc nhóm nợ/DPD trong [LOAN-SERVICING-POLICY.md](LOAN-SERVICING-POLICY.md) là benchmark nội bộ/CIC mock. Chưa được mô tả là phân loại CIC thật hoặc quy định áp dụng trực tiếp cho pháp nhân P2P cho tới khi `LEGAL-OPEN-05` được duyệt.
 - CIC/AI tách `nhomNoHienTai` khỏi `nhomNoCaoNhat` lịch sử. Mốc từ chối 12 tháng và bắt buộc
   thẩm định đến 24 tháng sau khi khắc phục là policy demo cấu hình của FINORA, không phải thời hạn
@@ -132,9 +140,9 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 | Chấm điểm AI v17 | AI + Loan | `LEGAL-AI-01`, `LEGAL-DATA-01` | Versioned decision, snapshot/hash, bounded retry | User contract cho identity; retention/access review; kiểm thử fairness |
 | Định giá sau scoring | Loan + Fineract | `LEGAL-RATE-01`, `LEGAL-AI-01` | Grade adjustment, clamp, final schedule snapshot | Admin UI hiển thị so sánh base/final; quy trình phê duyệt policy |
 | Hồ sơ người vay cho nhà đầu tư | Loan + Mobile | `LEGAL-DISCLOSURE-02`, `LEGAL-DATA-01` | API chỉ đọc, `ROLE_INVESTOR`, chỉ hồ sơ đã lên sàn, allowlist không định danh và không SHAP; app ghi rõ hồ sơ giả lập | Xác nhận "đã được cung cấp đủ thông tin" của nhà đầu tư; User adapter thật cho tuổi/eKYC |
-| Duyệt, xác nhận điều khoản và ký | Loan + Web/Mobile | `LEGAL-DISCLOSURE-01`, `LEGAL-CONTRACT-01` | Outcome-based non-worsening gate; evidence version/hash/expiry; PDF bất biến; mock/provider evidence được phân biệt; Contract event ghi local outbox | Investment/lender identity; legal review hình thức ký; chữ ký hai bên; API/callback/chứng thư SmartCA production; Kafka transport |
+| Duyệt, xác nhận điều khoản và ký | Loan + Investment + Mobile | `LEGAL-DISCLOSURE-01`, `LEGAL-CONTRACT-01`, `LEGAL-SERVICING-01` | Outcome-based non-worsening gate; PDF nhiều bên bất biến; từng bên ký cùng hash; hợp đồng V2 công bố policy trả trước/cơ cấu; event qua outbox | Legal review hình thức ký và biểu phí production; danh tính/chứng thư SmartCA riêng từng bên; PAdES nếu yêu cầu |
 | Bằng chứng toàn vẹn | Blockchain + service nguồn | `LEGAL-CONTRACT-01`, `LEGAL-DATA-01` | Durable hash-only proof, idempotency/retry/DLT local; mock được phân biệt; Fabric fail-closed | Event contract đã duyệt, Fabric network/chaincode, access/retention và legal review cách trình bày bằng chứng |
-| Giải ngân/trả nợ | Loan + Payment + Fineract | `LEGAL-PAYMENT-01`, `LEGAL-SERVICING-01` | Wallet/top-up/hold/capture API, immutable balanced ledger, idempotency, ZaloPay top-up sandbox và disbursement mock; policy servicing V1 đã tách luật với biểu phí tham chiếu | Repayment/reconciliation thật, đối tác tài khoản/ví được phép, legal review phạm vi áp dụng và disclosure/quote |
+| Giải ngân/trả nợ | Loan + Payment + Fineract + Investment | `LEGAL-PAYMENT-01`, `LEGAL-SERVICING-01` | Wallet/top-up/hold/capture, ledger cân bằng, quote trả trước có snapshot policy, phí chia 80/20, Fineract là nguồn breakdown; ZaloPay top-up sandbox và disbursement mock | Đối tác tài khoản/ví được phép, provider giải ngân/repayment thật, legal review phạm vi áp dụng và biểu phí |
 
 ## 4. Quy tắc cập nhật nguồn pháp lý
 

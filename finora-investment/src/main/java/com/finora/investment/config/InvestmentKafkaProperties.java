@@ -13,6 +13,8 @@ public record InvestmentKafkaProperties(
         String contractActivatedTopic,
         String noteOwnershipChangedTopic,
         String noteServicingChangedTopic,
+        String rescheduleConsentRequestedTopic,
+        String rescheduleConsentCompletedTopic,
         Duration publishTimeout
 ) {
     private static final Pattern TOPIC = Pattern.compile("finora\\.[a-z0-9][a-z0-9.-]*");
@@ -26,6 +28,10 @@ public record InvestmentKafkaProperties(
         contractActivatedTopic = requireTopic(contractActivatedTopic, "contractActivatedTopic");
         noteOwnershipChangedTopic = requireTopic(noteOwnershipChangedTopic, "noteOwnershipChangedTopic");
         noteServicingChangedTopic = requireTopic(noteServicingChangedTopic, "noteServicingChangedTopic");
+        rescheduleConsentRequestedTopic = requireTopic(
+                rescheduleConsentRequestedTopic, "rescheduleConsentRequestedTopic");
+        rescheduleConsentCompletedTopic = requireTopic(
+                rescheduleConsentCompletedTopic, "rescheduleConsentCompletedTopic");
         publishTimeout = publishTimeout == null ? Duration.ofSeconds(10) : publishTimeout;
         if (publishTimeout.isZero() || publishTimeout.isNegative()
                 || publishTimeout.compareTo(Duration.ofMinutes(1)) > 0) {

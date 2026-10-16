@@ -7,6 +7,7 @@ import java.util.UUID;
 
 public record RepaymentDistributedEventData(UUID repaymentId, String repaymentReference,
         String repaymentType, String quoteId, String platformFee,
+        String investorFeeShare, String finoraFeeShare,
         Long loanApplicationId, Long fineractLoanId, Long fineractTransactionId,
         String amount, String principalAmount, String interestAmount, String feeAmount,
         String penaltyAmount, String outstandingPrincipal, String outstandingInterest,
@@ -15,5 +16,5 @@ public record RepaymentDistributedEventData(UUID repaymentId, String repaymentRe
         LocalDate transactionDate, LocalDate nextDueDate, String nextDueAmount,
         Instant completedAt, List<NoteAllocation> allocations) {
     public record NoteAllocation(Long noteId, String noteNumber, String investorId,
-            String principalAmount, String interestAmount) {}
+            String principalAmount, String interestAmount, String prepaymentFeeAmount) {}
 }

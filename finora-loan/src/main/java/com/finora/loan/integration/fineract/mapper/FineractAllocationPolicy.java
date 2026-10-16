@@ -21,7 +21,7 @@ final class FineractAllocationPolicy {
     static String strategy(String configVersion) {
         String value = normalize(configVersion);
         if (value.endsWith("V1")) return STANDARD;
-        if (value.endsWith("V2")) return ADVANCED;
+        if (value.endsWith("V2") || value.endsWith("V3")) return ADVANCED;
         throw new IllegalArgumentException("FINERACT_PRODUCT_CONFIG_VERSION không được hỗ trợ: " + configVersion);
     }
 
@@ -29,7 +29,7 @@ final class FineractAllocationPolicy {
         return ADVANCED.equals(strategy(configVersion));
     }
 
-    static List<Map<String, Object>> paymentAllocation() {
+    static List<Map<String, Object>> paymentAllocation(String configVersion) {
         List<Map<String, Object>> order = new ArrayList<>();
         for (int index = 0; index < FINORA_V2_ORDER.size(); index++) {
             Map<String, Object> item = new LinkedHashMap<>();
@@ -40,8 +40,19 @@ final class FineractAllocationPolicy {
         Map<String, Object> defaultRule = new LinkedHashMap<>();
         defaultRule.put("transactionType", "DEFAULT");
         defaultRule.put("paymentAllocationOrder", order);
-        defaultRule.put("futureInstallmentAllocationRule", "REAMORTIZATION");
+        defaultRule.put("futureInstallmentAllocationRule", futureInstallmentAllocationRule(configVersion));
         return List.of(defaultRule);
+    }
+
+    /**
+     * V2 giữ nguyên lịch sử re-amortization. V3 phân bổ vào các kỳ gần nhất trước để khoản
+     * trả thêm làm ngắn thời gian còn lại, thay vì giảm đều số tiền của mọi kỳ tương lai.
+     */
+    static String futureInstallmentAllocationRule(String configVersion) {
+        String value = normalize(configVersion);
+        if (value.endsWith("V2")) return "REAMORTIZATION";
+        if (value.endsWith("V3")) return "NEXT_INSTALLMENT";
+        throw new IllegalArgumentException("Không có future allocation rule cho: " + configVersion);
     }
 
     private static String normalize(String value) {

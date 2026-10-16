@@ -17,6 +17,7 @@ public record PortfolioPositionResponse(
         String outstandingPrincipal,
         String principalRepaid,
         String interestReceived,
+        String prepaymentFeeReceived,
         BigDecimal sharePercent,
         String status,
         int daysPastDue,

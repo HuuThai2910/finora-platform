@@ -87,7 +87,8 @@ class PaymentRepaymentTest {
                         new BigDecimal("800.00"), new BigDecimal("200.00"), BigDecimal.ZERO.setScale(2),
                         BigDecimal.ZERO.setScale(2), 24, LocalDate.of(2026, 10, 1),
                         LocalDate.of(2028, 10, 1)), new BigDecimal("0.010000"),
-                new BigDecimal("100.00"), "POLICY-1", NOW.plusSeconds(900), NOW);
+                new BigDecimal("100.00"), new BigDecimal("80.00"), new BigDecimal("20.00"),
+                "POLICY-1", NOW.plusSeconds(900), NOW);
         PaymentRepayment repayment = PaymentRepayment.earlySettlement("idem-early", account, quote,
                 UUID.randomUUID(), NOW);
         repayment.startCorePosting(NOW);
@@ -97,6 +98,8 @@ class PaymentRepaymentTest {
         assertThat(repayment.getAmount()).isEqualByComparingTo("1100.00");
         assertThat(repayment.getCoreAmount()).isEqualByComparingTo("1000.00");
         assertThat(repayment.getFeeAmount()).isEqualByComparingTo("100.00");
+        assertThat(repayment.getInvestorFeeShare()).isEqualByComparingTo("80.00");
+        assertThat(repayment.getFinoraFeeShare()).isEqualByComparingTo("20.00");
         assertThat(repayment.getRepaymentType()).isEqualTo(PaymentRepaymentType.EARLY_SETTLEMENT);
     }
 
@@ -110,7 +113,8 @@ class PaymentRepaymentTest {
                         new BigDecimal("9000.00"), LocalDate.of(2026, 11, 3),
                         new BigDecimal("1000.00"), 24, LocalDate.of(2026, 10, 1),
                         LocalDate.of(2028, 10, 1)), new BigDecimal("2000.00"),
-                new BigDecimal("0.010000"), new BigDecimal("100.00"), "POLICY-1",
+                new BigDecimal("0.010000"), new BigDecimal("100.00"),
+                new BigDecimal("80.00"), new BigDecimal("20.00"), "POLICY-1",
                 NOW.plusSeconds(900), NOW);
 
         PaymentRepayment repayment = PaymentRepayment.partialPrepayment("idem-partial", account, quote,
@@ -119,6 +123,8 @@ class PaymentRepaymentTest {
         assertThat(repayment.getRepaymentType()).isEqualTo(PaymentRepaymentType.PARTIAL_PREPAYMENT);
         assertThat(repayment.getCoreAmount()).isEqualByComparingTo("3000.00");
         assertThat(repayment.getAmount()).isEqualByComparingTo("3100.00");
+        assertThat(repayment.getInvestorFeeShare()).isEqualByComparingTo("80.00");
+        assertThat(repayment.getFinoraFeeShare()).isEqualByComparingTo("20.00");
         assertThat(repayment.getPartialPrepaymentQuoteId()).isEqualTo(quote.getQuoteId());
     }
 

@@ -45,7 +45,8 @@ public class EarlySettlementQuoteService {
                         "Khoản vay đã thay đổi trong lúc lập báo giá");
             }
             return quotes.save(EarlySettlementQuote.create(account, core, fee.rate(), fee.amount(),
-                    fee.policyVersion(), now.plus(policy.quoteTtl()), now));
+                    fee.investorShare(), fee.finoraShare(), fee.policyVersion(),
+                    now.plus(policy.quoteTtl()), now));
         });
         if (saved == null) throw new IllegalStateException("Không lưu được báo giá tất toán");
         return EarlySettlementQuoteResponse.from(saved, now);

@@ -28,6 +28,8 @@ public class PartialPrepaymentQuote {
     @Column(name = "prepaid_principal", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal prepaidPrincipal;
     @Column(name = "core_amount", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal coreAmount;
     @Column(name = "platform_fee", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal platformFee;
+    @Column(name = "investor_fee_share", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal investorFeeShare;
+    @Column(name = "finora_fee_share", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal finoraFeeShare;
     @Column(name = "total_amount", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal totalAmount;
     @Column(name = "outstanding_principal_before", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal outstandingPrincipalBefore;
     @Column(name = "next_due_date_before", updatable = false) private LocalDate nextDueDateBefore;
@@ -44,7 +46,8 @@ public class PartialPrepaymentQuote {
 
     public static PartialPrepaymentQuote create(PaymentLoanAccount account,
             PartialPrepaymentCoreSnapshot core, BigDecimal prepaidPrincipal, BigDecimal feeRate,
-            BigDecimal platformFee, String policyVersion, Instant expiresAt, Instant now) {
+            BigDecimal platformFee, BigDecimal investorFeeShare, BigDecimal finoraFeeShare,
+            String policyVersion, Instant expiresAt, Instant now) {
         BigDecimal principal = prepaidPrincipal.setScale(2);
         BigDecimal coreAmount = core.scheduledDue().add(principal).setScale(2);
         if (principal.signum() <= 0 || coreAmount.compareTo(core.payoffAmount()) >= 0) {
@@ -62,18 +65,30 @@ public class PartialPrepaymentQuote {
         quote.prepaidPrincipal = principal;
         quote.coreAmount = coreAmount;
         quote.platformFee = platformFee.setScale(2);
+        quote.investorFeeShare = investorFeeShare.setScale(2);
+        quote.finoraFeeShare = finoraFeeShare.setScale(2);
+        if (quote.investorFeeShare.add(quote.finoraFeeShare).compareTo(quote.platformFee) != 0) {
+            throw new IllegalArgumentException("Phân bổ phí trả trước không cân");
+        }
         quote.totalAmount = coreAmount.add(quote.platformFee);
         quote.outstandingPrincipalBefore = core.outstandingPrincipal().setScale(2);
         quote.nextDueDateBefore = core.nextDueDate();
         quote.nextDueAmountBefore = core.nextDueAmount().setScale(2);
         quote.feeRate = feeRate.setScale(6);
         quote.policyVersion = policyVersion;
-        quote.allocationStrategy = "advanced-payment-allocation-strategy/REAMORTIZATION";
+        quote.allocationStrategy = allocationStrategy(account.getCoreConfigVersion());
         quote.status = PartialPrepaymentQuoteStatus.ACTIVE;
         quote.expiresAt = expiresAt;
         quote.createdAt = now;
         quote.updatedAt = now;
         return quote;
+    }
+
+    private static String allocationStrategy(String coreConfigVersion) {
+        if (coreConfigVersion != null && coreConfigVersion.endsWith("V3")) {
+            return "advanced-payment-allocation-strategy/NEXT_INSTALLMENT";
+        }
+        return "advanced-payment-allocation-strategy/REAMORTIZATION";
     }
 
     public void consume(String actorId, Instant now) {

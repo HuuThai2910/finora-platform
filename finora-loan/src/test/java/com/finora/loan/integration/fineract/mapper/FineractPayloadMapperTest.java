@@ -152,6 +152,25 @@ class FineractPayloadMapperTest {
     }
 
     @Test
+    void shouldCreateV3ProductWithNextInstallmentAllocationToShortenRemainingTerm() {
+        FineractProductConfiguration v3 = new FineractProductConfiguration(
+                1L, 3L, "PERSONAL_V3", "Vay tiêu dùng V3",
+                new BigDecimal("10000000"), new BigDecimal("100000000"),
+                6, 24, new BigDecimal("12.5000"), RepaymentMethod.ANNUITY,
+                "FINORA-LP-1-V3", "FINORA-FINERACT-V3");
+
+        var payload = productMapper.toCreateProductPayload(v3);
+
+        assertThat(payload).containsEntry("transactionProcessingStrategyCode",
+                        "advanced-payment-allocation-strategy")
+                .containsEntry("loanScheduleType", "PROGRESSIVE");
+        @SuppressWarnings("unchecked")
+        var allocations = (List<Map<String, Object>>) payload.get("paymentAllocation");
+        assertThat(allocations).singleElement().satisfies(rule ->
+                assertThat(rule).containsEntry("futureInstallmentAllocationRule", "NEXT_INSTALLMENT"));
+    }
+
+    @Test
     void shouldAcceptReconciledV2ProductOnlyWhenAdvancedAllocationIsIntact() throws Exception {
         JsonNode product = objectMapper.readTree("""
                 {
@@ -166,6 +185,23 @@ class FineractPayloadMapperTest {
                 """);
 
         productMapper.validateReconciledProduct(product, "FINORA-FINERACT-V2");
+    }
+
+    @Test
+    void shouldAcceptReconciledV3ProductOnlyWithNextInstallmentRule() throws Exception {
+        JsonNode product = objectMapper.readTree("""
+                {
+                  "transactionProcessingStrategyCode": "advanced-payment-allocation-strategy",
+                  "loanScheduleType": {"code": "loanScheduleType.progressive", "value": "Progressive"},
+                  "paymentAllocation": [{
+                    "transactionType": "DEFAULT",
+                    "futureInstallmentAllocationRule": "NEXT_INSTALLMENT",
+                    "paymentAllocationOrder": [{},{},{},{},{},{},{},{},{},{},{},{}]
+                  }]
+                }
+                """);
+
+        productMapper.validateReconciledProduct(product, "FINORA-FINERACT-V3");
     }
 
     @Test

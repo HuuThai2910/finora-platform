@@ -458,6 +458,8 @@ class FinoraPaymentApplicationIT {
         var quote = partialPrepaymentQuoteService.create(applicationId, new BigDecimal("5000000.00"));
         assertThat(quote.coreAmount()).isEqualByComparingTo("5000000.00");
         assertThat(quote.platformFee()).isEqualByComparingTo("100000.00");
+        assertThat(quote.investorFeeShare()).isEqualByComparingTo("80000.00");
+        assertThat(quote.finoraFeeShare()).isEqualByComparingTo("20000.00");
         var collected = repaymentService.createPartialPrepayment(quote.quoteId(), "partial-it-502");
         PaymentRepayment repayment = repaymentRepository.findByRepaymentId(collected.repaymentId()).orElseThrow();
         repaymentService.postToCore(repayment.getId());
@@ -468,11 +470,16 @@ class FinoraPaymentApplicationIT {
                 WalletOwnerType.BORROWER, "BORROWER-502", "VND").orElseThrow();
         PaymentWallet investor = walletRepository.findByOwnerTypeAndOwnerIdAndCurrency(
                 WalletOwnerType.INVESTOR, "INVESTOR-502", "VND").orElseThrow();
+        PaymentWallet platform = walletRepository.findByOwnerTypeAndOwnerIdAndCurrency(
+                WalletOwnerType.PLATFORM, "FINORA", "VND").orElseThrow();
         assertThat(completed.getStatus()).isEqualTo(PaymentRepaymentStatus.COMPLETED);
         assertThat(completed.getCoreAmount()).isEqualByComparingTo("5000000.00");
         assertThat(completed.getPlatformFee()).isEqualByComparingTo("100000.00");
+        assertThat(completed.getInvestorFeeShare()).isEqualByComparingTo("80000.00");
+        assertThat(completed.getFinoraFeeShare()).isEqualByComparingTo("20000.00");
         assertThat(borrower.getAvailableBalance()).isEqualByComparingTo("0.00");
-        assertThat(investor.getAvailableBalance()).isEqualByComparingTo("5000000.00");
+        assertThat(investor.getAvailableBalance()).isEqualByComparingTo("5080000.00");
+        assertThat(platform.getAvailableBalance()).isEqualByComparingTo("20000.00");
         assertThat(noteOwnershipRepository.findById(802L).orElseThrow().getOutstandingPrincipal())
                 .isEqualByComparingTo("5000000.00");
     }

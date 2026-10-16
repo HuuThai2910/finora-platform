@@ -33,7 +33,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class ContractPdfRenderer {
 
-    public static final String DOCUMENT_VERSION = "CONTRACT_PDF_V1";
+    public static final String DOCUMENT_VERSION = "CONTRACT_PDF_V2";
     private static final ZoneId VIETNAM = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
@@ -251,9 +251,10 @@ public class ContractPdfRenderer {
                   <ol><li>Lãi suất cơ sở khi nộp hồ sơ: <b>%s%%/năm</b>. Lãi suất áp dụng cuối: <b>%s%%/năm</b>.</li><li>Phương thức trả nợ: %s; số liệu từng kỳ do Fineract tính theo snapshot đã chốt.</li><li>Tổng lãi dự kiến: <b>%s</b>. Lịch chính thức được xác định theo ngày giải ngân thực tế.</li></ol>
                   <h2>ĐIỀU 3. PHÍ VÀ NGHĨA VỤ THANH TOÁN</h2>
                   <ol><li>Tổng phí dự kiến: <b>%s</b>; tổng tiền phạt trong lịch dự kiến: <b>%s</b>.</li><li>Không thu khoản phí hoặc phạt không được công bố trong hợp đồng/phụ lục hợp lệ.</li><li>Cách xử lý quá hạn và thứ tự cấn trừ phải khớp cấu hình Fineract và điều khoản được pháp chế duyệt trước production.</li></ol>
-                  <h2>ĐIỀU 4. GIẢI NGÂN VÀ THANH TOÁN</h2>
+                  %s
+                  <h2>ĐIỀU 5. GIẢI NGÂN VÀ THANH TOÁN</h2>
                   <ol><li>Giải ngân chỉ thực hiện sau khi đủ điều kiện tài trợ, xác minh và chữ ký hợp lệ của các bên.</li><li>Tiền giải ngân và trả nợ đi qua tài khoản hoặc ví điện tử của tổ chức được phép; FINORA không tự giữ tiền như tài khoản thanh toán độc lập.</li></ol>
-                  <h2>ĐIỀU 5. QUYỀN VÀ CAM KẾT</h2>
+                  <h2>ĐIỀU 6. QUYỀN VÀ CAM KẾT</h2>
                   <ul><li>Người vay được đọc, tải, lưu hợp đồng và từ chối nếu không đồng ý.</li><li>Các bên cung cấp thông tin trung thực, bảo mật dữ liệu và thực hiện đúng nghĩa vụ đã chấp thuận.</li><li>Không sửa âm thầm artifact đã công bố; thay đổi điều khoản trọng yếu phải tạo phiên bản mới.</li></ul>
                   <div class="page-break"></div>
                   <h1 class="appendix">PHỤ LỤC 01</h1><h2 class="center">LỊCH TRẢ NỢ DỰ KIẾN</h2>
@@ -275,7 +276,9 @@ public class ContractPdfRenderer {
                 application.getRequestedTermMonths(), date(schedule.getExpectedDisbursementDate()),
                 percentage(baseRate), percentage(finalRate), repaymentMethod(application),
                 money(schedule.getTotalInterest()), money(schedule.getTotalFees()),
-                money(schedule.getTotalPenalties()), date(schedule.getExpectedDisbursementDate()),
+                money(schedule.getTotalPenalties()),
+                LoanServicingContractTerms.html(application.getRequestedTermMonths()),
+                date(schedule.getExpectedDisbursementDate()),
                 scheduleTable(schedule.getPeriodsSnapshotJson()), escape(receiptStatus),
                 signatureEvidence(signedBy, signedAt, signatureMethod), escape(termsVersion),
                 DOCUMENT_VERSION, escape(signedDocumentHash == null ? "Chưa xác nhận" : signedDocumentHash),
@@ -404,7 +407,7 @@ public class ContractPdfRenderer {
 
     private static String css() {
         return """
-                @page { size: A4; margin: 17mm 16mm 19mm; @bottom-left { content: "FINORA - CONTRACT_PDF_V1"; color: #64748b; font-size: 8px; } @bottom-right { content: "Trang " counter(page) " / " counter(pages); color: #64748b; font-size: 8px; } }
+                @page { size: A4; margin: 17mm 16mm 19mm; @bottom-left { content: "FINORA - CONTRACT_PDF_V2"; color: #64748b; font-size: 8px; } @bottom-right { content: "Trang " counter(page) " / " counter(pages); color: #64748b; font-size: 8px; } }
                 * { box-sizing: border-box; } body { font-family: "DejaVu Sans"; color: #172033; font-size: 10.3pt; line-height: 1.52; margin: 0; }
                 .watermark { position: fixed; top: 47%; left: 13%; transform: rotate(-32deg); color: #e7ebf1; font-size: 24pt; font-weight: 700; z-index: -1; }
                 .national { display: table; width: 100%; border-bottom: 2px solid #1d5bd7; padding-bottom: 10px; margin-bottom: 24px; }

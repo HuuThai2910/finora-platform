@@ -9,11 +9,16 @@ tra bằng cách nhìn riêng từng màn hình. Mỗi case phải lưu lại `l
 ## 2. Điều kiện bắt đầu
 
 - Fineract, Kafka, Keycloak và database đang healthy; Loan/Payment/Investment chạy đúng cấu hình local.
-- Product mới dùng `coreConfigVersion=FINORA-FINERACT-V2`. Khoản vay V1 cũ không bị đổi strategy.
-- Product V2 trên Fineract phải có `advanced-payment-allocation-strategy`, `DEFAULT`, đủ 12 rule và
-  `futureInstallmentAllocationRule=REAMORTIZATION`; `loanScheduleType` bắt buộc là `PROGRESSIVE`.
+- Product mới dùng `coreConfigVersion=FINORA-FINERACT-V3`. Khoản vay V1/V2 cũ không bị đổi strategy.
+- Product V3 trên Fineract phải có `advanced-payment-allocation-strategy`, `DEFAULT`, đủ 12 rule,
+  `futureInstallmentAllocationRule=NEXT_INSTALLMENT` và `loanScheduleType=PROGRESSIVE`. V2 giữ
+  `REAMORTIZATION` để test tương thích.
 - Borrower và investor có ví đúng currency; Note ownership ở Payment khớp Investment.
 - Không ghi token, secret, CCCD hoặc raw provider response vào evidence/log.
+- Hồ sơ dùng để kiểm tra policy mới phải tạo hợp đồng mới. PDF/văn bản ký phải có
+  `LOAN_TERMS_V2`, `CONTRACT_PDF_V2`, `FINORA_SERVICING_TERMS_V2`, biểu phí
+  `AGRIBANK_REFERENCE_FINORA_2026_V2`, nguyên tắc không thu lãi tương lai và tỷ lệ chia phí 80/20.
+  Hợp đồng cũ phải giữ nguyên bytes/hash và không được render lại theo policy mới.
 
 ## 3. Happy case trả đúng kỳ
 
@@ -70,14 +75,21 @@ tra bằng cách nhìn riêng từng màn hình. Mỗi case phải lưu lại `l
 
 - Tạo quote bằng GET template `prepayLoan`; thao tác này không được tạo Fineract transaction.
 - Quote hết hạn/đã dùng hoặc ví thiếu tiền không debit.
-- Xác nhận thu `coreAmount + platformFee`, chỉ gửi `coreAmount` vào Fineract.
+- Xác nhận thu `coreAmount + platformFee`, chỉ gửi `coreAmount` vào Fineract; kiểm tra
+  `investorFeeShare=80% platformFee`, `finoraFeeShare=20% platformFee`.
 - Khi `totalOutstanding=0`: Payment account, Loan và Note đóng idempotently.
 
 ### Cơ cấu/gia hạn
 
 - Request borrower chỉ `PENDING_REVIEW`, lịch cũ tiếp tục hiệu lực.
-- Admin từ chối không đổi lịch. Admin duyệt mới chạy durable command Fineract; chỉ khi core xác nhận mới
-  phát `LoanRescheduled.v1` và quay khoản vay về `ACTIVE`.
+- Admin từ chối không đổi lịch. Admin thẩm định đạt phải chuyển sang `PENDING_INVESTOR_CONSENT`, phát
+  `LoanRescheduleConsentRequested.v1` và **chưa** gọi Fineract.
+- Đăng nhập từng chủ Note, gọi API Investment approve/reject. Một người từ chối phải phát completion
+  `approved=false`, Loan chuyển `INVESTOR_REJECTED`, lịch cũ giữ nguyên.
+- Khi tất cả đồng ý, Investment phát completion `approved=true`; Loan mới chuyển `RESTRUCTURING` và
+  chạy durable command Fineract. Chỉ khi core xác nhận mới phát `LoanRescheduled.v1` và về `ACTIVE`.
+- Giao trùng event hoặc retry cùng `Idempotency-Key` không được tạo phiếu, quyết định hay request
+  Fineract thứ hai.
 
 ### Default/thu hồi
 
@@ -89,9 +101,10 @@ tra bằng cách nhìn riêng từng màn hình. Mỗi case phải lưu lại `l
 
 - Tạo quote qua `POST /api/v1/repayments/partial-prepayment-quotes`; V1 phải bị từ chối trước debit ví.
 - Xác nhận qua `POST /api/v1/repayments/partial-prepayment` với key mới; gửi lại cùng key không thu lần hai.
-- Xác nhận ví debit `scheduledDue + prepaidPrincipal + platformFee`, nhưng Fineract chỉ nhận
+- Xác nhận ví debit `scheduledDue + prepaidPrincipal + platformFee`, không có lãi tương lai; Fineract chỉ nhận
   `scheduledDue + prepaidPrincipal`.
-- Đọc lại core: principal giảm đúng phần trả thêm, schedule được `REAMORTIZATION`; event phân phối làm
+- Đọc lại core: principal giảm đúng phần trả thêm; V3 dùng `NEXT_INSTALLMENT`, V2 mới dùng
+  `REAMORTIZATION`. Event phân phối làm
   Note giảm đúng principal. Quote không tuyên bố lịch giả định “sau trả” vì Fineract 1.15 không cung cấp.
 
 ## 7. CIC, AI và thời gian phục hồi nợ xấu

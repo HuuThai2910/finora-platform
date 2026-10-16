@@ -51,7 +51,7 @@ public class FineractProductPayloadMapper {
             // Nếu bỏ field này, Product vẫn tạo được ở dạng CUMULATIVE nhưng mọi Loan V2 sẽ bị
             // từ chối khi apply, nên phải snapshot cùng strategy ngay từ lúc tạo Product.
             payload.put("loanScheduleType", "PROGRESSIVE");
-            payload.put("paymentAllocation", FineractAllocationPolicy.paymentAllocation());
+            payload.put("paymentAllocation", FineractAllocationPolicy.paymentAllocation(source.configVersion()));
         }
         payload.put("accountingRule", 1);
         payload.put("isInterestRecalculationEnabled", false);
@@ -113,13 +113,14 @@ public class FineractProductPayloadMapper {
         if (!matchesEnum(product.path("loanScheduleType"), "PROGRESSIVE")) {
             throw contractMismatch("Product Fineract V2 tồn tại nhưng loanScheduleType không phải PROGRESSIVE");
         }
+        String expectedFutureRule = FineractAllocationPolicy.futureInstallmentAllocationRule(configVersion);
         JsonNode allocations = product.path("paymentAllocation");
         boolean validDefaultRule = false;
         if (allocations.isArray()) {
             for (JsonNode allocation : allocations) {
                 JsonNode order = allocation.path("paymentAllocationOrder");
                 if (matchesEnum(allocation.path("transactionType"), "DEFAULT")
-                        && matchesEnum(allocation.path("futureInstallmentAllocationRule"), "REAMORTIZATION")
+                        && matchesEnum(allocation.path("futureInstallmentAllocationRule"), expectedFutureRule)
                         && order.isArray() && order.size() == 12) {
                     validDefaultRule = true;
                     break;
@@ -127,7 +128,8 @@ public class FineractProductPayloadMapper {
             }
         }
         if (!validDefaultRule) {
-            throw contractMismatch("Product Fineract V2 tồn tại nhưng payment allocation/REAMORTIZATION không khớp");
+            throw contractMismatch("Product Fineract " + configVersion
+                    + " tồn tại nhưng payment allocation/" + expectedFutureRule + " không khớp");
         }
     }
 

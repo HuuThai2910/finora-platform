@@ -56,6 +56,9 @@ class ContractPdfRendererTest {
                     .contains("10.000.000 đồng")
                     .contains("13.5%/năm")
                     .contains("LỊCH TRẢ NỢ DỰ KIẾN")
+                    .contains("các tháng tương lai")
+                    .contains("80%")
+                    .contains("nhà đầu tư đang nắm Note")
                     .contains("CHƯA TÍCH HỢP");
         }
     }

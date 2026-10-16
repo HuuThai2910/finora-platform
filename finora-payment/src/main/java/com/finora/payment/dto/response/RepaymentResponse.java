@@ -10,6 +10,7 @@ import java.util.UUID;
 
 public record RepaymentResponse(UUID repaymentId, Long loanApplicationId, PaymentRepaymentType repaymentType,
         UUID quoteId, UUID partialPrepaymentQuoteId, BigDecimal amount, BigDecimal coreAmount, BigDecimal platformFee,
+        BigDecimal investorFeeShare, BigDecimal finoraFeeShare,
         String currency, LocalDate transactionDate, PaymentRepaymentStatus status,
         Long fineractTransactionId, BigDecimal principalAmount, BigDecimal interestAmount,
         BigDecimal feeAmount, BigDecimal penaltyAmount, BigDecimal outstandingPrincipal,
@@ -19,6 +20,7 @@ public record RepaymentResponse(UUID repaymentId, Long loanApplicationId, Paymen
     public static RepaymentResponse from(PaymentRepayment value) {
         return new RepaymentResponse(value.getRepaymentId(), value.getLoanApplicationId(), value.getRepaymentType(),
                 value.getQuoteId(), value.getPartialPrepaymentQuoteId(), value.getAmount(), value.getCoreAmount(), value.getPlatformFee(),
+                value.getInvestorFeeShare(), value.getFinoraFeeShare(),
                 value.getCurrency(), value.getTransactionDate(), value.getStatus(), value.getFineractTransactionId(),
                 value.getPrincipalAmount(), value.getInterestAmount(), value.getFeeAmount(), value.getPenaltyAmount(),
                 value.getOutstandingPrincipal(), value.getOutstandingInterest(), value.getOutstandingFee(),

@@ -301,15 +301,19 @@ public class PaymentRepaymentService {
         }
         Map<Long, BigDecimal> principal = allocator.allocate(repayment.getPrincipalAmount(), notes);
         Map<Long, BigDecimal> interest = allocator.allocate(repayment.getInterestAmount(), notes);
+        Map<Long, BigDecimal> investorFee = allocator.allocate(repayment.getInvestorFeeShare(), notes);
         Map<String, BigDecimal> byInvestor = new LinkedHashMap<>();
         List<RepaymentDistributedEventData.NoteAllocation> allocations = new ArrayList<>();
         for (PaymentNoteOwnership note : notes) {
             BigDecimal notePrincipal = principal.get(note.getNoteId());
             BigDecimal noteInterest = interest.get(note.getNoteId());
+            BigDecimal notePrepaymentFee = investorFee.get(note.getNoteId());
             note.repayPrincipal(notePrincipal, clock.instant());
-            byInvestor.merge(note.getInvestorId(), notePrincipal.add(noteInterest), BigDecimal::add);
+            byInvestor.merge(note.getInvestorId(), notePrincipal.add(noteInterest).add(notePrepaymentFee),
+                    BigDecimal::add);
             allocations.add(new RepaymentDistributedEventData.NoteAllocation(note.getNoteId(), note.getNoteNumber(),
-                    note.getInvestorId(), notePrincipal.toPlainString(), noteInterest.toPlainString()));
+                    note.getInvestorId(), notePrincipal.toPlainString(), noteInterest.toPlainString(),
+                    notePrepaymentFee.toPlainString()));
         }
         List<LedgerPostingEntryCommand> entries = new ArrayList<>();
         entries.add(new LedgerPostingEntryCommand(null, "CLEARING:REPAYMENT", LedgerBalanceBucket.CLEARING,
@@ -321,7 +325,9 @@ public class PaymentRepaymentService {
                         LedgerDirection.CREDIT, value));
             }
         });
-        BigDecimal charges = repayment.getFeeAmount().add(repayment.getPenaltyAmount());
+        // Phí core, phạt và 20% phí trả trước thuộc FINORA; 80% phí trả trước đã được cộng vào ví NĐT.
+        BigDecimal coreFee = repayment.getFeeAmount().subtract(repayment.getPlatformFee());
+        BigDecimal charges = coreFee.add(repayment.getPenaltyAmount()).add(repayment.getFinoraFeeShare());
         if (charges.signum() > 0) {
             WalletView platform = wallets.open(WalletOwnerType.PLATFORM, "FINORA", repayment.getCurrency());
             entries.add(new LedgerPostingEntryCommand(platform.walletId(), null, LedgerBalanceBucket.AVAILABLE,
@@ -340,6 +346,7 @@ public class PaymentRepaymentService {
                 reference(repayment), repayment.getRepaymentType().name(),
                 businessQuoteId(repayment),
                 repayment.getPlatformFee().toPlainString(),
+                repayment.getInvestorFeeShare().toPlainString(), repayment.getFinoraFeeShare().toPlainString(),
                 repayment.getLoanApplicationId(), repayment.getFineractLoanId(),
                 repayment.getFineractTransactionId(), repayment.getAmount().toPlainString(),
                 repayment.getPrincipalAmount().toPlainString(), repayment.getInterestAmount().toPlainString(),

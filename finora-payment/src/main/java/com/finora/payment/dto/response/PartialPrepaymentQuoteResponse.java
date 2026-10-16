@@ -9,7 +9,8 @@ import java.util.UUID;
 
 public record PartialPrepaymentQuoteResponse(UUID quoteId, Long loanApplicationId, String currency,
         LocalDate transactionDate, BigDecimal scheduledDue, BigDecimal prepaidPrincipal,
-        BigDecimal coreAmount, BigDecimal platformFee, BigDecimal totalAmount,
+        BigDecimal coreAmount, BigDecimal platformFee, BigDecimal investorFeeShare,
+        BigDecimal finoraFeeShare, BigDecimal totalAmount,
         BigDecimal outstandingPrincipalBefore, LocalDate nextDueDateBefore,
         BigDecimal nextDueAmountBefore, BigDecimal feeRate, String policyVersion,
         String allocationStrategy, PartialPrepaymentQuoteStatus status, Instant expiresAt) {
@@ -19,7 +20,8 @@ public record PartialPrepaymentQuoteResponse(UUID quoteId, Long loanApplicationI
         return new PartialPrepaymentQuoteResponse(value.getQuoteId(), value.getLoanApplicationId(),
                 value.getCurrency(), value.getTransactionDate(), value.getScheduledDue(),
                 value.getPrepaidPrincipal(), value.getCoreAmount(), value.getPlatformFee(),
-                value.getTotalAmount(), value.getOutstandingPrincipalBefore(),
+                value.getInvestorFeeShare(), value.getFinoraFeeShare(), value.getTotalAmount(),
+                value.getOutstandingPrincipalBefore(),
                 value.getNextDueDateBefore(), value.getNextDueAmountBefore(), value.getFeeRate(),
                 value.getPolicyVersion(), value.getAllocationStrategy(), visible, value.getExpiresAt());
     }

@@ -83,6 +83,7 @@ public class PortfolioServiceImpl implements PortfolioService {
         BigDecimal outstandingTotal = ZERO_MONEY;
         BigDecimal principalRepaidTotal = ZERO_MONEY;
         BigDecimal interestTotal = ZERO_MONEY;
+        BigDecimal prepaymentFeeTotal = ZERO_MONEY;
         BigDecimal weightedRateNumerator = BigDecimal.ZERO;
 
         for (Map.Entry<Long, List<InvestmentNote>> entry : notesByLoan.entrySet()) {
@@ -95,10 +96,12 @@ public class PortfolioServiceImpl implements PortfolioService {
             BigDecimal outstanding = sum(loanNotes, InvestmentNote::getOutstandingPrincipal);
             BigDecimal repaid = sum(loanNotes, InvestmentNote::getPrincipalRepaid);
             BigDecimal interest = sum(loanNotes, InvestmentNote::getInterestReceived);
+            BigDecimal prepaymentFee = sum(loanNotes, InvestmentNote::getPrepaymentFeeReceived);
 
             outstandingTotal = outstandingTotal.add(outstanding);
             principalRepaidTotal = principalRepaidTotal.add(repaid);
             interestTotal = interestTotal.add(interest);
+            prepaymentFeeTotal = prepaymentFeeTotal.add(prepaymentFee);
             // Lãi suất bình quân phải theo trọng số dư nợ: 100 triệu ở 12% và 1 triệu ở 20%
             // thì danh mục gần 12% chứ không phải 16%.
             weightedRateNumerator = weightedRateNumerator.add(
@@ -116,6 +119,7 @@ public class PortfolioServiceImpl implements PortfolioService {
                     outstanding.toPlainString(),
                     repaid.toPlainString(),
                     interest.toPlainString(),
+                    prepaymentFee.toPlainString(),
                     sharePercentOf(listing, principal),
                     NoteStatus.ACTIVE.name(),
                     servicing == null ? 0 : servicing.getDaysPastDue(),
@@ -139,7 +143,8 @@ public class PortfolioServiceImpl implements PortfolioService {
                 outstandingTotal.toPlainString(),
                 principalRepaidTotal.toPlainString(),
                 interestTotal.toPlainString(),
-                principalRepaidTotal.add(interestTotal).toPlainString(),
+                prepaymentFeeTotal.toPlainString(),
+                principalRepaidTotal.add(interestTotal).add(prepaymentFeeTotal).toPlainString(),
                 notes.size(),
                 positions.size(),
                 weightedAverageRate,

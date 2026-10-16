@@ -103,6 +103,8 @@ finora:
       loan-disbursed-topic: ${LOAN_DISBURSED_TOPIC:finora.loan.disbursed}
       note-ownership-changed-topic: ${INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC:finora.investment.note-ownership-changed}
       note-servicing-changed-topic: ${INVESTMENT_NOTE_SERVICING_CHANGED_TOPIC:finora.investment.note-servicing-changed}
+      reschedule-consent-requested-topic: ${LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC:finora.loan.reschedule-consent-requested}
+      reschedule-consent-completed-topic: ${INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC:finora.investment.reschedule-consent-completed}
       repayment-distributed-topic: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:finora.payment.repayment-distributed}
       loan-settled-topic: ${LOAN_SETTLED_TOPIC:finora.loan.settled}
       loan-rescheduled-topic: ${LOAN_RESCHEDULED_TOPIC:finora.loan.rescheduled}
