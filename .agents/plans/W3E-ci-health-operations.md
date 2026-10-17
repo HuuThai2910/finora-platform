@@ -237,8 +237,8 @@ FineractJob*`, `.../service/operations/FineractEndOfDay*`, `.../repository/opera
 
 Rollout:
 
-1. Merge nhánh này vào `feat/finora-remaining-wave-3` (đầu nhánh lúc kiểm: `292004a`, đã chứa W3B, W3C, W3D, W3F và B70).
-   `git merge-tree --write-tree` không báo xung đột; cây merge thử đã verify các module hai bên cùng sửa (mục 16).
+1. Merge nhánh này vào `feat/finora-remaining-wave-3` (đầu nhánh lúc kiểm cuối: `0a2ce5a`, đã chứa W3B, W3C, W3D, W3F và
+   B70). `git merge-tree --write-tree` không báo xung đột; cây merge thử đã verify các module hai bên cùng sửa (mục 16).
 2. Chép `docs/ops/ci/finora-web-ci.yml` thành `finora-web/.github/workflows/ci.yml` và `docs/ops/ci/finora-mobile-ci.yml`
    thành `finora-mobile/.github/workflows/ci.yml` rồi commit ở hai repository đó (agent không ghi được ngoài worktree).
 3. Sau merge W3B: thêm gauge `withdrawal_reconciliation_required` vào `PaymentOperationsConfig` (một dòng) với câu đếm
@@ -346,6 +346,7 @@ Plan ở `READY_FOR_REVIEW`: code và test đã chạy trên máy (mục 16). Ch
 | Cây merge thử `a34cfe8` xuất bằng `git archive` (không có `.env`, như runner CI; commit sau đó `d7118ad` chỉ đổi comment YAML): `mvn -B -ntp -fae -pl finora-loan,finora-payment,finora-blockchain,finora-notification,finora-gateway -am verify` | BUILD SUCCESS (5:47) — common 73; Gateway 4; Loan unit 300, IT 26 (1 skipped có sẵn); Payment unit 99, IT 37; Blockchain unit 49, IT 15 (2 test Fabric live của W3D tự bỏ qua khi không có mạng Fabric); Notification unit 134, IT 19 |
 | gitleaks 8.30.1 lịch sử nhánh W3E (72 commit) và `feat/finora-remaining-wave-3` `292004a` (79 commit có diff) với `.gitleaksignore` | `no leaks found` |
 | `docker compose config --quiet` cho `docker-compose.yml` và `docker-compose.app.yml` (env placeholder) | exit 0; không còn service `payment-redis` hay biến `PAYMENT_REDIS_*` ở Payment |
+| Lặp lại khi wave-3 lên `0a2ce5a` (thêm docs, rule, script E2E; không đổi module Java) | merge-tree exit 0; validator rule trên cây merge `FINORA rules validation: OK`; gitleaks wave-3 (81 commit có diff) `no leaks found` |
 | actionlint 1.7.7 + shellcheck 0.10.0, PyYAML | Không phát hiện; 3 workflow parse được |
 | Web/mobile trên bản sao sạch, Node 22.23.2 | `npm ci` + `npm run build` exit 0; `npm ci` + `npx tsc --noEmit` exit 0 |
 | Healthcheck Compose với jar Gateway trong `eclipse-temurin:21-jre-jammy` | readiness exit 0, đường không tồn tại exit 1 |
