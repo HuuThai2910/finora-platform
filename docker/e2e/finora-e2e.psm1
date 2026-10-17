@@ -506,6 +506,40 @@ function Invoke-E2EFineractGet {
     }
 }
 
+function Invoke-E2EFineractWrite {
+    <#
+      Ghi REST Fineract CHỈ để điều khiển đồng hồ test của container local: cấu hình enable-business-date và
+      /businessdate (Q12). Đường dẫn bị giới hạn bằng ValidatePattern; mọi giao dịch nghiệp vụ vẫn phải đi qua
+      Loan/Payment để giữ idempotency và external ID.
+    #>
+    param(
+        [Parameter(Mandatory)][ValidateSet('POST', 'PUT')][string]$Method,
+        [Parameter(Mandatory)][ValidatePattern('^/(businessdate|configurations/\d+)$')][string]$Path,
+        [Parameter(Mandatory)]$Body,
+        [Parameter(Mandatory)][string]$BaseUrl,
+        [Parameter(Mandatory)][string]$Username,
+        [Parameter(Mandatory)][string]$Password,
+        [string]$Tenant = 'default'
+    )
+    $basic = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("${Username}:${Password}"))
+    $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::new($Method), "$BaseUrl$Path")
+    $request.Headers.Authorization = [System.Net.Http.Headers.AuthenticationHeaderValue]::new('Basic', $basic)
+    [void]$request.Headers.TryAddWithoutValidation('Fineract-Platform-TenantId', $Tenant)
+    [void]$request.Headers.TryAddWithoutValidation('Accept', 'application/json')
+    $json = ConvertTo-Json -InputObject $Body -Depth 5 -Compress
+    $request.Content = [System.Net.Http.StringContent]::new($json, [System.Text.Encoding]::UTF8, 'application/json')
+    try {
+        $response = $script:Http.SendAsync($request).GetAwaiter().GetResult()
+        $text = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if (-not $response.IsSuccessStatusCode) { throw "Fineract $Method $Path trả HTTP $([int]$response.StatusCode)." }
+        if ($text.Trim().Length -eq 0) { return $null }
+        return (ConvertFrom-Json -InputObject $text)
+    } finally {
+        if ($response) { $response.Dispose() }
+        $request.Dispose()
+    }
+}
+
 function Test-E2EContainerRunning {
     param([Parameter(Mandatory)][string]$Name)
     $result = Invoke-E2ENative -FilePath 'docker' -Arguments @('inspect', '--format', '{{.State.Running}}', $Name)
@@ -529,5 +563,5 @@ Export-ModuleMember -Function Initialize-E2EContext, Get-E2EContext, Read-E2EDot
     Add-E2ECheck, Add-E2EDefect, Set-E2EEvidence, Save-E2EEvidence, Get-E2EField, ConvertTo-E2EMoney,
     Format-E2EMoney, ConvertTo-E2ERequestMoney, New-E2ETraceId, New-E2EKey, Invoke-E2EHttp, Assert-E2EStatus, Get-E2EErrorCode,
     Wait-E2ECondition, Get-E2ESha256Hex, New-E2ESecret, Invoke-E2ENative, Get-E2EKafkaRecords,
-    Send-E2EKafkaRecord, Get-E2ERedisValue, Invoke-E2EContainerSql, Invoke-E2EFineractGet,
+    Send-E2EKafkaRecord, Get-E2ERedisValue, Invoke-E2EContainerSql, Invoke-E2EFineractGet, Invoke-E2EFineractWrite,
     Test-E2EContainerRunning, Test-E2ETcpPort

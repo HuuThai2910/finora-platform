@@ -22,7 +22,8 @@ param(
 )
 
 # Bộ E2E vertical slice R1A: borrower đăng ký → nộp hồ sơ → AI → admin duyệt → gọi vốn → investor nạp ví và
-# đặt lệnh → hai bên ký → saga giải ngân → Note → borrower trả một kỳ → investor nhận phân bổ.
+# đặt lệnh → hai bên ký → saga giải ngân → Note → borrower trả kỳ 1 trước hạn (Payment giữ tới ngày đến hạn; harness
+# dời đồng hồ Fineract + Payment tới ngày đó rồi trả lại) → investor nhận phân bổ.
 #
 # Script chỉ đi qua REST công khai của service sở hữu dữ liệu: Gateway cho auth/user và trả nợ (kiểm route),
 # cổng trực tiếp cho Loan/Investment/Payment giống cấu hình mobile hiện hành. Đọc thêm read-only: Fineract REST
@@ -247,6 +248,87 @@ function Get-FineractLoan {
 
 # ---------------------------------------------------------------- các bước nghiệp vụ
 
+$LauncherScript = Join-Path $PSScriptRoot 'start-local-services.ps1'
+$LauncherStateFile = Join-Path $PSScriptRoot 'out\services.json'
+
+function Get-FineractBusinessDateConfig {
+    return Invoke-E2EFineractGet -BaseUrl $FineractUrl -Path '/configurations/name/enable-business-date' `
+        -Username $FineractUser -Password $FineractPassword -Tenant $FineractTenant
+}
+
+function Set-FineractBusinessDate {
+    <# Bật business date của Fineract local và đặt ngày (yyyy-MM-dd); không truyền ngày là trả về hôm nay rồi tắt. #>
+    param([string]$Date)
+    $configId = [long](Field (Get-FineractBusinessDateConfig) 'id')
+    $write = @{ BaseUrl = $FineractUrl; Username = $FineractUser; Password = $FineractPassword; Tenant = $FineractTenant }
+    if ($Date) {
+        $null = Invoke-E2EFineractWrite -Method PUT -Path "/configurations/$configId" -Body @{ enabled = $true } @write
+        $null = Invoke-E2EFineractWrite -Method POST -Path '/businessdate' @write `
+            -Body ([ordered]@{ type = 'BUSINESS_DATE'; date = $Date; dateFormat = 'yyyy-MM-dd'; locale = 'en' })
+        return
+    }
+    $null = Invoke-E2EFineractWrite -Method POST -Path '/businessdate' @write `
+        -Body ([ordered]@{ type = 'BUSINESS_DATE'; date = (Get-Today); dateFormat = 'yyyy-MM-dd'; locale = 'en' })
+    $null = Invoke-E2EFineractWrite -Method PUT -Path "/configurations/$configId" -Body @{ enabled = $false } @write
+}
+
+function Get-PaymentClockOffset {
+    <# Độ lệch đồng hồ Payment launcher đang bật (đọc state launcher); rỗng là đồng hồ thật. #>
+    if (-not (Test-Path -LiteralPath $LauncherStateFile)) { return '' }
+    $state = Get-Content -Raw -Encoding UTF8 -LiteralPath $LauncherStateFile | ConvertFrom-Json
+    $entry = @(Field $state 'processes' | Where-Object { (Field $_ 'name') -eq 'payment' }) | Select-Object -First 1
+    if ($null -eq $entry) { return '' }
+    return [string](Field $entry 'clockOffset')
+}
+
+function Restart-Payment {
+    param([string]$ClockOffset = '')
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$LauncherScript`"", '-Action', 'Restart', '-Services', 'payment')
+    if ($ClockOffset) { $arguments += @('-PaymentClockOffset', $ClockOffset) }
+    # Không đọc stdout của launcher qua pipe: JVM Payment kế thừa handle nên pipe không bao giờ đóng và lệnh treo (runbook
+    # mục 8). Ghi ra file và chỉ chờ chính tiến trình launcher thoát.
+    $logFile = Join-Path $PSScriptRoot ("out\logs\restart-payment-{0}.log" -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
+    $process = Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err"
+    $null = $process.Handle
+    if (-not $process.WaitForExit(420000)) { throw "Khởi động lại Payment quá 7 phút; xem $logFile" }
+    if ($process.ExitCode -ne 0) {
+        $tail = @(Get-Content -LiteralPath $logFile -Encoding UTF8 -ErrorAction SilentlyContinue | Select-Object -Last 5) -join ' | '
+        throw "Khởi động lại Payment thất bại (exit $($process.ExitCode)): $tail"
+    }
+    Write-E2EInfo "Payment chạy lại với đồng hồ $(if ($ClockOffset) { "E2E lệch $ClockOffset" } else { 'thật' })"
+}
+
+function Move-E2EClock {
+    <#
+      Q12: đưa môi trường tới ngày nghiệp vụ $Date. Fineract local nhận giao dịch đề ngày đó (business date) và Payment
+      chạy đồng hồ lệch đúng số ngày (Payment chỉ nhận khi provider tiền là mock). Bước gọi phải Reset-E2EClock trong finally.
+    #>
+    param([Parameter(Mandatory)][string]$Date)
+    $culture = [Globalization.CultureInfo]::InvariantCulture
+    $days = ([datetime]::ParseExact($Date, 'yyyy-MM-dd', $culture) - [datetime]::ParseExact((Get-Today), 'yyyy-MM-dd', $culture)).Days
+    if ($days -le 0 -or $days -gt 400) { throw "Không dời đồng hồ E2E tới $Date (lệch $days ngày)." }
+    Write-E2EInfo "Dời đồng hồ E2E tới ${Date}: Fineract business date và Payment lệch $days ngày"
+    Set-FineractBusinessDate -Date $Date
+    Restart-Payment -ClockOffset "P${days}D"
+    Set-E2EEvidence 'clock' ([ordered]@{ movedTo = $Date; paymentOffset = "P${days}D" })
+}
+
+function Reset-E2EClock {
+    <# Trả Fineract và Payment về ngày thật; gọi lại nhiều lần vẫn an toàn, kể cả khi lần chạy trước bị ngắt giữa chừng. #>
+    param([string]$Reason = 'cleanup')
+    $restored = @()
+    if (Field (Get-FineractBusinessDateConfig) 'enabled') {
+        Set-FineractBusinessDate
+        $restored += 'fineract-business-date'
+    }
+    if (Get-PaymentClockOffset) {
+        Restart-Payment
+        $restored += 'payment-clock'
+    }
+    if ($restored.Count -gt 0) { Write-E2EInfo "Đã trả đồng hồ E2E về ngày thật ($Reason): $($restored -join ', ')" }
+}
+
 function Assert-Preflight {
     Write-E2EStep 'Kiểm tra môi trường'
     foreach ($check in @(
@@ -262,6 +344,8 @@ function Assert-Preflight {
     if (-not $FineractUser -or -not $FineractPassword) { throw 'Thiếu FINERACT_API_USERNAME/FINERACT_API_PASSWORD trong docker/.env hoặc finora-loan/.env.' }
     $offices = Invoke-E2EFineractGet -BaseUrl $FineractUrl -Path '/offices' -Username $FineractUser -Password $FineractPassword -Tenant $FineractTenant
     Add-E2ECheck -Name 'preflight.services' -Passed $true -Detail "10 cổng mở, Fineract trả $(@($offices).Count) office"
+    # Lần chạy trước bị ngắt khi đang dời đồng hồ thì trả về ngày thật trước khi tạo dữ liệu mới.
+    Reset-E2EClock -Reason 'preflight'
 }
 
 function Initialize-E2EProduct {
@@ -272,7 +356,9 @@ function Initialize-E2EProduct {
     param($Admin)
     Write-E2EStep 'Chuẩn bị Product E2E'
     $machine = (Get-E2ESha256Hex -Bytes ([System.Text.Encoding]::UTF8.GetBytes([Environment]::MachineName))).Substring(0, 6).ToUpperInvariant()
-    $code = "E2E_FIX12_$machine"
+    # Product core V4 (lãi theo dư nợ và số ngày thực tế, D15). Mã V3 cũ E2E_FIX12_<máy> đã đồng bộ Fineract nên không
+    # đổi cấu hình được (chỉ Product DRAFT mới đồng bộ); dùng mã mới thay vì sửa Product đang có.
+    $code = "E2E_V4_FIX12_$machine"
     $product = $null
     for ($page = 0; $page -lt 20 -and $null -eq $product; $page++) {
         $response = Invoke-E2EHttp -Method GET -Uri "$LoanUrl/api/v1/admin/loan-products?page=$page&size=100" -Token $Admin.Token
@@ -284,7 +370,7 @@ function Initialize-E2EProduct {
     if ($null -eq $product) {
         $create = Invoke-E2EHttp -Method POST -Uri "$LoanUrl/api/v1/admin/loan-products" -Token $Admin.Token -Body ([ordered]@{
             code = $code
-            name = 'E2E lãi cố định 12%'
+            name = 'E2E lãi cố định 12% (core V4)'
             description = 'Sản phẩm kiểm thử tự động R1A; lãi cố định để điều khoản cuối không đổi theo hạng tín dụng.'
             minAmount = [decimal]1000000; maxAmount = [decimal]100000000
             minTermMonths = 1; maxTermMonths = 12
@@ -605,6 +691,9 @@ function Wait-Disbursement {
     $contractFirstDue = if (@($contractEvidence.schedule).Count -gt 0) { @($contractEvidence.schedule)[0].dueDate } else { $null }
     Add-E2ECheck -Name 'fineract.loan-active' -Passed ((Field $fineractLoan 'status.code') -eq 'loanStatusType.active' -and (Money (Field $fineractLoan 'principal')) -eq $LoanAmount) `
         -Detail "fineractLoanId=$fineractLoanId disbursed=$actualDisbursement"
+    # D15: khoản vay mới phải ở core V4 (tính lại lãi hằng ngày), nếu không trả trước/tất toán sẽ thu lãi tương lai.
+    Add-E2ECheck -Name 'fineract.daily-interest-loan' -Passed ([bool](Field $fineractLoan 'isInterestRecalculationEnabled')) `
+        -Detail "isInterestRecalculationEnabled=$(Field $fineractLoan 'isInterestRecalculationEnabled') product=$(Field $fineractLoan 'loanProductName')"
     if ($contractFirstDue -and $coreFirstDue -and $contractFirstDue -ne $coreFirstDue) {
         Add-E2EDefect -Id 'R1A-BIZDATE' -Workstream 'G-POLICY' -Summary 'Kỳ đầu trong hợp đồng khác kỳ đầu Fineract do ngày nghiệp vụ UTC/Asia_Ho_Chi_Minh' `
             -Evidence "contract firstDue=$contractFirstDue, expectedDisbursement=$($contractEvidence.expectedDisbursementDate); Fineract disbursed=$actualDisbursement firstDue=$coreFirstDue"
@@ -622,36 +711,97 @@ function Wait-Disbursement {
     return [pscustomobject]@{ FineractLoanId = $fineractLoanId; LoanNumber = (Field $servicing 'loanNumber'); Servicing = $servicing }
 }
 
+function Submit-ScheduledRepayment {
+    <# Lệnh trả kỳ qua Gateway; trả nguyên response để bước gọi tự kiểm status (kể cả 409 có chủ đích). #>
+    param($Borrower, [long]$LoanApplicationId, [decimal]$Amount, [string]$Key, [string]$PinToken)
+    if (-not $PinToken) { $PinToken = Get-PinToken -Actor $Borrower -Scope REPAYMENT }
+    return Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/repayments" -Token $Borrower.Token `
+        -Headers @{ 'Idempotency-Key' = $Key; 'X-Pin-Token' = $PinToken } `
+        -Body ([ordered]@{ loanApplicationId = $LoanApplicationId; amount = $Amount })
+}
+
 function Pay-Installment {
+    <#
+      R1A + D16: trả kỳ 1 ngay sau giải ngân, tức trước hạn khoảng một tháng, trên khoản vay core V4. Payment trừ ví ngay
+      nhưng giữ tiền ở clearing và chỉ ghi Fineract đúng ngày đến hạn để lãi của kỳ không đổi. Bước này kiểm khoản giữ,
+      chặn trả hai lần, chặn báo giá và hủy hoàn tiền; rồi trả lại, dời đồng hồ tới ngày đến hạn (Fineract business date
+      và đồng hồ E2E của Payment, Q12) để kiểm ghi core, phân phối và các bước sau. Đồng hồ luôn được trả lại trong finally.
+    #>
     param($Borrower, $Investor, $Application, $Loan)
-    Write-E2EStep 'Borrower trả một kỳ qua Gateway'
+    Write-E2EStep 'Borrower trả kỳ 1 trước hạn qua Gateway'
     $loanApplicationId = [long](Field $Application 'id')
-    $template = Invoke-E2EFineractGet -BaseUrl $FineractUrl -Path "/loans/$($Loan.FineractLoanId)/transactions/template?command=repayment" `
-        -Username $FineractUser -Password $FineractPassword -Tenant $FineractTenant
-    $due = ConvertTo-E2ERequestMoney (Money (Field $template 'amount'))
+    $scheduleBefore = Get-FineractLoan -FineractLoanId $Loan.FineractLoanId -Associations 'repaymentSchedule'
+    $firstPeriod = @(Field $scheduleBefore 'repaymentSchedule.periods' | Where-Object { (Field $_ 'period') -eq 1 }) | Select-Object -First 1
+    $dueDate = Format-FineractDate (Field $firstPeriod 'dueDate')
+    $scheduledPrincipal = Money (Field $firstPeriod 'principalDue')
+    $scheduledInterest = Money (Field $firstPeriod 'interestDue')
+    $dueView = Invoke-E2EHttp -Method GET -Uri "$GatewayUrl/api/v1/repayments/scheduled-due?loanApplicationId=$loanApplicationId" -Token $Borrower.Token
+    Assert-E2EStatus -Response $dueView -Expected 200 -Step 'Đọc nghĩa vụ kỳ hiện tại'
+    $due = ConvertTo-E2ERequestMoney (Money (Field $dueView.Json 'amount'))
+    Add-E2ECheck -Name 'repayment.early-installment-deferred' `
+        -Passed ([string](Field $dueView.Json 'dueDate') -eq $dueDate -and [string](Field $dueView.Json 'postOn') -eq $dueDate) `
+        -Detail "dueDate=$(Field $dueView.Json 'dueDate') postOn=$(Field $dueView.Json 'postOn') amount=$(Format-E2EMoney $due)"
     $loanNextDue = Field $Loan.Servicing 'nextDueAmount'
     if ($null -ne $loanNextDue -and (Money $loanNextDue) -ne $due) {
         Add-E2EDefect -Id 'R1A-NEXT-DUE' -Workstream 'R2' -Summary 'nextDueAmount của Loan projection khác nghĩa vụ hiện tại của Fineract' `
-            -Evidence "Loan=$(Format-E2EMoney (Money $loanNextDue)) Fineract template=$(Format-E2EMoney $due)"
+            -Evidence "Loan=$(Format-E2EMoney (Money $loanNextDue)) Fineract=$(Format-E2EMoney $due)"
     }
     $investorBefore = Get-Wallet -Actor $Investor
     $borrowerBefore = Get-Wallet -Actor $Borrower
+
+    # Lần 1: khoản bị giữ tới ngày đến hạn; không trả được lần hai, không lập được báo giá; người vay hủy và nhận lại tiền.
+    $held = Submit-ScheduledRepayment -Borrower $Borrower -LoanApplicationId $loanApplicationId -Amount $due -Key (New-E2EKey -Prefix 'repay-held')
+    Assert-E2EStatus -Response $held -Expected 200, 201 -Step 'Trả kỳ trước hạn (lần 1)'
+    $heldId = Field $held.Json 'repaymentId'
+    Add-E2ECheck -Name 'repayment.held-until-due-date' `
+        -Passed ((Field $held.Json 'status') -eq 'COLLECTED' -and [string](Field $held.Json 'postOn') -eq $dueDate) `
+        -Detail "status=$(Field $held.Json 'status') postOn=$(Field $held.Json 'postOn') transactionDate=$(Field $held.Json 'transactionDate')"
+    $double = Submit-ScheduledRepayment -Borrower $Borrower -LoanApplicationId $loanApplicationId -Amount $due -Key (New-E2EKey -Prefix 'repay-double')
+    Add-E2ECheck -Name 'repayment.double-pay-blocked' `
+        -Passed ($double.Status -eq 409 -and (Get-E2EErrorCode $double) -eq 'INSTALLMENT_ALREADY_PAID_PENDING') `
+        -Detail "HTTP $($double.Status) code=$(Get-E2EErrorCode $double)"
+    $blockedQuote = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/repayments/early-settlement-quotes" -Token $Borrower.Token `
+        -Body @{ loanApplicationId = $loanApplicationId }
+    Add-E2ECheck -Name 'settlement.blocked-while-installment-held' `
+        -Passed ($blockedQuote.Status -eq 409 -and (Get-E2EErrorCode $blockedQuote) -eq 'INSTALLMENT_PENDING_POSTING') `
+        -Detail "HTTP $($blockedQuote.Status) code=$(Get-E2EErrorCode $blockedQuote)"
+    # Worker ghi core chạy mỗi 3 giây: đợi vài vòng rồi kiểm Fineract chưa có giao dịch nào của khoản đang giữ.
+    Start-Sleep -Seconds 9
+    $coreHeld = Get-FineractLoan -FineractLoanId $Loan.FineractLoanId -Associations 'transactions'
+    $postedEarly = @(Field $coreHeld 'transactions' | Where-Object { (Field $_ 'externalId') -eq "FINORA-REPAY-$heldId" })
+    Add-E2ECheck -Name 'repayment.held-not-posted-early' -Passed ($postedEarly.Count -eq 0) `
+        -Detail "externalId=FINORA-REPAY-$heldId count=$($postedEarly.Count)"
+    $cancelPin = Get-PinToken -Actor $Borrower -Scope REPAYMENT
+    $cancel = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/repayments/$heldId/cancel" -Token $Borrower.Token `
+        -Headers @{ 'X-Pin-Token' = $cancelPin } -EmptyJsonBody
+    Assert-E2EStatus -Response $cancel -Expected 200 -Step 'Hủy khoản trả kỳ đang giữ'
+    $afterCancel = Get-Wallet -Actor $Borrower
+    Add-E2ECheck -Name 'repayment.cancel-refunds-held-installment' `
+        -Passed ((Field $cancel.Json 'status') -eq 'CANCELLED' -and $afterCancel.Available -eq $borrowerBefore.Available) `
+        -Detail "status=$(Field $cancel.Json 'status') available=$(Format-E2EMoney $afterCancel.Available) before=$(Format-E2EMoney $borrowerBefore.Available)"
+    # Không còn khoản giữ: báo giá tất toán lập được và tính phí theo hợp đồng. Phải chạy trước khi dời đồng hồ, vì sau đó
+    # khoản vay có giao dịch đề ngày đến hạn (tương lai so với ngày thật).
+    Test-SettlementQuotePolicy -Borrower $Borrower -Application $Application
+
+    # Lần 2: trả lại và giữ tới ngày đến hạn; dời đồng hồ tới đúng ngày đó để worker ghi core.
     $key = New-E2EKey -Prefix 'repay'
     $pinToken = Get-PinToken -Actor $Borrower -Scope REPAYMENT
-    $body = [ordered]@{ loanApplicationId = $loanApplicationId; amount = $due }
-    $created = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/repayments" -Token $Borrower.Token `
-        -Headers @{ 'Idempotency-Key' = $key; 'X-Pin-Token' = $pinToken } -Body $body
+    $created = Submit-ScheduledRepayment -Borrower $Borrower -LoanApplicationId $loanApplicationId -Amount $due -Key $key -PinToken $pinToken
     Assert-E2EStatus -Response $created -Expected 200, 201 -Step 'Tạo lệnh trả nợ qua Gateway'
     $repaymentId = Field $created.Json 'repaymentId'
-    $again = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/repayments" -Token $Borrower.Token `
-        -Headers @{ 'Idempotency-Key' = $key; 'X-Pin-Token' = $pinToken } -Body $body
+    $again = Submit-ScheduledRepayment -Borrower $Borrower -LoanApplicationId $loanApplicationId -Amount $due -Key $key -PinToken $pinToken
     Add-E2ECheck -Name 'repayment.idempotent-replay' -Passed ((Field $again.Json 'repaymentId') -eq $repaymentId) -Detail "HTTP $($again.Status)"
-    $repayment = Wait-Step -Description 'Repayment COMPLETED' -Probe {
-        $detail = Invoke-E2EHttp -Method GET -Uri "$GatewayUrl/api/v1/repayments/$repaymentId" -Token $Borrower.Token
-        $status = Field $detail.Json 'status'
-        if ($status -eq 'COMPLETED') { return @{ Done = $true; Value = $detail.Json } }
-        if ($status -in 'FAILED', 'RECONCILIATION_REQUIRED') { return @{ Fatal = "status=$status error=$(Field $detail.Json 'errorCode')" } }
-        return @{ State = $status }
+    try {
+        Move-E2EClock -Date $dueDate
+        $repayment = Wait-Step -Description 'Repayment COMPLETED đúng ngày đến hạn' -Probe {
+            $detail = Invoke-E2EHttp -Method GET -Uri "$GatewayUrl/api/v1/repayments/$repaymentId" -Token $Borrower.Token
+            $status = Field $detail.Json 'status'
+            if ($status -eq 'COMPLETED') { return @{ Done = $true; Value = $detail.Json } }
+            if ($status -in 'FAILED', 'RECONCILIATION_REQUIRED') { return @{ Fatal = "status=$status error=$(Field $detail.Json 'errorCode')" } }
+            return @{ State = $status }
+        }
+    } finally {
+        Reset-E2EClock -Reason 'sau khi ghi kỳ đúng ngày đến hạn'
     }
     $borrowerAfter = Get-Wallet -Actor $Borrower
     Add-E2ECheck -Name 'repayment.borrower-debited-once' -Passed (($borrowerBefore.Available - $borrowerAfter.Available) -eq $due) `
@@ -664,6 +814,11 @@ function Pay-Installment {
     $externalId = "FINORA-REPAY-$repaymentId"
     $coreTransactions = @(Field $coreLoan 'transactions' | Where-Object { (Field $_ 'externalId') -eq $externalId -and -not (Field $_ 'manuallyReversed') })
     Add-E2ECheck -Name 'fineract.repayment-posted-once' -Passed ($coreTransactions.Count -eq 1) -Detail "externalId=$externalId count=$($coreTransactions.Count)"
+    # D16: ghi đúng ngày đến hạn nên Fineract giữ nguyên gốc và lãi của kỳ theo lịch.
+    $coreDate = if ($coreTransactions.Count -gt 0) { Format-FineractDate (Field $coreTransactions[0] 'date') } else { $null }
+    Add-E2ECheck -Name 'fineract.repayment-posted-on-due-date' -Passed ($coreDate -eq $dueDate) -Detail "transactionDate=$coreDate dueDate=$dueDate"
+    Add-E2ECheck -Name 'repayment.scheduled-interest-kept' -Passed ($principal -eq $scheduledPrincipal -and $interest -eq $scheduledInterest) `
+        -Detail "principal=$(Format-E2EMoney $principal) scheduled=$(Format-E2EMoney $scheduledPrincipal) interest=$(Format-E2EMoney $interest) scheduled=$(Format-E2EMoney $scheduledInterest)"
 
     # Một investor sở hữu toàn bộ Note nên nhận đủ gốc + lãi; phí/phạt (nếu có) thuộc platform.
     $investorShare = $principal + $interest
@@ -712,6 +867,8 @@ function Pay-Installment {
     }
     Set-E2EEvidence 'repayment' ([ordered]@{
         repaymentId = $repaymentId; status = (Field $repayment 'status'); repaymentType = (Field $repayment 'repaymentType')
+        dueDate = $dueDate; postOn = [string](Field $created.Json 'postOn'); cancelledHeldRepaymentId = $heldId
+        scheduledPrincipal = (Format-E2EMoney $scheduledPrincipal); scheduledInterest = (Format-E2EMoney $scheduledInterest)
         amount = (Format-E2EMoney $due); principal = (Format-E2EMoney $principal); interest = (Format-E2EMoney $interest)
         fee = (Format-E2EMoney $fee); penalty = (Format-E2EMoney $penalty); transactionDate = [string](Field $repayment 'transactionDate')
         fineractTransactionId = (Field $repayment 'fineractTransactionId'); fineractExternalId = $externalId
@@ -921,10 +1078,11 @@ function Invoke-PartialPrepaymentFixture {
     Write-E2EStep 'Fixture trả trước một phần'
     $applicationId = [long](Field $Application 'id')
     $prepaid = [decimal]3000000
-    # Lãi của kỳ đang đến hạn theo Fineract trước khi trả: phần lãi vượt mức này là lãi của kỳ tương lai.
-    $dueTemplate = Invoke-E2EFineractGet -BaseUrl $FineractUrl -Path "/loans/$($Loan.FineractLoanId)/transactions/template?command=repayment" `
+    # Lãi đã phát sinh tới hôm nay theo Fineract (báo giá tất toán cùng ngày): core V4 chỉ được thu tối đa phần này.
+    $payoff = Invoke-E2EFineractGet -BaseUrl $FineractUrl `
+        -Path "/loans/$($Loan.FineractLoanId)/transactions/template?command=prepayLoan&transactionDate=$(Get-Today)&dateFormat=yyyy-MM-dd&locale=en" `
         -Username $FineractUser -Password $FineractPassword -Tenant $FineractTenant
-    $dueInterest = Money (Field $dueTemplate 'interestPortion')
+    $accruedInterest = Money (Field $payoff 'interestPortion')
     $quote = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/repayments/partial-prepayment-quotes" -Token $Borrower.Token `
         -Body @{ loanApplicationId = $applicationId; prepaidPrincipal = $prepaid }
     Assert-E2EStatus -Response $quote -Expected 200 -Step 'Báo giá trả trước một phần'
@@ -945,12 +1103,9 @@ function Invoke-PartialPrepaymentFixture {
     Add-E2ECheck -Name 'prepayment.fineract-posted-once' -Passed ($posted.Count -eq 1) -Detail "externalId=$externalId count=$($posted.Count)"
     Add-E2ECheck -Name 'prepayment.core-principal-reduced' -Passed ($coreOutstanding -eq ($principalBefore - $principal)) `
         -Detail "before=$(Format-E2EMoney $principalBefore) principalPaid=$(Format-E2EMoney $principal) core=$(Format-E2EMoney $coreOutstanding)"
-    $futureInterest = $interest - $dueInterest
-    if ($futureInterest -gt 0) {
-        # Hợp đồng V2: không thu lãi của các tháng tương lai trên phần gốc trả thêm.
-        Add-E2EDefect -Id 'R1B-PREPAY-FUTURE-INTEREST' -Workstream 'R2' -Summary 'Trả trước một phần thu lãi của kỳ tương lai' `
-            -Evidence "interestPaid=$(Format-E2EMoney $interest) dueInterest=$(Format-E2EMoney $dueInterest) futureInterest=$(Format-E2EMoney $futureInterest) prepaidToPrincipal=$(Format-E2EMoney ($principal - (Money (Field $dueTemplate 'principalPortion'))))"
-    }
+    # B28 (sửa bằng core V4): không thu lãi của các tháng tương lai; phần còn lại của khoản thu đi vào gốc.
+    Add-E2ECheck -Name 'prepayment.no-future-interest' -Passed ($interest -le $accruedInterest) `
+        -Detail "interestPaid=$(Format-E2EMoney $interest) accruedToDate=$(Format-E2EMoney $accruedInterest) principalPaid=$(Format-E2EMoney $principal)"
     $expectedInvestor = $principal + $interest + $investorFee
     $investorAfter = Wait-Step -Description 'Ví investor nhận gốc + lãi + phần phí' -Probe {
         $wallet = Get-Wallet -Actor $Investor
@@ -970,6 +1125,7 @@ function Invoke-PartialPrepaymentFixture {
         scheduledDue = (Format-E2EMoney $scheduledDue); prepaidPrincipal = (Format-E2EMoney $prepaid)
         fee = (Format-E2EMoney (Money (Field $quote.Json 'platformFee'))); policyVersion = (Field $quote.Json 'policyVersion')
         total = (Format-E2EMoney $total); principalPaid = (Format-E2EMoney $principal); interestPaid = (Format-E2EMoney $interest)
+        accruedInterestBefore = (Format-E2EMoney $accruedInterest)
         corePrincipalBefore = (Format-E2EMoney $principalBefore); corePrincipalAfter = (Format-E2EMoney $coreOutstanding)
         investorCredit = (Format-E2EMoney ($investorAfter.Available - $investorBefore.Available))
         loanProjection = [ordered]@{ principalOutstanding = (Field $projection 'principalOutstanding'); nextDueDate = [string](Field $projection 'nextDueDate') }
@@ -993,11 +1149,10 @@ function Invoke-EarlySettlementFixture {
     $quotedInterest = Money (Field $quote.Json 'interestPortion')
     $coreBefore = Get-FineractLoan -FineractLoanId $Loan.FineractLoanId -Associations 'transactions'
     $disbursedOn = Format-FineractDate (Field $coreBefore 'timeline.actualDisbursementDate')
-    if ([string](Field $quote.Json 'transactionDate') -eq $disbursedOn -and $quotedInterest -gt 0) {
-        # Tất toán ngay ngày giải ngân: chưa có ngày nào phát sinh lãi, mọi khoản lãi trong báo giá là lãi tương lai.
-        Add-E2EDefect -Id 'R1B-SETTLE-FUTURE-INTEREST' -Workstream 'R2' -Summary 'Tất toán thu lãi của các tháng tương lai' `
-            -Evidence "transactionDate=$(Field $quote.Json 'transactionDate') disbursedOn=$disbursedOn interestPortion=$(Format-E2EMoney $quotedInterest)"
-    }
+    # B29 (sửa bằng core V4): tất toán ngay ngày giải ngân chưa có ngày lãi nào, nên lãi trong báo giá phải bằng 0.
+    $sameDay = [string](Field $quote.Json 'transactionDate') -eq $disbursedOn
+    Add-E2ECheck -Name 'settlement.no-future-interest' -Passed ((-not $sameDay) -or $quotedInterest -eq 0) `
+        -Detail "transactionDate=$(Field $quote.Json 'transactionDate') disbursedOn=$disbursedOn interestPortion=$(Format-E2EMoney $quotedInterest)"
     $wallet = Get-Wallet -Actor $Borrower
     if ($wallet.Available -lt $total) {
         # Tiền giải ngân chưa đủ trả phí tất toán: nạp mock đúng phần thiếu như người vay nạp ví.
@@ -1087,9 +1242,9 @@ try {
                 'PartialPrepayment' { Invoke-PartialPrepaymentFixture -Borrower $borrower -Investor $investor -Application $application -Loan $loan }
                 'EarlySettlement' { Invoke-EarlySettlementFixture -Borrower $borrower -Investor $investor -Application $application -Loan $loan }
                 default {
+                    # Báo giá tất toán theo hợp đồng được kiểm bên trong, sau khi hủy khoản trả kỳ đang giữ.
                     $paid = Pay-Installment -Borrower $borrower -Investor $investor -Application $application -Loan $loan
                     $repaymentId = $paid.RepaymentId
-                    Test-SettlementQuotePolicy -Borrower $borrower -Application $application
                 }
             }
         }
@@ -1105,6 +1260,8 @@ try {
     $failure = $_.Exception.Message
     Write-Host "[FAIL] $failure" -ForegroundColor Red
 } finally {
+    try { Reset-E2EClock -Reason 'kết thúc lượt chạy' }
+    catch { Write-Host "[WARN] Chưa trả được đồng hồ E2E về ngày thật: $($_.Exception.Message)" -ForegroundColor Yellow }
     if ($admin -and $product -and -not $KeepProductActive) {
         try {
             $productId = [long](Field $product 'id')

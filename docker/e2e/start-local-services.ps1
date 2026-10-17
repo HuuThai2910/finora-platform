@@ -1,6 +1,6 @@
 ﻿[CmdletBinding()]
 param(
-    [ValidateSet('Start', 'Stop', 'Status')]
+    [ValidateSet('Start', 'Stop', 'Status', 'Restart')]
     [string]$Action = 'Start',
     [string[]]$Services = @('loan', 'payment', 'investment', 'notification', 'blockchain', 'gateway'),
     [string]$EnvFile,
@@ -10,6 +10,10 @@ param(
     # Nguồn eKYC người vay của Loan: mock (mặc định, người vay E2E chưa eKYC) hoặc user (adapter User thật, W2-KYC).
     [ValidateSet('mock', 'user')]
     [string]$BorrowerProfileProvider = 'mock',
+    # Chỉ harness E2E dùng (Q12): dời đồng hồ Payment N ngày theo ISO-8601 ("P31D") để kiểm khoản trả kỳ được ghi
+    # đúng ngày đến hạn (D16). Payment từ chối khởi động nếu provider giải ngân hoặc nạp tiền không phải mock.
+    [ValidatePattern('^(P\d{1,3}D)?$')]
+    [string]$PaymentClockOffset = '',
     [int]$StartTimeoutSeconds = 300
 )
 
@@ -220,6 +224,10 @@ function Assert-Infrastructure {
     Write-Host '[OK] Hạ tầng Docker sẵn sàng'
 }
 
+if ($PaymentClockOffset) {
+    $catalog['payment'].Env['FINORA_E2E_CLOCK_OFFSET'] = $PaymentClockOffset
+}
+
 function Start-FinoraService {
     param([string]$Name, $State)
     $spec = $catalog[$Name]
@@ -249,6 +257,7 @@ function Start-FinoraService {
     }
     $State.processes = @($State.processes) + [pscustomobject]@{
         name = $Name; pid = $process.Id; port = $spec.Port; log = $stdout
+        clockOffset = $(if ($Name -eq 'payment') { $PaymentClockOffset } else { '' })
         startedAt = (Get-Date).ToUniversalTime().ToString('o')
     }
     Write-State -State $State
@@ -278,16 +287,52 @@ function Stop-FinoraServices {
     if (Test-Path -LiteralPath $stateFile) { Remove-Item -LiteralPath $stateFile -Force -Confirm:$false }
 }
 
+function Stop-NamedServices {
+    <# Dừng đúng các service được nêu (theo state launcher) và chờ cổng đóng để bản mới không đụng cổng cũ. #>
+    param([string[]]$Names)
+    $state = Read-State
+    foreach ($entry in @($state.processes | Where-Object { $Names -contains $_.name })) {
+        $process = Get-Process -Id $entry.pid -ErrorAction SilentlyContinue
+        if ($process -and $process.ProcessName -eq 'java') {
+            Stop-Process -Id $entry.pid -Force -Confirm:$false
+            Write-Host "[OK] Dừng $($entry.name) (pid $($entry.pid))"
+        }
+    }
+    $state.processes = @($state.processes | Where-Object { $Names -notcontains $_.name })
+    Write-State -State $state
+    foreach ($name in $Names) {
+        $deadline = (Get-Date).AddSeconds(30)
+        while ((Test-E2ETcpPort -Port $catalog[$name].Port) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+    }
+}
+
+function Write-ClockWarning {
+    if ($PaymentClockOffset -and $Services -contains 'payment') {
+        Write-Host "[WARN] Payment chạy đồng hồ E2E lệch $PaymentClockOffset. Trả về đồng hồ thật: -Action Restart -Services payment" -ForegroundColor Yellow
+    }
+}
+
 switch ($Action) {
     'Status' {
         $state = Read-State
         foreach ($entry in @($state.processes)) {
             $alive = [bool](Get-Process -Id $entry.pid -ErrorAction SilentlyContinue)
             $listening = Test-E2ETcpPort -Port $entry.port
-            Write-Host ("{0,-13} pid={1,-6} port={2} alive={3} listening={4}" -f $entry.name, $entry.pid, $entry.port, $alive, $listening)
+            $clock = [string](Get-E2EField $entry 'clockOffset')
+            Write-Host ("{0,-13} pid={1,-6} port={2} alive={3} listening={4} clock={5}" -f $entry.name, $entry.pid, $entry.port, $alive, $listening, $(if ($clock) { $clock } else { 'thật' }))
         }
     }
     'Stop' { Stop-FinoraServices }
+    'Restart' {
+        # Harness dùng để bật/tắt đồng hồ E2E của Payment giữa lượt chạy; các service khác giữ nguyên.
+        foreach ($name in $Services) {
+            if (-not $catalog.Contains($name)) { throw "Service không hợp lệ: $name" }
+        }
+        Stop-NamedServices -Names $Services
+        $state = Read-State
+        foreach ($name in $Services) { Start-FinoraService -Name $name -State $state }
+        Write-ClockWarning
+    }
     'Start' {
         foreach ($name in $Services) {
             if (-not $catalog.Contains($name)) { throw "Service không hợp lệ: $name" }
@@ -305,6 +350,7 @@ switch ($Action) {
             # Khởi động lần lượt: sáu JVM cùng lúc làm máy dev quá tải CPU và Flyway/Kafka timeout.
             Start-FinoraService -Name $name -State $state
         }
+        Write-ClockWarning
         Write-Host ''
         Write-Host "Log service: $logDir. Dừng toàn bộ: powershell -File docker/e2e/start-local-services.ps1 -Action Stop"
     }
