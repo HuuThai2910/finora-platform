@@ -97,7 +97,7 @@ SoR, ledger/event và khả năng retry.
 | R6 | P1 | Thai | Blockchain | `READY_FOR_REVIEW` | Fabric thật + proof/query/reconcile cho các mốc đã duyệt; W3D xong mạng Fabric local 2 tổ chức, chaincode `finora-ledger`, bốn mốc, API quản trị (D50–D54); mặc định vẫn MOCK, bật bằng `-WithFabric` |
 | R7 | P1 | Hai | Notification | `READY_FOR_REVIEW` | Template đầy đủ và push thật; lỗi provider không làm sai nghiệp vụ; W3F xong thông báo theo domain event, Expo Push (token, preference, che nội dung màn khóa, retry/DEAD), nhắc lịch tắt mặc định (D60–D64); push thật trên máy thật và producer bổ sung `borrowerId` (P1–P7) còn lại |
 | R8 | P1 | Both | Security | `IN_PROGRESS` | RBAC/resource auth, PII/secret/log và abuse controls được kiểm chứng; R8A xong ở W3A (D33–D40, E2E `w3a-installment-20261017-184734`), chặn tự đăng ký `ADMIN` hoãn (D20) |
-| R9 | P1 | Both | Ops | `BACKLOG` | Health, metrics, alert, replay/DLT và deployment tái lập được |
+| R9 | P1 | Both | Ops | `IN_PROGRESS` | Health, metrics, alert, replay/DLT và deployment tái lập được; W3E xong CI GitHub Actions (chưa chạy trên GitHub vì chưa push), health liveness/readiness, gauge sự cố, health job cuối ngày Fineract, runbook và ma trận môi trường (D55–D59); còn Prometheus/dashboard, requeue outbox dead-letter (B57), backup/restore |
 | R10 | P2 | Hai | AI | `BACKLOG` | Backtest/champion-challenger, fraud và early warning có metric |
 | R11 | P2 | Hai + Thai | Investment/Payment | `IN_PROGRESS` | Secondary market/auto-invest qua concurrency/reconciliation E2E |
 
@@ -162,6 +162,11 @@ lựa chọn kỹ thuật còn lại, miễn phù hợp nghiệp vụ và chạy
 | D52 | Bốn mốc neo hash: hợp đồng đủ chữ ký (`LoanContractActivated`), giải ngân (`LoanDisbursed`), trả nợ (`RepaymentDistributed`), phát hành/chuyển nhượng Note (`NoteOwnershipChanged`); hash v2 = SHA-256 JSON chuẩn hóa của `data` (khóa sắp xếp, bỏ null, chỉ số nguyên), chỉ lưu hash; quyết định servicing hoãn | Nghiệp vụ | 3 (W3D) |
 | D53 | Adapter `fabric-gateway` 1.4.0, danh tính `User1@org1` đọc từ file PEM; timeout evaluate 5 s, endorse 15 s, submit 5 s, commit 60 s; lỗi phân loại retry (unavailable, timeout, commit chưa rõ, MVCC) và vĩnh viễn (chaincode từ chối, danh tính, giao dịch sai) | Kỹ thuật | 3 (W3D) |
 | D54 | API proof chỉ `ROLE_ADMIN`: tra theo tham chiếu nghiệp vụ hoặc trạng thái, verify (artifact + DB ↔ chain), retry `DEAD_LETTER`; worker đối soát định kỳ opt-in; lỗi consume vào `<topic>.DLT` | Security | 3 (W3D) |
+| D55 | CI GitHub Actions: `rules` (validator), `secret-scan` (gitleaks 8.30.1 pin digest, `--redact`), `java` (ma trận 8 module `mvn -pl <m> -am verify` với Testcontainers), `ai` (Python 3.12, bỏ đúng 10 test B44 ở bước chặn, bước riêng không chặn vẫn chạy chúng); action pin SHA, quyền `contents: read`, không cần secret. Web `npm ci` + `npm run build`, mobile `npm ci` + `npx tsc --noEmit` | Kỹ thuật | 3 (W3E) |
+| D56 | Health: liveness chỉ kiểm JVM; readiness kiểm DB của chính service (User thêm Redis); Kafka và job cuối ngày Fineract ở nhóm `operations` không chặn traffic; tên/trạng thái thành phần công khai, chi tiết và metrics cần `ROLE_ADMIN`; healthcheck Compose gọi readiness | Kỹ thuật | 3 (W3E) |
+| D57 | Health job cuối ngày Fineract (Loan): đọc `GET /jobs` (dự phòng `runhistory`); DOWN khi `LA_RINT`/`LA_ARAG` chưa từng thành công, lần thành công gần nhất cũ hơn 26 giờ hoặc thiếu job; UNKNOWN khi chưa kiểm, không đọc được hoặc provider `mock`; chạy 5 phút/lần trên luồng riêng | Kỹ thuật | 3 (W3E) |
+| D58 | Gauge sự cố: `finora.outbox.events{status}`, `finora.outbox.oldest.pending.age`, `finora.operations.incidents{type}`, `finora.fineract.eod.last.success.age{job}`, `finora.proof.*`; làm mới 60 giây/lần, giới hạn 10.000 dòng, timeout 5 giây, đọc lỗi trả NaN và tăng bộ đếm lỗi; chưa có Prometheus | Kỹ thuật | 3 (W3E) |
+| D59 | Giữ Flyway 9.22.3 (chỉ cảnh báo trên PostgreSQL 17.5, mọi migration test xanh trên 17.5); đường nâng cấp: Spring Boot 3.4.x (Flyway 10.20.1) + `flyway-database-postgresql`, chạy lại verify mọi module | Kỹ thuật | 3 (W3E) |
 | D60 | Người nhận thông báo lấy từ event, thiếu thì từ bảng tra dựng từ `LoanFundingRequested`/`LoanFullyFunded.v2`; event mâu thuẫn người vay đã lưu thì vào DLT, không gửi ai; group mới `notification-domain-events` | Nghiệp vụ | 3 (W3F) |
 | D61 | Quá hạn chỉ báo khi bắt đầu quá hạn, lên nhóm nợ, thành nợ xấu hoặc khắc phục; bỏ thông báo hằng ngày, cả phía nhà đầu tư | Nghiệp vụ | 3 (W3F) |
 | D62 | Expo Push: provider `log` (giả lập, mặc định, cổng môi trường chặn ở staging/production), `expo`, `disabled`; tối đa 5 thiết bị mỗi người, token chuyển chủ khi tài khoản khác đăng ký, thu hồi khi đăng xuất/`DeviceNotRegistered`; 6 lần thử rồi `DEAD`; không push event cũ hơn 24 giờ, 22:00–07:00 hoãn tới 07:00 (trừ rút tiền) | Kỹ thuật | 3 (W3F) |
@@ -199,8 +204,8 @@ Nguồn: rà soát code ngày 2026-10-16/17 và evidence R1A (`docker/e2e/out/r1
 | B19 | P1 | Loan/User | Loan chỉ có `BorrowerProfileProvider` mock (VERIFIED, 30 tuổi) | Fixed Wave 2B — [`W2-KYC`](W2-KYC-borrower-kyc-from-user.md): Loan chuyển tiếp token người vay tới User `/users/me/kyc-summary`, chặn người chưa `VERIFIED`, snapshot trên hồ sơ (V29); IT + kiểm thật `kyc-20261017-054750` |
 | B20 | P1 | FE | Mobile tự tính số tiền trả kỳ; web gọi API duyệt listing không còn tồn tại và hiện thông điệp sai | Fixed Wave 2 — `GET /repayments/scheduled-due` (IT), mobile dùng số backend, web bỏ form duyệt |
 | B21 | P1 | R9/R2 | DB Loan dùng chung chứa khoản vay trỏ tới Fineract local của máy khác; worker sync log lỗi 404 kèm stack trace ở mọi chu kỳ 10 giây, mapping Product↔Fineract không dùng chung được giữa máy | Partly fixed Wave 2 — log một dòng `warn`, không stack trace; tách DB theo môi trường vẫn thuộc R9 |
-| B22 | P2 | R9 | DB dev dùng chung chậm 1–3 migration so với `main` (Loan V26, Investment V13–V14, Payment V11 chỉ được áp khi chạy E2E) | Open → R9 (CI/migration discipline) |
-| B23 | P2 | R9 | Payment khai báo `spring-boot-starter-data-redis` nhưng không dùng Redis | Open → R9 |
+| B22 | P2 | R9 | DB dev dùng chung chậm 1–3 migration so với `main` (Loan V26, Investment V13–V14, Payment V11 chỉ được áp khi chạy E2E) | Mitigated Wave 3 (W3E) — `docs/ops/ENVIRONMENT-MATRIX.md` và CI chạy migration trên PostgreSQL 17 sạch; DB dùng chung vẫn chỉ được cập nhật khi service chạy |
+| B23 | P2 | R9 | Payment khai báo `spring-boot-starter-data-redis` nhưng không dùng Redis | Fixed Wave 3 (W3E) — bỏ dependency, cấu hình và container `payment-redis` |
 | B24 | P2 | R7 | `BorrowerSignatureRequested` chưa có consumer; người vay không nhận thông báo đến lượt ký | Open → Wave 3 (R7) |
 | B25 | P2 | DOC | `finora-loan/plans/` bị git-ignore nên link LN-009/010/015 trong tài liệu chung không mở được ở máy khác | Fixed Wave 2D (Q16) — bỏ dòng `/finora-loan/plans/` trong `.gitignore`, commit 24 plan Loan sau khi quét secret/PII |
 | B26 | P2 | User/Loan | Hai định danh người vay: Loan/Investment/Payment/AI dùng claim `user_id` (ID hồ sơ, ví dụ `borrowerId=553` trong log E2E `r1a-20261017-052157`), còn `CicMappingWorker` của User đăng ký mapping CIC theo `keycloakUserId` (test `guiKeycloakUserIdLamBorrowerIdVaCccdQuaKenhNoiBo`). `SecurityUtils.getCurrentUserId` còn rơi về `sub` khi token thiếu claim. Nếu bật mapping, event `LoanDelinquencyChanged.v1` (mang `borrowerId` của Loan) không bao giờ khớp mapping | Fixed Wave 2C (D18) — `CicMappingWorker` gửi `user_profiles.id` (= claim `user_id`); unit test `guiUserIdCuaHoSoLamBorrowerIdVaCccdQuaKenhNoiBo`. Bỏ fallback `sub` sang R8. Worker vẫn tắt vì CIC Node chưa có endpoint mapping (B27) |
@@ -232,6 +237,11 @@ Nguồn: rà soát code ngày 2026-10-16/17 và evidence R1A (`docker/e2e/out/r1
 | B52 | P1 | R6 | Consumer Blockchain không có error handler: DB lỗi khi consume làm mất yêu cầu proof sau 10 lần thử liền, không có DLT | Fixed W3D — `<topic>.DLT` |
 | B53 | P2 | R6 | Proof id ngẫu nhiên: cùng mốc phát lại với eventId mới tạo proof logic thứ hai | Fixed W3D — UUIDv5 theo mốc + unique index + index trong chaincode |
 | B54 | P2 | R6 | Blockchain không cấu hình JWT resource server: mọi endpoint, kể cả health, rơi về user Basic auth do Spring sinh | Fixed W3D — `BlockchainSecurityConfig` |
+| B55 | P1 | R9 | Testcontainers 1.19.7 gọi Docker API 1.32, Docker Engine 29 trên runner GitHub từ chối | Mitigated W3E trong CI (`api.version=1.44`, tắt Ryuk); sửa thật bằng nâng Testcontainers |
+| B56 | P2 | R9 | `/actuator/metrics` của Loan mở cho mọi người đăng nhập | Fixed W3E — chỉ ADMIN ở Loan, Payment, Investment; test 401/403/200 |
+| B57 | P2 | R9 | Outbox `DEAD_LETTER` không có API đưa lại hàng đợi | Open — gauge và SQL có kiểm soát ở `docs/ops/RUNBOOKS.md` §3.2 |
+| B58 | P1 | R9/R4 | Consumer Kafka của Payment không có DLT: record lỗi bị bỏ qua sau 10 lần thử, chỉ ghi log | Đang sửa cùng nhánh producer W3F (P1–P7); trước khi xong dùng replay ở RUNBOOKS §3.4 |
+| B59 | P3 | R9 | Flyway cảnh báo trên PostgreSQL 17 | Documented (D59) |
 | B60 | P2 | R7 | Nhà đầu tư nhận một thông báo mới mỗi ngày khoản vay còn quá hạn | Fixed W3F (D61) |
 | B61 | P3 | R7 | Loại thay đổi servicing chưa biết bị hiện thành "quá hạn" | Fixed W3F |
 | B62 | P1 | R7 | Consumer Notification không có error handler, DLT hay theo dõi trùng: event lỗi bị bỏ qua sau 10 lần thử | Fixed W3F — `<topic>.notification.DLT`, xử lý một lần theo `eventId` |
@@ -551,7 +561,8 @@ proof và worker đối soát (D50–D54, B50–B54). Blockchain 49 unit + 11 IT
 Org2 đọc độc lập cùng hash, hash giả cùng id bị từ chối, sửa hash trong PostgreSQL bị phát hiện `MISMATCHED`, drill
 dừng `peer0.org2` giữ `PENDING` rồi ghi đúng một lần khi peer quay lại. Mặc định vẫn MOCK; harness kiểm proof qua API
 cho cả hai ledger: E2E `w3cdf-installment-20261017-192843` (ledger MOCK) có đủ bốn proof `CONFIRMED`, hash tính lại từ `data` của event Kafka nguồn
-`MATCHED`, artifact bị sửa `MISMATCHED`. Lượt `-WithFabric` chạy ở hồi quy cuối Wave 3. Còn lại: trang explorer web, chứng cứ pháp lý `NEEDS_LEGAL_REVIEW`, Fabric CA và nhiều orderer cho
+`MATCHED`, artifact bị sửa `MISMATCHED`. E2E `w3d-fabric-installment-20261017-194059` (`-WithFabric`, 91/91): bốn proof `FABRIC_ON_CHAIN` ở
+`finora-channel` block 4–7, đối chiếu chain `MATCHED`, phát lại event không tạo proof thứ hai. Còn lại: trang explorer web, chứng cứ pháp lý `NEEDS_LEGAL_REVIEW`, Fabric CA và nhiều orderer cho
 production.
 
 ### Acceptance
