@@ -35,6 +35,8 @@ public class PaymentSecurityConfig {
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         // ZaloPay không có JWT của FINORA; tính xác thực nằm ở HMAC Key2 của callback.
                         .requestMatchers(HttpMethod.POST, "/api/v1/wallets/callbacks/zalopay").permitAll()
+                        // Provider payout giả lập (R4): xác thực bằng HMAC trên body, endpoint 404 khi provider không phải mock.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/wallets/callbacks/mock-payout").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2

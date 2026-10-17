@@ -76,6 +76,27 @@ finora:
       processing-lease: ${PAYMENT_DISBURSEMENT_PROCESSING_LEASE:2m}
       reconciliation-interval: ${PAYMENT_DISBURSEMENT_RECONCILIATION_INTERVAL:1m}
       reconciliation-max-attempts: ${PAYMENT_DISBURSEMENT_RECONCILIATION_MAX_ATTEMPTS:30}
+    # R4 (W3B): rút tiền về tài khoản ngân hàng. Policy demo Q4/D19 cấu hình được, không phải trích dẫn luật.
+    withdrawal:
+      minimum-amount: ${PAYMENT_WITHDRAWAL_MINIMUM_AMOUNT:50000}
+      daily-limit: ${PAYMENT_WITHDRAWAL_DAILY_LIMIT:50000000}
+      fee-amount: ${PAYMENT_WITHDRAWAL_FEE_AMOUNT:0}
+      # AES-256 base64 (32 byte) mã hóa số tài khoản (D44). Mặc định chỉ cho máy dev; staging/production bị cổng môi
+      # trường chặn (D37).
+      account-encryption-key: ${PAYMENT_ACCOUNT_ENCRYPTION_KEY:ZGV2LW9ubHktcGF5bWVudC1hY2NvdW50LWtleS0zMmI=}
+      processing-lease: ${PAYMENT_WITHDRAWAL_PROCESSING_LEASE:PT2M}
+      callback-timeout: ${PAYMENT_WITHDRAWAL_CALLBACK_TIMEOUT:PT2M}
+      reconciliation-interval: ${PAYMENT_WITHDRAWAL_RECONCILIATION_INTERVAL:PT30S}
+      reconciliation-max-attempts: ${PAYMENT_WITHDRAWAL_RECONCILIATION_MAX_ATTEMPTS:10}
+      max-submit-attempts: ${PAYMENT_WITHDRAWAL_MAX_SUBMIT_ATTEMPTS:3}
+    payout:
+      # Chỉ có mock; payout thật chờ legal review LEGAL-PAYMENT-01.
+      provider: ${PAYMENT_PAYOUT_PROVIDER:mock}
+      mock:
+        callback-url: ${PAYMENT_MOCK_PAYOUT_CALLBACK_URL:http://localhost:8082/api/v1/wallets/callbacks/mock-payout}
+        callback-secret: ${PAYMENT_MOCK_PAYOUT_CALLBACK_SECRET:dev-only-mock-payout-callback-secret}
+        callback-delay: ${PAYMENT_MOCK_PAYOUT_CALLBACK_DELAY:PT2S}
+        callback-enabled: ${PAYMENT_MOCK_PAYOUT_CALLBACK_ENABLED:true}
     top-up:
       provider: ${PAYMENT_TOPUP_PROVIDER:mock}
       minimum-amount: ${PAYMENT_TOPUP_MINIMUM_AMOUNT:10000}

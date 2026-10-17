@@ -37,6 +37,8 @@ public class PaymentOutboxPublisher{
     case "DisbursementCompleted" -> environment.getProperty("finora.payment.disbursement-completed-topic","finora.payment.disbursement-completed");
     case "DisbursementFailed" -> environment.getProperty("finora.payment.disbursement-failed-topic","finora.payment.disbursement-failed");
     case "RepaymentDistributed" -> environment.getProperty("finora.payment.repayment-distributed-topic","finora.payment.repayment-distributed");
+    case "WithdrawalCompleted" -> environment.getProperty("finora.payment.withdrawal-completed-topic","finora.payment.withdrawal-completed");
+    case "WithdrawalFailed" -> environment.getProperty("finora.payment.withdrawal-failed-topic","finora.payment.withdrawal-failed");
     default -> throw new IllegalArgumentException("Payment event chưa có Kafka route: "+e.getEventType());
    };
    ProducerRecord<String,String> record=new ProducerRecord<>(topic,e.getAggregateId(),envelope);
