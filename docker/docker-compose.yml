@@ -311,7 +311,9 @@ services:
     networks:
       - finora-network
 
-  # ============ PAYMENT OWNED DATABASE AND CACHE ============
+  # ============ PAYMENT OWNED DATABASE ============
+  # Payment không dùng Redis (B23, W3E): đã gỡ container payment-redis. Khai báo volume `payment-redis-data` ở cuối file
+  # không còn service nào dùng (Compose không tạo volume không được tham chiếu); xóa được ở lần sửa danh sách volume sau.
   payment-postgres:
     profiles: ["payment"]
     image: postgres:17.5-alpine
@@ -335,26 +337,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
-    networks:
-      - finora-network
-
-  payment-redis:
-    profiles: ["payment"]
-    image: redis:7-alpine
-    container_name: finora-payment-redis
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${PAYMENT_REDIS_PASSWORD}"]
-    environment:
-      PAYMENT_REDIS_PASSWORD: "${PAYMENT_REDIS_PASSWORD}"
-    ports:
-      - "127.0.0.1:${PAYMENT_REDIS_HOST_PORT:-6380}:6379"
-    volumes:
-      - payment-redis-data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${PAYMENT_REDIS_PASSWORD}\" redis-cli ping | grep PONG >/dev/null"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
     networks:
       - finora-network
 
@@ -457,8 +439,14 @@ services:
       user-redis:
         condition: service_healthy
     healthcheck:
-      # eclipse-temurin jammy co bash; /dev/tcp la tinh nang cua bash, khong phai dash.
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8085'"]
+      # Readiness của actuator (PostgreSQL + Redis User), không chỉ kiểm cổng mở (W3E, D56). Image JRE không có curl
+      # nên gửi HTTP bằng /dev/tcp của bash (eclipse-temurin jammy có bash). Tomcat trả "HTTP/1.1 200 " không reason.
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8085;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
       interval: 10s
       timeout: 5s
       retries: 20
