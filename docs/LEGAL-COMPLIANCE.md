@@ -135,8 +135,8 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
   breakdown tiền cần thiết; không chứa CCCD. Mapping `borrowerId ↔ CCCD` được bảo vệ bằng
   khóa nội bộ và chỉ lưu ở CIC mock. Đây vẫn là dữ liệu demo, không phải báo cáo CIC thật.
 - B70 (kiểm 2026-10-17): bản CIC Node deploy (`cic-service-node.vercel.app`) là mock công khai — API liệt kê hồ sơ
-  và nhật ký tra cứu (`/api/v1/ho-so`, `/api/v1/nhat-ky`) không xác thực, kho dữ liệu là Vercel Blob `public` đường dẫn
-  cố định, tra một CCCD chưa có thì CIC lưu hồ sơ mới và nhật ký kèm số CCCD. Lúc kiểm, kho chỉ có 1.000 hồ sơ mẫu và 2
+  và nhật ký tra cứu (`/api/v1/ho-so`, `/api/v1/nhat-ky`) không xác thực, code dùng Vercel Blob `public` đường dẫn cố định khi
+  có `BLOB_READ_WRITE_TOKEN` (bản deploy hiện dùng tệp tạm `/tmp`, mất khi instance khởi động lại), tra một CCCD chưa có thì CIC lưu hồ sơ mới và nhật ký kèm số CCCD. Lúc kiểm, kho chỉ có 1.000 hồ sơ mẫu và 2
   dòng nhật ký (chưa có CCCD thật). Vì vậy bản deploy chỉ dùng với CCCD tổng hợp; worker mapping của User mặc định tắt;
   dùng CCCD thật cần CIC có xác thực và kho riêng tư (owner CIC: Hải) — `NEEDS_OWNER_DECISION`.
 - Owner quyết định ngày 2026-10-17 (D84): môi trường dev chỉ có dữ liệu mock nên tạm bật mapping sang bản deploy, chấp nhận dữ liệu nằm trong kho công khai; **trước khi có CCCD thật phải tắt mapping hoặc chuyển CIC sang kho riêng tư có xác thực**. Không eKYC bằng CCCD thật khi mapping đang bật.
