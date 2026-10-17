@@ -181,6 +181,10 @@ lựa chọn kỹ thuật còn lại, miễn phù hợp nghiệp vụ và chạy
 | D72 | Web có `src/components/Drawer` dùng chung; hai bản `SideDrawer` cũ chờ chuyển (WEB-UI-001) | Kỹ thuật | 3 |
 | D73 | Mobile: thẻ chữ ký PAdES ở màn hợp đồng người vay và nhà đầu tư (số chữ ký, bản đang ký, biên nhận, nhãn chứng thư demo/UAT không có giá trị pháp lý); `409 CONTRACT_SIGNATURE_IN_PROGRESS` báo chờ và giữ khóa, `503 SIGNATURE_PROVIDER_INVALID_SIGNATURE` đổi khóa và cho "Ký lại" | Nghiệp vụ | 3 |
 | D74 | Màn "Cài đặt thông báo" (R7) theo thiết kế tab Hồ sơ của Hải; component để trong feature push vì import `@/features/account` tạo vòng `AuthProvider` → push → account | Kỹ thuật | 3 |
+| D76 | `nextDueDate`/`nextDueAmount` của `LoanDisbursed`/`LoanRescheduled` lấy từ cùng snapshot Fineract với ngày đáo hạn (kỳ sớm nhất còn phải trả); thiếu thì bỏ field, số tiền không đúng hai chữ số thập phân thì bỏ chứ không làm tròn; không bao giờ làm hỏng ghi core | Kỹ thuật | 3 (W3F producer) |
+| D77 | Payment phát `RepaymentCollected.v1` khi giữ khoản trả kỳ trước hạn (`postOn`) và `RepaymentCancelled.v1` khi hủy thật; gửi lại cùng `Idempotency-Key` hay hủy lặp không phát lần hai; publisher Payment chỉ cho đúng loại + v1 trong allowlist | Kỹ thuật | 3 (W3F producer) |
+| D78 | Investment mời biểu quyết cơ cấu bằng `InvestorNoteServicingChanged.v1` `RESCHEDULE_CONSENT_REQUESTED`, một bản cho mỗi chủ phiếu, chỉ khi phiếu được tạo lần đầu cho `requestId` (giao trùng/phát lại với eventId mới không mời lại) | Nghiệp vụ | 3 (W3F producer) |
+| D79 | Consumer Payment: lỗi contract/validation vào thẳng `<topic>.payment.DLT`; lỗi khác thử lại lùi dần 1–30 giây trong 3 phút rồi vào DLT (`PAYMENT_KAFKA_RETRY_*`, `PAYMENT_KAFKA_DLT_SUFFIX`) | Kỹ thuật | 3 (W3F producer, B58) |
 | D75 | Không thêm `signedPdfHash` vào `LoanContractActivated.v1`: proof `CONTRACT_DOCUMENT` neo `pdfReceiptHash`, biên nhận `PADES_RECEIPT_V1` ghi SHA-256 bản ký đủ, nên chuỗi proof → biên nhận → PDF ký đủ kiểm được; harness kiểm `proof.contract-anchors-signed-receipt` | Kỹ thuật | 3 |
 | D28 | Sửa B32: admin "Ghi lại vào hệ thống lõi" cho khoản trả nợ `RECONCILIATION_REQUIRED` sau khoảng an toàn (`PAYMENT_CORE_REPOST_SAFE_AFTER`, mặc định 15 phút): tra cứu theo externalId trước, chỉ POST khi Fineract chưa có, dùng đúng externalId/số tiền/ngày ghi nhận ban đầu; Fineract từ chối thì tra cứu lại rồi mới hoàn tiền. Chọn thao tác thủ công có điều kiện thay cho tự động ghi lại vì đây là ngoại lệ tài chính cần người chịu trách nhiệm; mỗi lần ghi lại lưu ai và lúc nào | Nghiệp vụ | 2D (xong) |
 
@@ -248,13 +252,13 @@ Nguồn: rà soát code ngày 2026-10-16/17 và evidence R1A (`docker/e2e/out/r1
 | B55 | P1 | R9 | Testcontainers 1.19.7 gọi Docker API 1.32, Docker Engine 29 trên runner GitHub từ chối | Mitigated W3E trong CI (`api.version=1.44`, tắt Ryuk), đã chạy thật trên runner GitHub (run 39037174792 xanh); sửa thật bằng nâng Testcontainers |
 | B56 | P2 | R9 | `/actuator/metrics` của Loan mở cho mọi người đăng nhập | Fixed W3E — chỉ ADMIN ở Loan, Payment, Investment; test 401/403/200 |
 | B57 | P2 | R9 | Outbox `DEAD_LETTER` không có API đưa lại hàng đợi | Open — gauge và SQL có kiểm soát ở `docs/ops/RUNBOOKS.md` §3.2 |
-| B58 | P1 | R9/R4 | Consumer Kafka của Payment không có DLT: record lỗi bị bỏ qua sau 10 lần thử, chỉ ghi log | Đang sửa cùng nhánh producer W3F (P1–P7); trước khi xong dùng replay ở RUNBOOKS §3.4 |
+| B58 | P1 | R9/R4 | Consumer Kafka của Payment không có DLT: record lỗi bị bỏ qua sau 10 lần thử, chỉ ghi log | Fixed Wave 3 (D79) — `PaymentKafkaConsumerConfiguration`, `PaymentKafkaDeadLetterIT` |
 | B59 | P3 | R9 | Flyway cảnh báo trên PostgreSQL 17 | Documented (D59) |
 | B60 | P2 | R7 | Nhà đầu tư nhận một thông báo mới mỗi ngày khoản vay còn quá hạn | Fixed W3F (D61) |
 | B61 | P3 | R7 | Loại thay đổi servicing chưa biết bị hiện thành "quá hạn" | Fixed W3F |
 | B62 | P1 | R7 | Consumer Notification không có error handler, DLT hay theo dõi trùng: event lỗi bị bỏ qua sau 10 lần thử | Fixed W3F — `<topic>.notification.DLT`, xử lý một lần theo `eventId` |
 | B63 | P3 | R7 | Template có thể in `null`; `.env.example` của mobile còn mock miền thông báo | Fixed W3F |
-| B64 | P2 | R7 | Event Loan/Payment không mang id người nhận | Workaround W3F bằng bảng tra; sửa thật ở producer (P1–P7 trong W3F §13) |
+| B64 | P2 | R7 | Event Loan/Payment không mang id người nhận | Fixed Wave 3 — producer P1–P7 thêm `borrowerId`, `investorIds`, event giữ/hủy khoản trả kỳ, lời mời biểu quyết; bảng tra của Notification còn dùng cho `LoanFundingExpired` phía người vay |
 | B66 | P3 | CIC | Test của Hải (`tich-hop-finora-domain.test.js` test 2) dùng một CCCD đã có trong seed nhưng mong hồ sơ mới, không thể xanh khi lịch sử append-only và số tổng của hồ sơ cũ được giữ | Open — Hải sửa test (đổi sang một CCCD chưa có trong seed thì file 7/7) |
 | B67 | P1 | CIC | Kho CIC: ghi lỗi để lại cache đánh dấu event "đã xử lý" mà chưa lưu; hai lần nạp lại đồng thời ghi đè nhau làm mất ghi | Fixed nhánh CIC — có test |
 | B68 | P1 | CIC | `GET /api/v1/diem-tin-dung/{soCccd}` lưu hồ sơ mới cho CCCD lạ vào Blob public của bản deploy (cùng gốc B70) | Open — Hải quyết kho riêng tư/xác thực; phía FINORA xem B70 |
@@ -263,6 +267,7 @@ Nguồn: rà soát code ngày 2026-10-16/17 và evidence R1A (`docker/e2e/out/r1
 | B72 | P2 | Mobile | Hỏi SmartCA nền nuốt lỗi cuối (từ chối ký, `INVESTOR_SIGNATURE_NOT_STARTED`) và hỏi tiếp tới 12 lần: người dùng không biết chữ ký bị từ chối | Fixed (D73) |
 | B73 | P3 | Loan/Web | `AdminLoanReviewDetailResponse` thiếu `id` số và `contractNumber`: trang duyệt hồ sơ không mở được proof, admin không tìm proof theo số hồ sơ | Open — thêm hai field ở Loan |
 | B74 | P3 | Mobile | Màn cài đặt thông báo R7 dùng khung `Screen`/`PHeader`/`Card` cũ | Fixed (D74) |
+| B76 | P3 | R2/R7 | Khoản trả kỳ được giữ mà Fineract từ chối vào ngày đến hạn thì được hoàn tiền và `FAILED` nhưng không phát event: Notification giữ cờ "đã giữ" nên không nhắc "đến hạn hôm nay" cho kỳ đó (chỉ ảnh hưởng khi bật nhắc lịch D64) | Open |
 | B65 | P2 | R1 | Launcher E2E chạy jar có sẵn dù mã nguồn đã sửa sau lần build: lượt `w3a-installment-20261017-183146` báo `withdrawal.admin-queue-reachable` 404 vì jar Gateway build lúc 16:31, trước commit thêm route `/api/v1/admin/withdrawals/**` lúc 17:25. Evidence trên jar cũ cho kết luận sai về code | Fixed Wave 3 — `Assert-JarFresh` so jar với file mới nhất trong `src/main`/`pom.xml` của module, `finora-common` và pom gốc, từ chối kèm hướng dẫn `-Build` (`-AllowStaleJar` khi cố ý); chạy lại `w3a-installment-20261017-184734` 79/79 |
 | B70 | P1 | R8/CIC | Rủi ro lộ CCCD qua CIC Node công khai: bản deploy không xác thực API đọc (`/api/v1/ho-so`, `/api/v1/nhat-ky`), lưu toàn bộ dữ liệu trong Vercel Blob `public` (`cic/du-lieu.json`, không hậu tố ngẫu nhiên), tra CCCD lạ thì lưu hồ sơ mới + nhật ký kèm CCCD. Trong khi đó `docker-compose*.yml` và `.env.example` để `USER_CIC_MAPPING_ENABLED` mặc định `true` trỏ tới bản này, trái với registry ("mặc định tắt"). Lúc kiểm (2026-10-17) kho chỉ có 1.000 hồ sơ mẫu, 2 dòng nhật ký: chưa lộ thật | Fixed phía FINORA Wave 3 — mặc định `false` ở hai compose và `.env.example`, README và `LEGAL-DATA-01` ghi chỉ dùng CCCD tổng hợp với bản deploy. Phía CIC: nhánh `feat/finora-delinquency-intake` chặn lưu mapping khi kho là Blob public; xác thực API đọc và kho riêng tư chờ Hải quyết |
 | S01 | P1 | R8 | Tự đăng ký `ADMIN`; AI không xác thực (kể cả `PUT config`); endpoint nội bộ Notification `permitAll`; `mock-complete` không gắn môi trường; PIN token dùng lại được trong TTL; URL Neon mặc định trong `application.yml` của Loan | W3A (D33–D40): AI/Notification xác thực, danh tính service, cổng môi trường, PIN gắn thao tác, URL Neon bỏ khỏi `application.yml`, chống dò mật khẩu và giới hạn tần suất; unit/IT xanh. E2E `w3a-installment-20261017-184734` 79/79 sau khi realm có client/role mới. Chặn tự đăng ký `ADMIN` vẫn hoãn (D20) |
@@ -605,8 +610,9 @@ preference, provider push/SMS/email đầy đủ và bounded retry/DLT cho mọi
 Trạng thái Wave 3 ([`W3F`](W3F-notifications-expo-push.md), Hải review trước merge): Notification xử lý mọi event
 Loan/Investment/Payment hiện có và event rút tiền, Expo Push (D60–D64, B60–B64; B24 đã sửa), Notification V2–V4.
 134 unit + 18 IT xanh; mobile đăng ký thiết bị và màn "Cài đặt thông báo". E2E `w3cdf-installment-20261017-192843`: người vay nhận đủ sáu loại
-thông báo theo mốc, nhà đầu tư bốn loại, không trùng; push của thiết bị giả lập `SENT` qua `LOG_MOCK` ở năm nhóm. Còn lại: push trên máy thật (cần EAS
-projectId và development build), producer bổ sung `borrowerId`/event giữ khoản trả kỳ (P1–P7), mã hóa token khi lưu (R8B).
+thông báo theo mốc, nhà đầu tư bốn loại, không trùng; push của thiết bị giả lập `SENT` qua `LOG_MOCK` ở năm nhóm. Producer P1–P7 đã bổ sung
+(D76–D79): Loan 313 unit + 26 IT, Payment 102 + 38, Investment 84 + 54, Notification 134 + 21 xanh. Còn lại: push trên máy thật
+(cần EAS projectId và development build), bật nhắc lịch (D64, owner quyết định), mã hóa token khi lưu (R8B).
 
 ## 13. R8 — Security, privacy và audit
 
