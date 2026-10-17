@@ -10,6 +10,9 @@ Mỗi flow mới hoặc thay đổi MUST xác định trigger, orchestrator, con
 - `eventId` chống xử lý event trùng; API side effect dùng `idempotencyKey`; Saga dùng `sagaId` xuyên suốt.
 - Timeout/retry chỉ cho lỗi tạm thời và operation idempotent. Business rejection không retry.
 - Compensation là nghiệp vụ riêng, idempotent và audit được; không xóa lịch sử để giả lập rollback.
+- Lời gọi service → service không có JWT người dùng (worker, đăng ký/quên mật khẩu) dùng client credentials của chính
+  service gọi; service nhận kiểm client role, không tin mạng nội bộ (D34). Token service chỉ gắn cho đúng client gọi
+  service FINORA, không gửi tới CIC hay dịch vụ bên ngoài.
 
 ## F01 — Định danh điện tử
 
@@ -387,6 +390,23 @@ và business reference, idempotent theo source event, claim lease, bounded retry
 **Idempotency:** `sourceEventId + recipientId + channel + templateVersion`.
 
 **Failure:** gửi lỗi không rollback nghiệp vụ nguồn; MUST NOT log payload chứa PII hoặc secret.
+
+## F10 — Rút tiền về tài khoản ngân hàng
+
+**Trigger:** người vay/nhà đầu tư rút số dư khả dụng (PIN `WITHDRAW`, `Idempotency-Key`). **Orchestrator:** Payment.
+
+1. Payment khóa dòng ví, kiểm policy (tối thiểu, hạn mức theo ngày nghiệp vụ, số dư), ghi bút toán dự trữ
+   `AVAILABLE` → `PAYOUT_PROVIDER_CLEARING` và lệnh `REQUESTED` trong một transaction.
+2. Worker nhận lệnh có lease, gọi provider payout ngoài transaction; provider nhận → `PROVIDER_PENDING`.
+3. Provider báo kết quả bằng callback ký HMAC: thành công → `COMPLETED`; thất bại → bút toán hoàn + `FAILED` cùng transaction.
+4. Không rõ kết quả (timeout, hết lease, mất callback) → tra cứu theo `withdrawalId`; chỉ gửi lại đúng mã khi provider
+   khẳng định chưa nhận. Hết lượt tự động → `RECONCILIATION_REQUIRED` chờ vận hành (`/api/v1/admin/withdrawals`).
+5. Outbox `WithdrawalCompleted.v1`/`WithdrawalFailed.v1` (chỉ số tài khoản che) cho Notification.
+
+**Idempotency:** `(ownerId, Idempotency-Key)` unique + hash nội dung (dấu vân tay HMAC của số tài khoản); bút toán khóa theo
+`WITHDRAWAL:<id>:RESERVE/REFUND`; callback lặp không ghi/hoàn hai lần.
+
+**Failure:** chữ ký sai `401`, callback mâu thuẫn kết quả đã chốt `409`; payout thật chỉ mở sau legal review `LEGAL-PAYMENT-01`.
 
 ## Checklist khi thêm flow
 

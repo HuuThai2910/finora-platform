@@ -92,11 +92,11 @@ SoR, ledger/event và khả năng retry.
 | G-POLICY | P0 | Both | Policy/Contract | `IN_PROGRESS` | Khoản vay cũ/mới dùng đúng policy version và hợp đồng/quote/UI cùng một công thức; Wave 2B xong biểu phí trả trước (`G-POLICY-W2`); Wave 2C xong core V4 + hợp đồng `LOAN_TERMS_V3` (`W2C`) |
 | R2 | P0 | Thai | Loan/Payment/Fineract | `IN_PROGRESS` | Restart/timeout/duplicate không giải ngân hoặc thu tiền hai lần; Wave 2 xong B06–B13 (`R2-W2` chờ review); Wave 2C xong B28–B30 và khoản trả kỳ giữ tới ngày đến hạn (`W2C` chờ review) |
 | R3 | P0 | Hai | Investment | `IN_PROGRESS` | Order–hold, Note activation, ownership và portfolio tự repair; Wave 2 xong B14–B16 (`R3-W2` chờ Hải review) |
-| R4 | P1 | Thai | Payment | `BACKLOG` | Rút tiền và provider disbursement sandbox chạy thật, đối soát được |
+| R4 | P1 | Thai | Payment | `READY_FOR_REVIEW` | Rút tiền và provider disbursement sandbox chạy thật, đối soát được; W3B xong rút tiền qua provider payout giả lập (D41–D44), E2E `w3a-installment-20261017-184734`; provider thật chờ legal review |
 | R5 | P1 | Thai + Hai | Loan/Investment/SmartCA | `BACKLOG` | PDF có chữ ký nhúng của nhiều bên hoặc quyết định giữ receipt rời được duyệt |
 | R6 | P1 | Thai | Blockchain | `BACKLOG` | Fabric thật + proof/query/reconcile cho các mốc đã duyệt |
 | R7 | P1 | Hai | Notification | `IN_PROGRESS` | Template đầy đủ và push thật; lỗi provider không làm sai nghiệp vụ |
-| R8 | P1 | Both | Security | `BACKLOG` | RBAC/resource auth, PII/secret/log và abuse controls được kiểm chứng |
+| R8 | P1 | Both | Security | `IN_PROGRESS` | RBAC/resource auth, PII/secret/log và abuse controls được kiểm chứng; R8A xong ở W3A (D33–D40, E2E `w3a-installment-20261017-184734`), chặn tự đăng ký `ADMIN` hoãn (D20) |
 | R9 | P1 | Both | Ops | `BACKLOG` | Health, metrics, alert, replay/DLT và deployment tái lập được |
 | R10 | P2 | Hai | AI | `BACKLOG` | Backtest/champion-challenger, fraud và early warning có metric |
 | R11 | P2 | Hai + Thai | Investment/Payment | `IN_PROGRESS` | Secondary market/auto-invest qua concurrency/reconciliation E2E |
@@ -140,6 +140,18 @@ lựa chọn kỹ thuật còn lại, miễn phù hợp nghiệp vụ và chạy
 | D30 | R3 lệnh góp vốn ↔ khoản giữ (sửa B38–B41): Payment có `GET /transactions/holds?orderReference=` không side effect; Investment chỉ chốt khi khoản giữ `HELD` đúng số tiền, coi 401/403/404/408/429 là chưa biết (không từ chối lệnh), nhả tiền sau khi transaction của lệnh commit, worker lùi dần và dừng cho vận hành khi Payment trả lỗi chắc chắn; admin xem và hẹn thử lại. Chọn đối soát kéo (Investment hỏi Payment) thay vì sửa DB Payment hay thêm event, vì Payment đã có khóa idempotency theo mã lệnh và Investment là bên biết lệnh nào còn sống | Nghiệp vụ | 2D (xong) |
 | D31 | Q13: drill lỗi thật trong stack E2E: Toxiproxy (profile `e2e-faults`, chỉ Payment → Fineract đi qua) cho mất phản hồi/mất request; điểm dừng `finora.e2e.pause-point` (Loan `core-booked-before-save`, Payment `provider-disbursed-before-save`) chỉ nhận khi chữ ký MOCK/provider mock như đồng hồ E2E, harness tắt hẳn JVM ở điểm dừng rồi bật lại với lease 30 giây. Không có API hay cấu hình nào ở demo/production bật được điểm dừng | Kiểm thử | 2D (xong) |
 | D32 | Sửa B42: lỗi I/O (timeout, reset, đóng giữa chừng) ở bất kỳ đâu trong cause chain sau khi request có thể đã tới đích là "chưa biết kết quả", không phải lỗi không xác định: Payment ghi `FINERACT_REPAYMENT_OUTCOME_UNKNOWN` và đối soát theo externalId, Loan `FINERACT_CONNECTION_LOST` retry (tra theo số hợp đồng trước khi ghi), AI scoring `AI_UNAVAILABLE`. Lỗi đọc JSON vẫn là lỗi không xác định. Chọn sửa phân loại thay vì đổi HTTP client vì client khác cũng cần phân loại như vậy và đổi client làm đổi hành vi timeout của mọi adapter | Kỹ thuật | 2D (xong) |
+| D33 | Sửa B43: Gateway gọi upstream bằng HTTP/1.1 (bean `ClientHttpRequestFactory` thay bean mặc định HTTP/2 của Gateway MVC). JDK `HttpClient` gửi `Upgrade: h2c` tới upstream `http://`; uvicorn 0.27/h11 giữ body chờ `101` nên AI nhận body rỗng. Sửa ở Gateway vì mọi upstream không phải Tomcat đều bị | Kỹ thuật | 3 (W3A) |
+| D34 | Danh tính service bằng client credentials Keycloak, mỗi service gọi một client riêng: `finora-loan-client` (`ai:credit:score`), `finora-user-client` thêm `ai:ekyc:ocr`, `notification:internal:send`, `finora-ai-client` (chỉ `user:admin:read_all`, thay cho việc AI giữ secret có quyền quản trị Keycloak). Secret chỉ ở `.env` git-ignore, script `add-service-clients.sh` ghi thẳng không in | Security | 3 (W3A) |
+| D35 | AI kiểm JWT Keycloak (RS256/JWKS, issuer, hạn; header hoặc cookie `access_token`): chấm điểm `ai:credit:score` hoặc `ROLE_ADMIN`, cấu hình `ROLE_ADMIN` (log actor khi sửa), OCR `ai:ekyc:ocr`, fraud `ROLE_ADMIN`; Swagger chỉ ở local/e2e/demo. Web admin gọi AI cùng origin qua Gateway bằng cookie phiên | Security | 3 (W3A) |
+| D36 | Notification `/api/internal/notifications/**` cần authority `notification:internal:send`; body có validation (OTP đúng 6 chữ số) | Security | 3 (W3A) |
+| D37 | `finora.environment` (`FINORA_ENVIRONMENT`, mặc định `local`): staging/production từ chối khởi động khi còn khóa PIN mặc định, đồng hồ/điểm dừng E2E, provider mock, chữ ký MOCK, khóa mặc định của User, eKYC nhà đầu tư tắt, proof MOCK. Nút giả lập nạp tiền chỉ ở local/e2e/demo, provider mock, lệnh chưa hết hạn | Security | 3 (W3A) |
+| D38 | Token PIN gắn với `Idempotency-Key` của đúng thao tác (claim `req` = SHA-256 base64url); endpoint `@RequirePin` bắt buộc header; gửi lại cùng thao tác vẫn qua nhờ idempotency, không cần bảng chống dùng lại. App và harness gửi `requestKey` khi xác nhận PIN | Security | 3 (W3A) |
+| D39 | Loan bỏ URL/username Neon mặc định trong `application.yml`, mặc định PostgreSQL local; máy dev giữ giá trị cũ trong `finora-loan/.env` | Security | 3 (W3A) |
+| D40 | Keycloak bật chống dò mật khẩu (5 lần, chờ tăng 60 giây, tối đa 15 phút, không khóa vĩnh viễn; bỏ được bằng `--skip-brute-force` khi realm dùng chung); giới hạn tần suất in-memory: OCR 5/10 phút, tạo lệnh nạp 10/giờ, báo giá 30/phút, rút tiền 10/giờ | Security | 3 (W3A) |
+| D41 | Rút tiền trừ ví ngay lúc nhận lệnh (`AVAILABLE` → clearing `PAYOUT_PROVIDER_CLEARING`) trong transaction khóa dòng ví cùng lúc kiểm hạn mức ngày; thất bại hoàn bằng bút toán ngược trong cùng transaction chuyển `FAILED`; không dùng `HELD` | Nghiệp vụ | 3 (W3B) |
+| D42 | Kết quả chi tiền chưa rõ không bao giờ gửi lệnh chi mới: tra cứu provider theo `withdrawalId`; chỉ gửi lại với đúng mã khi provider khẳng định chưa nhận | Nghiệp vụ | 3 (W3B) |
+| D43 | Provider payout mock gọi callback HTTP thật, ký HMAC-SHA256 trên body; tài khoản kết thúc `0000` mô phỏng tài khoản sai; endpoint callback 404 khi provider không phải mock | Kỹ thuật | 3 (W3B) |
+| D44 | Số tài khoản nhận tiền mã hóa AES-256-GCM, chỉ trả bản che; hash idempotency dùng HMAC của số tài khoản để không dò ngược được | Security | 3 (W3B) |
 | D28 | Sửa B32: admin "Ghi lại vào hệ thống lõi" cho khoản trả nợ `RECONCILIATION_REQUIRED` sau khoảng an toàn (`PAYMENT_CORE_REPOST_SAFE_AFTER`, mặc định 15 phút): tra cứu theo externalId trước, chỉ POST khi Fineract chưa có, dùng đúng externalId/số tiền/ngày ghi nhận ban đầu; Fineract từ chối thì tra cứu lại rồi mới hoàn tiền. Chọn thao tác thủ công có điều kiện thay cho tự động ghi lại vì đây là ngoại lệ tài chính cần người chịu trách nhiệm; mỗi lần ghi lại lưu ai và lúc nào | Nghiệp vụ | 2D (xong) |
 
 ## 3b. Defect register
@@ -191,7 +203,10 @@ Nguồn: rà soát code ngày 2026-10-16/17 và evidence R1A (`docker/e2e/out/r1
 | B40 | P1 | R3 | Người dùng hủy lệnh và lệnh bị từ chối sau khi giữ tiền gọi Payment `release` bên trong transaction đang khóa listing. Payment nhả xong mà Investment rollback (mất phản hồi, lỗi flush/optimistic lock) thì Investment vẫn `COMMITTED`/`ACTIVE` trên khoản đã nhả, không ai phát hiện | Fixed Wave 2D (D30) — nhả sau khi commit, lỗi thì worker; `FundingFlowIT.userCancelReleasesTheHoldAfterTheOrderIsCancelled` |
 | B41 | P2 | R3 | Lỗi nhả tiền không phân loại: khoản đã capture trả 500, không tìm thấy/lệch mã trả 404/409, worker thử lại mãi; quét 50 dòng đầu theo id nên dòng lỗi chặn dòng mới; không có màn cho vận hành | Fixed Wave 2D (D30) — Payment `409 PAYMENT_HOLD_NOT_RELEASABLE`, Investment V18 lùi lịch/dừng, admin `order-incidents`; `FundingFlowIT.releaseThatPaymentRefusesStopsForOperationsAndCanBeRetried`, `retryableReleaseFailureBacksOffInsteadOfBlockingTheQueue` |
 | B42 | P1 | R2 | Spring 6.1 `RestClient` + `SimpleClientHttpRequestFactory` báo mất phản hồi/ngắt kết nối khi đang chờ phản hồi của POST bằng `RestClientException`, không phải `ResourceAccessException`. Payment ghi repayment đó là `FINERACT_REPAYMENT_UNEXPECTED` (vẫn đối soát, không hoàn tiền, nhưng sai nhãn cho vận hành); Loan coi reset khi ghi khoản vay là `FINERACT_UNEXPECTED_ERROR` không retry → saga dừng `REPAIR_REQUIRED` dù tra theo số hợp đồng là an toàn; AI scoring tương tự. Phát hiện ở drill Q13 `FineractResponseLost`/`FineractRequestLost` | Fixed Wave 2D (D32) — phân loại theo cause chain; `FineractRepaymentConnectionLossTest` (socket thật), `FineractHttpClientTest`, `AiCreditScoringHttpClientTest`; drill chạy lại `w2d-drill-responselost-20261017-154203`, `w2d-drill-requestlost-20261017-154552`, `w2d-drill-paymentcrash-20261017-155545` |
-| S01 | P1 | R8 | Tự đăng ký `ADMIN`; AI không xác thực (kể cả `PUT config`); endpoint nội bộ Notification `permitAll`; `mock-complete` không gắn môi trường; PIN token dùng lại được trong TTL; URL Neon mặc định trong `application.yml` của Loan | R8A ở Wave 3 theo Q8, trừ chặn tự đăng ký `ADMIN` hoãn sau Wave 3 (D20) |
+| B43 | P1 | R8 | Gateway nuốt body POST tới AI (422 "body: Field required"): JDK `HttpClient` của Gateway MVC gửi `Upgrade: h2c`, uvicorn 0.27 giữ body chờ nâng cấp. Vì vậy web admin gọi thẳng AI cổng 8000 không xác thực | Fixed Wave 3 (W3A, D33) — `UpstreamHttpClientConfigTest`, `UpstreamHttpClientWiringTest` |
+| B44 | P2 | AI | AI test suite: TestClient của Starlette 0.35 (FastAPI 0.109) không chạy với httpx 0.28 mà google-genai bắt buộc, nên mọi test dùng TestClient lỗi khi tạo client; thiếu `pytest-asyncio`/`pytest-httpx`. Sau khi sửa môi trường còn 10 test đỏ từ trước W3A: thứ tự/ngưỡng luật trong `config/product_config.json` lệch test (`test_rule_engine`, `test_config_rules_api::test_xoa_luat_mac_dinh`) và payload cũ của `TestRouterV14` | Partly fixed Wave 3 — FastAPI 0.115.6 + `requirements-dev.txt`; 10 test lệch cấu hình chờ Hải quyết cấu hình nào là chuẩn (đổi bên nào cũng đổi điểm tín dụng đang chạy) |
+| B65 | P2 | R1 | Launcher E2E chạy jar có sẵn dù mã nguồn đã sửa sau lần build: lượt `w3a-installment-20261017-183146` báo `withdrawal.admin-queue-reachable` 404 vì jar Gateway build lúc 16:31, trước commit thêm route `/api/v1/admin/withdrawals/**` lúc 17:25. Evidence trên jar cũ cho kết luận sai về code | Fixed Wave 3 — `Assert-JarFresh` so jar với file mới nhất trong `src/main`/`pom.xml` của module, `finora-common` và pom gốc, từ chối kèm hướng dẫn `-Build` (`-AllowStaleJar` khi cố ý); chạy lại `w3a-installment-20261017-184734` 79/79 |
+| S01 | P1 | R8 | Tự đăng ký `ADMIN`; AI không xác thực (kể cả `PUT config`); endpoint nội bộ Notification `permitAll`; `mock-complete` không gắn môi trường; PIN token dùng lại được trong TTL; URL Neon mặc định trong `application.yml` của Loan | W3A (D33–D40): AI/Notification xác thực, danh tính service, cổng môi trường, PIN gắn thao tác, URL Neon bỏ khỏi `application.yml`, chống dò mật khẩu và giới hạn tần suất; unit/IT xanh. E2E `w3a-installment-20261017-184734` 79/79 sau khi realm có client/role mới. Chặn tự đăng ký `ADMIN` vẫn hoãn (D20) |
 
 ## 4. R0 — Đồng bộ source, roadmap và tài liệu
 
@@ -428,6 +443,11 @@ dựng từ event (Kafka giữ offset), chưa có API kéo lại từ Loan khi m
 - Batch/admin reconciliation: provider amount/status ↔ Payment transaction/ledger.
 - Công bố rõ tiền sandbox là giả và không mô tả FINORA đang giữ tiền thật.
 
+Trạng thái Wave 3 ([`W3B`](W3B-wallet-withdrawal-mock-payout.md)): rút tiền về tài khoản ngân hàng qua provider payout
+giả lập (D41–D44) — policy Q4, trừ ví một lần dưới khóa dòng ví, callback HMAC, hoàn tiền, tra cứu khi mất callback hoặc
+worker chết, hàng đợi sự cố admin; Payment V18. E2E `w3a-installment-20261017-184734`: 8 check `withdrawal.*` xanh. Còn lại: đối soát tổng theo lô provider ↔ ledger (cần sao kê của provider
+thật), payout thật sau legal review.
+
 ### Acceptance
 
 - Callback trùng không cộng tiền hai lần; callback giả/sai HMAC bị từ chối.
@@ -518,6 +538,11 @@ preference, provider push/SMS/email đầy đủ và bounded retry/DLT cho mọi
 
 R8A phải đạt trước R4 và trước khi bật SmartCA/provider ngoài môi trường local. Không cần chờ toàn bộ
 hardening production mới chạy R5–R7 bằng mock/fail-closed.
+
+Trạng thái Wave 3 ([`W3A`](W3A-security-gate-service-identity-and-pin-binding.md), Hải review AI/User/Notification trước
+merge): xong phần code của các mục trên (D33–D40); bước "quyền chéo" (người dùng thứ hai đổi ID không đọc được tài nguyên,
+người vay không gọi được API quản trị, AI/Notification từ chối lời gọi không token) đã vào harness E2E. E2E `w3a-installment-20261017-184734` 79/79
+(fixture trả kỳ mặc định kèm drill). Còn lại: redaction log và quét secret trong CI thuộc R9 (W3E).
 
 ### R8B — Hardening trước release
 

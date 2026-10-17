@@ -2,7 +2,7 @@
 task_id: W3B
 title: Rút tiền từ ví về tài khoản ngân hàng — provider payout giả lập có callback HMAC, đối soát và hàng đợi sự cố (R4)
 owner: Thai
-status: IN_PROGRESS
+status: READY_FOR_REVIEW
 depends_on: [W3A]
 created_at: 2026-10-17
 updated_at: 2026-10-17
@@ -104,3 +104,24 @@ worker `(next_attempt_at, id)` lọc trạng thái chưa kết thúc.
 
 - Unit/IT: hạn mức, số dư, idempotency, callback HMAC, hoàn tiền, đối soát, mã hóa số tài khoản.
 - E2E: rút thành công qua callback, rút thất bại được hoàn, dưới mức tối thiểu/vượt hạn mức bị chặn, gửi lặp không trừ hai lần.
+
+## 6. Trạng thái và bằng chứng (2026-10-17)
+
+| Phần | Kết quả |
+|---|---|
+| Payment | V18, `WithdrawalService` (khóa ví, policy, bút toán dự trữ), `WithdrawalProcessingService` (lease, gọi provider ngoài transaction, tra cứu, callback HMAC, hoàn tiền), `WithdrawalWorker`, `AdminWithdrawalService`, `MockPayoutProvider`, `AccountNumberCipher`; outbox `WithdrawalCompleted/Failed.v1`. 99 unit + 32 IT xanh (`WithdrawalFlowIT` 8 ca trên PostgreSQL 17) |
+| Gateway | `/api/v1/admin/withdrawals/**` → Payment |
+| Mobile | Màn rút tiền thật (policy, chọn ngân hàng, số tài khoản, tên chủ tài khoản, PIN `WITHDRAW` gắn khóa thao tác), màn trạng thái hỏi lại 3 giây/lần tối đa 2 phút, lịch sử phân trang; nhãn môi trường demo khi `simulatedProvider`. `npx tsc --noEmit` sạch |
+| Web | Mục "Lệnh rút tiền chờ đối soát" trong tab sự cố, nút "Tra cứu lại" chỉ bật khi hết lượt tra cứu tự động; proxy Vite. `npm run build` sạch |
+| E2E | `w3a-installment-20261017-184734` 79/79 PASS, 8 check `withdrawal.*`: policy (tối thiểu 50.000, còn 50.000.000 hôm nay, `simulatedProvider`); dưới mức tối thiểu `422 WITHDRAWAL_BELOW_MINIMUM`; gửi lại cùng `Idempotency-Key` trả `201` nhưng ví chỉ trừ một lần (8.274.000 → 8.174.000); số tài khoản che `******6789`; `COMPLETED` qua callback ký HMAC; tài khoản `…0000` `FAILED MOCK_ACCOUNT_INVALID` và hoàn đúng số dư; vượt hạn mức ngày `422 WITHDRAWAL_DAILY_LIMIT`; hàng đợi admin qua Gateway `200` |
+
+## 7. Giới hạn còn lại
+
+- Payment **chưa đối chiếu tên chủ tài khoản nhận với họ tên eKYC**. Thực tiễn ví/ngân hàng chỉ cho rút về tài khoản chính
+  chủ (chống rửa tiền); app cũ ghi "Chỉ rút về tài khoản chính chủ đã xác minh" là không đúng với code nên đã bỏ. Cần owner
+  quyết định trước production: so khớp tên với eKYC (Payment cần nguồn họ tên đã xác minh từ User) hay chỉ cho tài khoản đã
+  liên kết/xác minh trước.
+- Kết quả của provider giả lập nằm trong bộ nhớ: Payment khởi động lại thì tra cứu trả "không có lệnh" và lệnh được gửi lại
+  với đúng mã — an toàn vì provider idempotent theo mã, nhưng chỉ đúng với provider thật có cam kết đó.
+- Đối soát tổng theo lô (sao kê provider ↔ clearing `PAYOUT_PROVIDER_CLEARING`) chưa có vì provider giả lập không có sao kê.
+- Giới hạn tần suất 10 lệnh/giờ đếm theo instance (D40).

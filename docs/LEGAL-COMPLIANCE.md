@@ -121,6 +121,11 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 - Loan đọc eKYC từ User qua `/api/v1/users/me/kyc-summary` (W2-KYC): contract cố ý chỉ có `userId`, trạng thái eKYC, cờ xác nhận giấy tờ, thời điểm hoàn tất và tuổi; không có họ tên, ngày sinh hay CCCD.
 - Local mock gửi `so_cccd=null`; không được tạo số CCCD giả trông như dữ liệu thật rồi lưu vào assessment.
 - Request/response AI, schedule và contract cần được phân loại dữ liệu, mã hóa khi lưu/truyền, giới hạn quyền đọc và có retention policy trước production.
+- Từ W3A, AI chỉ nhận request có access token (Loan bằng service account, admin bằng phiên đăng nhập) và chỉ tra CCCD qua
+  client riêng `finora-ai-client` có đúng quyền đọc hồ sơ, đáp ứng yêu cầu cung cấp số định danh just-in-time qua contract
+  được bảo vệ.
+- Số tài khoản ngân hàng nhận tiền rút (W3B) lưu dạng AES-256-GCM, API chỉ trả bản che `******1234`; event và log không
+  mang số đầy đủ.
 - Outbox Contract chỉ chứa business ID, hash/version, trạng thái ký và thời gian; không chứa CCCD, thu nhập, raw AI payload, OTP hoặc secret provider. Kafka adapter đã có allowlist theo exact event/version nhưng mặc định tắt và chưa có route/topic hoạt động; event listing chỉ được mở sau khi Loan–Investment duyệt payload tối thiểu.
 - Event servicing `LoanDelinquencyChanged.v1` chỉ chứa business ID, DPD, nhóm nợ nội bộ và
   breakdown tiền cần thiết; không chứa CCCD. Mapping `borrowerId ↔ CCCD` được bảo vệ bằng
@@ -136,6 +141,10 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
   tài khoản pháp lý giữ tiền và ZaloPay sandbox không chứng minh readiness tiền thật. Production vẫn
   cần hợp đồng với tổ chức cung ứng dịch vụ thanh toán, callback/reconciliation và quy trình vận hành được duyệt.
 - Đây là cổng bắt buộc trước khi bật giải ngân production; không ảnh hưởng demo Loan đến trạng thái `PENDING_SIGNATURE`.
+- Rút tiền (W3B, R4): chỉ có provider payout `mock` — nhận lệnh rồi báo kết quả bằng callback ký HMAC, không chuyển tiền
+  thật; app ghi rõ môi trường demo. Policy tối thiểu 50.000 đ, tối đa 50.000.000 đ/ngày, phí 0 là policy demo cấu hình
+  được (Q4), không phải trích dẫn luật. Cổng môi trường (D37) chặn provider mock ở staging/production; payout thật cần hợp
+  đồng với tổ chức cung ứng dịch vụ thanh toán và legal review trước khi mở.
 
 ### `LEGAL-SERVICING-01` — Trả nợ, quá hạn, cơ cấu và phí trả trước
 
