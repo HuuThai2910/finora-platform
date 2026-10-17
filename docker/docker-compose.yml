@@ -137,6 +137,26 @@ services:
     networks:
       - finora-network
 
+  # ============ E2E FAULT INJECTION (Q13) ============
+  # Chỉ bật bằng profile e2e-faults: proxy TCP giữa Payment và Fineract để harness E2E tiêm lỗi mạng (mất phản hồi,
+  # mất request). Launcher tạo proxy fineract-payment (cổng 18444 → fineract:8443) khi chạy với -WithToxiproxy.
+  toxiproxy:
+    profiles: ["e2e-faults"]
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    restart: unless-stopped
+    container_name: finora-toxiproxy
+    ports:
+      - "127.0.0.1:${TOXIPROXY_API_HOST_PORT:-8474}:8474"
+      - "127.0.0.1:${TOXIPROXY_FINERACT_HOST_PORT:-18444}:18444"
+    healthcheck:
+      test: ["CMD", "/toxiproxy-cli", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - finora-network
+
   # ============ LOAN OWNED DATABASE (OFFLINE FALLBACK) ============
   loan-postgres:
     profiles: ["loan"]

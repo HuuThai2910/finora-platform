@@ -18,6 +18,13 @@ param(
     # R1B: cơ chế servicing chạy sau giải ngân, mỗi lần chạy một khoản vay riêng để kết quả không phụ thuộc thứ tự.
     [ValidateSet('Installment', 'PartialPrepayment', 'EarlySettlement', 'OverdueCure', 'DefaultCure', 'Reschedule')]
     [string]$Servicing = 'Installment',
+    # Drill lỗi thật (Q13). LoanCrashDuringBooking / PaymentCrashDuringDisbursement: tắt hẳn JVM đúng lúc tiền hoặc core
+    # đã xử lý mà service chưa lưu kết quả. InvestmentDownDuringDisbursement: Investment tắt khi Loan phát LoanDisbursed.
+    # FineractResponseLost / FineractRequestLost: Payment mất phản hồi hoặc request tới Fineract khi ghi kỳ trả nợ (cần
+    # launcher -WithToxiproxy và -Servicing Installment).
+    [ValidateSet('', 'LoanCrashDuringBooking', 'PaymentCrashDuringDisbursement', 'InvestmentDownDuringDisbursement',
+        'FineractResponseLost', 'FineractRequestLost')]
+    [string]$FaultDrill = '',
     [int]$StepTimeoutSeconds = 300
 )
 
@@ -250,6 +257,11 @@ function Get-FineractLoan {
 
 $LauncherScript = Join-Path $PSScriptRoot 'start-local-services.ps1'
 $LauncherStateFile = Join-Path $PSScriptRoot 'out\services.json'
+$CrashDrills = @('LoanCrashDuringBooking', 'PaymentCrashDuringDisbursement', 'InvestmentDownDuringDisbursement')
+$FineractDrills = @('FineractResponseLost', 'FineractRequestLost')
+$ToxiproxyApi = 'http://localhost:' + (Get-Setting 'TOXIPROXY_API_HOST_PORT' '8474')
+# Cấu hình drill thêm cho mỗi lần chạy lại Payment trong lượt (ví dụ khoảng an toàn ghi lại 1 phút của FineractRequestLost).
+$script:PaymentDrillEnv = @()
 
 function Get-FineractBusinessDateConfig {
     return Invoke-E2EFineractGet -BaseUrl $FineractUrl -Path '/configurations/name/enable-business-date' `
@@ -347,13 +359,19 @@ function Get-StackDatabase {
 }
 
 function Restart-E2EServices {
-    <# Chạy lại các service qua launcher trong một lần gọi; giá trị rỗng trong $Offsets là đồng hồ thật. #>
-    param([Parameter(Mandatory)][System.Collections.IDictionary]$Offsets)
+    <#
+      Chạy lại các service qua launcher trong một lần gọi; giá trị rỗng trong $Offsets là đồng hồ thật. $DrillEnv là cấu
+      hình drill Q13 dạng "service:KEY=VALUE" (launcher chỉ nhận khóa trong danh sách cho phép).
+    #>
+    param([Parameter(Mandatory)][System.Collections.IDictionary]$Offsets, [string[]]$DrillEnv = @())
     $names = @($Offsets.Keys)
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$LauncherScript`"", '-Action', 'Restart',
         '-Services', ($names -join ','), '-Database', (Get-StackDatabase))
     if ($Offsets.Contains('payment') -and $Offsets['payment']) { $arguments += @('-PaymentClockOffset', $Offsets['payment']) }
     if ($Offsets.Contains('loan') -and $Offsets['loan']) { $arguments += @('-LoanClockOffset', $Offsets['loan']) }
+    $drill = @($DrillEnv)
+    if ($Offsets.Contains('payment')) { $drill += @($script:PaymentDrillEnv) }
+    if ($drill.Count -gt 0) { $arguments += @('-DrillEnv', ($drill -join ',')) }
     # Không đọc stdout của launcher qua pipe: JVM con kế thừa handle nên pipe không bao giờ đóng và lệnh treo (runbook
     # mục 8). Ghi ra file và chỉ chờ chính tiến trình launcher thoát.
     $logFile = Join-Path $PSScriptRoot ("out\logs\restart-{0}-{1}.log" -f ($names -join '-'), (Get-Date).ToString('yyyyMMdd-HHmmss'))
@@ -408,6 +426,221 @@ function Reset-E2EClock {
     if ($restored.Count -gt 0) { Write-E2EInfo "Đã trả đồng hồ E2E về ngày thật ($Reason): $($restored -join ', ')" }
 }
 
+function Stop-E2EServiceHard {
+    <# Q13: tắt hẳn JVM của service (Stop-Process -Force, không dừng mềm) để mô phỏng máy chết giữa chừng. #>
+    param([ValidateSet('loan', 'payment', 'investment')][string]$Name)
+    $entry = Get-LauncherEntry -Name $Name
+    if ($null -eq $entry) { throw "Launcher không chạy $Name." }
+    $processId = [int](Field $entry 'pid')
+    $port = [int](Field $entry 'port')
+    $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+    if ($process -and $process.ProcessName -eq 'java') { Stop-Process -Id $processId -Force -Confirm:$false }
+    $null = Wait-Step -Description "$Name đã tắt hẳn" -TimeoutSeconds 60 -IntervalSeconds 1 -Probe {
+        if (-not (Test-E2ETcpPort -Port $port)) { return @{ Done = $true; Value = $true } }
+        return @{ State = "cổng $port còn mở" }
+    }
+    Write-E2EInfo "Đã tắt hẳn $Name (pid $processId) giữa chừng"
+}
+
+function Wait-E2EPausePoint {
+    <# Chờ service ghi dòng E2E_PAUSE của điểm dừng (log ASCII nên không phụ thuộc code page của console). #>
+    param([string]$Name, [string]$Point)
+    $log = [string](Field (Get-LauncherEntry -Name $Name) 'log')
+    return Wait-Step -Description "$Name dừng ở điểm $Point" -TimeoutSeconds 240 -Probe {
+        $hit = Select-String -LiteralPath $log -Pattern "E2E_PAUSE point=$Point" -SimpleMatch -Quiet -ErrorAction SilentlyContinue
+        if ($hit) { return @{ Done = $true; Value = $true } }
+        return @{ State = 'chưa tới điểm dừng' }
+    }
+}
+
+function Get-FineractLoansByExternalId {
+    param([string]$ExternalId)
+    $page = Invoke-E2EFineractGet -BaseUrl $FineractUrl -Path "/loans?externalId=$ExternalId" -Username $FineractUser `
+        -Password $FineractPassword -Tenant $FineractTenant
+    return @(Field $page 'pageItems')
+}
+
+function Get-DisbursementSagaOf {
+    <# Saga giải ngân của hợp đồng, đọc qua API admin của Loan (R2). #>
+    param($Admin, [string]$ContractNumber, [string]$Status)
+    $response = Invoke-E2EHttp -Method GET -Uri "$LoanUrl/api/v1/admin/disbursement-sagas?status=$Status&page=0&size=100" -Token $Admin.Token
+    Assert-E2EStatus -Response $response -Expected 200 -Step "Đọc saga giải ngân $Status"
+    return (@(Field $response.Json 'data' | Where-Object { (Field $_ 'contractNumber') -eq $ContractNumber }) | Select-Object -First 1)
+}
+
+function Add-FineractToxic {
+    <# Toxiproxy chặn User-Agent bắt đầu bằng "Mozilla" (mặc định của PowerShell 5.1) nên mọi lời gọi đặt -UserAgent. #>
+    param([ValidateSet('FineractResponseLost', 'FineractRequestLost')][string]$Kind)
+    $toxic = if ($Kind -eq 'FineractResponseLost') {
+        # Fineract nhận và ghi; phản hồi bị giữ lại nên Payment hết thời gian chờ mà không biết kết quả.
+        [ordered]@{ name = 'q13-drill'; type = 'timeout'; stream = 'downstream'; toxicity = 1.0; attributes = @{ timeout = 0 } }
+    } else {
+        # Kết nối bị reset ngay khi Payment gửi request: Fineract không nhận được gì.
+        [ordered]@{ name = 'q13-drill'; type = 'reset_peer'; stream = 'upstream'; toxicity = 1.0; attributes = @{ timeout = 0 } }
+    }
+    $null = Invoke-RestMethod -Method Post -Uri "$ToxiproxyApi/proxies/fineract-payment/toxics" -UserAgent 'finora-e2e' `
+        -Body ($toxic | ConvertTo-Json -Depth 4) -ContentType 'application/json' -TimeoutSec 10
+    Write-E2EInfo "Toxiproxy: bật lỗi $Kind cho Payment → Fineract"
+}
+
+function Clear-FineractToxics {
+    try {
+        foreach ($toxic in @(Invoke-RestMethod -Method Get -Uri "$ToxiproxyApi/proxies/fineract-payment/toxics" -UserAgent 'finora-e2e' -TimeoutSec 10)) {
+            if ($toxic -and $toxic.name) {
+                $null = Invoke-RestMethod -Method Delete -Uri "$ToxiproxyApi/proxies/fineract-payment/toxics/$($toxic.name)" -UserAgent 'finora-e2e' -TimeoutSec 10
+                Write-E2EInfo "Toxiproxy: gỡ lỗi $($toxic.name)"
+            }
+        }
+    } catch {
+        Write-E2EInfo "Toxiproxy không trả lời khi gỡ lỗi: $($_.Exception.Message)"
+    }
+}
+
+function Wait-RepaymentCompleted {
+    param($Borrower, [string]$RepaymentId, [string]$Description, [int]$TimeoutSeconds = 300)
+    return Wait-Step -Description $Description -TimeoutSeconds $TimeoutSeconds -Probe {
+        $detail = Invoke-E2EHttp -Method GET -Uri "$GatewayUrl/api/v1/repayments/$RepaymentId" -Token $Borrower.Token
+        $status = [string](Field $detail.Json 'status')
+        if ($status -eq 'COMPLETED') { return @{ Done = $true; Value = $detail.Json } }
+        if ($status -eq 'FAILED') { return @{ Fatal = "status=FAILED error=$(Field $detail.Json 'errorCode')" } }
+        return @{ State = $status }
+    }
+}
+
+function Invoke-FineractFaultDrill {
+    <#
+      Q13: lần ghi Fineract của khoản trả kỳ đi qua Toxiproxy đang tiêm lỗi.
+      FineractResponseLost: Fineract đã ghi nhưng Payment mất phản hồi → đối soát tự động theo externalId → COMPLETED.
+      FineractRequestLost: request không tới Fineract → đối soát không thấy → admin "Ghi lại" (B32) sau khoảng an toàn →
+      COMPLETED. Cả hai: Fineract chỉ có đúng một giao dịch theo externalId (check fineract.repayment-posted-once sau đó).
+    #>
+    param($Borrower, $Admin, [string]$RepaymentId)
+    Write-E2EStep "Drill $FaultDrill khi Payment ghi kỳ trả nợ vào Fineract"
+    $stuck = Wait-Step -Description 'Lệnh trả nợ chuyển đối soát vì lỗi mạng tới Fineract' -TimeoutSeconds 180 -Probe {
+        $detail = Invoke-E2EHttp -Method GET -Uri "$GatewayUrl/api/v1/repayments/$RepaymentId" -Token $Borrower.Token
+        $status = [string](Field $detail.Json 'status')
+        if ($status -eq 'RECONCILIATION_REQUIRED') { return @{ Done = $true; Value = $detail.Json } }
+        if ($status -in 'COMPLETED', 'CORE_POSTED', 'FAILED') { return @{ Fatal = "lỗi tiêm không có tác dụng: status=$status" } }
+        return @{ State = $status }
+    }
+    # B42: mất phản hồi hay bị reset sau khi POST đã gửi đều là kết quả chưa biết, không phải lỗi "không xác định".
+    Add-E2ECheck -Name "drill.$FaultDrill.reconciliation-required" `
+        -Passed ((Field $stuck 'errorCode') -eq 'FINERACT_REPAYMENT_OUTCOME_UNKNOWN') -Detail "errorCode=$(Field $stuck 'errorCode')"
+    Clear-FineractToxics
+    if ($FaultDrill -eq 'FineractResponseLost') {
+        $repayment = Wait-RepaymentCompleted -Borrower $Borrower -RepaymentId $RepaymentId -TimeoutSeconds 240 `
+            -Description 'Đối soát tự động tìm thấy giao dịch Fineract đã ghi'
+        Add-E2ECheck -Name 'drill.response-lost.reconciled-without-repost' -Passed $true -Detail "status=$(Field $repayment 'status')"
+        return $repayment
+    }
+    # Request không tới Fineract: worker đối soát (30 giây/lần) không tìm thấy nên khoản vẫn chờ.
+    Start-Sleep -Seconds 40
+    $still = Invoke-E2EHttp -Method GET -Uri "$GatewayUrl/api/v1/repayments/$RepaymentId" -Token $Borrower.Token
+    Add-E2ECheck -Name 'drill.request-lost.not-found-by-reconciliation' `
+        -Passed ((Field $still.Json 'status') -eq 'RECONCILIATION_REQUIRED') -Detail "status=$(Field $still.Json 'status')"
+    $repost = Wait-Step -Description 'Admin ghi lại vào hệ thống lõi sau khoảng an toàn (B32)' -TimeoutSeconds 180 -IntervalSeconds 10 -Probe {
+        $response = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/admin/repayment-reconciliation/$RepaymentId/repost" `
+            -Token $Admin.Token -EmptyJsonBody
+        if ($response.Status -eq 200) { return @{ Done = $true; Value = $response.Json } }
+        if ((Get-E2EErrorCode $response) -eq 'REPAYMENT_REPOST_TOO_EARLY') { return @{ State = 'chưa hết khoảng an toàn' } }
+        return @{ Fatal = "HTTP $($response.Status) code=$(Get-E2EErrorCode $response)" }
+    }
+    Add-E2ECheck -Name 'drill.request-lost.reposted' `
+        -Passed ((Field $repost 'status') -in 'CORE_POSTED', 'COMPLETED' -and [int](Field $repost 'coreRepostCount') -eq 1) `
+        -Detail "status=$(Field $repost 'status') coreRepostCount=$(Field $repost 'coreRepostCount') by=$(Field $repost 'lastCoreRepostBy')"
+    return (Wait-RepaymentCompleted -Borrower $Borrower -RepaymentId $RepaymentId -Description 'Repayment COMPLETED sau khi ghi lại')
+}
+
+function Prepare-FaultDrill {
+    <# Q13: trước khi ký, bật điểm dừng đúng chỗ sẽ tắt JVM; lease ngắn để worker nhận lại việc nhanh sau khi bật lại. #>
+    switch ($FaultDrill) {
+        'LoanCrashDuringBooking' {
+            Restart-E2EServices -Offsets ([ordered]@{ loan = '' }) -DrillEnv @(
+                'loan:FINORA_E2E_PAUSE_POINT=core-booked-before-save', 'loan:FINORA_E2E_PAUSE_DURATION=PT240S',
+                'loan:LOAN_DISBURSEMENT_CORE_BOOKING_LEASE=PT30S')
+        }
+        'InvestmentDownDuringDisbursement' {
+            # Giữ Loan trước khi phát LoanDisbursed để tắt Investment đúng lúc; Loan tự đi tiếp sau 40 giây.
+            Restart-E2EServices -Offsets ([ordered]@{ loan = '' }) -DrillEnv @(
+                'loan:FINORA_E2E_PAUSE_POINT=core-booked-before-save', 'loan:FINORA_E2E_PAUSE_DURATION=PT40S')
+        }
+        'PaymentCrashDuringDisbursement' {
+            Restart-E2EServices -Offsets ([ordered]@{ payment = '' }) -DrillEnv @(
+                'payment:FINORA_E2E_PAUSE_POINT=provider-disbursed-before-save', 'payment:FINORA_E2E_PAUSE_DURATION=PT240S',
+                'payment:PAYMENT_DISBURSEMENT_PROCESSING_LEASE=PT30S')
+        }
+    }
+}
+
+function Invoke-CrashDrill {
+    <# Q13: sau khi ký đủ, tắt JVM đúng điểm dừng rồi bật lại; Wait-Disbursement kiểm tiền/core/Note không bị làm hai lần. #>
+    param($Admin, [string]$ContractNumber)
+    switch ($FaultDrill) {
+        'LoanCrashDuringBooking' {
+            Write-E2EStep 'Drill: tắt Loan khi Fineract đã ghi khoản vay mà saga chưa lưu'
+            $null = Wait-E2EPausePoint -Name 'loan' -Point 'core-booked-before-save'
+            $coreLoans = @(Get-FineractLoansByExternalId -ExternalId $ContractNumber)
+            Add-E2ECheck -Name 'drill.loan-crash.core-booked-before-crash' -Passed ($coreLoans.Count -eq 1) -Detail "fineractLoans=$($coreLoans.Count)"
+            Stop-E2EServiceHard -Name 'loan'
+            Restart-E2EServices -Offsets ([ordered]@{ loan = '' }) -DrillEnv @('loan:LOAN_DISBURSEMENT_CORE_BOOKING_LEASE=PT30S')
+        }
+        'PaymentCrashDuringDisbursement' {
+            Write-E2EStep 'Drill: tắt Payment khi provider đã chuyển tiền mà Payment chưa lưu'
+            $null = Wait-E2EPausePoint -Name 'payment' -Point 'provider-disbursed-before-save'
+            Stop-E2EServiceHard -Name 'payment'
+            Restart-E2EServices -Offsets ([ordered]@{ payment = '' }) -DrillEnv @('payment:PAYMENT_DISBURSEMENT_PROCESSING_LEASE=PT30S')
+        }
+        'InvestmentDownDuringDisbursement' {
+            Write-E2EStep 'Drill: Investment tắt trong lúc Loan phát LoanDisbursed'
+            $null = Wait-E2EPausePoint -Name 'loan' -Point 'core-booked-before-save'
+            Stop-E2EServiceHard -Name 'investment'
+            # Loan tự đi tiếp sau điểm dừng và phát LoanDisbursed khi Investment còn tắt.
+            $null = Wait-Step -Description 'Saga giải ngân COMPLETED khi Investment đang tắt' -TimeoutSeconds 180 -Probe {
+                $saga = Get-DisbursementSagaOf -Admin $Admin -ContractNumber $ContractNumber -Status 'COMPLETED'
+                if ($null -ne $saga) { return @{ Done = $true; Value = $saga } }
+                return @{ State = 'saga chưa COMPLETED' }
+            }
+            Start-Sleep -Seconds 10
+            Restart-E2EServices -Offsets ([ordered]@{ investment = '' })
+            # Loan vẫn chạy với điểm dừng 40 giây; trả Loan về cấu hình thường cho các bước sau.
+            Restart-E2EServices -Offsets ([ordered]@{ loan = '' })
+        }
+    }
+}
+
+function Assert-CrashDrill {
+    param($Admin, [string]$ContractNumber)
+    if ($FaultDrill -notin $CrashDrills) { return }
+    $coreLoans = @(Get-FineractLoansByExternalId -ExternalId $ContractNumber)
+    Add-E2ECheck -Name 'drill.single-core-loan' -Passed ($coreLoans.Count -eq 1) -Detail "contract=$ContractNumber fineractLoans=$($coreLoans.Count)"
+    $saga = Get-DisbursementSagaOf -Admin $Admin -ContractNumber $ContractNumber -Status 'COMPLETED'
+    if ($FaultDrill -eq 'LoanCrashDuringBooking') {
+        Add-E2ECheck -Name 'drill.loan-crash.saga-reclaimed' -Passed ($null -ne $saga -and [int](Field $saga 'attemptCount') -ge 2) `
+            -Detail "attemptCount=$(Field $saga 'attemptCount')"
+    }
+    $paymentDisbursement = $null
+    if ($FaultDrill -eq 'PaymentCrashDuringDisbursement' -and $null -ne $saga) {
+        # Provider chỉ được gọi chuyển tiền một lần; Payment bật lại thấy lease hết hạn, ghi PAYMENT_PROCESSING_INTERRUPTED
+        # rồi tra cứu theo sagaId thay vì gọi lại. reconciliationAttemptCount chỉ đếm lần tra cứu chưa ra kết quả nên lần
+        # tra cứu thành công đầu tiên để 0. Provider mock trả lời tất định: drill chứng minh phía Payment, không phải provider thật.
+        $response = Invoke-E2EHttp -Method GET -Uri "$GatewayUrl/api/v1/admin/disbursement-reconciliation/$(Field $saga 'sagaId')" `
+            -Token $Admin.Token
+        Assert-E2EStatus -Response $response -Expected 200 -Step 'Đọc lệnh giải ngân của Payment theo sagaId'
+        $paymentDisbursement = $response.Json
+        Add-E2ECheck -Name 'drill.payment-crash.provider-called-once' `
+            -Passed ((Field $paymentDisbursement 'status') -eq 'COMPLETED' -and [int](Field $paymentDisbursement 'attemptCount') -eq 1 `
+                -and (Field $paymentDisbursement 'errorCode') -eq 'PAYMENT_PROCESSING_INTERRUPTED') `
+            -Detail "status=$(Field $paymentDisbursement 'status') attemptCount=$(Field $paymentDisbursement 'attemptCount') errorCode=$(Field $paymentDisbursement 'errorCode') reconciliationAttemptCount=$(Field $paymentDisbursement 'reconciliationAttemptCount')"
+    }
+    Set-E2EEvidence 'faultDrill' ([ordered]@{
+        type = $FaultDrill; contractNumber = $ContractNumber; fineractLoans = $coreLoans.Count
+        sagaAttempts = $(if ($saga) { Field $saga 'attemptCount' } else { $null })
+        paymentProviderAttempts = $(if ($paymentDisbursement) { Field $paymentDisbursement 'attemptCount' } else { $null })
+        paymentRecoveredFrom = $(if ($paymentDisbursement) { Field $paymentDisbursement 'errorCode' } else { $null })
+        paymentUnresolvedLookups = $(if ($paymentDisbursement) { Field $paymentDisbursement 'reconciliationAttemptCount' } else { $null })
+    })
+}
+
 function Assert-Preflight {
     Write-E2EStep 'Kiểm tra môi trường'
     foreach ($check in @(
@@ -430,6 +663,16 @@ function Assert-Preflight {
         -Detail "database=$database servicing=$Servicing"
     if ($needsClock -and $database -ne 'local') {
         throw "Fixture $Servicing dời đồng hồ E2E nên stack phải chạy -Database local (D24); hiện là $database."
+    }
+    if ($FaultDrill -in $FineractDrills) {
+        if ($Servicing -ne 'Installment' -or $SkipRepayment -or $KycGate) {
+            throw "Drill $FaultDrill chạy cùng bước trả kỳ mặc định (-Servicing Installment)."
+        }
+        $paymentEntry = Get-LauncherEntry -Name 'payment'
+        $via = if ($null -eq $paymentEntry) { '' } else { [string](Field $paymentEntry 'fineractVia') }
+        Add-E2ECheck -Name 'preflight.toxiproxy' -Passed ($via -eq 'toxiproxy') -Detail "payment fineractVia=$via"
+        if ($via -ne 'toxiproxy') { throw "Drill $FaultDrill cần stack chạy với -WithToxiproxy." }
+        Clear-FineractToxics
     }
     # Lần chạy trước bị ngắt khi đang dời đồng hồ thì trả về ngày thật trước khi tạo dữ liệu mới.
     Reset-E2EClock -Reason 'preflight'
@@ -814,7 +1057,7 @@ function Pay-Installment {
       chặn trả hai lần, chặn báo giá và hủy hoàn tiền; rồi trả lại, dời đồng hồ tới ngày đến hạn (Fineract business date
       và đồng hồ E2E của Payment, Q12) để kiểm ghi core, phân phối và các bước sau. Đồng hồ luôn được trả lại trong finally.
     #>
-    param($Borrower, $Investor, $Application, $Loan)
+    param($Borrower, $Investor, $Application, $Loan, $Admin)
     Write-E2EStep 'Borrower trả kỳ 1 trước hạn qua Gateway'
     $loanApplicationId = [long](Field $Application 'id')
     $scheduleBefore = Get-FineractLoan -FineractLoanId $Loan.FineractLoanId -Associations 'repaymentSchedule'
@@ -879,15 +1122,27 @@ function Pay-Installment {
     $again = Submit-ScheduledRepayment -Borrower $Borrower -LoanApplicationId $loanApplicationId -Amount $due -Key $key -PinToken $pinToken
     Add-E2ECheck -Name 'repayment.idempotent-replay' -Passed ((Field $again.Json 'repaymentId') -eq $repaymentId) -Detail "HTTP $($again.Status)"
     try {
+        # Q13: lỗi mạng bật trước khi dời đồng hồ, nên lần ghi Fineract đầu tiên của worker (ngay khi Payment khởi động lại ở
+        # ngày đến hạn) đi qua lỗi. Drill FineractRequestLost cần khoảng an toàn ghi lại ngắn cho các lần chạy lại Payment.
+        if ($FaultDrill -in $FineractDrills) {
+            if ($FaultDrill -eq 'FineractRequestLost') { $script:PaymentDrillEnv = @('payment:PAYMENT_CORE_REPOST_SAFE_AFTER=PT1M') }
+            Add-FineractToxic -Kind $FaultDrill
+        }
         Move-E2EClock -Date $dueDate
-        $repayment = Wait-Step -Description 'Repayment COMPLETED đúng ngày đến hạn' -Probe {
-            $detail = Invoke-E2EHttp -Method GET -Uri "$GatewayUrl/api/v1/repayments/$repaymentId" -Token $Borrower.Token
-            $status = Field $detail.Json 'status'
-            if ($status -eq 'COMPLETED') { return @{ Done = $true; Value = $detail.Json } }
-            if ($status -in 'FAILED', 'RECONCILIATION_REQUIRED') { return @{ Fatal = "status=$status error=$(Field $detail.Json 'errorCode')" } }
-            return @{ State = $status }
+        if ($FaultDrill -in $FineractDrills) {
+            $repayment = Invoke-FineractFaultDrill -Borrower $Borrower -Admin $Admin -RepaymentId $repaymentId
+        } else {
+            $repayment = Wait-Step -Description 'Repayment COMPLETED đúng ngày đến hạn' -Probe {
+                $detail = Invoke-E2EHttp -Method GET -Uri "$GatewayUrl/api/v1/repayments/$repaymentId" -Token $Borrower.Token
+                $status = Field $detail.Json 'status'
+                if ($status -eq 'COMPLETED') { return @{ Done = $true; Value = $detail.Json } }
+                if ($status -in 'FAILED', 'RECONCILIATION_REQUIRED') { return @{ Fatal = "status=$status error=$(Field $detail.Json 'errorCode')" } }
+                return @{ State = $status }
+            }
         }
     } finally {
+        if ($FaultDrill -in $FineractDrills) { Clear-FineractToxics }
+        $script:PaymentDrillEnv = @()
         Reset-E2EClock -Reason 'sau khi ghi kỳ đúng ngày đến hạn'
     }
     $borrowerAfter = Get-Wallet -Actor $Borrower
@@ -1636,9 +1891,12 @@ try {
         $null = Fund-Listing -Investor $investor -Listing $listing
         $heldBeforeDisbursement = (Get-Wallet -Actor $investor).Held
         $borrowerBeforeDisbursement = Get-Wallet -Actor $borrower
+        Prepare-FaultDrill
         $contractNumber = Sign-Contract -Borrower $borrower -Investor $investor -Application $application -Listing $listing
+        Invoke-CrashDrill -Admin $admin -ContractNumber $contractNumber
         $loan = Wait-Disbursement -Borrower $borrower -Investor $investor -Application $application -ContractNumber $contractNumber `
             -InvestorHeldBefore $heldBeforeDisbursement -BorrowerBefore $borrowerBeforeDisbursement
+        Assert-CrashDrill -Admin $admin -ContractNumber $contractNumber
         $repaymentId = $null
         if (-not $SkipRepayment) {
             switch ($Servicing) {
@@ -1649,7 +1907,7 @@ try {
                 'Reschedule' { Invoke-RescheduleFixture -Borrower $borrower -Investor $investor -Admin $admin -Application $application -Loan $loan }
                 default {
                     # Báo giá tất toán theo hợp đồng được kiểm bên trong, sau khi hủy khoản trả kỳ đang giữ.
-                    $paid = Pay-Installment -Borrower $borrower -Investor $investor -Application $application -Loan $loan
+                    $paid = Pay-Installment -Borrower $borrower -Investor $investor -Application $application -Loan $loan -Admin $admin
                     $repaymentId = $paid.RepaymentId
                 }
             }

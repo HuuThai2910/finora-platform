@@ -22,6 +22,13 @@ param(
     # theo thời gian (hết hạn ký, lease saga, ghi kỳ trả nợ) sẽ đụng dữ liệu của máy khác trên DB dùng chung.
     [ValidateSet('local', 'shared')]
     [string]$Database = 'local',
+    # Chỉ harness E2E dùng cho drill lỗi (Q13): các mục "service:KEY=VALUE" cách nhau bằng dấu phẩy, khóa nằm trong danh
+    # sách cho phép (điểm dừng, lease, khoảng an toàn ghi lại). Giá trị chỉ là thời lượng hoặc tên điểm dừng, không phải
+    # bí mật. Không lưu vào state: lần chạy lại không truyền thì service về cấu hình thường.
+    [string[]]$DrillEnv = @(),
+    # Đưa lưu lượng Payment → Fineract qua Toxiproxy (container finora-toxiproxy, profile e2e-faults) để harness tiêm lỗi
+    # mạng (Q13). Lưu vào state: các lần chạy lại Payment sau đó tự giữ đường đi này.
+    [switch]$WithToxiproxy,
     [int]$StartTimeoutSeconds = 300
 )
 
@@ -46,6 +53,7 @@ $localSecretFile = Join-Path $OutDir '.env.e2e'
 
 # powershell -File truyền "loan,payment" thành một chuỗi; tách lại để -Services nhận cả hai cách viết.
 $Services = @($Services | ForEach-Object { ([string]$_) -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$DrillEnv = @($DrillEnv | ForEach-Object { ([string]$_) -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 if ($Database -eq 'shared' -and ($PaymentClockOffset -or $LoanClockOffset)) {
     throw 'Đồng hồ E2E chỉ dùng với -Database local: worker theo thời gian sẽ đụng dữ liệu của máy khác trên DB dùng chung.'
 }
@@ -200,6 +208,32 @@ function Invoke-Build {
     }
 }
 
+function Save-PreviousLog {
+    <#
+      Lần bật lại không được xóa log của JVM vừa chết: drill Q13 cần đúng log đó (dòng E2E_PAUSE, trạng thái trước khi tắt).
+      Chuyển log cũ sang logsrchive kèm thời điểm, giữ 10 bản gần nhất mỗi service.
+    #>
+    param([string]$Name, [string[]]$Paths)
+    $archive = Join-Path $logDir 'archive'
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    foreach ($path in $Paths) {
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+        if ((Get-Item -LiteralPath $path).Length -eq 0) { continue }
+        if (-not (Test-Path -LiteralPath $archive)) { $null = New-Item -ItemType Directory -Path $archive }
+        $leaf = [System.IO.Path]::GetFileNameWithoutExtension($path)
+        try {
+            Move-Item -LiteralPath $path -Destination (Join-Path $archive "$leaf-$stamp.log") -Force -ErrorAction Stop
+        } catch {
+            # Tiến trình cũ chưa nhả file: không chặn việc bật service, chỉ mất bản log này.
+            Write-Host "[WARN] Không lưu được log cũ $path : $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
+    foreach ($pattern in @("$Name-*.log", "$Name.err-*.log")) {
+        @(Get-ChildItem -Path $archive -Filter $pattern -ErrorAction SilentlyContinue | Sort-Object Name -Descending) |
+            Select-Object -Skip 10 | Remove-Item -Force -Confirm:$false
+    }
+}
+
 function Assert-UserImageCurrent {
     <#
       Container finora-user phải được build sau commit cuối của finora-user/finora-common; bản cũ thiếu API PIN
@@ -258,6 +292,7 @@ function Assert-Infrastructure {
                 -SecretNames @("$($db.Prefix)_POSTGRES_ADMIN_PASSWORD", "$($db.Prefix)_DB_PASSWORD")
         }
     }
+    if ($useToxiproxy) { Start-Toxiproxy }
     Write-Host "[OK] Hạ tầng Docker sẵn sàng (DB $Database)"
 }
 
@@ -281,6 +316,64 @@ if ($PaymentClockOffset) {
 }
 if ($LoanClockOffset) {
     $catalog['loan'].Env['FINORA_E2E_CLOCK_OFFSET'] = $LoanClockOffset
+}
+
+# Drill lỗi (Q13): chỉ nhận đúng các khóa dưới đây. Service tự kiểm thêm: điểm dừng chỉ chạy với chữ ký MOCK/provider mock.
+$drillKeys = @{
+    loan = @('FINORA_E2E_PAUSE_POINT', 'FINORA_E2E_PAUSE_DURATION', 'LOAN_DISBURSEMENT_CORE_BOOKING_LEASE')
+    payment = @('FINORA_E2E_PAUSE_POINT', 'FINORA_E2E_PAUSE_DURATION', 'PAYMENT_DISBURSEMENT_PROCESSING_LEASE',
+        'PAYMENT_CORE_REPOST_SAFE_AFTER')
+    investment = @()
+}
+foreach ($entry in $DrillEnv) {
+    if ($entry -notmatch '^(?<svc>[a-z]+):(?<key>[A-Z0-9_]+)=(?<value>[A-Za-z0-9._-]+)$') { throw "DrillEnv không hợp lệ: $entry" }
+    $service = $Matches['svc']; $key = $Matches['key']; $value = $Matches['value']
+    if (-not $drillKeys.Contains($service) -or $drillKeys[$service] -notcontains $key) {
+        throw "Khóa $key không được phép cho drill của $service."
+    }
+    $catalog[$service].Env[$key] = $value
+}
+
+# Toxiproxy (Q13): chỉ Payment đi qua proxy; Loan và harness vẫn gọi Fineract trực tiếp. Lần chạy lại Payment giữ đường đi đã
+# ghi trong state, để dời đồng hồ giữa lượt drill không vô tình bỏ proxy.
+$toxiproxyApiPort = Get-DockerSetting 'TOXIPROXY_API_HOST_PORT' '8474'
+$toxiproxyFineractPort = Get-DockerSetting 'TOXIPROXY_FINERACT_HOST_PORT' '18444'
+$useToxiproxy = [bool]$WithToxiproxy
+if (-not $useToxiproxy -and $Action -eq 'Restart') {
+    $recordedPayment = @((Read-State).processes | Where-Object { $_.name -eq 'payment' }) | Select-Object -First 1
+    if ($recordedPayment -and [string](Get-E2EField $recordedPayment 'fineractVia') -eq 'toxiproxy') { $useToxiproxy = $true }
+}
+if ($useToxiproxy) {
+    $catalog['payment'].Env['FINERACT_BASE_URL'] = "http://localhost:$toxiproxyFineractPort/fineract-provider/api/v1"
+}
+
+function Start-Toxiproxy {
+    <# Bật container Toxiproxy nếu chưa chạy và tạo proxy fineract-payment (cổng host → fineract:8443) nếu chưa có. #>
+    if (-not (Test-E2EContainerRunning -Name 'finora-toxiproxy')) {
+        Write-Host '[..] Bật Toxiproxy (profile e2e-faults)'
+        $composeFile = Join-Path $platformRoot 'docker\docker-compose.yml'
+        $result = Invoke-E2ENative -FilePath 'docker' -Arguments @('compose', '--env-file', $EnvFile, '-f', $composeFile,
+            '--profile', 'e2e-faults', 'up', '-d', '--no-recreate', 'toxiproxy')
+        if ($result.ExitCode -ne 0) { throw 'Không bật được Toxiproxy.' }
+    }
+    # Toxiproxy chặn User-Agent bắt đầu bằng "Mozilla" (chống CSRF) mà Invoke-RestMethod của PowerShell 5.1 gửi mặc định.
+    $api = "http://localhost:$toxiproxyApiPort"
+    $deadline = (Get-Date).AddSeconds(60)
+    while ($true) {
+        try { $proxies = Invoke-RestMethod -Method Get -Uri "$api/proxies" -UserAgent 'finora-e2e' -TimeoutSec 5; break }
+        catch {
+            if ((Get-Date) -ge $deadline) { throw 'Toxiproxy chưa trả lời API sau 60 giây.' }
+            Start-Sleep -Seconds 2
+        }
+    }
+    # StrictMode: không đọc .Name trên tập property rỗng (Toxiproxy mới trả {}).
+    $hasProxy = @($proxies.PSObject.Properties | Where-Object { $_.Name -eq 'fineract-payment' }).Count -gt 0
+    if (-not $hasProxy) {
+        $body = @{ name = 'fineract-payment'; listen = "0.0.0.0:$toxiproxyFineractPort"; upstream = 'fineract:8443'; enabled = $true } |
+            ConvertTo-Json
+        $null = Invoke-RestMethod -Method Post -Uri "$api/proxies" -UserAgent 'finora-e2e' -Body $body -ContentType 'application/json' -TimeoutSec 10
+    }
+    Write-Host "[OK] Toxiproxy: Payment gọi Fineract qua cổng $toxiproxyFineractPort"
 }
 
 function Resolve-RescheduleReasonId {
@@ -336,6 +429,7 @@ function Start-FinoraService {
     $moduleDir = Join-Path $platformRoot $spec.Module
     $stdout = Join-Path $logDir "$Name.log"
     $stderr = Join-Path $logDir "$Name.err.log"
+    Save-PreviousLog -Name $Name -Paths @($stdout, $stderr)
     $previous = @{}
     foreach ($key in $spec.Env.Keys) {
         $previous[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
@@ -354,6 +448,7 @@ function Start-FinoraService {
         name = $Name; pid = $process.Id; port = $spec.Port; log = $stdout
         clockOffset = (Get-ClockOffsetFor -Name $Name)
         database = $(if ($localDatabases.Contains($Name)) { $Database } else { '' })
+        fineractVia = $(if ($Name -eq 'payment' -and $useToxiproxy) { 'toxiproxy' } else { '' })
         startedAt = (Get-Date).ToUniversalTime().ToString('o')
     }
     Write-State -State $State
