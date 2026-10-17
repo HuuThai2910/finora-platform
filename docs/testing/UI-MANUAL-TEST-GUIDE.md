@@ -81,7 +81,40 @@ Thiếu nhãn đó là lỗi (`docs/LEGAL-COMPLIANCE.md`: `LEGAL-PAYMENT-01`, `L
 4. Không sửa dữ liệu bằng SQL; mọi thay đổi tiền đi qua API/UI (runbook `docs/ops/RUNBOOKS.md`).
 5. Không pipe output của launcher (`| Select-Object`, `| Tee-Object`): lệnh sẽ treo (runbook E2E mục 8).
 
-### 2.2 Dựng hạ tầng Docker
+### 2.1a Chọn cách bật stack theo nhóm ca
+
+Hai cách chạy **không bật cùng lúc** (trùng cổng 8080–8086). Đổi cách thì tắt cách đang chạy trước.
+
+| Nhóm ca | Cách bật | Ghi chú |
+|---|---|---|
+| Phần lớn ca gắn **[UI]**: đăng ký, hồ sơ vay, duyệt, gọi vốn, ký MOCK, giải ngân, trả kỳ, trả trước, tất toán, rút tiền, sự cố, proof MOCK, thông báo, bảo mật | **Cách A — profile `apps`** (Docker + DB Neon, mục dưới) | Dữ liệu ở Neon như khi chạy IntelliJ |
+| Ký **SmartCA UAT thật** (mục 4.5) | Cách A rồi `docker stop finora-loan finora-gateway`; chạy **Loan và Gateway trong IntelliJ**, `finora-loan/.env` có `FINORA_SIGNATURE_PROVIDER=VNPT_SMART_CA` cùng thông tin UAT | Gateway trong Docker định tuyến tới tên container nên không thấy Loan chạy trên máy |
+| Ca cần **dời đồng hồ** (quá hạn, nợ xấu, ghi kỳ đúng ngày đến hạn — nhãn [UI + công cụ] dùng T2) | **Cách B — launcher E2E** `-Database local` (mục 2.2–2.3) | DB local tự tạo lại; chữ ký luôn MOCK; không dùng chung với SmartCA |
+| **Fabric thật** (`BC-06`, `BC-N08`, `BC-N09`) | Cách B thêm `-WithFabric` | Thêm khoảng 200–400 MB RAM |
+| **CIC local** (mục 4.15) | Cách B thêm `-WithLocalCic` | CIC trên Vercel không nhận được quá hạn (không đọc được Kafka local) |
+
+**Cách A — profile `apps` (Docker + DB Neon).** PowerShell trong `finora-platform`. Jar đã build sẵn; chỉ build lại khi sửa
+code (Maven `package`, rồi `docker compose ... --profile apps restart <service>`). Chi tiết: `docker/README.md` mục 1b.
+
+```powershell
+# Bật tất cả: Kafka, Keycloak, User, AI, Fineract, DB Blockchain/Fineract và sáu service Java (Loan, Payment, Investment,
+# Notification, Blockchain với ledger MOCK, Gateway)
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps up -d
+# Đợi mọi container báo healthy (lần đầu khoảng 2–3 phút; Flyway áp migration còn thiếu lên Neon dùng chung)
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps ps
+# Một service không lên healthy: xem log
+docker logs finora-loan --tail 100
+# Tắt khi xong (container và dữ liệu giữ nguyên)
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps stop
+```
+
+Sau đó chạy web (mục 2.4) và mobile (mục 2.5). Cổng 8080–8086 mở cho mạng LAN nên điện thoại thật gọi được qua IP máy tính
+(Windows có thể hỏi quyền firewall).
+
+**Cách B — launcher E2E (DB local).** Các mục 2.2–2.3 dưới đây. Trước khi bật, tắt các container app của cách A:
+`docker compose --env-file docker/.env -f docker/docker-compose.yml --profile apps stop`.
+
+### 2.2 Dựng hạ tầng Docker (cách B)
 
 PowerShell:
 
@@ -104,7 +137,7 @@ docker compose --env-file docker/.env -f docker/docker-compose.yml --profile dem
 Thiếu bước này thì AI trả `401/403` cho Loan (chấm điểm đứng ở hàng đợi retry) và User không gửi được email qua
 Notification. `--skip-brute-force` tắt chống dò mật khẩu của Keycloak: khi đó phần Keycloak của ca `AUTH-N06` không kiểm được.
 
-### 2.3 Bật sáu service Java bằng launcher
+### 2.3 Bật sáu service Java bằng launcher (cách B)
 
 PowerShell:
 
