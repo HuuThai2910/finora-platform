@@ -366,14 +366,19 @@ EARLY_SETTLEMENT_POLICY_UNKNOWN`, trả kỳ thường không bị ảnh hưởn
 3. Reconciliation định kỳ lấy record/hash qua API/event contract của owner, không đọc DB chéo.
 4. Sai lệch tạo incident/audit result; MUST NOT tự sửa dữ liệu nguồn.
 
-**Idempotency:** unique theo `sourceEventId + proofType + schemaVersion`.
+**Idempotency:** unique theo `sourceService + sourceEventId` (event giao trùng) và theo mốc nghiệp vụ
+`proofType + aggregateType + aggregateId` (cùng mốc phát lại với eventId mới); proofId là UUID v5 của mốc nên
+chaincode cũng chỉ giữ một bản ghi. Version hash scheme nằm trong `payloadVersion`.
 
 **Failure:** Fabric unavailable → retry có backoff, DLT và cảnh báo; mismatch → điều tra/audit workflow, không overwrite bằng giá trị “khớp”.
 
-**CURRENT STATE (2026-10-04):** Blockchain có durable proof foundation: PostgreSQL chỉ lưu hash/version
-và business reference, idempotent theo source event, claim lease, bounded retry/dead-letter. Consumer
-`RepaymentDistributed.v1` canonicalize `data` rồi đăng ký proof `REPAYMENT`; listener/worker mặc định tắt
-để local chủ động bật. Provider MOCK ghi receipt phân biệt; Fabric thật vẫn fail-closed tới khi có network.
+**CURRENT STATE (2026-10-17, W3D):** Blockchain consume bốn mốc `LoanContractActivated.v1` (CONTRACT_DOCUMENT),
+`LoanDisbursed.v1` (DISBURSEMENT), `RepaymentDistributed.v1` (REPAYMENT), `NoteOwnershipChanged.v1` (NOTE_OWNERSHIP,
+`ISSUED`/`TRANSFERRED`) bằng group `blockchain-group`, hash SHA-256 của `data` theo FINORA canonical JSON v2 (không
+lưu payload). Lỗi consume retry có backoff rồi vào `<topic>.DLT`. Provider `MOCK` vẫn mặc định; `HYPERLEDGER_FABRIC`
+ghi lên mạng Fabric local (2 tổ chức, endorsement MAJORITY, chaincode `finora-ledger`, launcher `-WithFabric`), đối
+chiếu trước khi ghi lại sau timeout và worker đối chiếu DB ↔ chain opt-in. API ADMIN `GET /api/v1/blockchain/proofs`,
+`POST .../{proofId}/verify|retry`. Chi tiết: [`W3D`](../plans/W3D-fabric-proofs.md).
 
 ## F09 — Notification từ domain event
 

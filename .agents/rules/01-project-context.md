@@ -26,8 +26,9 @@ là hai repository riêng nằm cùng workspace.
   ZaloPay disbursement vẫn chưa hoàn thiện.
 - SmartCA hiện ký hash PDF và lưu bằng chứng chữ ký rời. File PDF chưa nhúng chữ ký PAdES;
   nhiều bên ký cần incremental signing nếu triển khai giai đoạn sau.
-- Blockchain có proof store hash-only, idempotency, lease/retry/DLT và consumer repayment.
-  Fabric adapter thật, query/explorer và proof cho Contract/disbursement/Note/servicing còn thiếu.
+- Blockchain có proof store hash-only, idempotency, lease/retry/DLT và consumer bốn mốc (hợp đồng, giải ngân, trả nợ,
+  Note); từ W3D có adapter + mạng Hyperledger Fabric local (`-WithFabric`, mặc định vẫn MOCK), API explorer/verify
+  cho ADMIN. Proof servicing (tất toán/cơ cấu/nợ xấu) và trang explorer trên web còn thiếu.
 - CIC dùng bản Node đã deploy tại `https://cic-service-node.vercel.app/`. Docker Compose không
   build CIC Java cũ; AI/User chỉ gọi qua `CIC_SERVICE_URL`. CIC không thuộc backlog triển khai
   nội bộ của FINORA trong giai đoạn hiện tại.

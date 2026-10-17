@@ -44,7 +44,7 @@ phần Investment trước merge:
 | `finora.loan.funding-cancelled` | Loan | `investment-loan-funding` | Đã đủ vốn nhưng không giải ngân (Contract `DECLINED`/`EXPIRED` hoặc `DisbursementFailed` khi saga còn `WAITING_PAYMENT`); Investment hủy commitment, listing `CANCELLED` và nhả hold |
 | `finora.loan.investor-signature-requested` | Loan | `investment-loan-funding` | Gắn Contract/PDF chung vào listing; Notification consumer bổ sung sau |
 | `finora.loan.borrower-signature-requested` | Loan | Chưa đăng ký | Báo tất cả lender đã ký; Notification consumer bổ sung sau |
-| `finora.loan.contract-activated` | Loan | `investment-loan-funding` | Investment cập nhật Contract có hiệu lực; Payment/Blockchain bổ sung sau |
+| `finora.loan.contract-activated` | Loan | `investment-loan-funding`, `blockchain-group` | Investment cập nhật Contract có hiệu lực; Blockchain neo SHA-256 data (proof `CONTRACT_DOCUMENT`, W3D) |
 | `finora.loan.delinquency-changed` | Loan | `cic-loan-delinquency`, `investment-loan-funding` | CIC tách nhóm hiện tại/lịch sử; Investment cập nhật DPD/nhóm nợ cho Note projection |
 | `finora.loan.settled` | Loan | `investment-loan-funding` | Investment lưu lifecycle projection; không dùng thay `RepaymentDistributed` để chia tiền/đóng Note |
 | `finora.loan.reschedule-consent-requested` | Loan | `investment-loan-funding` | Mở phiếu đồng thuận cơ cấu cho từng chủ Note hiện tại; payload không chứa PII/lý do tự do |
@@ -61,8 +61,22 @@ chiếu `application.yml` của Loan/Payment/Investment):
 | `finora.loan.disbursement-requested` | Loan | `payment-group` | Saga đã bền vững; Payment capture hold và credit ví người vay theo `sagaId` |
 | `finora.payment.disbursement-completed` | Payment | `loan-investment-funding` | Loan ghi disbursement vào Fineract bằng external ID |
 | `finora.payment.disbursement-failed` | Payment | `loan-investment-funding` | Saga `PAYMENT_FAILED`; còn `WAITING_PAYMENT` thì Loan phát `finora.loan.funding-cancelled` |
-| `finora.loan.disbursed` | Loan | `investment-loan-funding`, `payment-servicing` | Investment phát hành Note; Payment mở tài khoản thu nợ |
-| `finora.investment.note-ownership-changed` | Investment | `payment-servicing` | Payment cập nhật projection chủ Note để chia tiền trả nợ |
+| `finora.loan.disbursed` | Loan | `investment-loan-funding`, `payment-servicing`, `blockchain-group` | Investment phát hành Note; Payment mở tài khoản thu nợ; Blockchain neo proof `DISBURSEMENT` (W3D) |
+| `finora.investment.note-ownership-changed` | Investment | `payment-servicing`, `blockchain-group` | Payment cập nhật projection chủ Note để chia tiền trả nợ; Blockchain neo proof `NOTE_OWNERSHIP` (W3D) |
+
+Consumer lỗi của `blockchain-group` (contract sai, xung đột hash) vào `<topic>.DLT` theo quy ước chung.
+
+Mạng Hyperledger Fabric local (profile Compose `fabric`, W3D; chỉ chạy khi `BLOCKCHAIN_PROOF_PROVIDER=HYPERLEDGER_FABRIC`):
+
+| Thành phần | Port | Định danh |
+|---|---|---|
+| `finora-fabric-orderer` | nội bộ 7050, admin 7053, ops 9443 | `orderer.finora.local`, `OrdererMSP`, Raft một node |
+| `finora-fabric-peer0-org1` | **127.0.0.1:7051** (`FABRIC_PEER0_ORG1_HOST_PORT`), ops 9444 | `peer0.org1.finora.local`, `Org1MSP` (FINORA, ghi proof) |
+| `finora-fabric-peer0-org2` | nội bộ 9051, ops 9445 | `peer0.org2.finora.local`, `Org2MSP` (kiểm toán, endorse/đọc) |
+| `finora-fabric-ccaas-org1/org2` | nội bộ 9999 | CCaaS `finora-ledger_1.0`, alias `peer0org1-finora-ledger`, `peer0org2-finora-ledger` |
+
+Channel `finora-channel`, chaincode `finora-ledger` v1.0 sequence 1, endorsement policy `MAJORITY Endorsement`.
+Crypto/genesis/package sinh bởi `docker/fabric-network/fabric-network.ps1` vào thư mục git-ignore.
 
 Payload và consumer hiện có được mô tả tại
 [`docs/integrations/LOAN-INVESTMENT-EVENTS.md`](../../docs/integrations/LOAN-INVESTMENT-EVENTS.md).
@@ -89,7 +103,7 @@ CURRENT STATE: Fineract 1.15.0/PostgreSQL 18.3 local đã healthy và tenant aut
 smoke pass ngày 2026-08-03; Product V2 `PROGRESSIVE` + advanced allocation đã được Fineract local chấp
 nhận ngày 2026-10-04. Loan V2 50 triệu và repayment thật 5 triệu đã chứng minh principal còn 45 triệu
 và `REAMORTIZATION` trên 6 kỳ; Kafka broker local cũng đã publish/consume envelope v1. Chưa có
-MinIO hoặc Fabric network/chaincode. Mail local dùng Mailpit (profile `mail`), thay cho MailHog.
+MinIO. Fabric network/chaincode local có từ W3D (2026-10-17, bảng trên). Mail local dùng Mailpit (profile `mail`), thay cho MailHog.
 
 ## Phân bổ dự kiến — chưa phải thành phần đang chạy
 
