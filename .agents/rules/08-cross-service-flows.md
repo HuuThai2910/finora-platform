@@ -133,7 +133,8 @@ eKYC/tuổi lưu trên hồ sơ (Loan V29) để worker kiểm điều kiện v�
 **Hết hạn gọi vốn:** listing `OPEN` quá `fundingClosesAt` → Investment (cùng transaction, khóa listing) chuyển
 `CLOSED`, huỷ commitment/order còn `ACTIVE`, trừ tiến độ và ghi outbox `LoanFundingExpired.v1`
 (`finora.investment.loan-funding-expired`); Loan chuyển `fundingStatus = EXPIRED`, không lập Contract. Hold
-không nhả trong transaction đó mà để worker gọi `release` tới khi Payment xác nhận.
+không nhả trong transaction đó mà để worker gọi `release` tới khi Payment xác nhận. Từ 2026-10-17 (W3F P6) event mang
+`investorIds` (nhà đầu tư có phần vốn vừa hủy, không trùng) để Notification báo tiền giữ sẽ về ví; Loan bỏ qua field này.
 
 **CURRENT STATE (2026-10-11):** `InvestmentMaintenanceWorker` (30s) đóng listing hết hạn, làm tiếp order kẹt
 `PENDING_FUNDS` quá `pending-funds-timeout` (gọi lại `hold` cùng `orderReference` rồi chốt commitment), nhả
@@ -228,8 +229,11 @@ hành Note; event Contract đến muộn không làm trạng thái lùi.
 `LoanDisbursed.v1` mang thêm field optional `loanNumber` và `maturityDate` (ngày đáo hạn Fineract theo ngày giải ngân thực
 tế, B34); Investment ghi ngày đáo hạn của vị thế ngay lúc giải ngân. Drill Q13 tắt hẳn JVM Loan sau khi Fineract đã ghi
 khoản vay (saga chưa lưu), tắt Payment sau khi provider đã chuyển tiền (Payment chưa lưu), và tắt Investment khi
-`LoanDisbursed` được phát: kết quả cuối chỉ có một khoản vay Fineract, một lần cộng ví người vay, một bộ Note. Thao tác sự
-cố cho ADMIN, không cái nào chuyển tiền lần hai:
+`LoanDisbursed` được phát: kết quả cuối chỉ có một khoản vay Fineract, một lần cộng ví người vay, một bộ Note. Từ 2026-10-17
+(W3F P2/P3, D76) `LoanDisbursed.v1` mang thêm `borrowerId` và kỳ đầu `nextDueDate`/`nextDueAmount`, đọc trong cùng lần đọc
+`GET /loans/{id}?associations=repaymentSchedule` cho ngày đáo hạn (vắng mặt khi core không trả lịch). Consumer
+`DisbursementRequested` của Payment lỗi contract vào `<topic>.payment.DLT` ngay, lỗi hạ tầng thử lại có giới hạn rồi vào DLT
+đó (B58, D79). Thao tác sự cố cho ADMIN, không cái nào chuyển tiền lần hai:
 
 - Loan `GET /api/v1/admin/disbursement-sagas?status=` (mặc định `REPAIR_REQUIRED`) và `POST /{sagaId}/requeue`
   (`note` bắt buộc): `REPAIR_REQUIRED → RETRY_PENDING`, chỉ chạy lại bước ghi Fineract, booking đối chiếu theo số hợp
@@ -317,6 +321,13 @@ cả lãi (fixture `r1b-*-20261017-063*`). Payment đúng khi đọc nghĩa vụ
   hiện báo giá sau khi có khoản mới → `409 *_QUOTE_STALE`.
 - `RepaymentDistributed.v1` không đổi schema; consumer Loan/Investment dùng `completedAt` nên phân phối ngày đến hạn
   không đổi cách chiếu. Notification (R7) phải đọc khoản đang giữ trước khi nhắc lịch.
+- **CURRENT STATE (2026-10-17, W3F P4/P5, D77):** `RepaymentDistributed.v1` có thêm field optional `borrowerId`. Lệnh trả kỳ
+  được giữ (`post_on` khác null) ghi outbox `RepaymentCollected.v1` (`finora.payment.repayment-collected`: `repaymentId`,
+  `loanApplicationId`, `borrowerId`, `repaymentType`, `amount`, `currency`, `dueDate = post_on`, `collectedAt`) cùng
+  transaction với bút toán trừ ví; hủy khoản giữ ghi `RepaymentCancelled.v1` (`finora.payment.repayment-cancelled`:
+  `repaymentId`, `loanApplicationId`, `borrowerId`, `dueDate`, `cancelledAt`) cùng transaction với hoàn tiền. Lệnh gửi lại
+  cùng khóa và hủy lặp lại không phát lần hai; key `loanApplicationId`; consumer Notification (chỉ khi bật nhắc lịch, D64).
+  Khoản giữ bị Fineract từ chối lúc tới ngày ghi (hoàn tiền, `FAILED`) chưa phát event nào (B76).
 
 **CURRENT STATE (2026-10-17, Wave 2D, plan [`W2D`](../plans/W2D-incident-operations-overdue-cure-and-auto-invest-acknowledgement.md)):**
 
@@ -358,6 +369,13 @@ Loan/Investment đã nối cổng đồng thuận nhà đầu tư bằng hai eve
 trong tab Ví. Investment consume idempotent `LoanRescheduled.v1`/`LoanSettled.v1` thành lifecycle read model.
 Notification delivery không thuộc transaction tái cơ cấu; Investment phát outbox projection và
 Notification consume idempotent sau khi lịch mới đã commit.
+
+**CURRENT STATE (2026-10-17, W3F P2/P3/P7, D76, D78):** `LoanRescheduleConsentRequested.v1` mang `borrowerId` để báo người
+vay yêu cầu đã qua thẩm định. Investment, cùng transaction tạo phiếu (lần đầu cho `requestId`), ghi outbox
+`InvestorNoteServicingChanged.v1` `changeType = RESCHEDULE_CONSENT_REQUESTED` mời biểu quyết: mỗi chủ phiếu một người nhận
+(không gắn Note, không số dư), `externalPushRequired = true`; Loan phát lại đề nghị không mời lần hai. `LoanRescheduled.v1`
+mang kỳ tiếp theo `nextDueDate`/`nextDueAmount` từ snapshot servicing Fineract đọc sau khi duyệt lịch. Admin từ chối cơ cấu
+chưa có event (P8, còn thiết kế).
 
 **CURRENT STATE (2026-10-17, G-POLICY-W2):** phí trả trước một phần và tất toán tính theo biểu phí của chính hợp
 đồng: Loan ghi `loan_contracts.early_settlement_policy_version` lúc tạo hợp đồng (V30), `LoanDisbursed` mang giá trị
@@ -406,6 +424,21 @@ chiếu trước khi ghi lại sau timeout và worker đối chiếu DB ↔ chai
 từ bảng tra dựng từ event gọi vốn; event chờ người nhận tối đa 24 giờ rồi hết hạn; payload sai vào
 `<topic>.notification.DLT`. In-app luôn tạo; push Expo theo preference từng nhóm, nội dung không có số tiền/tên/số khoản
 vay, retry 6 lần rồi `DEAD`, receipt kiểm sau. Provider mặc định `log` là giả lập, không phải push thật.
+
+**CURRENT STATE (2026-10-17, producer W3F P1–P7, D76–D78):** producer đã bổ sung người nhận và dữ liệu nhắc lịch, mọi field
+optional, version giữ v1, ghi outbox cùng transaction với thay đổi nghiệp vụ:
+
+- Người vay nằm trong event (`borrowerId`, ID logic claim `user_id`, không PII): Loan `BorrowerSignatureRequested`,
+  `LoanContractActivated`, `LoanDisbursed`, `LoanFundingCancelled`, `LoanRescheduleConsentRequested`; Payment
+  `RepaymentDistributed`. Bảng tra người vay chỉ còn cần cho event phát trước thay đổi này.
+- Nhắc lịch từ kỳ 1 và sau cơ cấu: `LoanDisbursed`/`LoanRescheduled` mang `nextDueDate` (ngày ISO), `nextDueAmount` (chuỗi
+  decimal) đọc từ cùng snapshot Fineract với ngày đáo hạn; core không trả lịch thì vắng mặt (D76).
+- Khoản trả kỳ trước hạn đang giữ (D16): Payment phát `RepaymentCollected.v1`/`RepaymentCancelled.v1` (D77, F06). Listener
+  Notification của hai topic này và nhắc lịch vẫn tắt mặc định (D64) cho tới khi owner bật `NOTIFICATION_DUE_REMINDER_ENABLED`.
+- Nhà đầu tư: `LoanFundingExpired` mang `investorIds` (F04); Investment mời biểu quyết cơ cấu bằng
+  `InvestorNoteServicingChanged` `RESCHEDULE_CONSENT_REQUESTED`, mỗi chủ phiếu một người nhận, có push (D78, F07).
+- Còn thiết kế, chưa làm: P8 (`LoanRescheduleRequestReviewed` khi admin từ chối cơ cấu), P9 (`OperationsIncidentRaised` cho
+  hộp thư admin).
 
 ## F10 — Rút tiền về tài khoản ngân hàng
 

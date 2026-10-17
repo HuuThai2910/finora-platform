@@ -3,6 +3,7 @@ package com.finora.loan.integration.fineract.client;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.finora.loan.config.FineractBookingProperties;
 import com.finora.loan.integration.fineract.mapper.FineractStrategyResolver;
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
@@ -32,16 +33,44 @@ public class FineractCoreLoanBookingGateway implements CoreLoanBookingGateway{
   LocalDate bookingDate=LocalDate.now(clock);
   long clientId=ensureClient(c.borrowerId(),bookingDate);
   long loanId=ensureLoan(clientId,c,bookingDate);
-  JsonNode loan=get("/loans/"+loanId,"read-loan");
+  JsonNode loan=readLoan(loanId,"read-loan");
   if(!loan.path("status").path("active").asBoolean(false)){
    if(loan.path("status").path("pendingApproval").asBoolean(false))approve(loanId,c,bookingDate);
-   loan=get("/loans/"+loanId,"read-approved-loan");
+   loan=readLoan(loanId,"read-approved-loan");
    if(!loan.path("status").path("active").asBoolean(false))disburse(loanId,c,bookingDate);
   }
-  // Lần đọc cuối (đã duyệt hoặc đã giải ngân) có lịch theo ngày giải ngân thực tế bookingDate, nên ngày đáo hạn không
-  // đổi sau bước disburse cùng ngày; Investment dùng ngày này cho vị thế của nhà đầu tư (B34).
-  return new CoreLoanBookingResult(loanId,date(loan.path("timeline").path("expectedMaturityDate")));
+  // Lần đọc cuối (đã duyệt hoặc đã giải ngân) có lịch theo ngày giải ngân thực tế bookingDate, nên ngày đáo hạn và kỳ đầu
+  // không đổi sau bước disburse cùng ngày; Investment dùng ngày đáo hạn cho vị thế của nhà đầu tư (B34), Notification dùng
+  // kỳ đầu để nhắc lịch từ kỳ 1 (P3, D76). Cả ba lấy từ cùng một lần đọc, FINORA không tự tính lịch.
+  NextDue next=nextDue(loan.path("repaymentSchedule").path("periods"));
+  return new CoreLoanBookingResult(loanId,date(loan.path("timeline").path("expectedMaturityDate")),
+    next==null?null:next.date(),next==null?null:next.amount());
  }
+
+ /** Đọc khoản vay kèm lịch trả nợ: trạng thái, ngày đáo hạn và kỳ đầu cùng một snapshot của Fineract. */
+ private JsonNode readLoan(long loanId,String operation){
+  return get("/loans/"+loanId+"?associations=repaymentSchedule",operation);
+ }
+
+ /**
+  * Kỳ đầu tiên còn phải trả trong lịch Fineract (P3, D76): dòng có số kỳ (bỏ dòng giải ngân), còn dư nợ của kỳ
+  * ({@code totalOutstandingForPeriod > 0}), ngày đến hạn sớm nhất. Lịch thiếu hoặc không đọc được thì trả {@code null}:
+  * field chỉ phục vụ thông báo, không được làm hỏng lần ghi core đã thành công.
+  */
+ static NextDue nextDue(JsonNode periods){
+  if(periods==null||!periods.isArray())return null;
+  NextDue next=null;
+  for(JsonNode period:periods){
+   if(!period.hasNonNull("period"))continue;
+   LocalDate due=date(period.path("dueDate"));
+   JsonNode outstanding=period.get("totalOutstandingForPeriod");
+   if(due==null||outstanding==null||!outstanding.isNumber()||outstanding.decimalValue().signum()<=0)continue;
+   if(next==null||due.isBefore(next.date()))next=new NextDue(due,outstanding.decimalValue());
+  }
+  return next;
+ }
+
+ record NextDue(LocalDate date,BigDecimal amount){}
 
  private static LocalDate date(JsonNode value){
   if(!value.isArray()||value.size()<3)return null;

@@ -83,7 +83,7 @@ class PaymentOperationsHealthIT {
         scheduler.refreshNow();
 
         for (String type : new String[] {"repayment_reconciliation_required", "disbursement_reconciliation_required",
-                "topup_reconciliation_required"}) {
+                "topup_reconciliation_required", "withdrawal_reconciliation_required"}) {
             assertThat(meterRegistry.get(OperationalGauge.INCIDENTS).tag("service", "payment").tag("type", type)
                     .gauge().value()).isZero();
         }

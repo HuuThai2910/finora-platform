@@ -62,7 +62,7 @@ public class LoanFundingCancelledHandler {
         Instant now = clock.instant();
         if (listing.getStatus() != ListingStatus.CANCELLED) {
             requireNotDisbursed(listing);
-            int cancelled = commitmentCanceller.cancelActive(listing, ORDER_REASON, reasonDetail, ACTOR, now);
+            int cancelled = commitmentCanceller.cancelActive(listing, ORDER_REASON, reasonDetail, ACTOR, now).count();
             listing.setStatus(ListingStatus.CANCELLED);
             listing.setCancelledAt(data.cancelledAt() == null ? now : data.cancelledAt());
             listing.setCancellationReason(data.reasonCode());

@@ -119,7 +119,8 @@ Không có entity mới nên không có ERD. Quan hệ đọc giữa thành ph�
 OperationalMonitoringScheduler (finora-common, 1 luồng daemon / service)
   ├── 1..N OperationalGaugeSet (mỗi service 1 bean) ── 1..N OperationalGauge ──đọc──▶ bảng của chính service
   │        Loan: loan_outbox_events, loan_disbursement_sagas, loan_reconciliation_incidents, loan_repayment_event_quarantine
-  │        Payment: payment_outbox_events, payment_repayments, payment_disbursements, payment_top_ups
+  │        Payment: payment_outbox_events, payment_repayments, payment_disbursements, payment_top_ups,
+  │                 payment_withdrawals (thêm sau merge W3B)
   │        Investment: investment_outbox_events, investment_orders
   │        Blockchain: blockchain_proof_submissions
   └── 0..N OperationalRefreshTask ── Loan: FineractEndOfDayMonitor ──REST──▶ Fineract GET /jobs, /jobs/{id}/runhistory
@@ -189,6 +190,7 @@ phút). Lỗi một lượt chỉ tăng counter và báo NaN/`checkError`, khôn
 | Trả nợ `RECONCILIATION_REQUIRED` | `status = …` | `idx_payment_repayments_loan_in_flight` (một phần, chỉ khoản đang ghi core) | Kiểm lại status trên heap |
 | Giải ngân `RECONCILIATION_REQUIRED` | `status = …` | `idx_payment_disbursements_incident_queue` | |
 | Nạp tiền `RECONCILIATION_REQUIRED` | `status = …` | `idx_payment_top_ups_pending` | |
+| Rút tiền `RECONCILIATION_REQUIRED` (W3B, thêm 2026-10-17) | `status = …` | Không có (`ix_payment_withdrawals_due` bỏ lệnh chờ vận hành) | Quét tuần tự bảng rút tiền, bảng nhỏ |
 | Investment outbox `pending` | `status = 'PENDING'` | `idx_investment_outbox_events_due` | |
 | `order_pending_funds_stuck` | `PENDING_FUNDS`, chưa bị dừng, `pending_attempt_count >= 3` | `ix_order_pending_due` | |
 | `order_release_retrying` | Kết thúc, còn hold, chưa nhả, chưa dừng, `release_attempt_count >= 3` | `ix_order_release_due` | |
@@ -243,7 +245,9 @@ Rollout:
    thành `finora-mobile/.github/workflows/ci.yml` rồi commit ở hai repository đó (agent không ghi được ngoài worktree).
 3. Sau merge W3B: thêm gauge `withdrawal_reconciliation_required` vào `PaymentOperationsConfig` (một dòng) với câu đếm
    `payment_withdrawals WHERE status = 'RECONCILIATION_REQUIRED'`; index `ix_payment_withdrawals_due` không chứa lệnh chờ vận
-   hành (`next_attempt_at IS NULL`) nên câu này quét tuần tự bảng rút tiền (nhỏ).
+   hành (`next_attempt_at IS NULL`) nên câu này quét tuần tự bảng rút tiền (nhỏ). **Đã làm 2026-10-17** (nhánh producer
+   W3F): `PaymentOperationalMetricsRepository.withdrawalsReconciliationRequired()`, kiểm trong
+   `PaymentOperationalMetricsRepositoryIT` (đếm theo trạng thái, có trần) và `PaymentOperationsHealthIT` (gauge đăng ký).
 4. Rebuild container `finora-user` (launcher E2E sẽ đòi vì commit chạm `finora-user`/`finora-common`).
 5. Chép quyết định D55–D59 và defect B55–B59 (mục 15) vào plan tổng hợp mục 3a/3b; đổi B23 thành Fixed, B21/B22 theo mục 15.
 6. Push lần đầu để CI chạy thật; theo dõi job `java` (Docker API) và `secret-scan`.
@@ -295,6 +299,7 @@ Plan ở `READY_FOR_REVIEW`: code và test đã chạy trên máy (mục 16). Ch
 | D57 | Health `fineractEndOfDay` (D25): đọc `GET /jobs`, lần cuối không thành công thì đọc `runhistory` (50 lần, `id DESC`) tìm lần thành công; DOWN khi `LA_RINT`/`LA_ARAG` chưa từng thành công hoặc thành công gần nhất cũ hơn `LOAN_FINERACT_EOD_STALE_AFTER` (26 giờ = chu kỳ 24 giờ + 2 giờ dư) hoặc thiếu job; UNKNOWN khi chưa kiểm, không đọc được (giữ số liệu cũ, vẫn già theo giờ thật), thiếu lịch sử, hoặc booking provider `mock`. Đọc mỗi 5 phút trên luồng vận hành, health chỉ đọc bộ nhớ; tuổi theo `Clock.systemUTC()`; không qua circuit breaker; cần quyền `READ_SCHEDULER` |
 | D58 | Metric sự cố: gauge `finora.outbox.events{status}`, `finora.outbox.oldest.pending.age`, `finora.operations.incidents{type}`, `finora.fineract.eod.last.success.age{job}`, `finora.proof.*`; làm mới 60 giây trên một luồng daemon riêng mỗi service (không `@Scheduled` dùng chung, không khai báo `TaskScheduler`); đếm có trần 10.000, query timeout 5 giây, lỗi → NaN + counter; tuổi outbox tính từ `created_at` vì hạn retry luôn bị dời. Investment tách ba loại sự cố cộng bằng hàng đợi admin. Chưa thêm Prometheus registry vì chưa có scraper |
 | D59 | Giữ Flyway 9.22.3 do Spring Boot 3.2.5 quản lý dù Flyway cảnh báo PostgreSQL 17 chưa được kiểm (B59): mọi test migrate/upgrade đã chạy trên PostgreSQL 17.5. Nâng cùng lần lên Spring Boot 3.4.x (Flyway 10.20.1, bản đầu hỗ trợ PostgreSQL 17) hoặc 3.5.x, thêm `flyway-database-postgresql`, verify đủ sáu module; không ghi đè riêng `flyway.version` trên Boot 3.2 |
+| D79 | (Thêm 2026-10-17 khi sửa B58 trên nhánh producer W3F) Consumer Payment dùng `DefaultErrorHandler` + `DeadLetterPublishingRecoverer` sang DLT riêng `<topic>.payment.DLT` (partition do producer chọn), như Notification; `IllegalArgumentException`/`BusinessException` vào DLT ngay, lỗi khác lùi dần 1–30 giây trong 3 phút (cấu hình `PAYMENT_KAFKA_RETRY_*`, `PAYMENT_KAFKA_DLT_SUFFIX`). Không dùng `<topic>.DLT` vì `finora.loan.disbursed`, `finora.investment.note-ownership-changed` đã có Investment/Blockchain ghi vào đó; cửa sổ 3 phút như Notification vì lệnh giải ngân cần chịu được PostgreSQL khởi động lại, mỗi lần chờ dưới `max.poll.interval.ms` |
 
 ### Defect (B55–B59, chép vào plan tổng hợp mục 3b)
 
@@ -303,7 +308,7 @@ Plan ở `READY_FOR_REVIEW`: code và test đã chạy trên máy (mục 16). Ch
 | B55 | P1 | R9 | Testcontainers 1.19.7 (Boot 3.2.5) mặc định gọi Docker API 1.32; Docker Engine 29 trên runner GitHub chỉ nhận từ 1.44, mọi IT sẽ lỗi "client version 1.32 is too old" (docker-java chỉ đọc `api.version` từ system property hoặc `~/.docker-java.properties`, không đọc `DOCKER_API_VERSION`). Máy dev Docker 27 (min API 1.24) không thấy | Mitigated W3E — job `java` ghi `api.version=1.44`, tắt Ryuk; sửa gốc khi nâng Testcontainers (D59) |
 | B56 | P2 | R8/R9 | Loan mở `/actuator/metrics` cho mọi token hợp lệ (`anyRequest().authenticated()`): người vay đọc được metric nội bộ | Fixed W3E — `/actuator/** hasRole("ADMIN")` ở Loan/Payment/Investment; IT 401/403/200 |
 | B57 | P2 | R9 | Outbox `DEAD_LETTER` của Loan/Payment/Investment không có API đưa lại hàng đợi; trước W3E không có số đếm. Proof Blockchain đã có `POST /api/v1/blockchain/proofs/{proofId}/retry` từ W3D | Open — gauge `dead_letter` + runbook mục 3.2 (SQL có kiểm soát, từng event); đề xuất API admin requeue có audit như proof của W3D |
-| B58 | P1 | R2/R9 | Consumer Payment (`DisbursementRequested`, `LoanDisbursed`, `NoteOwnershipChanged`) dùng error handler mặc định: record lỗi thử 10 lần liên tiếp rồi bị bỏ qua, chỉ còn log. Loan/Investment có `.DLT`; Blockchain có `.DLT` từ W3D, Notification có `.notification.DLT` từ W3F (trên nhánh gốc `ca9efa2` hai service này cũng chưa có) | Open — runbook mục 3.4 (phát lại từ outbox nguồn, cùng `eventId`); đề xuất `DeadLetterPublishingRecoverer` cho Payment như Loan/Investment |
+| B58 | P1 | R2/R9 | Consumer Payment (`DisbursementRequested`, `LoanDisbursed`, `NoteOwnershipChanged`) dùng error handler mặc định: record lỗi thử 10 lần liên tiếp rồi bị bỏ qua, chỉ còn log. Loan/Investment có `.DLT`; Blockchain có `.DLT` từ W3D, Notification có `.notification.DLT` từ W3F (trên nhánh gốc `ca9efa2` hai service này cũng chưa có) | Fixed 2026-10-17 (nhánh producer W3F, D79) — `PaymentKafkaConsumerConfiguration`: `DefaultErrorHandler` + `DeadLetterPublishingRecoverer` sang `<topic>.payment.DLT`; `IllegalArgumentException`/`BusinessException` vào DLT ngay, lỗi khác lùi dần 1–30 giây trong 3 phút (`PAYMENT_KAFKA_RETRY_*`). `PaymentKafkaDeadLetterIT` (broker trong JVM, listener thật): JSON hỏng và dữ liệu lệch vào DLT đúng một lần thử, saga chưa có thử lại nhiều lần rồi vào DLT, record sau vẫn được xử lý; runbook mục 3.4 |
 | B59 | P3 | R9 | Flyway 9.22.3 in "PostgreSQL 17.5 is newer than this version of Flyway… latest supported version is 15" mỗi lần khởi động | Documented (D59) — runbook mục 6.5 |
 | B23 | P2 | R9 | Payment khai báo `spring-boot-starter-data-redis` nhưng không dùng Redis | Fixed W3E — gỡ dependency, `spring.data.redis`, container/volume `payment-redis`, `PAYMENT_REDIS_*`, registry; `PaymentOperationsHealthIT` chứng minh khởi động/readiness không có Redis |
 | B21 | P1 | R9/R2 | DB Loan dùng chung trỏ tới Fineract của máy khác | Mitigated W3E — quy tắc "Loan DB và Fineract theo cặp" trong `ENVIRONMENT-MATRIX.md` mục 4 (DB local riêng hoặc booking `mock` với DB dùng chung); không còn việc code |

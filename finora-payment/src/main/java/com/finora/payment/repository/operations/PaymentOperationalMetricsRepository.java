@@ -17,8 +17,8 @@ import org.springframework.stereotype.Repository;
  *   <li>giải ngân {@code RECONCILIATION_REQUIRED}: {@code idx_payment_disbursements_incident_queue};</li>
  *   <li>nạp tiền {@code RECONCILIATION_REQUIRED}: {@code idx_payment_top_ups_pending}.</li>
  * </ul>
- * <p>Outbox {@code DEAD_LETTER} không có index: quét tuần tự bảng outbox mỗi chu kỳ làm mới; khi bảng lớn thêm index một
- * phần {@code WHERE status = 'DEAD_LETTER'} trong migration của Payment.</p>
+ * <p>Outbox {@code DEAD_LETTER} và rút tiền {@code RECONCILIATION_REQUIRED} không có index: quét tuần tự bảng mỗi chu kỳ
+ * làm mới; khi bảng lớn thêm index một phần {@code WHERE status = ...} trong migration của Payment.</p>
  */
 @Repository
 public class PaymentOperationalMetricsRepository {
@@ -64,6 +64,16 @@ public class PaymentOperationalMetricsRepository {
     /** Lệnh nạp tiền chưa rõ kết quả provider (callback mất hoặc lệch). */
     public long topUpsReconciliationRequired() {
         return boundedCount("payment_top_ups WHERE status = 'RECONCILIATION_REQUIRED'");
+    }
+
+    /**
+     * Lệnh rút tiền (W3B) chưa rõ provider đã chi chưa: tra cứu theo {@code withdrawalId}, chỉ gửi lại khi provider khẳng
+     * định chưa nhận (D42). Đếm cả lệnh còn lượt tra cứu tự động lẫn lệnh đã hết lượt chờ vận hành
+     * ({@code next_attempt_at IS NULL}), như các hàng đợi đối soát khác. Không có index phù hợp (index một phần
+     * {@code ix_payment_withdrawals_due} bỏ lệnh chờ vận hành): quét tuần tự bảng rút tiền, bảng nhỏ ở quy mô hiện tại.
+     */
+    public long withdrawalsReconciliationRequired() {
+        return boundedCount("payment_withdrawals WHERE status = 'RECONCILIATION_REQUIRED'");
     }
 
     private long boundedCount(String fromWhere) {

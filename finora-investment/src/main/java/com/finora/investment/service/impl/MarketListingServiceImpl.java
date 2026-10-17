@@ -285,8 +285,9 @@ public class MarketListingServiceImpl implements MarketListingService {
                 continue;
             }
             BigDecimal raised = listing.getCommittedAmount();
-            int cancelled = commitmentCanceller.cancelActive(listing, "LISTING_EXPIRED",
-                    "Khoản vay hết hạn gọi vốn mà chưa đủ vốn; tiền giữ được trả lại ví", SYSTEM_EXPIRY_ACTOR, now);
+            ListingCommitmentCanceller.CancelledCommitments cancelled = commitmentCanceller.cancelActive(listing,
+                    "LISTING_EXPIRED", "Khoản vay hết hạn gọi vốn mà chưa đủ vốn; tiền giữ được trả lại ví",
+                    SYSTEM_EXPIRY_ACTOR, now);
             listing.setStatus(ListingStatus.CLOSED);
             listing.setUpdatedBy(SYSTEM_EXPIRY_ACTOR);
             listing.setUpdatedAt(now);
@@ -301,9 +302,11 @@ public class MarketListingServiceImpl implements MarketListingService {
                             "VND",
                             listing.getFundingOpenedAt(),
                             listing.getFundingClosesAt(),
-                            "FUNDING_WINDOW_EXPIRED"));
+                            "FUNDING_WINDOW_EXPIRED",
+                            // P6 (W3F): nhà đầu tư bị hủy phần vốn, để Notification báo tiền giữ sẽ về ví.
+                            cancelled.investorIds()));
             log.info("Đóng listing hết hạn gọi vốn: listingId={}, loanId={}, cancelledCommitments={}",
-                    listing.getId(), listing.getLoanId(), cancelled);
+                    listing.getId(), listing.getLoanId(), cancelled.count());
             closed++;
         }
         return closed;

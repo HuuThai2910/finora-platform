@@ -487,6 +487,13 @@ class FinoraLoanApplicationIT {
                 SELECT COUNT(*) FROM loan_outbox_events
                 WHERE event_type = 'BorrowerSignatureRequested' AND publishable = true
                 """, Long.class)).isEqualTo(1L);
+        // P1 (W3F): người vay nằm ngay trong event (ID logic, không phải PII) nên Notification không cần bảng tra.
+        JsonNode borrowerTurn = objectMapper.readTree(jdbcTemplate.queryForObject("""
+                SELECT payload_json::text FROM loan_outbox_events
+                WHERE event_type = 'BorrowerSignatureRequested' AND event_version = 1
+                """, String.class));
+        assertThat(borrowerTurn.path("borrowerId").asText()).isEqualTo("BORROWER-001");
+        assertThat(borrowerTurn.path("applicationNumber").asText()).isEqualTo(applicationNumber);
 
         org.springframework.security.oauth2.jwt.Jwt borrowerJwt =
                 org.springframework.security.oauth2.jwt.Jwt.withTokenValue("borrower-token")
@@ -532,6 +539,14 @@ class FinoraLoanApplicationIT {
                   AND publishable = true
                   AND payload_json::text LIKE '%HOLD-INVESTOR-001%'
                 """, Long.class)).isEqualTo(1L);
+        // P2 (W3F): hợp đồng hiệu lực mang borrowerId; Blockchain neo hash cả data nên field là chuỗi.
+        JsonNode activated = objectMapper.readTree(jdbcTemplate.queryForObject("""
+                SELECT payload_json::text FROM loan_outbox_events
+                WHERE event_type = 'LoanContractActivated' AND event_version = 1 AND publishable = true
+                """, String.class));
+        assertThat(activated.path("borrowerId").isTextual()).isTrue();
+        assertThat(activated.path("borrowerId").asText()).isEqualTo("BORROWER-001");
+        assertThat(activated.path("contractNumber").asText()).isEqualTo(contractNumber);
 
         org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
                 new org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken(
@@ -632,6 +647,13 @@ class FinoraLoanApplicationIT {
         assertThat(cancelled.path("allocationVersion").asLong()).isEqualTo(1L);
         assertThat(cancelled.path("allocationHash").asText()).isEqualTo(allocationHash);
         assertThat(cancelled.path("reasonCode").asText()).isEqualTo("CONTRACT_EXPIRED");
+        // P2 (W3F): Notification báo người vay mà không cần bảng tra. ObjectMapper thật của Loan ghi java.time dạng chuỗi
+        // ISO (điều Blockchain hash v2 và record LocalDate/Instant của consumer cần).
+        assertThat(cancelled.path("borrowerId").asText()).isEqualTo("BORROWER-001");
+        assertThat(cancelled.path("cancelledAt").isTextual()).isTrue();
+        // Consumer Loan đọc bằng chính ObjectMapper này: field producer bổ sung (P4 borrowerId, P6 investorIds) bị bỏ qua.
+        assertThat(objectMapper.isEnabled(
+                com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)).isFalse();
         mockMvc.perform(get("/api/v1/loan-applications/{number}", applicationNumber))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.funding.status").value("CANCELLED"))

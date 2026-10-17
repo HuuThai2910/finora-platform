@@ -62,7 +62,8 @@ public class LoanFundingCancellationService {
                         application.getAllocationVersion(),
                         application.getAllocationHash(),
                         reasonCode,
-                        now));
+                        now,
+                        application.getBorrowerId()));
         log.info("Hủy đợt gọi vốn đã đủ vốn: applicationNumber={}, contractNumber={}, reasonCode={}",
                 application.getApplicationNumber(), contractNumber, reasonCode);
         return true;

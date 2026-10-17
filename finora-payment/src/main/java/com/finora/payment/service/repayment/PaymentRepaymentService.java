@@ -23,6 +23,8 @@ import com.finora.payment.integration.fineract.FineractRepaymentException;
 import com.finora.payment.integration.fineract.RepaymentCoreCommand;
 import com.finora.payment.integration.fineract.RepaymentCoreGateway;
 import com.finora.payment.integration.fineract.ScheduledRepaymentCoreQuote;
+import com.finora.payment.messaging.RepaymentCancelledEventData;
+import com.finora.payment.messaging.RepaymentCollectedEventData;
 import com.finora.payment.messaging.RepaymentDistributedEventData;
 import com.finora.payment.repository.PaymentOutboxEventRepository;
 import com.finora.payment.repository.repayment.PaymentRepaymentRepository;
@@ -139,7 +141,12 @@ public class PaymentRepaymentService {
                             LedgerDirection.DEBIT, value.getAmount()),
                     new LedgerPostingEntryCommand(borrowerWallet.walletId(), null, LedgerBalanceBucket.AVAILABLE,
                             LedgerDirection.CREDIT, value.getAmount()))));
-        value.cancelBeforeDueDate(today, clock.instant());
+        Instant now = clock.instant();
+        value.cancelBeforeDueDate(today, now);
+        // P5 (D77): cùng transaction với hoàn tiền; lần hủy lặp lại đã trả sớm ở trên nên không phát event thứ hai.
+        outbox.save(PaymentOutboxEvent.pending(value.getLoanApplicationId().toString(), "RepaymentCancelled",
+                json(new RepaymentCancelledEventData(value.getRepaymentId(), value.getLoanApplicationId(),
+                        value.getBorrowerId(), value.getPostOn(), now)), now));
         return RepaymentResponse.from(value);
     }
 
@@ -322,8 +329,17 @@ public class PaymentRepaymentService {
                             LedgerDirection.DEBIT, amount),
                     new LedgerPostingEntryCommand(null, "CLEARING:REPAYMENT", LedgerBalanceBucket.CLEARING,
                             LedgerDirection.CREDIT, amount))));
+        Instant now = clock.instant();
         PaymentRepayment repayment = repayments.save(PaymentRepayment.collected(idempotencyKey, account,
-                amount, effectiveDate, repaymentType, postOn, posting.transactionId(), clock.instant()));
+                amount, effectiveDate, repaymentType, postOn, posting.transactionId(), now));
+        if (postOn != null) {
+            // P5 (D77): khoản trả kỳ được giữ tới ngày đến hạn (D16) — Fineract chưa biết nên Notification cần event này để
+            // không nhắc kỳ đó. Cùng transaction với bút toán trừ ví; lệnh gửi lại cùng khóa đã trả sớm ở trên.
+            outbox.save(PaymentOutboxEvent.pending(account.getLoanApplicationId().toString(), "RepaymentCollected",
+                    json(new RepaymentCollectedEventData(repayment.getRepaymentId(), repayment.getLoanApplicationId(),
+                            repayment.getBorrowerId(), repayment.getRepaymentType().name(),
+                            repayment.getAmount().toPlainString(), repayment.getCurrency(), postOn, now)), now));
+        }
         return RepaymentResponse.from(repayment);
     }
 
@@ -505,7 +521,7 @@ public class PaymentRepaymentService {
                 repayment.getTotalOutstanding().toPlainString(), repayment.getOverdueAmount().toPlainString(),
                 repayment.getCurrency(),
                 repayment.getTransactionDate(), repayment.getNextDueDate(), repayment.getNextDueAmount().toPlainString(),
-                now, allocations);
+                now, allocations, repayment.getBorrowerId());
         outbox.save(PaymentOutboxEvent.pending(repayment.getLoanApplicationId().toString(),
                 "RepaymentDistributed", json(event), now));
     }

@@ -65,23 +65,25 @@ eKYC và bảng luật không đi qua Kafka và Investment không chép các s�
 |---|---|---|---|---|
 | `LoanFundingRequested` v1 / `finora.loan.funding-requested` | Loan → Investment | Exact terms đã `AUTO_AUTHORIZED` hoặc borrower `ACCEPTED`; local transaction đã ghi funding request | Investment tạo một `MarketListing` từ snapshot. Nhà đầu tư sau đó GET `/api/v1/market/listings`; event không thay GET | `eventId` trong `processed_events`; unique `loanId + fundingRound` |
 | `LoanFullyFunded` v2 / `finora.investment.loan-fully-funded` | Investment → Loan | Tổng commitment hợp lệ bằng đúng target và allocation đã bị khóa | Loan đối chiếu số tiền/hash/hold, lưu allocation snapshot rồi tạo một Contract/PDF chung | `eventId`; transition listing `OPEN → FULLY_FUNDED` chỉ xảy ra một lần; Loan kiểm `allocationVersion` |
-| `LoanFundingExpired` v1 / `finora.investment.loan-funding-expired` | Investment → Loan | Listing `OPEN` quá `fundingClosesAt` mà chưa đủ vốn; Investment đã huỷ commitment/order cùng transaction và tự nhả hold qua worker | Loan chuyển `fundingStatus REQUESTED → EXPIRED`, ghi `fundingExpiredAt`, không lập Contract | `eventId`; key = `applicationNumber` như `LoanFullyFunded`; Loan kiểm `fundingRound`, đã `FULLY_FUNDED` thì conflict → DLT |
+| `LoanFundingExpired` v1 / `finora.investment.loan-funding-expired` | Investment → Loan; Notification (W3F) | Listing `OPEN` quá `fundingClosesAt` mà chưa đủ vốn; Investment đã huỷ commitment/order cùng transaction và tự nhả hold qua worker | Loan chuyển `fundingStatus REQUESTED → EXPIRED`, ghi `fundingExpiredAt`, không lập Contract. `investorIds` (P6) cho Notification báo từng nhà đầu tư tiền giữ sẽ về ví; Loan bỏ qua | `eventId`; key = `applicationNumber` như `LoanFullyFunded`; Loan kiểm `fundingRound`, đã `FULLY_FUNDED` thì conflict → DLT |
 | `InvestorSignatureRequested` v1 / `finora.loan.investor-signature-requested` | Loan → Investment; Notification (W3F) | PDF signable đã lưu bất biến và các lender parties đã được tạo | Investment cập nhật projection để UI biết Contract; Notification báo từng investor khi module đó được nối. App gọi GET Loan để tải đúng PDF/hash rồi ký | Investment dùng `eventId`; Notification sẽ dùng `sourceEventId + recipientId + channel + templateVersion` |
-| `BorrowerSignatureRequested` v1 / `finora.loan.borrower-signature-requested` | Loan → Notification (W3F) | Tất cả lender parties đã ký đúng cùng `documentVersion/documentHash` | App hiện đọc lại Contract từ Loan; Notification báo borrower (W3F, B24) | Như event notification ở trên |
-| `LoanContractActivated` v1 / `finora.loan.contract-activated` | Loan → Investment, Blockchain (proof `CONTRACT_DOCUMENT`, W3D); Notification (W3F) | Tất cả lender và borrower đã ký; Contract chuyển `EFFECTIVE` | Investment đánh dấu khoản đầu tư có hiệu lực. Trong cùng transaction kích hoạt, Loan tạo durable Saga/outbox `DisbursementRequested`; event này không được hiểu là đã giải ngân | `eventId`; mỗi consumer có `processed_events`; side effect tài chính có idempotency key riêng |
+| `BorrowerSignatureRequested` v1 / `finora.loan.borrower-signature-requested` | Loan → Notification (W3F) | Tất cả lender parties đã ký đúng cùng `documentVersion/documentHash` | App hiện đọc lại Contract từ Loan; Notification báo borrower theo `borrowerId` trong event (P1, B24); bảng tra người nhận chỉ còn cho event cũ | Như event notification ở trên |
+| `LoanContractActivated` v1 / `finora.loan.contract-activated` | Loan → Investment, Blockchain (proof `CONTRACT_DOCUMENT`, W3D); Notification (W3F) | Tất cả lender và borrower đã ký; Contract chuyển `EFFECTIVE` | Investment đánh dấu khoản đầu tư có hiệu lực. Trong cùng transaction kích hoạt, Loan tạo durable Saga/outbox `DisbursementRequested`; event này không được hiểu là đã giải ngân. Mang `borrowerId` (P2) cho Notification | `eventId`; mỗi consumer có `processed_events`; side effect tài chính có idempotency key riêng |
 | `DisbursementRequested` v2 / `finora.loan.disbursement-requested` | Loan → Payment | Contract đã `EFFECTIVE`, Loan đã tạo durable Saga | Payment lưu yêu cầu duy nhất theo `sagaId`, capture/đối chiếu từng `paymentHoldReference` và gọi provider ngoài transaction | unique `sagaId`; provider reference/idempotency dùng cùng `sagaId` |
 | `DisbursementCompleted` v1 / `finora.payment.disbursement-completed` | Payment → Loan | Provider xác nhận tiền đã chuyển và Payment đã lưu reference | Loan ghi nhận Fineract bằng external ID, không yêu cầu Payment chuyển lại | `eventId` + `sagaId`; `paymentReference` unique |
 | `DisbursementFailed` v1 / `finora.payment.disbursement-failed` | Payment → Loan | Lỗi cuối cùng, không còn retry tự động trong Payment | Loan giữ Contract `EFFECTIVE`, saga thành `PAYMENT_FAILED` để vận hành xử lý; nếu saga còn `WAITING_PAYMENT` thì cùng transaction ghi `LoanFundingCancelled` để nhà đầu tư được nhả tiền giữ | `eventId` + `sagaId` |
-| `LoanFundingCancelled` v1 / `finora.loan.funding-cancelled` | Loan → Investment | Đợt gọi vốn đã đủ vốn nhưng khoản vay chắc chắn không giải ngân: Contract nhiều bên `DECLINED`/`EXPIRED`, hoặc `DisbursementFailed` đến khi saga còn `WAITING_PAYMENT` | Investment khóa listing, đối chiếu allocation, hủy commitment `ACTIVE` và lệnh tương ứng, chuyển listing `CANCELLED`; worker bảo trì nhả từng hold theo mã lệnh. Đã có commitment `FINALIZED` hoặc `disbursedAt` thì từ chối (DLT) vì tiền đã capture | `eventId` trong `processed_events`; Loan chỉ chuyển `fundingStatus FULLY_FUNDED → CANCELLED` một lần nên event logic chỉ sinh một lần; replay với `eventId` mới là no-op khi listing đã `CANCELLED` |
-| `LoanDisbursed` v1 / `finora.loan.disbursed` | Loan → Investment, Payment, Blockchain (proof `DISBURSEMENT`, W3D); Notification (W3F) | Payment success và Fineract đã ghi disbursement | Investment `ACTIVE → FINALIZED` commitments và phát hành Note; các consumer khác chỉ tạo projection/proof/thông báo | `eventId`; Note unique theo commitment/sequence |
+| `LoanFundingCancelled` v1 / `finora.loan.funding-cancelled` | Loan → Investment; Notification (W3F, theo `borrowerId` P2 và allocation đã lưu) | Đợt gọi vốn đã đủ vốn nhưng khoản vay chắc chắn không giải ngân: Contract nhiều bên `DECLINED`/`EXPIRED`, hoặc `DisbursementFailed` đến khi saga còn `WAITING_PAYMENT` | Investment khóa listing, đối chiếu allocation, hủy commitment `ACTIVE` và lệnh tương ứng, chuyển listing `CANCELLED`; worker bảo trì nhả từng hold theo mã lệnh. Đã có commitment `FINALIZED` hoặc `disbursedAt` thì từ chối (DLT) vì tiền đã capture | `eventId` trong `processed_events`; Loan chỉ chuyển `fundingStatus FULLY_FUNDED → CANCELLED` một lần nên event logic chỉ sinh một lần; replay với `eventId` mới là no-op khi listing đã `CANCELLED` |
+| `LoanDisbursed` v1 / `finora.loan.disbursed` | Loan → Investment, Payment, Blockchain (proof `DISBURSEMENT`, W3D); Notification (W3F) | Payment success và Fineract đã ghi disbursement | Investment `ACTIVE → FINALIZED` commitments và phát hành Note; các consumer khác chỉ tạo projection/proof/thông báo. Mang `borrowerId` (P2) và kỳ đầu `nextDueDate`/`nextDueAmount` từ Fineract (P3) để Notification báo và nhắc từ kỳ 1 | `eventId`; Note unique theo commitment/sequence |
 | `NoteOwnershipChanged` v1 / `finora.investment.note-ownership-changed` | Investment → Payment, Blockchain (proof `NOTE_OWNERSHIP`, W3D) | Note vừa phát hành hoặc đổi chủ trên chợ thứ cấp | Payment cập nhật read model chủ Note để kỳ trả tiếp theo chuyển tiền đúng người đang sở hữu | `eventId`; `noteId` unique; event cũ hơn `changedAt` không ghi đè event mới |
-| `RepaymentDistributed` v1 / `finora.payment.repayment-distributed` | Payment → Loan, Investment, Blockchain | Ví người vay đã bị trừ, Fineract đã phân bổ và ledger phân phối đã cân bằng | Loan cập nhật projection; Investment cộng gốc/lãi/phần phí trả trước của Note và đóng Note khi hết gốc; Blockchain chỉ neo SHA-256 của `data` | `eventId`; unique `repaymentId`/`fineractTransactionId`; `processed_events` |
+| `RepaymentDistributed` v1 / `finora.payment.repayment-distributed` | Payment → Loan, Investment, Blockchain; Notification (W3F) | Ví người vay đã bị trừ, Fineract đã phân bổ và ledger phân phối đã cân bằng | Loan cập nhật projection; Investment cộng gốc/lãi/phần phí trả trước của Note và đóng Note khi hết gốc; Blockchain chỉ neo SHA-256 của `data`; Notification báo người vay theo `borrowerId` (P4) và cập nhật lịch nhắc | `eventId`; unique `repaymentId`/`fineractTransactionId`; `processed_events` |
+| `RepaymentCollected` v1 / `finora.payment.repayment-collected` | Payment → Notification (W3F, P5) | Payment vừa trừ ví cho một kỳ trả trước ngày đến hạn và giữ ở clearing tới `dueDate` (D16); chỉ khi khoản trả được hẹn ghi core (`postOn`) | Notification báo "đã nhận tiền trả kỳ" và không nhắc kỳ đó; Fineract chưa biết khoản này nên không có `RepaymentDistributed` tới ngày đến hạn | Outbox cùng transaction với bút toán trừ ví; gửi lại cùng `Idempotency-Key` không phát lần hai; key = `loanApplicationId` |
+| `RepaymentCancelled` v1 / `finora.payment.repayment-cancelled` | Payment → Notification (W3F, P5) | Người vay hủy khoản trả kỳ đang giữ trước ngày ghi nhận; tiền đã hoàn về ví cùng transaction | Notification báo đã hủy và nhắc lại kỳ đó | Outbox cùng transaction với hoàn tiền; hủy lặp lại không phát lần hai; key = `loanApplicationId` |
 | `LoanDelinquencyChanged` v1 / `finora.loan.delinquency-changed` | Loan → CIC mock, Investment | Snapshot Fineract làm DPD đổi, kể cả repayment khắc phục đưa DPD về 0 | CIC tách nhóm hiện tại/lịch sử; Investment cập nhật risk projection của Note/portfolio | Mỗi consumer dùng `eventId`; Investment bỏ event risk cũ hơn `dataAsOf` |
 | `LoanSettled` v1 / `finora.loan.settled` | Loan → Investment lifecycle consumer | Fineract xác nhận `totalOutstanding = 0` và `FinoraLoan` vừa chuyển `SETTLED` | Investment lưu read model mốc đóng khoản vay; không thay `RepaymentDistributed` trong việc chia tiền/đóng Note | Outbox cùng transaction chuyển trạng thái; consumer `processed_events` |
-| `LoanRescheduleConsentRequested` v1 / `finora.loan.reschedule-consent-requested` | Loan → Investment | FINORA thẩm định đạt và chuyển request sang chờ nhà đầu tư | Investment snapshot các chủ Note/dư nợ hiện tại và mở phiếu đồng ý cho từng nhà đầu tư | `eventId`; unique `requestId + investorId` |
+| `LoanRescheduleConsentRequested` v1 / `finora.loan.reschedule-consent-requested` | Loan → Investment; Notification (W3F) | FINORA thẩm định đạt và chuyển request sang chờ nhà đầu tư | Investment snapshot các chủ Note/dư nợ hiện tại, mở phiếu đồng ý cho từng nhà đầu tư và cùng transaction mời họ biểu quyết (`InvestorNoteServicingChanged` `RESCHEDULE_CONSENT_REQUESTED`, P7); Notification báo người vay theo `borrowerId` (P2) | `eventId`; unique `requestId + investorId`; lời mời chỉ khi phiếu tạo lần đầu |
 | `LoanRescheduleConsentCompleted` v1 / `finora.investment.reschedule-consent-completed` | Investment → Loan | Tất cả nhà đầu tư đã đồng ý hoặc có ít nhất một người từ chối | Loan chỉ mở bước gọi Fineract khi `approved=true`; nếu từ chối thì giữ lịch cũ | `eventId`; mỗi `requestId` chỉ có một kết quả cuối |
-| `LoanRescheduled` v1 / `finora.loan.rescheduled` | Loan → Investment lifecycle consumer | Nhà đầu tư đã đồng thuận, Fineract đã chấp nhận lịch mới và Loan đã refresh projection | Investment cập nhật maturity/schedule marker cho portfolio; không tự tính lịch hoặc dư nợ | `eventId` trong `processed_events`; `requestId` snapshot, event trùng không ghi lại |
-| `InvestorNoteServicingChanged` v1 / `finora.investment.note-servicing-changed` | Investment → Notification | Note projection đổi do trả nợ, quá hạn, khắc phục, cơ cấu hoặc tất toán | Notification fan-out theo chủ Note và tạo in-app delivery; cờ push theo milestone, không push hằng ngày | Outbox Investment; unique `sourceEventId + recipientId + type` ở Notification |
+| `LoanRescheduled` v1 / `finora.loan.rescheduled` | Loan → Investment lifecycle consumer; Notification (W3F) | Nhà đầu tư đã đồng thuận, Fineract đã chấp nhận lịch mới và Loan đã refresh projection | Investment cập nhật maturity/schedule marker cho portfolio; không tự tính lịch hoặc dư nợ. Kỳ tiếp theo của lịch mới `nextDueDate`/`nextDueAmount` (P3) cho lịch nhắc của Notification | `eventId` trong `processed_events`; `requestId` snapshot, event trùng không ghi lại |
+| `InvestorNoteServicingChanged` v1 / `finora.investment.note-servicing-changed` | Investment → Notification | Note projection đổi do trả nợ, quá hạn, khắc phục, cơ cấu hoặc tất toán; lúc mở phiếu đồng thuận cơ cấu (`RESCHEDULE_CONSENT_REQUESTED`, P7) | Notification fan-out theo chủ Note và tạo in-app delivery; cờ push theo milestone, không push hằng ngày; lời mời biểu quyết luôn push | Outbox Investment; unique `sourceEventId + recipientId + type` ở Notification |
 
 `LoanContractActivated` chỉ xác nhận hợp đồng có hiệu lực. `DisbursementCompleted` chỉ xác nhận phía
 Payment. `LoanDisbursed` mới xác nhận toàn bộ happy path bắt buộc (Payment + Fineract) đã hoàn tất.
@@ -163,6 +165,29 @@ Payment. `LoanDisbursed` mới xác nhận toàn bộ happy path bắt buộc (P
 - Sau khi event này được commit, allocation không được sửa âm thầm. Investor từ chối/hết hạn ký
   phải đi qua flow thay thế allocation và tạo `documentVersion` mới (phase sau).
 
+### 5.2a `LoanFundingExpired` v1
+
+```json
+{
+  "loanApplicationId": 123,
+  "applicationNumber": "LA-2026-000123",
+  "listingId": 456,
+  "fundingRound": 1,
+  "targetAmount": "50000000.00",
+  "committedAmount": "6000000.00",
+  "currency": "VND",
+  "fundingOpenedAt": "2026-10-03T03:00:00Z",
+  "fundingClosedAt": "2026-10-17T03:00:00Z",
+  "reason": "FUNDING_WINDOW_EXPIRED",
+  "investorIds": ["31", "47"]
+}
+```
+
+- `investorIds` (bổ sung 2026-10-17, P6 W3F, tương thích ngược, version vẫn v1): ID logic (claim `user_id`) của các nhà đầu
+  tư có phần vốn `ACTIVE` vừa bị hủy trong cùng transaction đóng listing, không trùng (một người nhiều lệnh chỉ xuất hiện
+  một lần), sắp theo thứ tự chữ; mảng rỗng khi chưa ai góp. Notification dùng để báo tiền giữ sẽ về ví; Loan bỏ qua.
+- `committedAmount` là số đã gom trước khi hủy, chỉ để hiển thị.
+
 ### 5.3 `DisbursementRequested` v2 và event kết quả v1
 
 ```json
@@ -190,6 +215,16 @@ Payment. `LoanDisbursed` mới xác nhận toàn bộ happy path bắt buộc (P
 - `LoanDisbursed` v1 có field optional `earlySettlementPolicyVersion` (từ 2026-10-17, G-POLICY-W2): biểu phí trả
   trước mà hợp đồng đã công bố (`AGRIBANK_REFERENCE_FINORA_2026_V2` với `LOAN_TERMS_V2`), `null` với hợp đồng không có
   điều khoản phí. Payment lưu một lần trên tài khoản thu nợ và tính báo giá theo nó; Investment bỏ qua field này.
+- Từ 2026-10-17 (W3F, tương thích ngược, version vẫn v1) `LoanDisbursed` mang thêm:
+  - `borrowerId` (P2): ID logic người vay đã lưu trên hồ sơ (claim `user_id`), không phải CCCD/PII. Cùng field có trong
+    `BorrowerSignatureRequested.v1` (P1), `LoanContractActivated.v1`, `LoanFundingCancelled.v1` và
+    `LoanRescheduleConsentRequested.v1` (P2) để Notification báo người vay mà không cần bảng tra.
+  - `nextDueDate` (ngày ISO `"2026-11-17"`) và `nextDueAmount` (chuỗi decimal VND hai chữ số thập phân, ví dụ
+    `"1726000.00"`) (P3, D76): kỳ đầu tiên còn phải trả, đọc từ cùng lần đọc Fineract với `maturityDate` ở bước ghi core
+    (`GET /loans/{id}?associations=repaymentSchedule`): dòng có số kỳ, `totalOutstandingForPeriod > 0`, ngày đến hạn sớm
+    nhất. FINORA không tự tính lịch: core không trả lịch (gateway giả lập) thì hai field vắng mặt; số tiền không biểu diễn
+    đúng hai số lẻ thì bỏ `nextDueAmount` chứ không làm tròn. Field là chuỗi nên canonical JSON v2 của Blockchain (chỉ nhận
+    số nguyên) vẫn băm được.
 
 ### 5.3a `LoanFundingCancelled` v1 — bù trừ khi không giải ngân
 
@@ -203,10 +238,12 @@ Payment. `LoanDisbursed` mới xác nhận toàn bộ happy path bắt buộc (P
   "allocationVersion": 1,
   "allocationHash": "<sha256 hex của allocation đã khóa>",
   "reasonCode": "CONTRACT_EXPIRED",
-  "cancelledAt": "2026-10-17T03:00:00Z"
+  "cancelledAt": "2026-10-17T03:00:00Z",
+  "borrowerId": "42"
 }
 ```
 
+- `borrowerId` (P2, W3F, optional, tương thích ngược): ID logic người vay để Notification báo; Investment bỏ qua.
 - `reasonCode` chỉ nhận `CONTRACT_DECLINED`, `CONTRACT_EXPIRED` hoặc `DISBURSEMENT_FAILED`; giá trị khác bị
   Investment từ chối. Payload không mang lý do tự do hoặc PII.
 - Investment chỉ hủy khi `loanApplicationId`, `applicationNumber`, `fundingRound`, `allocationVersion`,
@@ -242,6 +279,7 @@ Investment vẫn là nguồn chuẩn quyền sở hữu Note.
 | `totalOutstanding`, `overdueAmount`, `nextDueDate`, `nextDueAmount` | Tổng dư nợ, quá hạn và kỳ tiếp theo từ Fineract |
 | `currency`, `transactionDate`, `completedAt` | Tiền tệ và thời điểm nghiệp vụ |
 | `allocations[]` | `noteId`, `noteNumber`, `investorId`, gốc/lãi và `prepaymentFeeAmount` đã credit cho từng Note |
+| `borrowerId` | ID logic người vay đã lưu trên khoản trả (P4 W3F, optional, tương thích ngược); Notification báo người vay, Loan/Investment bỏ qua |
 
 Invariant bắt buộc:
 
@@ -251,6 +289,44 @@ Invariant bắt buộc:
 - Payment debit clearing đúng bằng tổng credit ví nhà đầu tư và ví platform.
 - Fineract là nguồn breakdown; Loan/Investment không tự chạy waterfall khác.
 - POST Fineract có kết quả không chắc chắn thì chuyển `RECONCILIATION_REQUIRED`, không POST lại mù.
+
+### 5.4a Khoản trả kỳ trước hạn đang giữ: `RepaymentCollected` v1 và `RepaymentCancelled` v1 (P5, W3F)
+
+Trả một kỳ trước ngày đến hạn trên khoản vay core V4 (D16), Payment trừ ví nhưng giữ tiền ở `CLEARING:REPAYMENT` và chỉ ghi
+Fineract vào ngày đến hạn (`postOn`), nên tới ngày đó Fineract vẫn báo kỳ chưa trả và chưa có `RepaymentDistributed`. Hai event
+này cho Notification biết khoản đang giữ để không nhắc kỳ đó và báo người vay (D64, D77).
+
+```json
+{
+  "repaymentId": "8cbcb833-a674-4ed4-94ae-71619d65e0d8",
+  "loanApplicationId": 123,
+  "borrowerId": "42",
+  "repaymentType": "SCHEDULED",
+  "amount": "1726000.00",
+  "currency": "VND",
+  "dueDate": "2026-11-17",
+  "collectedAt": "2026-10-20T03:00:00Z"
+}
+```
+
+```json
+{
+  "repaymentId": "8cbcb833-a674-4ed4-94ae-71619d65e0d8",
+  "loanApplicationId": 123,
+  "borrowerId": "42",
+  "dueDate": "2026-11-17",
+  "cancelledAt": "2026-10-21T03:00:00Z"
+}
+```
+
+- `RepaymentCollected` (topic `finora.payment.repayment-collected`) chỉ phát khi khoản trả được hẹn ghi core (`postOn` khác
+  null, luôn `SCHEDULED`); khoản ghi Fineract ngay không phát vì `RepaymentDistributed` sẽ theo sau. `dueDate` = `postOn`.
+- `RepaymentCancelled` (topic `finora.payment.repayment-cancelled`) chỉ phát từ `POST /api/v1/repayments/{id}/cancel` khi
+  khoản thật sự chuyển `COLLECTED → CANCELLED` (hoàn tiền `REPAYMENT-CANCEL-REFUND:<id>`); hủy lặp lại không phát lần hai.
+- Cả hai ghi outbox cùng transaction với bút toán ví, key = `loanApplicationId` (cùng partition với `RepaymentDistributed`
+  của khoản vay), header `finora-event-*`; route và allowlist đúng loại + version v1 trong `PaymentOutboxPublisher`.
+- Không mang PII: chỉ ID logic, số tiền dạng chuỗi decimal, ngày. Consumer: Notification group `notification-domain-events`
+  (listener chỉ chạy khi `NOTIFICATION_DUE_REMINDER_ENABLED=true`).
 
 ### 5.5 Quá hạn và đóng khoản vay
 
@@ -269,11 +345,15 @@ trạng thái/processed event bảo đảm chỉ transition thực sự mới gh
 Luồng cơ cấu có hai event bắt buộc trước `LoanRescheduled.v1`:
 
 1. Loan phát `LoanRescheduleConsentRequested.v1` sau khi FINORA thẩm định đạt. Payload gồm
-   `requestId`, định danh khoản vay, loại đề nghị, ngày/kỳ đề xuất và ngày đáo hạn hiện tại; không mang
-   lý do tự do hoặc PII.
+   `requestId`, định danh khoản vay, loại đề nghị, ngày/kỳ đề xuất, ngày đáo hạn hiện tại và `borrowerId` (ID logic, P2);
+   không mang lý do tự do hoặc PII.
 2. Investment snapshot chủ Note hiện tại, tạo một phiếu trên mỗi nhà đầu tư và phát
    `LoanRescheduleConsentCompleted.v1` khi tất cả đồng ý (`approved=true`) hoặc ngay khi có một người
-   từ chối (`approved=false`).
+   từ chối (`approved=false`). Cùng transaction tạo phiếu, Investment ghi outbox `InvestorNoteServicingChanged.v1`
+   `changeType = RESCHEDULE_CONSENT_REQUESTED` (P7, D78): mỗi chủ phiếu đúng một phần tử `recipients` (`investorId`;
+   `noteId`/`noteNumber`/`amount` để trống vì phiếu gộp mọi Note của người đó), `externalPushRequired = true`,
+   `maturityDate` = ngày đáo hạn hiện tại, `daysPastDue = 0`, `debtGroup = 1`, `amount = "0.00"` (trung tính như
+   `RESCHEDULED`). Chỉ phát khi phiếu được tạo lần đầu cho `requestId`: Loan phát lại đề nghị không mời lần hai.
 
 `LoanRescheduled.v1` chỉ được phát sau đồng thuận đầy đủ, Fineract đã approve yêu cầu reschedule và Loan
 đã đọc lại servicing snapshot. Request còn `PENDING_REVIEW`, `PENDING_INVESTOR_CONSENT`, bị từ chối
@@ -288,6 +368,7 @@ hoặc lỗi Fineract không được phát event này.
 | `previousMaturityDate`, `newMaturityDate` | Ngày đáo hạn trước/sau theo snapshot core |
 | `rescheduleFromDate`, `adjustedDueDate`, `extraTerms` | Tham số lịch đã được Fineract chấp nhận |
 | `occurredAt` | Thời điểm Loan commit lịch mới theo UTC |
+| `nextDueDate`, `nextDueAmount` | Kỳ tiếp theo của lịch mới (P3, D76): cùng snapshot servicing Fineract đọc sau khi duyệt lịch với `newMaturityDate`; ngày ISO và chuỗi decimal hai số lẻ; vắng mặt khi snapshot không có kỳ còn phải trả |
 
 Payload không mang `reasonComment`, admin note hoặc PII tự do. Retry/restart phía Loan dùng marker `[FINORA:<requestId>]`
 để dò yêu cầu đã tạo trên Fineract trước khi POST lại.
@@ -326,6 +407,12 @@ Loan luôn ghi `LoanFundingRequested` và chỉ tạo Contract sau `LoanFullyFun
   không làm tròn giảm tiền vay. Phase sau có thể hỗ trợ partial Note bằng contract mới.
 - Loan nhận funded amount/hash sai: giữ trạng thái cũ và đưa event vào retry/DLT; không tạo Contract.
 - Notification lỗi không rollback trạng thái Contract; Notification tự retry theo delivery history.
+- Field bổ sung ở W3F (P1–P6) đều optional và giữ version v1: mọi consumer (Loan, Investment, Payment, Notification) đọc bằng
+  ObjectMapper của Spring Boot (`FAIL_ON_UNKNOWN_PROPERTIES` tắt, không service nào tự dựng mapper khác) nên bỏ qua field lạ;
+  Blockchain băm cả `data` và chỉ từ chối số thực, nên tiền/ngày mới đều là chuỗi. Test:
+  `ProducerFieldAdditionsCompatibilityTest` (Loan, Investment), `PaymentKafkaDeadLetterIT`, `ProducerFieldAdditionsContractTest`.
+- Consumer Payment (`DisbursementRequested`, `LoanDisbursed`, `NoteOwnershipChanged`) từ B58 (D79): contract sai vào
+  `<topic>.payment.DLT` ngay, lỗi hạ tầng thử lại lùi dần 1–30 giây trong 3 phút rồi vào DLT đó (runbook mục 3.4).
 - Thứ tự giữa các topic không được bảo đảm (Wave 2): Investment chấp nhận `LoanContractActivated` khi chưa nhận
   `InvestorSignatureRequested`, và `LoanDisbursed` khi chưa nhận event Contract — `LoanDisbursed` tự chứng minh Contract
   đã `EFFECTIVE`. Event đến muộn chỉ bổ sung tham chiếu, không đưa trạng thái lùi; tham chiếu Contract/hash khác nhau

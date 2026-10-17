@@ -593,6 +593,180 @@ class NotificationFlowIT {
                 + "WHERE updated_at IS NULL", Integer.class)).isZero();
     }
 
+    /**
+     * P1–P4 (W3F §13) đúng như producer phát sau thay đổi: người vay nằm trong event nên không cần bảng tra dựng từ
+     * {@code LoanFundingRequested} (khoản vay ở đây chưa từng có event đó), và kỳ đầu/kỳ sau cơ cấu (P3) vào lịch nhắc.
+     */
+    @Test
+    void borrowerFieldsFromProducersDeliverWithoutTheLookupTableAndFeedTheReminderSchedule() {
+        Long loanId = SEQUENCE.incrementAndGet();
+        String borrower = "b-" + loanId;
+        String lender = "i-" + loanId;
+        // LoanFullyFunded không mang người vay: event chờ (bảng tra trống) nhưng danh sách nhà đầu tư đã lưu.
+        assertThat(fullyFunded(loanId, 1L, lender)).isEqualTo(IntakeResult.DEFERRED);
+
+        assertThat(send("finora.loan.borrower-signature-requested", "BorrowerSignatureRequested", 1, Map.of(
+                "loanApplicationId", loanId, "applicationNumber", "LA-2026-" + loanId,
+                "contractNumber", "LC-2026-" + loanId, "documentHash", "a".repeat(64),
+                "pdfDocumentHash", "b".repeat(64), "lenderCount", 1, "requestedAt", "2026-10-17T03:00:00Z",
+                "expiresAt", "2026-10-24T03:00:00Z", "borrowerId", borrower))).isEqualTo(IntakeResult.DELIVERED);
+        assertThat(send("finora.loan.contract-activated", "LoanContractActivated", 1, Map.of(
+                "loanApplicationId", loanId, "applicationNumber", "LA-2026-" + loanId,
+                "contractNumber", "LC-2026-" + loanId, "listingId", 20, "documentHash", "a".repeat(64),
+                "pdfReceiptHash", "c".repeat(64), "allocationVersion", 1, "allocationHash", "d".repeat(64),
+                "activatedAt", "2026-10-17T03:01:00Z", "borrowerId", borrower))).isEqualTo(IntakeResult.DELIVERED);
+        Map<String, Object> disbursed = new LinkedHashMap<>();
+        disbursed.put("sagaId", UUID.randomUUID().toString());
+        disbursed.put("loanApplicationId", loanId);
+        disbursed.put("applicationNumber", "LA-2026-" + loanId);
+        disbursed.put("contractNumber", "LC-2026-" + loanId);
+        disbursed.put("listingId", 20);
+        disbursed.put("amount", "10000000.00");
+        disbursed.put("currency", "VND");
+        disbursed.put("paymentReference", "MOCK-" + loanId);
+        disbursed.put("fineractLoanId", 9001);
+        disbursed.put("coreConfigVersion", "FINORA-FINERACT-V4");
+        disbursed.put("disbursedAt", "2026-10-17T03:05:00Z");
+        disbursed.put("earlySettlementPolicyVersion", "AGRIBANK_REFERENCE_FINORA_2026_V2");
+        disbursed.put("loanNumber", "LN-2026-" + loanId);
+        disbursed.put("maturityDate", "2027-04-17");
+        disbursed.put("borrowerId", borrower);
+        disbursed.put("nextDueDate", "2026-11-17");
+        disbursed.put("nextDueAmount", "1726000.00");
+        assertThat(send("finora.loan.disbursed", "LoanDisbursed", 1, disbursed)).isEqualTo(IntakeResult.DELIVERED);
+
+        assertThat(types(borrower)).containsExactlyInAnyOrder("BORROWER_SIGNATURE_REQUESTED", "CONTRACT_ACTIVATED",
+                "LOAN_DISBURSED");
+        assertThat(types(lender)).containsExactlyInAnyOrder("INVESTOR_CONTRACT_ACTIVATED", "NOTES_ISSUED");
+        // P3: nhắc được từ kỳ 1 ngay sau giải ngân, chưa cần RepaymentDistributed nào.
+        assertThat(schedules.findById(loanId)).hasValueSatisfying(schedule -> {
+            assertThat(schedule.getBorrowerId()).isEqualTo(borrower);
+            assertThat(schedule.getNextDueDate()).isEqualTo(LocalDate.parse("2026-11-17"));
+            assertThat(schedule.getNextDueAmount()).isEqualByComparingTo("1726000.00");
+        });
+
+        // P3 sau cơ cấu: kỳ tiếp theo theo lịch mới thay cho kỳ cũ.
+        Map<String, Object> rescheduled = new LinkedHashMap<>();
+        rescheduled.put("loanApplicationId", loanId);
+        rescheduled.put("loanNumber", "LN-2026-" + loanId);
+        rescheduled.put("borrowerId", borrower);
+        rescheduled.put("fineractLoanId", 9001);
+        rescheduled.put("requestId", UUID.randomUUID().toString());
+        rescheduled.put("requestType", "TERM_EXTENSION");
+        rescheduled.put("previousMaturityDate", "2027-04-17");
+        rescheduled.put("newMaturityDate", "2027-06-17");
+        rescheduled.put("rescheduleFromDate", "2026-11-17");
+        rescheduled.put("adjustedDueDate", null);
+        rescheduled.put("extraTerms", 2);
+        rescheduled.put("occurredAt", "2026-10-17T03:10:00Z");
+        rescheduled.put("nextDueDate", "2026-12-17");
+        rescheduled.put("nextDueAmount", "1500000.00");
+        assertThat(send("finora.loan.rescheduled", "LoanRescheduled", 1, rescheduled)).isEqualTo(IntakeResult.DELIVERED);
+        assertThat(schedules.findById(loanId)).hasValueSatisfying(schedule -> {
+            assertThat(schedule.getNextDueDate()).isEqualTo(LocalDate.parse("2026-12-17"));
+            assertThat(schedule.getNextDueAmount()).isEqualByComparingTo("1500000.00");
+        });
+
+        // P2 và P4 trên các khoản vay khác, cũng không có bảng tra người vay.
+        Long cancelledLoan = SEQUENCE.incrementAndGet();
+        fullyFunded(cancelledLoan, 1L, "i-" + cancelledLoan);
+        assertThat(send("finora.loan.funding-cancelled", "LoanFundingCancelled", 1, Map.of(
+                "loanApplicationId", cancelledLoan, "applicationNumber", "LA-2026-" + cancelledLoan, "listingId", 21,
+                "fundingRound", 1, "contractNumber", "LC-2026-" + cancelledLoan, "allocationVersion", 1,
+                "allocationHash", "d".repeat(64), "reasonCode", "CONTRACT_EXPIRED",
+                "cancelledAt", "2026-10-17T03:00:00Z", "borrowerId", "b-" + cancelledLoan)))
+                .isEqualTo(IntakeResult.DELIVERED);
+        assertThat(types("b-" + cancelledLoan)).containsExactly("LOAN_FUNDING_CANCELLED");
+        assertThat(types("i-" + cancelledLoan)).containsExactly("INVESTMENT_FUNDING_CANCELLED");
+
+        Long consentLoan = SEQUENCE.incrementAndGet();
+        Map<String, Object> consent = new LinkedHashMap<>();
+        consent.put("requestId", UUID.randomUUID().toString());
+        consent.put("loanApplicationId", consentLoan);
+        consent.put("loanNumber", "LN-2026-" + consentLoan);
+        consent.put("requestType", "TERM_EXTENSION");
+        consent.put("rescheduleFromDate", "2026-11-17");
+        consent.put("adjustedDueDate", null);
+        consent.put("extraTerms", 2);
+        consent.put("originalMaturityDate", "2027-04-17");
+        consent.put("requestedAt", "2026-10-17T03:00:00Z");
+        consent.put("borrowerId", "b-" + consentLoan);
+        assertThat(send("finora.loan.reschedule-consent-requested", "LoanRescheduleConsentRequested", 1, consent))
+                .isEqualTo(IntakeResult.DELIVERED);
+        assertThat(types("b-" + consentLoan)).containsExactly("RESCHEDULE_UNDER_INVESTOR_VOTE");
+
+        Long repaidLoan = SEQUENCE.incrementAndGet();
+        Map<String, Object> repayment = new LinkedHashMap<>();
+        repayment.put("repaymentId", UUID.randomUUID().toString());
+        repayment.put("repaymentType", "SCHEDULED");
+        repayment.put("loanApplicationId", repaidLoan);
+        repayment.put("amount", "1726000.00");
+        repayment.put("totalOutstanding", "8274000.00");
+        repayment.put("currency", "VND");
+        repayment.put("transactionDate", "2026-10-17");
+        repayment.put("nextDueDate", "2026-11-17");
+        repayment.put("nextDueAmount", "1726000.00");
+        repayment.put("completedAt", "2026-10-17T03:00:00Z");
+        repayment.put("borrowerId", "b-" + repaidLoan);
+        assertThat(send("finora.payment.repayment-distributed", "RepaymentDistributed", 1, repayment))
+                .isEqualTo(IntakeResult.DELIVERED);
+        assertThat(types("b-" + repaidLoan)).containsExactly("REPAYMENT_RECORDED");
+    }
+
+    /**
+     * P6/P7 (W3F §13): hết hạn gọi vốn báo từng nhà đầu tư có phần vốn bị hủy (danh sách có thể trùng nếu một người
+     * nhiều lệnh); lời mời biểu quyết của Investment có một người nhận mỗi chủ phiếu, không gắn Note, có push.
+     */
+    @Test
+    void fundingExpiryReachesCancelledInvestorsAndConsentInvitationReachesEachBallotHolder() {
+        Long loanId = SEQUENCE.incrementAndGet();
+        String borrower = "b-" + loanId;
+        fundingRequested(loanId, borrower);
+
+        assertThat(send("finora.investment.loan-funding-expired", "LoanFundingExpired", 1, Map.ofEntries(
+                Map.entry("loanApplicationId", loanId), Map.entry("applicationNumber", "LA-2026-" + loanId),
+                Map.entry("listingId", 22), Map.entry("fundingRound", 1), Map.entry("targetAmount", "10000000.00"),
+                Map.entry("committedAmount", "6000000.00"), Map.entry("currency", "VND"),
+                Map.entry("fundingOpenedAt", "2026-10-03T03:00:00Z"), Map.entry("fundingClosedAt", "2026-10-17T03:00:00Z"),
+                Map.entry("reason", "FUNDING_WINDOW_EXPIRED"),
+                Map.entry("investorIds", List.of("i1-" + loanId, "i2-" + loanId)))))
+                .isEqualTo(IntakeResult.DELIVERED);
+        assertThat(types(borrower)).contains("LOAN_FUNDING_EXPIRED");
+        assertThat(types("i1-" + loanId)).containsExactly("INVESTMENT_FUNDING_EXPIRED");
+        assertThat(types("i2-" + loanId)).containsExactly("INVESTMENT_FUNDING_EXPIRED");
+
+        List<Map<String, Object>> recipients = new ArrayList<>();
+        for (String investor : List.of("i1-" + loanId, "i2-" + loanId)) {
+            Map<String, Object> recipient = new LinkedHashMap<>();
+            recipient.put("noteId", null);
+            recipient.put("noteNumber", null);
+            recipient.put("investorId", investor);
+            recipient.put("amount", null);
+            recipients.add(recipient);
+        }
+        Map<String, Object> invitation = new LinkedHashMap<>();
+        invitation.put("changeType", "RESCHEDULE_CONSENT_REQUESTED");
+        invitation.put("loanApplicationId", loanId);
+        invitation.put("loanNumber", "LN-2026-" + loanId);
+        invitation.put("daysPastDue", 0);
+        invitation.put("debtGroup", 1);
+        invitation.put("amount", "0.00");
+        invitation.put("maturityDate", "2027-04-17");
+        invitation.put("externalPushRequired", true);
+        invitation.put("changedAt", "2026-10-17T03:00:00Z");
+        invitation.put("recipients", recipients);
+        assertThat(send("finora.investment.note-servicing-changed", "InvestorNoteServicingChanged", 1, invitation))
+                .isEqualTo(IntakeResult.DELIVERED);
+
+        for (String investor : List.of("i1-" + loanId, "i2-" + loanId)) {
+            InAppNotification invite = inbox(investor).stream()
+                    .filter(value -> value.getType().equals("RESCHEDULE_CONSENT_REQUESTED")).findFirst().orElseThrow();
+            assertThat(invite.isExternalPushRequired()).isTrue();
+            assertThat(invite.getMessage()).contains("LN-2026-" + loanId).contains("biểu quyết");
+            assertThat(invite.getCategory()).isEqualTo(NotificationCategory.RESTRUCTURING);
+        }
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private IntakeResult fundingRequested(Long loanId, String borrower) {

@@ -137,8 +137,7 @@ public class DisbursementSagaService {
             CoreLoanBookingGateway.CoreLoanBookingResult result = coreGateway.bookAndDisburse(work.command());
             // Q13: drill E2E tắt Loan đúng lúc Fineract đã ghi khoản vay mà saga chưa lưu kết quả.
             pausePoints.pause(com.finora.loan.config.E2EPausePoints.CORE_BOOKED_BEFORE_SAVE);
-            transactionTemplate.executeWithoutResult(status ->
-                    complete(work.sagaId(), work.attempt(), result.fineractLoanId(), result.maturityDate()));
+            transactionTemplate.executeWithoutResult(status -> complete(work.sagaId(), work.attempt(), result));
         } catch (FineractIntegrationException exception) {
             transactionTemplate.executeWithoutResult(status -> fail(work.sagaId(), work.attempt(),
                     exception.getCode(), exception.getMessage(), exception.isRetryable()));
@@ -150,12 +149,23 @@ public class DisbursementSagaService {
 
     @Transactional
     public void complete(UUID sagaId, int attempt, Long fineractLoanId) {
-        complete(sagaId, attempt, fineractLoanId, null);
+        complete(sagaId, attempt, new CoreLoanBookingGateway.CoreLoanBookingResult(fineractLoanId));
     }
 
     /** @param maturityDate ngày đáo hạn của khoản vay trên core, gửi kèm {@code LoanDisbursed} (B34); có thể {@code null} */
     @Transactional
     public void complete(UUID sagaId, int attempt, Long fineractLoanId, java.time.LocalDate maturityDate) {
+        complete(sagaId, attempt, new CoreLoanBookingGateway.CoreLoanBookingResult(fineractLoanId, maturityDate));
+    }
+
+    /**
+     * Hoàn tất saga và ghi outbox {@code LoanDisbursed} cùng transaction. Ngày đáo hạn (B34) và kỳ đầu
+     * ({@code nextDueDate/nextDueAmount}, P3) lấy nguyên từ kết quả ghi core, tức cùng một lần đọc Fineract; không có thì
+     * event bỏ trống các field đó.
+     */
+    @Transactional
+    public void complete(UUID sagaId, int attempt, CoreLoanBookingGateway.CoreLoanBookingResult core) {
+        Long fineractLoanId = core.fineractLoanId();
         DisbursementSaga saga = locked(sagaId);
         Instant now = clock.instant();
         if (!saga.complete(attempt, fineractLoanId, now, now)) {
@@ -172,7 +182,8 @@ public class DisbursementSagaService {
                         saga.getContractNumber(), saga.getListingId(), saga.getAmount().toPlainString(),
                         saga.getCurrency(), saga.getPaymentReference(), fineractLoanId,
                         application.getCoreConfigVersionSnapshot(), now, contract.getEarlySettlementPolicyVersion(),
-                        loan.getLoanNumber(), maturityDate));
+                        loan.getLoanNumber(), core.maturityDate(), application.getBorrowerId(), core.nextDueDate(),
+                        core.nextDueAmount() == null ? null : core.nextDueAmount().toPlainString()));
     }
 
     @Transactional

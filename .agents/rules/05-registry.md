@@ -50,7 +50,7 @@ phần Investment trước merge:
 | `finora.investment.reschedule-consent-completed` | Investment | `loan-investment-funding` | Trả kết quả đồng thuận cuối; Loan chỉ gọi Fineract khi tất cả nhà đầu tư chấp thuận |
 | `finora.loan.rescheduled` | Loan | `investment-loan-funding` | Fineract đã approve lịch cơ cấu; Investment cập nhật maturity marker, không tự tính schedule |
 | `finora.payment.repayment-distributed` | Payment | `loan-repayment-distributed`, `investment-loan-funding`, `blockchain-group` | Loan/Investment cập nhật projection; Blockchain chỉ neo SHA-256 data, không lưu payload tài chính thô |
-| `finora.investment.note-servicing-changed` | Investment | `notification-investor-servicing` | Fan-out thông báo servicing cho chủ Note; dedup delivery, không chứa PII |
+| `finora.investment.note-servicing-changed` | Investment | `notification-investor-servicing` | Fan-out thông báo servicing cho chủ Note và lời mời biểu quyết cơ cấu (`RESCHEDULE_CONSENT_REQUESTED`, W3F P7); dedup delivery, không chứa PII |
 
 Topic giải ngân và quyền sở hữu Note (đã chạy trong code; bổ sung vào registry ngày 2026-10-17 sau khi đối
 chiếu `application.yml` của Loan/Payment/Investment):
@@ -63,7 +63,17 @@ chiếu `application.yml` của Loan/Payment/Investment):
 | `finora.loan.disbursed` | Loan | `investment-loan-funding`, `payment-servicing`, `blockchain-group` | Investment phát hành Note; Payment mở tài khoản thu nợ; Blockchain neo proof `DISBURSEMENT` (W3D) |
 | `finora.investment.note-ownership-changed` | Investment | `payment-servicing`, `blockchain-group` | Payment cập nhật projection chủ Note để chia tiền trả nợ; Blockchain neo proof `NOTE_OWNERSHIP` (W3D) |
 
-Consumer lỗi của `blockchain-group` (contract sai, xung đột hash) vào `<topic>.DLT` theo quy ước chung.
+Khoản trả kỳ trước hạn đang giữ (W3F P5, D77; Payment phát từ 2026-10-17, cùng transaction với bút toán ví, key
+`loanApplicationId`):
+
+| Topic | Producer | Consumer group | Tác dụng |
+|---|---|---|---|
+| `finora.payment.repayment-collected` | Payment | `notification-domain-events` (chỉ khi `NOTIFICATION_DUE_REMINDER_ENABLED=true`) | `RepaymentCollected.v1`: đã trừ ví cho một kỳ trả trước hạn, giữ tới `dueDate` (D16); Notification báo đã nhận và không nhắc kỳ đó |
+| `finora.payment.repayment-cancelled` | Payment | `notification-domain-events` (như trên) | `RepaymentCancelled.v1`: người vay hủy khoản đang giữ, tiền đã hoàn về ví; kỳ đó lại được nhắc |
+
+Consumer lỗi của `blockchain-group` (contract sai, xung đột hash) vào `<topic>.DLT` theo quy ước chung. Consumer của Payment
+(`payment-group`, `payment-servicing`) từ B58 (D79) vào DLT riêng `<topic>.payment.DLT` (contract sai: ngay; lỗi hạ tầng: sau
+khi thử lại lùi dần tối đa 3 phút), vì các topic nguồn của Payment cũng là nguồn của Investment/Blockchain (`<topic>.DLT`).
 
 Mạng Hyperledger Fabric local (profile Compose `fabric`, W3D; chỉ chạy khi `BLOCKCHAIN_PROOF_PROVIDER=HYPERLEDGER_FABRIC`):
 
@@ -86,9 +96,9 @@ Notification (W3F, D60) đọc bằng group `notification-domain-events` các to
 `finora.loan.reschedule-consent-requested`, `finora.investment.reschedule-consent-completed`, `finora.loan.rescheduled`,
 `finora.payment.withdrawal-completed`, `finora.payment.withdrawal-failed`; group `notification-investor-servicing` giữ
 `finora.investment.note-servicing-changed`. Record lỗi vào `<topic>.notification.DLT` (không dùng chung `.DLT` của
-consumer khác). `finora.payment.repayment-collected`/`repayment-cancelled` (P5) là đề xuất, chưa có producer; chỉ đọc khi
-bật nhắc lịch. Payment và Blockchain chỉ là consumer ở các topic đã đăng ký rõ trong bảng/contract; không suy diễn
-subscription khác.
+consumer khác). `finora.payment.repayment-collected`/`repayment-cancelled` (P5) có producer Payment từ 2026-10-17 (bảng trên);
+Notification chỉ đọc khi bật nhắc lịch (D64). Payment và Blockchain chỉ là consumer ở các topic đã đăng ký rõ trong
+bảng/contract; không suy diễn subscription khác.
 
 Mapping `borrowerId ↔ CCCD` được đăng ký trực tiếp vào CIC qua API nội bộ có
 `X-Finora-Internal-Key`; tuyệt đối không đưa CCCD thô vào Kafka. Event đến trước mapping

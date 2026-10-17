@@ -8,9 +8,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Gauge vận hành của Payment (W3E, D58): outbox và ba hàng đợi đối soát tiền. Tên metric và cách xử lý từng hàng đợi
- * nằm trong {@code docs/ops/RUNBOOKS.md}. Hàng đợi rút tiền (W3B) thêm một dòng
- * {@code OperationalGauge.incidents("withdrawal_reconciliation_required", ...)} khi bảng của nó đã merge.
+ * Gauge vận hành của Payment (W3E, D58): outbox và bốn hàng đợi đối soát tiền (trả nợ, giải ngân, nạp tiền, rút tiền W3B).
+ * Tên metric và cách xử lý từng hàng đợi nằm trong {@code docs/ops/RUNBOOKS.md} (mục 4.1, 4.2, 4.4).
  */
 @Configuration
 public class PaymentOperationsConfig {
@@ -26,6 +25,8 @@ public class PaymentOperationsConfig {
                 OperationalGauge.incidents("disbursement_reconciliation_required",
                         repository::disbursementsReconciliationRequired),
                 OperationalGauge.incidents("topup_reconciliation_required",
-                        repository::topUpsReconciliationRequired)));
+                        repository::topUpsReconciliationRequired),
+                OperationalGauge.incidents("withdrawal_reconciliation_required",
+                        repository::withdrawalsReconciliationRequired)));
     }
 }
