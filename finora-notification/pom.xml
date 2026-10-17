@@ -52,6 +52,11 @@
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- Liveness/readiness cho hạ tầng (W3E). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
         <!-- Test quyền endpoint nội bộ (D36): jwt() của spring-security-test thay cho Keycloak thật. -->
         <dependency>
             <groupId>org.springframework.security</groupId>

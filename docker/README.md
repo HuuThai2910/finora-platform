@@ -18,8 +18,7 @@ Docker Compose giữ PostgreSQL riêng từng service để làm việc khi mấ
 | `fineract` | `finora-fineract-postgres` | `15432` | `fineract-postgres-data` |
 | `fineract` | `finora-fineract` | `18443` | không lưu DB trong app container |
 | `ai` | `finora-ai` | `8000` | model v17 nằm trong image, không có database |
-| `payment` | `finora-payment-postgres` | `15434` | `payment-postgres-data` |
-| `payment` | `finora-payment-redis` | `6380` | `payment-redis-data` |
+| `payment` | `finora-payment-postgres` | `15434` | `payment-postgres-data` (Payment không dùng Redis, B23) |
 | `blockchain` | `finora-blockchain-postgres` | `15435` | `blockchain-postgres-data` |
 | `fabric` | `finora-fabric-orderer`, `finora-fabric-peer0-org1/org2`, `finora-fabric-ccaas-org1/org2` | `7051` (gateway peer0.org1) | `fabric-orderer-data`, `fabric-peer0-org1-data`, `fabric-peer0-org2-data`; dựng bằng [`fabric-network/`](fabric-network/README.md) |
 | `user` | `finora-user-redis` | `6381` | `user-redis-data` |
@@ -112,7 +111,7 @@ Health:
 
 ```text
 Keycloak: http://localhost:8180/realms/finora/.well-known/openid-configuration
-User:     http://localhost:8085/actuator/health
+User:     http://localhost:8085/actuator/health/readiness   (liveness: /actuator/health/liveness)
 AI:       http://localhost:8000/health
 CIC:      https://cic-service-node.vercel.app/
 ```
@@ -184,7 +183,7 @@ Loan chạy từ IntelliJ dùng URL trên theo mặc định. Loan chạy trong 
 cần `FINERACT_BASE_URL=http://fineract:8443/fineract-provider/api/v1`.
 
 ```powershell
-# Payment PostgreSQL + Redis
+# Payment PostgreSQL
 powershell -ExecutionPolicy Bypass -File docker/smoke-infra.ps1 -Scope Payment -KeepRunning
 
 # Blockchain PostgreSQL

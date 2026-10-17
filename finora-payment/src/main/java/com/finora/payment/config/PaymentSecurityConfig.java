@@ -32,6 +32,8 @@ public class PaymentSecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        // Metric vận hành (hàng đợi đối soát, outbox) chỉ cho quản trị viên (W3E).
+                        .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         // ZaloPay không có JWT của FINORA; tính xác thực nằm ở HMAC Key2 của callback.
                         .requestMatchers(HttpMethod.POST, "/api/v1/wallets/callbacks/zalopay").permitAll()

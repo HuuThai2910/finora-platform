@@ -19,8 +19,11 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 @Slf4j
 public class OrderIncidentService {
-    /** Từ lần thử lỗi thứ 3 (khoảng 3–4 phút sau lần đầu) lệnh hiện cho vận hành; trước đó worker tự xử lý. */
-    static final int ATTEMPT_THRESHOLD = 3;
+    /**
+     * Từ lần thử lỗi thứ 3 (khoảng 3–4 phút sau lần đầu) lệnh hiện cho vận hành; trước đó worker tự xử lý. Gauge
+     * {@code finora.operations.incidents} (W3E) đếm theo cùng ngưỡng để số trên dashboard khớp màn sự cố.
+     */
+    public static final int ATTEMPT_THRESHOLD = 3;
 
     private final InvestmentOrderRepository orders;
     private final OrderTransactionService transactions;

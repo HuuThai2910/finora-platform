@@ -69,6 +69,28 @@ spring:
 server:
   port: ${NOTIFICATION_PORT:8086}
 
+management:
+  health:
+    # Không mở kết nối SMTP mỗi lần health được gọi: email chỉ là kênh phụ, gửi lỗi không chặn thông báo trong app.
+    mail:
+      enabled: false
+  endpoint:
+    health:
+      # Ai cũng thấy tên và trạng thái từng thành phần; chi tiết chỉ hiện với token ROLE_ADMIN (W3E, D56).
+      show-components: always
+      show-details: when-authorized
+      roles: ADMIN
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        # Danh sách/đánh dấu đã đọc cần PostgreSQL. Kafka không vào đây: event chờ trong topic, consumer đọc tiếp offset.
+        readiness:
+          include: readinessState,db
+        operations:
+          include: kafka
+
 finora:
   notification:
     business-time-zone: ${FINORA_BUSINESS_TIME_ZONE:Asia/Ho_Chi_Minh}

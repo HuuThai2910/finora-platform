@@ -44,7 +44,7 @@ Thiếu bước này thì AI trả `401/403` cho Loan (chấm điểm đứng �
 
 `blockchain-postgres` được launcher bật tự động. `docker/.env` hiện để trống mật khẩu của container này nên
 launcher sinh mật khẩu local một lần trong `docker/e2e/out/.env.e2e` (git-ignore) và dùng lại cho các lần sau.
-Payment chỉ có dependency Redis nhưng không có code dùng Redis, nên không cần bật `payment-redis`.
+Payment không dùng Redis; dependency và container `payment-redis` đã gỡ (B23, W3E).
 
 ## 3. Build và chạy sáu service Java
 
