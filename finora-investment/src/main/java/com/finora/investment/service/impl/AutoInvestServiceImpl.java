@@ -33,6 +33,7 @@ public class AutoInvestServiceImpl implements AutoInvestService {
     private final AutoInvestMatchRepository matchRepository;
     private final MarketListingRepository listingRepository;
     private final InvestorEligibility eligibility;
+    private final com.finora.investment.config.InvestorRiskDisclosureProperties riskDisclosure;
     private final Clock clock;
 
     @Override
@@ -40,7 +41,7 @@ public class AutoInvestServiceImpl implements AutoInvestService {
     public AutoInvestConfigResponse myConfig() {
         return configRepository.findByInvestorId(SecurityUtils.getCurrentUserId())
                 .map(this::toResponse)
-                .orElseGet(AutoInvestServiceImpl::defaults);
+                .orElseGet(this::defaults);
     }
 
     @Override
@@ -50,13 +51,22 @@ public class AutoInvestServiceImpl implements AutoInvestService {
         // không có JWT người dùng để kiểm lại.
         if (Boolean.TRUE.equals(request.enabled())) {
             eligibility.requireVerifiedInvestor();
+            // Q5: worker đặt lệnh thay nhà đầu tư nên quy tắc đang bật phải gắn với xác nhận đúng bản công bố hiện hành.
+            requireRiskAcknowledgement(request.riskAcknowledgementVersion());
         }
         String investorId = SecurityUtils.getCurrentUserId();
         var now = clock.instant();
         AutoInvestConfig config = configRepository.findByInvestorId(investorId)
                 .orElseGet(() -> AutoInvestConfig.create(investorId, now));
+        boolean wasEnabled = config.isEnabled();
         config.update(request.enabled(), request.grades(), request.minAnnualRate(),
                 request.maxTermMonths(), request.amountPerLoan(), now);
+        // Chỉ bật quy tắc đang tắt hoặc xác nhận bản công bố khác mới là lần xác nhận mới (app hiện câu xác nhận đúng hai
+        // trường hợp này). Sửa tiêu chí của quy tắc đang bật giữ nguyên thời điểm đã xác nhận để bằng chứng không bị ghi đè.
+        if (Boolean.TRUE.equals(request.enabled())
+                && (!wasEnabled || !config.acknowledgedFor(riskDisclosure.version()))) {
+            config.acknowledgeRisk(riskDisclosure.version(), now);
+        }
         return toResponse(configRepository.save(config));
     }
 
@@ -92,12 +102,32 @@ public class AutoInvestServiceImpl implements AutoInvestService {
                 plain(config.getMinAnnualRate()),
                 config.getMaxTermMonths(),
                 plain(config.getAmountPerLoan()),
-                config.getEnabledAt());
+                config.getEnabledAt(),
+                config.getRiskAcknowledgedVersion(),
+                config.getRiskAcknowledgedAt(),
+                riskDisclosure.version(),
+                config.isEnabled() && !config.acknowledgedFor(riskDisclosure.version()));
     }
 
-    /** Mặc định khi chưa từng lưu — không tạo dòng chỉ vì người dùng mở màn hình. */
-    private static AutoInvestConfigResponse defaults() {
-        return new AutoInvestConfigResponse(false, List.of("A", "B"), "12", 12, "1000000.00", null);
+    /** Cùng mã lỗi với lệnh tự đặt (FundingServiceImpl) để client xử lý một kiểu. */
+    private void requireRiskAcknowledgement(String version) {
+        if (version == null || version.isBlank()) {
+            throw com.finora.investment.exception.InvestmentDomainException.invalidInput("RISK_ACKNOWLEDGEMENT_REQUIRED",
+                    "Bạn cần xác nhận đã đọc và hiểu công bố rủi ro trước khi bật Auto-Invest");
+        }
+        if (!riskDisclosure.version().equals(version.trim())) {
+            throw com.finora.investment.exception.InvestmentDomainException.conflict("RISK_DISCLOSURE_OUTDATED",
+                    "Công bố rủi ro đã được cập nhật, vui lòng đọc lại trước khi bật Auto-Invest");
+        }
+    }
+
+    /**
+     * Mặc định khi chưa từng lưu — không tạo dòng chỉ vì người dùng mở màn hình. Vẫn trả phiên bản công bố hiện hành để
+     * client hiển thị đúng bản trước lần bật đầu tiên.
+     */
+    private AutoInvestConfigResponse defaults() {
+        return new AutoInvestConfigResponse(false, List.of("A", "B"), "12", 12, "1000000.00", null,
+                null, null, riskDisclosure.version(), false);
     }
 
     private static String plain(BigDecimal value) {
