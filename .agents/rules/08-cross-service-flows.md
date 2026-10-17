@@ -145,6 +145,19 @@ mà `LoanFundingRequested.v1` mang theo (trường bổ sung).
 Investment lưu version + thời điểm trên `investment_orders`. Gửi lại cùng `Idempotency-Key` của lệnh đã tạo trả lệnh
 cũ, không kiểm lại version. Lệnh Auto-Invest đi qua `placeOrderFor` nên không mang xác nhận từng lệnh.
 
+**CURRENT STATE (2026-10-17, Wave 2D, R3):** lệnh góp vốn đối soát với khoản giữ của Payment, không sửa DB Payment:
+
+- Payment `GET /api/v1/transactions/holds?orderReference=` đọc khoản giữ theo mã lệnh, không đổi gì (service account
+  `payment:hold:on_behalf` hoặc chính nhà đầu tư; khoản của người khác trả 404). Nhả khoản đã vào giải ngân trả
+  `409 PAYMENT_HOLD_NOT_RELEASABLE` thay vì 500.
+- Investment đọc `status` của mọi lần giữ tiền: chỉ `HELD` mới chốt commitment; `RELEASED` → lệnh `REJECTED`
+  `PAYMENT_HOLD_ALREADY_RELEASED`; `CAPTURE_PENDING/CAPTURED` → `REJECTED` `PAYMENT_HOLD_NOT_HELD` và dừng cho vận hành.
+  Chỉ 400/409/422 là từ chối chắc chắn; 401/403/404/408/429/5xx giữ lệnh `PENDING_FUNDS` để đối soát.
+- Worker làm tiếp lệnh chờ hỏi `GET` trước: đang giữ đúng số tiền thì chốt, chưa có mới gửi lại lời gọi giữ tiền.
+- Nhả tiền giữ (người dùng hủy, bị từ chối sau khi giữ) chạy sau khi transaction của lệnh commit; lỗi thì thử lại
+  theo lịch lùi dần (30 giây tới 1 giờ), lỗi chắc chắn thì dừng (`release_blocked_at`). Investment V18; admin
+  `GET /api/v1/investments/admin/order-incidents`, `POST /{orderReference}/retry`; web hiện trong tab "Sự cố giao dịch".
+
 **CURRENT STATE (2026-09-28):** Payment đã có API wallet/top-up/hold/release/transfer, immutable balanced ledger và capture đúng từng `paymentHoldReference`. Investment mặc định gọi Payment qua HTTP và truyền hold reference trong `LoanFullyFunded.v2`; stub chỉ còn dùng trong test. Nạp tiền hỗ trợ provider `mock` và adapter ZaloPay sandbox có HMAC callback; disbursement hiện dùng provider `mock`, còn ZaloPay disbursement fail-closed vì chưa có quyền API chuyển tiền.
 
 ## F04b — Sổ lệnh chợ thứ cấp Notes
@@ -209,14 +222,21 @@ lại; `finish` chỉ ghi kết quả khi còn `PROCESSING/RECONCILIATION_REQUIR
 hành Note; event Contract đến muộn không làm trạng thái lùi.
 
 **CURRENT STATE (2026-10-17, Wave 2D, plan [`W2D`](../plans/W2D-incident-operations-overdue-cure-and-auto-invest-acknowledgement.md)):**
-thao tác sự cố cho ADMIN, không cái nào chuyển tiền lần hai:
+`LoanDisbursed.v1` mang thêm field optional `loanNumber` và `maturityDate` (ngày đáo hạn Fineract theo ngày giải ngân thực
+tế, B34); Investment ghi ngày đáo hạn của vị thế ngay lúc giải ngân. Drill Q13 tắt hẳn JVM Loan sau khi Fineract đã ghi
+khoản vay (saga chưa lưu), tắt Payment sau khi provider đã chuyển tiền (Payment chưa lưu), và tắt Investment khi
+`LoanDisbursed` được phát: kết quả cuối chỉ có một khoản vay Fineract, một lần cộng ví người vay, một bộ Note. Thao tác sự
+cố cho ADMIN, không cái nào chuyển tiền lần hai:
 
 - Loan `GET /api/v1/admin/disbursement-sagas?status=` (mặc định `REPAIR_REQUIRED`) và `POST /{sagaId}/requeue`
   (`note` bắt buộc): `REPAIR_REQUIRED → RETRY_PENDING`, chỉ chạy lại bước ghi Fineract, booking đối chiếu theo số hợp
   đồng; giới hạn tự động tính lại từ `repair_attempt_base`; lưu `repair_count`, ai, lúc nào, ghi chú (Loan V31).
 - Payment `GET /api/v1/admin/disbursement-reconciliation` (lệnh `PROCESSING/RETRY_PENDING/RECONCILIATION_REQUIRED`) và
   `POST /{sagaId}/recheck`: chỉ với `RECONCILIATION_REQUIRED`, đặt lại lượt tra cứu provider theo `sagaId`, ghi ai và lúc
-  nào (Payment V16). Gateway route đường này về Payment trước `/api/v1/admin/**` của Loan.
+  nào (Payment V16). `GET /{sagaId}` đọc một lệnh ở mọi trạng thái kể cả đã xong (`attemptCount` = số lần gọi provider
+  chuyển tiền, `reconciliationAttemptCount` = số lần tra cứu chưa ra kết quả, `errorCode` giữ lý do vào đối soát như
+  `PAYMENT_PROCESSING_INTERRUPTED`), dùng để tra lại sự cố đã đóng và cho drill Q13. Gateway route
+  đường này về Payment trước `/api/v1/admin/**` của Loan.
 
 ## F06 — Thu nợ và phân bổ
 

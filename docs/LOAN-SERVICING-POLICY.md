@@ -706,7 +706,7 @@ Contract chi tiết nằm tại [LOAN-INVESTMENT-EVENTS.md](integrations/LOAN-IN
 
 | Event | Producer | Consumer chính | Ý nghĩa |
 |---|---|---|---|
-| `LoanDisbursed.v1` | Loan | Payment, Investment | Mở servicing account sau khi tiền và core đều thành công |
+| `LoanDisbursed.v1` | Loan | Payment, Investment | Mở servicing account sau khi tiền và core đều thành công; field optional `loanNumber`, `maturityDate` (Wave 2D, B34) cho số khoản vay và ngày đáo hạn của vị thế nhà đầu tư |
 | `RepaymentCollected.v1` | Payment | vận hành/Loan | Tiền đã rời ví borrower, chưa khẳng định core/distribution xong |
 | `RepaymentDistributed.v1` | Payment | Loan, Investment | Core đã xác nhận breakdown và ledger đã phân bổ |
 | `LoanDelinquencyChanged.v1` | Loan | CIC mock hiện có; Investment/Notification dự kiến | DPD/nhóm nợ nội bộ thật sự đổi |

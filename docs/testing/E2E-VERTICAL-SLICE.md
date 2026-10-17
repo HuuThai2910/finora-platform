@@ -111,6 +111,33 @@ hồ lệch, PIN vẫn kiểm theo giờ UTC thật. Sau khi trả đồng hồ,
 so với hôm nay), nên harness kiểm báo giá tất toán trước khi dời đồng hồ; không dùng khoản vay đó cho thao tác khác.
 Không có API đổi ngày ở demo/production: offset chỉ đọc lúc Payment khởi động.
 
+## 4b. Drill lỗi thật (Q13)
+
+```powershell
+# Một lần: bật stack với Toxiproxy (Payment → Fineract đi qua finora-toxiproxy:18444, profile e2e-faults)
+powershell -ExecutionPolicy Bypass -File docker/e2e/start-local-services.ps1 -Action Start -WithToxiproxy
+# Mất phản hồi / mất request khi Payment ghi kỳ trả nợ vào Fineract (đi cùng bước trả kỳ mặc định)
+powershell -ExecutionPolicy Bypass -File docker/e2e/run-vertical-slice.ps1 -FaultDrill FineractResponseLost
+powershell -ExecutionPolicy Bypass -File docker/e2e/run-vertical-slice.ps1 -FaultDrill FineractRequestLost
+# Tắt hẳn JVM giữa giải ngân (không cần Toxiproxy)
+powershell -ExecutionPolicy Bypass -File docker/e2e/run-vertical-slice.ps1 -FaultDrill LoanCrashDuringBooking -SkipRepayment
+powershell -ExecutionPolicy Bypass -File docker/e2e/run-vertical-slice.ps1 -FaultDrill PaymentCrashDuringDisbursement -SkipRepayment
+powershell -ExecutionPolicy Bypass -File docker/e2e/run-vertical-slice.ps1 -FaultDrill InvestmentDownDuringDisbursement -SkipRepayment
+```
+
+| Drill | Cách tiêm lỗi | Kết quả phải đạt |
+|---|---|---|
+| `FineractResponseLost` | Toxic `timeout` chiều Fineract → Payment: Fineract ghi giao dịch nhưng Payment hết thời gian chờ | `RECONCILIATION_REQUIRED` với `errorCode = FINERACT_REPAYMENT_OUTCOME_UNKNOWN` (B42) → worker đối soát tìm thấy theo externalId → `COMPLETED`; Fineract một giao dịch |
+| `FineractRequestLost` | Toxic `reset_peer` chiều Payment → Fineract: request không tới Fineract | `RECONCILIATION_REQUIRED` với `FINERACT_REPAYMENT_OUTCOME_UNKNOWN`, đối soát không thấy; sau khoảng an toàn (drill đặt 1 phút) admin `POST .../repost` → `COMPLETED`, `coreRepostCount=1`; Fineract một giao dịch (B32) |
+| `LoanCrashDuringBooking` | Loan dừng ở `core-booked-before-save` (Fineract đã ghi khoản vay), harness `Stop-Process -Force` rồi bật lại với lease 30 giây | Saga được nhận lại (`attemptCount >= 2`), đối chiếu theo số hợp đồng, Fineract đúng một khoản vay |
+| `PaymentCrashDuringDisbursement` | Payment dừng ở `provider-disbursed-before-save` rồi bị tắt hẳn, bật lại với lease 30 giây | Hết lease → đối soát provider theo `sagaId` → `COMPLETED`; ví người vay cộng đúng một lần; `GET /admin/disbursement-reconciliation/{sagaId}` có `attemptCount = 1` (provider chỉ được gọi chuyển tiền một lần) và `errorCode = PAYMENT_PROCESSING_INTERRUPTED` |
+| `InvestmentDownDuringDisbursement` | Investment bị tắt khi Loan dừng trước khi phát `LoanDisbursed` | Bật lại Investment, consumer đọc tiếp offset: đủ Note, vị thế có ngày đáo hạn, không Note thứ hai |
+
+Điểm dừng chỉ nhận khi chữ ký `MOCK`/provider tiền `mock` và profile `local` (service từ chối khởi động nếu không).
+Launcher chỉ nhận `-DrillEnv` với các khóa trong danh sách cho phép (điểm dừng, lease, khoảng an toàn ghi lại). Provider giải
+ngân giả lập trả kết quả tất định theo `sagaId`, nên drill Payment chứng minh lease, đối soát và ledger idempotent của Payment,
+không chứng minh hành vi của một provider thật.
+
 ## 5. Kết quả mong đợi theo nguồn dữ liệu chuẩn
 
 | Bước | Kiểm tra trong script | SoR |
@@ -134,15 +161,18 @@ Không có API đổi ngày ở demo/production: offset chỉ đọc lúc Paymen
 
 `docker/e2e/out/<runId>.json` gồm `environment` (dependency thật/mock), `accounts`, `product`, `application`,
 `decision`, `listing`, `funding`, `contract`, `disbursement`, `repayment`, `kafka` (event ID theo topic),
-`drills`, `checks` và `defects`. Không có token, PIN, OTP hay mật khẩu. Lần chạy thất bại vẫn lưu evidence với
-`result = FAIL` và `failureReason`.
+`drills`, `faultDrill`, `checks` và `defects`. Không có token, PIN, OTP hay mật khẩu. Lần chạy thất bại vẫn lưu evidence
+với `result = FAIL` và `failureReason`. Log service của lần chạy hiện tại ở `docker/e2e/out/logs/<service>.log`; mỗi lần
+launcher bật lại một service, log cũ chuyển sang `out/logs/archive/<service>-<yyyyMMdd-HHmmss>.log` (giữ 10 bản), nên log
+của JVM bị drill tắt vẫn còn.
 
 ## 7. Giới hạn đã biết
 
-- Fixture 2/5/6 (`OverdueCure`, `Reschedule`, `DefaultCure`) chạy từ Wave 2D. Ca restart giữa saga và Fineract timeout
-  còn chờ Toxiproxy và điểm dừng profile E2E (Q13), kể cả lượt "Ghi lại vào hệ thống lõi" (B32) trên Fineract thật.
-- Nhánh bù trừ `LoanFundingCancelled` được chứng minh bằng integration test Loan/Investment; drill hết hạn ký
-  trên stack thật cần test clock (R1B).
+- Fixture 2/5/6 (`OverdueCure`, `Reschedule`, `DefaultCure`) và drill lỗi thật (mục 4b) chạy từ Wave 2D. Chưa có drill
+  chuyển nhượng Note cạnh trả nợ (cần chợ Notes trong harness, R11).
+- Nhánh bù trừ `LoanFundingCancelled` được chứng minh bằng integration test Loan/Investment; chưa có drill hết hạn ký
+  trên stack thật (đồng hồ Loan đã có từ Wave 2D, R1B).
+- Toxiproxy chỉ đặt giữa Payment và Fineract; lỗi mạng Loan → Fineract và Investment → Payment chưa có drill.
 - DB Loan dùng chung chứa khoản vay của máy khác mà Fineract local không có: worker sync ghi một dòng `warn` cho mỗi
   khoản không đồng bộ được (B21). Không ảnh hưởng khoản vay của lần chạy; tách DB theo môi trường thuộc R9.
 - Ngày nghiệp vụ Loan/Payment là `Asia/Ho_Chi_Minh` từ Wave 2 (`FINORA_BUSINESS_TIME_ZONE`); chạy từ 00:00 đến 07:00
@@ -171,3 +201,6 @@ Không có API đổi ngày ở demo/production: offset chỉ đọc lúc Paymen
 | Trả đủ số khắc phục ở khoản vay quá ngày đáo hạn mà vẫn còn quá hạn vài chục nghìn | Job `LA_RINT` chưa chạy nên lãi sau đáo hạn chưa vào nghĩa vụ; harness chạy job khi dời ngày, ở production đây là job cuối ngày |
 | Harness không thấy consent cơ cấu của nhà đầu tư | Investment trả trang có field `content` (PageResponse chung), Loan trả `data` (B33) |
 | `Move-E2EClock` báo chỉ dùng với DB local | Stack đang chạy `-Database shared`; dừng và chạy lại `-Action Start -Database local` |
+| `Drill Fineract... cần stack chạy với -WithToxiproxy` | Dừng stack rồi `-Action Start -WithToxiproxy`; các lần `Restart` Payment sau đó tự giữ đường đi qua proxy |
+| `Toxiproxy chưa trả lời API` dù container healthy | Toxiproxy trả `403 User agent not allowed` cho User-Agent "Mozilla..." mặc định của PowerShell 5.1; gọi API bằng `-UserAgent` khác hoặc `curl` |
+| Lượt drill bị ngắt, Payment không gọi được Fineract | Còn toxic trên proxy: lượt sau tự gỡ ở preflight; làm tay `DELETE http://localhost:8474/proxies/fineract-payment/toxics/q13-drill` |
