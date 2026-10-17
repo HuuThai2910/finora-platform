@@ -63,6 +63,17 @@ Thuật ngữ đọc nhanh:
 ### 3.1 Trả đúng kỳ
 
 - Người vay trả đúng số tiền đến hạn từ ví khả dụng.
+- **Trả trước ngày đến hạn trên khoản vay core V4 (D16, Wave 2C):** Payment trừ ví ngay nhưng giữ tiền ở
+  clearing và chỉ ghi Fineract đúng ngày đến hạn (`post_on`), nên lãi của kỳ không đổi, các kỳ sau giữ nguyên và
+  nhà đầu tư nhận tiền vào ngày đến hạn. Worker ghi trễ (service dừng qua ngày) vẫn đề ngày giao dịch là ngày đến
+  hạn. Trước ngày đó người vay hủy được khoản này (`POST /api/v1/repayments/{repaymentId}/cancel`, cần PIN; tiền
+  về ví, trạng thái `CANCELLED`); từ ngày đến hạn khoản thuộc về worker và không hủy được nữa. Core V1–V3 tính trước
+  lãi cho cả kỳ hạn nên khoản trả sớm vẫn ghi ngay.
+- Mỗi khoản vay chỉ có tối đa một khoản đã thu mà core chưa ghi xong: trả thêm cho kỳ đang giữ bị từ chối
+  (`409 INSTALLMENT_ALREADY_PAID_PENDING`), lệnh mới khi lệnh trước đang ghi core bị từ chối
+  (`409 REPAYMENT_IN_PROGRESS`), báo giá trả trước/tất toán khi còn khoản giữ bị từ chối
+  (`409 INSTALLMENT_PENDING_POSTING`, người vay hủy khoản giữ rồi lập lại). Lệnh trả kỳ khóa dòng tài khoản vay
+  của Payment nên hai request đồng thời không cùng vượt qua kiểm tra.
 - Payment ghi debit ví người vay và credit tài khoản clearing trong cùng local transaction.
 - Payment post đúng một repayment sang Fineract bằng cùng `repaymentReference`.
 - Fineract trả breakdown chính thức: `principal`, `interest`, `fee`, `penalty`.
@@ -123,12 +134,18 @@ Breakdown và số tiền chính thức luôn lấy từ transaction Fineract. N
 
 - Người vay nhập **phần gốc muốn trả thêm**; giá trị phải dương và nhỏ hơn gốc còn lại. Trả hết gốc
   phải đi luồng tất toán.
-- Tổng thu core là `nghĩa vụ đang đến hạn + phần gốc trả thêm`; phí FINORA được snapshot riêng và
-  không ghi vào dư nợ Fineract.
-- Khoản vay mới snapshot `FINORA-FINERACT-V3`. Product V3 dùng `loanScheduleType=PROGRESSIVE`,
-  `advanced-payment-allocation-strategy` và `futureInstallmentAllocationRule=NEXT_INSTALLMENT` để
-  ưu tiên tất toán các kỳ gần nhất, qua đó rút ngắn số kỳ còn lại. V2 vẫn đọc được và tiếp tục dùng
-  `REAMORTIZATION`; V1 dùng `mifos-standard-strategy` và không mở tính năng này.
+- Tổng thu core là `khoản của kỳ phải trả gần nhất + phần gốc trả thêm`; phí FINORA được snapshot riêng
+  và không ghi vào dư nợ Fineract. Với core V4, lãi trong khoản của kỳ chỉ tính đến ngày giao dịch, phần còn lại
+  đi vào gốc.
+- Khoản vay mới snapshot `FINORA-FINERACT-V4` (D15): `loanScheduleType=PROGRESSIVE`,
+  `advanced-payment-allocation-strategy`, `futureInstallmentAllocationRule=NEXT_INSTALLMENT` và **tính lại lãi
+  hằng ngày** (`isInterestRecalculationEnabled=true`, `interestCalculationPeriodType=0`,
+  `recalculationRestFrequencyType=2`, `preClosureInterestCalculationStrategy=1`, `rescheduleStrategyMethod=4`).
+  Lãi chỉ tính trên dư nợ và số ngày thực tế nên phần gốc trả thêm không bị thu lãi các tháng tương lai (sửa B28).
+  Probe Fineract 1.15 local ngày 2026-10-17 (10.000.000, 6 kỳ, 12%/năm, ngày thứ 15): trả 1.726.000 của kỳ gần nhất
+  + 3.000.000 → lãi 49.000, đúng lãi đã phát sinh, gốc 4.677.000.
+- Khoản vay core V1–V3 đã giải ngân không đổi được cấu hình trong Fineract: **chặn tự trả trước và tất toán trên
+  app** (`409 PREPAYMENT_NOT_SUPPORTED_FOR_LEGACY_LOAN`, D17); trả kỳ và khắc phục quá hạn vẫn bình thường.
 - Quote công bố số đang đến hạn, gốc trả thêm, phí, tổng debit, dư gốc và kỳ kế tiếp **trước giao dịch**.
   Fineract 1.15 không có endpoint giả lập lịch mới theo một số tiền chưa post, nên FINORA không tự dựng
   một lịch “sau trả” để tránh sai khác với core. Sau POST thành công, response/event mang snapshot kỳ mới
@@ -170,8 +187,9 @@ walletDebit = coreAmount + platformFee
 
 Giải thích bằng tiếng Việt:
 
-- `scheduledDue` — **nghĩa vụ đang đến hạn tại thời điểm trả trước**, gồm các thành phần gốc/lãi/phí/
-  phạt mà Fineract yêu cầu phải xử lý trước hoặc cùng giao dịch.
+- `scheduledDue` — **khoản của kỳ phải trả gần nhất** theo template repayment của Fineract, gồm phần quá hạn nếu
+  có; kỳ chưa đến hạn vẫn được tính. Với core V4, Fineract chỉ thu lãi đã phát sinh đến ngày giao dịch trong khoản
+  này, phần còn lại vào gốc.
 - `prepaidPrincipal` — **phần gốc người vay tự chọn trả thêm** ngoài nghĩa vụ đang đến hạn; phải lớn
   hơn 0 và nhỏ hơn toàn bộ gốc còn lại.
 - `configuredRate` — **tỷ lệ phí trả trước** lấy từ policy version đang hiệu lực: 0%, 0,5%, 1%,
@@ -191,13 +209,18 @@ Ví dụ đối chiếu field: `scheduledDue=2.000.000`, `prepaidPrincipal=5.000
 `configuredRate` được chọn theo thời hạn/thời điểm tại bảng mục 3.3. Chỉ `coreAmount` được gửi sang
 Fineract; `platformFee` không làm tăng dư nợ hoặc thay đổi breakdown core.
 
-**Trạng thái triển khai:** API mở cho V2 và V3. V3 là mặc định cho khoản vay mới và dùng
-`NEXT_INSTALLMENT`; V2 đang hoạt động giữ nguyên `REAMORTIZATION` để không sửa ngầm hợp đồng/core
-account cũ. Muốn kiểm thử hành vi rút ngắn kỳ phải tạo khoản vay V3 mới.
+**Trạng thái triển khai (Wave 2C):** API chỉ mở cho khoản vay core V4; V4 là mặc định cho sản phẩm mới. Sản phẩm
+đã đồng bộ Fineract ở V2/V3 không được nâng cấu hình (Loan chỉ đồng bộ Product `DRAFT`); muốn bán theo V4 thì tạo
+Product mới. Thực hiện báo giá bị từ chối (`409 PARTIAL_PREPAYMENT_QUOTE_STALE`) nếu khoản vay có giao dịch khác
+sau lúc lập báo giá.
 
 ### 3.3 Tất toán trước hạn
 
 - Số phải thanh toán = gốc còn lại + lãi/phí/phạt đã phát sinh đến ngày tất toán + phí trả trước.
+- Core V4 tính lãi đến đúng ngày tất toán (`preClosureInterestCalculationStrategy=1`): probe ngày 0 → lãi 0,
+  ngày 15 → lãi 49.000 trên 10.000.000 (sửa B29). Khoản vay core V1–V3 bị chặn tự tất toán (D17). Còn khoản trả kỳ
+  đang giữ thì người vay hủy trước (tiền về ví) rồi mới lập báo giá, nên số tất toán luôn là dư nợ thật của core;
+  báo giá bị từ chối khi thực hiện nếu khoản vay đã có giao dịch khác sau lúc lập (`409 EARLY_SETTLEMENT_QUOTE_STALE`).
 - Payment lấy early-settlement quote từ Fineract, snapshot kết quả và thời hạn hiệu lực; Loan chỉ nhận
   kết quả đã phân phối để đóng read model, không tự tính lại số tất toán.
 - Sau Payment success và Fineract xác nhận đóng khoản vay, Loan chuyển `SETTLED`, Investment đóng Note.
@@ -502,9 +525,9 @@ tục là breakdown gốc/lãi/phí/phạt chính thức từ Fineract, tránh c
 
 | Cơ chế | Người vay cần thanh toán hoặc thực hiện gì? | Kết quả mong đợi |
 |---|---|---|
-| Trả đúng kỳ | Trả gốc, lãi và khoản phí/phạt của kỳ nếu có | Kỳ hiện tại được ghi nhận đã trả; lịch tương lai giữ nguyên |
+| Trả đúng kỳ | Trả gốc, lãi và khoản phí/phạt của kỳ nếu có; trả trước ngày đến hạn thì tiền được giữ tới ngày đó | Kỳ hiện tại được ghi nhận đúng ngày đến hạn; lãi kỳ và lịch tương lai giữ nguyên |
 | Khắc phục quá hạn | Trả toàn bộ gốc/lãi còn thiếu và khoản phát sinh do chậm trả | Chỉ khi hết phần quá hạn thì số ngày quá hạn mới về 0 |
-| Trả trước một phần | Trả kỳ đang đến hạn, một phần gốc tự chọn và phí trả trước | Gốc còn nợ giảm; hệ thống tính lại các kỳ tương lai |
+| Trả trước một phần | Trả khoản của kỳ gần nhất, một phần gốc tự chọn và phí trả trước (chỉ khoản vay core V4) | Gốc còn nợ giảm ngay; lãi chỉ tính đến hôm nay, kỳ cuối được điều chỉnh |
 | Tất toán sớm | Trả toàn bộ gốc còn lại, lãi/phí/phạt đã phát sinh và phí tất toán | Khoản vay kết thúc, không còn kỳ tương lai |
 | Cơ cấu/gia hạn | Gửi yêu cầu; FINORA thẩm định và nhà đầu tư biểu quyết; hiện không thu phí yêu cầu | Lịch chỉ đổi sau khi tất cả nhà đầu tư đồng ý và core xác nhận |
 | Nợ xấu/thu hồi | Tiếp tục trả nghĩa vụ quá hạn; không có phí nợ xấu riêng | Trả hết quá hạn mới phục hồi; trả hết toàn bộ thì tất toán |
@@ -515,7 +538,7 @@ tục là breakdown gốc/lãi/phí/phạt chính thức từ Fineract, tránh c
 |---|---|---|---|
 | Trả đúng kỳ | `principal + interest + coreFee + penalty` | `0` | Fineract giảm nghĩa vụ kỳ |
 | Khắc phục quá hạn | `overduePayment` từ template Fineract | `0` ngoài khoản đã công bố trong core | Trả đủ mới đưa DPD về 0 |
-| Trả trước một phần | `scheduledDue + prepaidPrincipal + platformFee` | 0%–2% theo bảng mục 3.3, tính trên `prepaidPrincipal`, chia 80/20 | V3 ưu tiên rút ngắn kỳ; V2 re-amortize |
+| Trả trước một phần | `scheduledDue + prepaidPrincipal + platformFee` | 0%–2% theo bảng mục 3.3, tính trên `prepaidPrincipal`, chia 80/20 | Chỉ core V4: `NEXT_INSTALLMENT`, tính lại lãi hằng ngày; V1–V3 `409` |
 | Tất toán sớm | `outstandingPrincipal + accruedInterest + coreFee + penalty + earlySettlementFee` | 0%–2% theo policy version, chia 80/20 | Dư nợ 0, Loan/Note `SETTLED` |
 | Cơ cấu/gia hạn | Không debit khi gửi, thẩm định hoặc biểu quyết | `0` | Chỉ đổi lịch sau đồng thuận nhà đầu tư và Fineract xác nhận |
 | Default/thu hồi | Không có giao dịch debit riêng; trả theo nghĩa vụ Fineract | `defaultFee=0` | DPD ≥ 91 → `DEFAULTED`; trả đủ quá hạn → `ACTIVE` |
@@ -604,7 +627,8 @@ Các API này không cho sửa DPD, số dư hoặc stage. Polling Fineract và 
 | `loanApplicationId/fineractLoanId/borrowerId` | Khóa tương quan và quyền sở hữu |
 | `repaymentType` | Hiện hành: `SCHEDULED`, `OVERDUE_CURE`, `PARTIAL_PREPAYMENT`, `EARLY_SETTLEMENT` |
 | `amount/coreAmount/platformFee/investorFeeShare/finoraFeeShare/currency/transactionDate` | Tổng thu, phần ghi core, tổng phí trả trước, phần nhà đầu tư/FINORA và ngày nghiệp vụ |
-| `status` | `COLLECTED`, `CORE_POSTING`, `CORE_POSTED`, `COMPLETED`, `RECONCILIATION_REQUIRED`, `FAILED` |
+| `status` | `COLLECTED`, `CORE_POSTING`, `CORE_POSTED`, `COMPLETED`, `RECONCILIATION_REQUIRED`, `FAILED`, `CANCELLED` (người vay hủy khoản trả kỳ đang giữ, tiền đã về ví) |
+| `postOn` | Ngày ghi Fineract khi khác `transactionDate` (D16, Payment V15); `NULL` là ghi ngay. Chỉ có ở `SCHEDULED`, luôn sau ngày thu |
 | `walletLedgerTransactionId/distributionLedgerTransactionId/fineractTransactionId` | Bằng chứng thu ví, phân phối ledger và transaction core |
 | `principalAmount/interestAmount/feeAmount/penaltyAmount` | Breakdown chính thức từ Fineract; tổng phải cân với amount |
 | `outstanding*`, `overdueAmount`, `nextDue*` | Snapshot core sau giao dịch để phát event và cập nhật projection |
@@ -638,19 +662,23 @@ một local transaction có row lock; báo giá hết hạn/đã dùng hoặc v�
 | Field | Ý nghĩa/invariant |
 |---|---|
 | `quoteId/status/expiresAt/consumedAt` | UUID dùng đúng một lần; `ACTIVE → CONSUMED`, hiển thị `EXPIRED` khi quá TTL |
-| `loanApplicationId/borrowerId/fineractLoanId/coreConfigVersion` | Ownership và snapshot đúng khoản vay V2/V3 |
+| `loanApplicationId/borrowerId/fineractLoanId/coreConfigVersion` | Ownership và snapshot đúng khoản vay; báo giá mới chỉ có core V4 (D17) |
 | `transactionDate/scheduledDue/prepaidPrincipal` | Ngày core, nghĩa vụ hiện tại và phần gốc trả thêm do borrower chọn |
 | `coreAmount` | `scheduledDue + prepaidPrincipal`, là số duy nhất gửi sang Fineract |
 | `feeRate/platformFee/investorFeeShare/finoraFeeShare/policyVersion` | Snapshot biểu phí và cách chia 80/20; không cộng vào dư nợ core |
 | `totalAmount` | `coreAmount + platformFee`, là số debit ví |
 | `outstandingPrincipalBefore/nextDueDateBefore/nextDueAmountBefore` | Bằng chứng core trước khi xác nhận |
-| `allocationStrategy` | V3: `advanced-payment-allocation-strategy/NEXT_INSTALLMENT`; V2: `REAMORTIZATION` |
+| `allocationStrategy` | V4: `advanced-payment-allocation-strategy/NEXT_INSTALLMENT/DAILY_INTEREST_RECALCULATION`; giá trị V3/V2 chỉ còn trên báo giá cũ |
 
 API hiện hành:
 
 - `POST /api/v1/repayments/partial-prepayment-quotes` với `loanApplicationId`, `prepaidPrincipal`;
 - `GET /api/v1/repayments/partial-prepayment-quotes/{quoteId}`;
 - `POST /api/v1/repayments/partial-prepayment` với `Idempotency-Key`, `quoteId`.
+
+Trả kỳ trước hạn (D16): `GET /api/v1/repayments/scheduled-due` trả thêm `dueDate`, `postOn` (ngày sẽ ghi sổ nợ
+nếu trả ngay) và `pending` (khoản đã thu chưa ghi xong, kèm `cancellable`); `POST /api/v1/repayments/{repaymentId}/cancel`
+(PIN `REPAYMENT`) hủy khoản đang giữ trước ngày ghi nhận.
 
 ## 6. Event bắt buộc
 
@@ -727,8 +755,12 @@ nhóm nợ cũ.
 - Tổng `principal + interest + fee + penalty` phải bằng số tiền phân bổ; phần làm tròn được ghi rõ.
 - Tất toán: quote hết hạn/đã dùng không debit ví; phí platform không gửi vào Fineract; khi
   `totalOutstanding=0`, Payment account, Loan và mọi Note liên quan đều đóng qua cùng kết quả/event.
-- Trả trước một phần V2/V3: Product phải là `PROGRESSIVE`; quote chỉ dùng một lần; core chỉ nhận
-  `coreAmount`; V3 ưu tiên `NEXT_INSTALLMENT`, V2 giữ `REAMORTIZATION`; V1 bị từ chối trước khi debit ví.
+- Trả trước một phần và tất toán chỉ cho core V4: lãi trả không vượt lãi đã phát sinh đến ngày giao dịch
+  (E2E `prepayment.no-future-interest`, `settlement.no-future-interest`); khoản vay V1–V3 nhận `409` trước khi
+  debit ví; quote chỉ dùng một lần và bị từ chối nếu khoản vay có giao dịch khác sau lúc lập.
+- Trả kỳ trước hạn trên core V4: trạng thái `COLLECTED` với `postOn` = ngày đến hạn, core chưa có giao dịch;
+  trả lần hai và lập báo giá bị chặn; hủy trước ngày đến hạn hoàn đúng một lần; tới ngày đến hạn Fineract ghi đúng
+  ngày đó với gốc/lãi bằng lịch (E2E `fineract.repayment-posted-on-due-date`, `repayment.scheduled-interest-kept`).
 
 ## 9. Nguồn tham chiếu
 

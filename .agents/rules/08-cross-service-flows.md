@@ -256,12 +256,28 @@ vẫn cần device-token/provider receipt riêng.
 queue” mô tả bản CIC Java cũ. Bản CIC Node đang deploy (`/api/v1/suc-khoe` trả kho tệp, 1000 hồ sơ) và source
 `cic-service-node` chỉ có API tra cứu điểm theo CCCD, không consume Kafka và không có endpoint đăng ký mapping. Loan
 vẫn phát `LoanDelinquencyChanged.v1` nhưng hiện không có consumer CIC; lịch sử quá hạn của FINORA chưa được ghi sang
-CIC. Theo D1 không phát triển lại CIC trong repo này; owner quyết định phạm vi. Định danh mapping xem B26.
+CIC. Theo D1 không phát triển lại CIC trong repo này; owner quyết định phạm vi. Định danh mapping thống nhất là
+`user_id` (B26 sửa ở Wave 2C, D18).
 
-**Đính chính 2026-10-17 (B28, B29):** câu “Trả trước không thu lãi tương lai” chưa đúng với Fineract thật. Sản phẩm
-Fineract của Loan tắt `isInterestRecalculationEnabled`, nên báo giá tất toán (`prepayLoan`) gồm toàn bộ lãi các kỳ
-còn lại và khoản trả thêm theo `NEXT_INSTALLMENT` trả trọn kỳ tương lai kể cả lãi (fixture `r1b-*-20261017-063*`).
-Payment đúng khi đọc nghĩa vụ từ Fineract; cấu hình core phải đổi. Hướng sửa chờ owner duyệt.
+**Đính chính 2026-10-17 (B28, B29):** với sản phẩm core V1–V3 (tắt `isInterestRecalculationEnabled`), báo giá tất
+toán (`prepayLoan`) gồm toàn bộ lãi các kỳ còn lại và khoản trả thêm theo `NEXT_INSTALLMENT` trả trọn kỳ tương lai kể
+cả lãi (fixture `r1b-*-20261017-063*`). Payment đúng khi đọc nghĩa vụ từ Fineract; lỗi nằm ở cấu hình core.
+
+**CURRENT STATE (2026-10-17, Wave 2C, plan [`W2C`](../plans/W2C-daily-interest-core-and-early-installment.md)):**
+
+- Sản phẩm mới đồng bộ core V4: Fineract tính lại lãi hằng ngày trên dư nợ thật, nên trả trước một phần và tất toán
+  chỉ thu lãi đến ngày giao dịch (D15). Khoản vay đã giải ngân ở core V1–V3 bị chặn tự trả trước/tất toán
+  (`409 PREPAYMENT_NOT_SUPPORTED_FOR_LEGACY_LOAN`, D17).
+- Trả kỳ trước ngày đến hạn trên khoản vay V4: Payment thu tiền (`COLLECTED`, `post_on` = ngày đến hạn, Payment V15),
+  worker chỉ ghi Fineract khi tới `post_on` và đề `transactionDate = post_on`, nên lãi kỳ giữ đúng lịch và
+  `RepaymentDistributed` phát vào ngày đến hạn (D16). Người vay hủy được trước ngày đó
+  (`POST /api/v1/repayments/{id}/cancel`, PIN), bút toán hoàn `REPAYMENT-CANCEL-REFUND:<id>`, trạng thái `CANCELLED`.
+- Mỗi khoản vay tối đa một khoản đã thu mà core chưa ghi xong (B30): lệnh trả kỳ khóa dòng `payment_loan_accounts`,
+  trả thêm cho kỳ đang giữ → `409 INSTALLMENT_ALREADY_PAID_PENDING`, lệnh mới khi lệnh trước đang ghi →
+  `409 REPAYMENT_IN_PROGRESS`, báo giá khi còn khoản giữ → `409 INSTALLMENT_PENDING_POSTING` (hủy trước, D22), thực
+  hiện báo giá sau khi có khoản mới → `409 *_QUOTE_STALE`.
+- `RepaymentDistributed.v1` không đổi schema; consumer Loan/Investment dùng `completedAt` nên phân phối ngày đến hạn
+  không đổi cách chiếu. Notification (R7) phải đọc khoản đang giữ trước khi nhắc lịch.
 
 ## F07 — Tất toán sớm hoặc tái cơ cấu
 

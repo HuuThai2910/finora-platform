@@ -99,6 +99,11 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
   không thu lãi tương lai, bảng phí theo thời hạn, mức tối thiểu 100.000 đồng, cách chia 80/20 và cổng
   đồng thuận cơ cấu. Artifact cũ giữ nguyên bytes/hash và
   không tự nhận điều khoản mới.
+- Từ Wave 2C (2026-10-17), hồ sơ trên sản phẩm core V4 nhận bộ văn bản `LOAN_TERMS_V3`, `CLICK_WRAP_TEXT_V4`,
+  `CONTRACT_PDF_V3`, `FINORA_SERVICING_TERMS_V3`: điều 4 viết rõ lãi tính trên dư nợ và số ngày thực tế, khoản trả kỳ
+  trước hạn được ghi nhận đúng ngày đến hạn (hủy được trước ngày đó), trả trước một phần gồm khoản của kỳ gần nhất với
+  lãi chỉ tính đến ngày giao dịch. Hồ sơ core V1–V3 vẫn nhận bộ V2 nguyên văn, để hợp đồng không hứa một cách tính khác
+  cách Fineract của khoản vay đó thực sự áp dụng.
 - Cơ chế click-wrap vẫn là phương án mock local/dev; SmartCA hiện đủ cho UAT nhưng tài khoản test có thể
   đang dùng chung cho nhiều vai trò. Trước production phải legal review hình thức ký, xác minh đúng từng
   borrower/lender, quản trị chứng thư và bằng chứng kiểm tra chữ ký.
@@ -132,7 +137,8 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 - Điều 14 và Điều 23 của `CIRCULAR-LENDING-CONSOLIDATED-2026` cho phép các bên thỏa thuận phí trả nợ trước hạn và yêu cầu ghi rõ loại/mức phí trong hợp đồng; văn bản không ấn định một tỷ lệ phí trả trước chung.
 - FINORA V2 tham chiếu cấu trúc/tỷ lệ tại [biểu phí tín dụng Agribank](https://www.agribank.com.vn/wcm/connect/05371a26-a0b1-4670-a5db-15046d1517f4/2020-Bieu%2Bphi%2Btin%2Bdung%2Bkem%2Btheo%2BQD%2B738%2Bcap%2Bnhat%2BQD%2B09.pdf?MOD=AJPERES), sau đó điều chỉnh thành các dải thời gian phù hợp khoản vay tối đa 24 tháng. Mức tối thiểu 100.000 đồng, dải thời gian và cách chia phí 80% nhà đầu tư/20% FINORA là **policy demo FINORA**, không phải mức pháp luật bắt buộc; phải snapshot version/rate/minimum fee/cách chia vào hợp đồng và quote.
 - Snapshot biểu phí (G-POLICY-W2, 2026-10-17): mỗi hợp đồng ghi phiên bản biểu phí trả trước đã in trong văn bản; Payment tính phí theo đúng phiên bản đó từ danh mục bất biến, không theo biến môi trường hiện hành. Hợp đồng `LOAN_TERMS_V1` (trước 2026-10-16) không có điều khoản phí trả trước nên không bị thu phí này; đây là lựa chọn thận trọng theo yêu cầu phí phải ghi rõ trong hợp đồng, cần owner xác nhận.
-- Hiện trạng kiểm 2026-10-17 (B28, B29): **chưa đáp ứng** câu dưới đây trên Fineract thật. Tất toán ngay ngày giải ngân bị tính toàn bộ lãi 6 tháng; trả trước một phần bị tính lãi kỳ tương lai, vì sản phẩm Fineract tắt tính lại lãi. Không được mô tả tính năng trả trước/tất toán là tuân thủ cho tới khi sửa.
+- Hiện trạng sau Wave 2C (2026-10-17, B28, B29): khoản vay mới trên core V4 **đáp ứng** câu dưới đây trên Fineract thật: E2E `w2c-earlysettlement-20261017-111021` tất toán ngày giải ngân thu lãi 0; E2E `w2c-partialprepayment-20261017-110733` trả trước một phần thu lãi không vượt lãi đã phát sinh. Khoản vay đã giải ngân ở core V1–V3 **vẫn không đáp ứng** nên bị chặn tự trả trước/tất toán trên app (D17); nếu người vay cần tất toán các khoản này phải xử lý thủ công, không được mô tả là tuân thủ.
+- Khoản trả kỳ trước ngày đến hạn được ghi nhận đúng ngày đến hạn (D16, E2E `w2c-installment-20261017-110318`: Fineract ghi gốc/lãi đúng lịch kỳ 1), nên trả sớm tiền của kỳ không làm đổi lãi của kỳ hay các kỳ sau; người vay hủy được trước ngày đó và tiền về ví. Đây là thỏa thuận sản phẩm FINORA ghi trong hợp đồng V3, không phải yêu cầu pháp luật.
 - Trả trước một phần và tất toán toàn bộ chỉ thu lãi, phí và phạt đã phát sinh đến ngày giao dịch; không thu lãi của các tháng tương lai. Đây là thỏa thuận sản phẩm FINORA chọn để khuyến khích trả sớm, không phải cách duy nhất Bộ luật Dân sự cho phép; mẫu hợp đồng phải diễn đạt nhất quán với cách tính thực tế.
 - Theo Điều 13, lãi trên dư nợ gốc quá hạn không vượt 150% lãi suất trong hạn tương ứng; lãi chậm trả trên tiền lãi chưa trả không vượt 10%/năm. Cách tính phải dùng đúng căn cứ tiền, số ngày và day-count đã công bố; không cộng trùng trên cùng căn cứ.
 - Điều 18 là căn cứ tham chiếu thứ tự thu nợ: gốc quá hạn, lãi trên gốc quá hạn, gốc đến hạn, lãi trên gốc đến hạn. Phí/lãi chậm trả bổ sung chỉ được thu theo contract/Fineract policy đã công bố và phải giữ breakdown.
