@@ -30,6 +30,31 @@ Docker Compose giữ PostgreSQL riêng từng service để làm việc khi mấ
 Database PostgreSQL của Keycloak và `finora-user` không nằm trong Compose; chúng có thể
 chạy trên máy host hoặc Neon. Container Keycloak vẫn chạy trong Docker. Xem mục 4.0 và 4.1.
 
+## 1b. Chạy toàn bộ service trong Docker với DB Neon (profile `apps`)
+
+Thay cho việc mở IntelliJ: sáu service Java (Loan, Payment, Investment, Notification, Blockchain, Gateway) chạy trong
+container `eclipse-temurin:21-jre` bằng **jar đã build sẵn**, không build image. Mỗi service đọc `.env` của module (DB Neon
+như khi chạy IntelliJ); Compose chỉ đổi địa chỉ `localhost` trong `.env` (Kafka, Keycloak, Fineract, AI, User, Payment) sang
+tên service trong mạng Docker. Blockchain dùng container `blockchain-postgres` (chưa có DB Neon), ledger MOCK, listener và
+worker bật; Fineract dùng `fineract-postgres`.
+
+```powershell
+# Build jar một lần (và mỗi khi sửa code)
+mvn -B -ntp -pl finora-loan,finora-payment,finora-investment,finora-notification,finora-blockchain,finora-gateway -am package -DskipTests
+# Bật hạ tầng + sáu service (Kafka, Keycloak, User, AI, Fineract, DB Blockchain/Fineract, rồi các app)
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps up -d
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps ps
+# Sau khi build lại jar của một service
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile apps restart loan
+```
+
+- Cần `BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD` và `BLOCKCHAIN_DB_PASSWORD` trong `docker/.env` (container DB khởi tạo bằng các giá
+  trị này ở lần đầu).
+- Muốn debug một service bằng IntelliJ: `docker stop finora-<service>` rồi chạy service đó trong IntelliJ (trùng cổng nếu không
+  dừng container).
+- Lần đầu chạy code mới, Flyway áp migration còn thiếu lên DB Neon (dùng chung với cả nhóm); migration đã áp không gỡ được.
+- Các ca cần dời đồng hồ (quá hạn, nợ xấu) vẫn dùng launcher E2E với `-Database local` (`docs/testing/E2E-VERTICAL-SLICE.md`).
+
 ## 2. Chuẩn bị Docker offline một lần
 
 ```powershell

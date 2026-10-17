@@ -1,3 +1,35 @@
+# Profile `apps`: sáu service Java (Loan, Payment, Investment, Notification, Blockchain, Gateway) chạy bằng jar đã build
+# (`mvn -pl <module> -am package -DskipTests`), không build image. Mỗi service đọc `.env` của module (DB Neon như khi chạy
+# IntelliJ); Compose chỉ đổi các địa chỉ `localhost` trong `.env` sang tên service trong mạng Docker. Sửa code thì build lại
+# jar rồi `docker compose ... restart <service>`; muốn debug một service bằng IntelliJ thì dừng container của nó trước.
+x-finora-app: &finora-app
+  image: eclipse-temurin:21-jre-jammy
+  profiles: ["apps"]
+  restart: unless-stopped
+  working_dir: /app
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  networks:
+    - finora-network
+
+# Issuer trong JWT là địa chỉ công khai (localhost:8180) còn JWKS/token lấy qua tên nội bộ `keycloak`.
+x-finora-app-network: &finora-app-network
+  KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8180}/realms/${KEYCLOAK_REALM:-finora}
+  KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM:-finora}/protocol/openid-connect/certs
+  KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/${KEYCLOAK_REALM:-finora}/protocol/openid-connect/token
+  FINERACT_BASE_URL: http://fineract:8443/fineract-provider/api/v1
+  AI_SERVICE_URL: http://ai:8000
+  USER_SERVICE_URL: http://user:8085
+  PAYMENT_SERVICE_URL: http://payment:8082/api/v1
+
+# Healthcheck gọi readiness (W3E); image JRE không có curl nên dùng /dev/tcp của bash.
+x-finora-app-ready: &finora-app-ready
+  interval: 10s
+  timeout: 5s
+  retries: 30
+  start_period: 90s
+
 services:
   # ============ CORE INFRASTRUCTURE ============
   # Kafka chạy KRaft một node cho local/demo. App chạy trong IntelliJ dùng
@@ -702,40 +734,165 @@ services:
     networks:
       - finora-network
 
-  # ============ APPLICATION SAMPLE ============
+  # ============ APPLICATIONS (profile apps) ============
   loan:
-    profiles: ["apps"]
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.java-service
-      args:
-        SERVICE_MODULE: finora-loan
-    image: finora/loan:local
+    <<: *finora-app
     container_name: finora-loan
+    command: ["java", "-Xmx320m", "-XX:+UseSerialGC", "-jar", "/app/app.jar"]
+    volumes:
+      - ../finora-loan/target/finora-loan-1.0.0-SNAPSHOT.jar:/app/app.jar:ro
+    env_file: ../finora-loan/.env
     environment:
-      LOAN_DB_URL: jdbc:postgresql://loan-postgres:5432/${LOAN_DB_NAME:-finora_loan}
-      LOAN_DB_USERNAME: ${LOAN_DB_USERNAME:-finora_loan}
-      LOAN_DB_PASSWORD: "${LOAN_DB_PASSWORD}"
-      FINERACT_BASE_URL: http://fineract:8443/fineract-provider/api/v1
-      FINERACT_API_USERNAME: ${FINERACT_API_USERNAME:-mifos}
-      FINERACT_API_PASSWORD: "${FINERACT_API_PASSWORD:-password}"
-      FINERACT_PREVIEW_CLIENT_EXTERNAL_ID: ${FINERACT_PREVIEW_CLIENT_EXTERNAL_ID:-FINORA-PREVIEW-CLIENT}
-      FINERACT_BOOKING_PROVIDER: ${FINERACT_BOOKING_PROVIDER:-mock}
-      FINERACT_OFFICE_ID: ${FINERACT_OFFICE_ID:-1}
-      FINERACT_DISBURSEMENT_PAYMENT_TYPE_ID: ${FINERACT_DISBURSEMENT_PAYMENT_TYPE_ID:-1}
-      FINERACT_CLIENT_LEGAL_FORM_ID: ${FINERACT_CLIENT_LEGAL_FORM_ID:-1}
-      AI_SERVICE_URL: http://ai:8000
+      <<: *finora-app-network
       SPRING_PROFILES_ACTIVE: local
-      # eKYC người vay đọc từ User bằng token của người vay khi nộp hồ sơ (W2-KYC); `mock` chỉ cho test/E2E.
-      FINORA_BORROWER_PROFILE_PROVIDER: ${FINORA_BORROWER_PROFILE_PROVIDER:-user}
-      USER_SERVICE_URL: http://user:8085
     ports:
-      - "127.0.0.1:${LOAN_HOST_PORT:-8081}:8081"
+      - "8081:8081"
     depends_on:
-      loan-postgres:
+      kafka:
         condition: service_healthy
-    networks:
-      - finora-network
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      <<: *finora-app-ready
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8081;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+  payment:
+    <<: *finora-app
+    container_name: finora-payment
+    command: ["java", "-Xmx256m", "-XX:+UseSerialGC", "-jar", "/app/app.jar"]
+    volumes:
+      - ../finora-payment/target/finora-payment-1.0.0-SNAPSHOT.jar:/app/app.jar:ro
+    env_file: ../finora-payment/.env
+    environment:
+      <<: *finora-app-network
+      # Provider payout giả lập gọi lại chính Payment qua tên service (W3B).
+      PAYMENT_MOCK_PAYOUT_CALLBACK_URL: http://payment:8082/api/v1/wallets/callbacks/mock-payout
+    ports:
+      - "8082:8082"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      <<: *finora-app-ready
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8082;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+  investment:
+    <<: *finora-app
+    container_name: finora-investment
+    command: ["java", "-Xmx256m", "-XX:+UseSerialGC", "-jar", "/app/app.jar"]
+    volumes:
+      - ../finora-investment/target/finora-investment-1.0.0-SNAPSHOT.jar:/app/app.jar:ro
+    env_file: ../finora-investment/.env
+    environment:
+      <<: *finora-app-network
+    ports:
+      - "8084:8084"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      <<: *finora-app-ready
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8084;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+  notification:
+    <<: *finora-app
+    container_name: finora-notification
+    command: ["java", "-Xmx192m", "-XX:+UseSerialGC", "-jar", "/app/app.jar"]
+    volumes:
+      - ../finora-notification/target/finora-notification-1.0.0-SNAPSHOT.jar:/app/app.jar:ro
+    env_file: ../finora-notification/.env
+    environment:
+      <<: *finora-app-network
+      # Máy chủ mail (Mailpit hoặc SMTP) chạy trên máy: `.env` ghi localhost.
+      MAIL_HOST: host.docker.internal
+    ports:
+      - "8086:8086"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      <<: *finora-app-ready
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8086;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+  blockchain:
+    <<: *finora-app
+    container_name: finora-blockchain
+    command: ["java", "-Xmx192m", "-XX:+UseSerialGC", "-jar", "/app/app.jar"]
+    volumes:
+      - ../finora-blockchain/target/finora-blockchain-1.0.0-SNAPSHOT.jar:/app/app.jar:ro
+    environment:
+      <<: *finora-app-network
+      BLOCKCHAIN_DB_URL: jdbc:postgresql://blockchain-postgres:5432/${BLOCKCHAIN_DB_NAME:-finora_blockchain}
+      BLOCKCHAIN_DB_USERNAME: ${BLOCKCHAIN_DB_USERNAME:-finora_blockchain}
+      BLOCKCHAIN_DB_PASSWORD: "${BLOCKCHAIN_DB_PASSWORD}"
+      # Blockchain không có .env; mặc định listener/worker tắt nên bật ở đây để proof được tạo (ledger MOCK, R6).
+      BLOCKCHAIN_KAFKA_LISTENER_ENABLED: "true"
+      BLOCKCHAIN_PROOF_WORKER_ENABLED: "true"
+      BLOCKCHAIN_PROOF_PROVIDER: ${BLOCKCHAIN_PROOF_PROVIDER:-MOCK}
+    ports:
+      - "8083:8083"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      blockchain-postgres:
+        condition: service_healthy
+    healthcheck:
+      <<: *finora-app-ready
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8083;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+  gateway:
+    <<: *finora-app
+    container_name: finora-gateway
+    command: ["java", "-Xmx160m", "-XX:+UseSerialGC", "-jar", "/app/app.jar"]
+    volumes:
+      - ../finora-gateway/target/finora-gateway-1.0.0-SNAPSHOT.jar:/app/app.jar:ro
+    environment:
+      # application-docker.yml trỏ route tới tên service trong mạng Docker (user, ai, loan, payment, ...).
+      SPRING_PROFILES_ACTIVE: docker
+    ports:
+      - "8080:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      <<: *finora-app-ready
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8080;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
 
 volumes:
   kafka-data:
