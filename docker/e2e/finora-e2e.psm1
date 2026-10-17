@@ -508,13 +508,14 @@ function Invoke-E2EFineractGet {
 
 function Invoke-E2EFineractWrite {
     <#
-      Ghi REST Fineract CHỈ để điều khiển đồng hồ test của container local: cấu hình enable-business-date và
-      /businessdate (Q12). Đường dẫn bị giới hạn bằng ValidatePattern; mọi giao dịch nghiệp vụ vẫn phải đi qua
-      Loan/Payment để giữ idempotency và external ID.
+      Ghi REST Fineract CHỈ để điều khiển đồng hồ test của container local: cấu hình enable-business-date, /businessdate
+      và chạy job cuối ngày (`/jobs/<id>?command=executeJob`, ví dụ Update Loan Arrears Ageing) như EOD thật (Q12).
+      Đường dẫn bị giới hạn bằng ValidatePattern; mọi giao dịch nghiệp vụ vẫn phải đi qua Loan/Payment để giữ
+      idempotency và external ID.
     #>
     param(
         [Parameter(Mandatory)][ValidateSet('POST', 'PUT')][string]$Method,
-        [Parameter(Mandatory)][ValidatePattern('^/(businessdate|configurations/\d+)$')][string]$Path,
+        [Parameter(Mandatory)][ValidatePattern('^/(businessdate|configurations/\d+|jobs/\d+\?command=executeJob)$')][string]$Path,
         [Parameter(Mandatory)]$Body,
         [Parameter(Mandatory)][string]$BaseUrl,
         [Parameter(Mandatory)][string]$Username,

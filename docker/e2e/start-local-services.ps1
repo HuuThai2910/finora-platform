@@ -14,15 +14,24 @@ param(
     # đúng ngày đến hạn (D16). Payment từ chối khởi động nếu provider giải ngân hoặc nạp tiền không phải mock.
     [ValidatePattern('^(P\d{1,3}D)?$')]
     [string]$PaymentClockOffset = '',
+    # Như trên cho Loan (quá hạn/nợ xấu, Wave 2D). Loan từ chối khởi động nếu chữ ký không phải MOCK.
+    [ValidatePattern('^(P\d{1,3}D)?$')]
+    [string]$LoanClockOffset = '',
+    # DB của Loan/Payment/Investment/Notification (D24): local = container *-postgres riêng của stack E2E (mặc định);
+    # shared = DB dev dùng chung ghi trong .env của từng module như trước Wave 2D. Đồng hồ E2E chỉ chạy với local vì worker
+    # theo thời gian (hết hạn ký, lease saga, ghi kỳ trả nợ) sẽ đụng dữ liệu của máy khác trên DB dùng chung.
+    [ValidateSet('local', 'shared')]
+    [string]$Database = 'local',
     [int]$StartTimeoutSeconds = 300
 )
 
 # Dựng/dừng các service Java của vertical slice từ jar với cấu hình E2E cố định (task R1A).
 #
 # Hạ tầng (Kafka, Keycloak, Redis User, User, AI, Fineract) chạy bằng docker/docker-compose.yml như hằng ngày;
-# script chỉ bật thêm blockchain-postgres nếu thiếu và không tạo lại container đang chạy. Mỗi service vẫn đọc
-# file .env trong thư mục module như khi chạy IntelliJ; biến môi trường của tiến trình con ghi đè đúng các cờ
-# E2E dưới đây và không làm đổi file .env nào.
+# script chỉ bật thêm các container PostgreSQL của stack E2E nếu thiếu (blockchain, và với -Database local cả loan/
+# payment/investment/notification) và không tạo lại container đang chạy. Mỗi service vẫn đọc file .env trong thư mục
+# module như khi chạy IntelliJ; biến môi trường của tiến trình con ghi đè đúng các cờ E2E dưới đây (gồm URL DB local)
+# và không làm đổi file .env nào.
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -34,6 +43,20 @@ if ([string]::IsNullOrWhiteSpace($OutDir)) { $OutDir = Join-Path $PSScriptRoot '
 $logDir = Join-Path $OutDir 'logs'
 $stateFile = Join-Path $OutDir 'services.json'
 $localSecretFile = Join-Path $OutDir '.env.e2e'
+
+# powershell -File truyền "loan,payment" thành một chuỗi; tách lại để -Services nhận cả hai cách viết.
+$Services = @($Services | ForEach-Object { ([string]$_) -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+if ($Database -eq 'shared' -and ($PaymentClockOffset -or $LoanClockOffset)) {
+    throw 'Đồng hồ E2E chỉ dùng với -Database local: worker theo thời gian sẽ đụng dữ liệu của máy khác trên DB dùng chung.'
+}
+
+# DB local của stack E2E (D24): container trong docker-compose.yml, cổng/tên/tài khoản lấy theo docker/.env như Compose.
+$localDatabases = [ordered]@{
+    loan = @{ Prefix = 'LOAN'; Service = 'loan-postgres'; Container = 'finora-loan-postgres'; Profile = 'loan'; DefaultPort = '15433' }
+    payment = @{ Prefix = 'PAYMENT'; Service = 'payment-postgres'; Container = 'finora-payment-postgres'; Profile = 'payment'; DefaultPort = '15434' }
+    investment = @{ Prefix = 'INVESTMENT'; Service = 'investment-postgres'; Container = 'finora-investment-postgres'; Profile = 'investment'; DefaultPort = '15437' }
+    notification = @{ Prefix = 'NOTIFICATION'; Service = 'notification-postgres'; Container = 'finora-notification-postgres'; Profile = 'notification'; DefaultPort = '15438' }
+}
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 $dockerEnv = Read-E2EDotEnv -Path $EnvFile
@@ -47,13 +70,15 @@ function Get-DockerSetting {
 
 function Get-LocalSecrets {
     <#
-      Blockchain PostgreSQL là container local dành riêng cho proof. docker/.env hiện để trống hai mật khẩu
+      PostgreSQL local của stack E2E (Blockchain và DB local của bốn service). docker/.env hiện để trống các mật khẩu
       này nên container không khởi tạo được; harness sinh mật khẩu ngẫu nhiên một lần trong out/.env.e2e
       (git-ignore) và dùng lại cho các lần sau để volume đã khởi tạo vẫn đăng nhập được.
     #>
     $secrets = Read-E2EDotEnv -Path $localSecretFile
     $changed = $false
-    foreach ($name in @('BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD', 'BLOCKCHAIN_DB_PASSWORD')) {
+    $names = @('BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD', 'BLOCKCHAIN_DB_PASSWORD')
+    foreach ($db in $localDatabases.Values) { $names += @("$($db.Prefix)_POSTGRES_ADMIN_PASSWORD", "$($db.Prefix)_DB_PASSWORD") }
+    foreach ($name in $names) {
         $fromDocker = Get-DockerSetting $name
         if (-not [string]::IsNullOrWhiteSpace($fromDocker)) {
             $secrets[$name] = $fromDocker
@@ -66,7 +91,7 @@ function Get-LocalSecrets {
         $lines = @('# Sinh tự động bởi docker/e2e/start-local-services.ps1; chỉ dùng cho container local E2E.')
         foreach ($key in ($secrets.Keys | Sort-Object)) { $lines += "$key=$($secrets[$key])" }
         [System.IO.File]::WriteAllLines($localSecretFile, $lines, (New-Object System.Text.UTF8Encoding $false))
-        Write-Host "[OK] Đã sinh mật khẩu local cho Blockchain PostgreSQL trong $localSecretFile"
+        Write-Host "[OK] Đã sinh mật khẩu PostgreSQL local của stack E2E trong $localSecretFile"
     }
     return $secrets
 }
@@ -191,6 +216,33 @@ function Assert-UserImageCurrent {
     }
 }
 
+function Start-LocalPostgres {
+    <# Bật một container PostgreSQL của stack E2E nếu chưa chạy (không tạo lại container đang có) và chờ healthy. #>
+    param([string]$Service, [string]$Container, [string]$Profile, [string[]]$SecretNames)
+    if (Test-E2EContainerRunning -Name $Container) { return }
+    Write-Host "[..] Bật $Service (không tạo lại container đang có)"
+    $composeFile = Join-Path $platformRoot 'docker\docker-compose.yml'
+    # Biến môi trường của tiến trình được Compose ưu tiên hơn --env-file khi nội suy, nên không cần sửa docker/.env.
+    $previous = @{}
+    foreach ($name in $SecretNames) {
+        $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+        [Environment]::SetEnvironmentVariable($name, $localSecrets[$name], 'Process')
+    }
+    try {
+        $result = Invoke-E2ENative -FilePath 'docker' -Arguments @('compose', '--env-file', $EnvFile, '-f', $composeFile,
+            '--profile', $Profile, 'up', '-d', '--no-recreate', $Service)
+    } finally {
+        foreach ($name in $previous.Keys) { [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process') }
+    }
+    if ($result.ExitCode -ne 0) { throw "Không bật được $Service." }
+    $deadline = (Get-Date).AddSeconds(120)
+    do {
+        Start-Sleep -Seconds 3
+        $health = (Invoke-E2ENative -FilePath 'docker' -Arguments @('inspect', '--format', '{{.State.Health.Status}}', $Container)).Lines -join ''
+    } while ($health.Trim() -ne 'healthy' -and (Get-Date) -lt $deadline)
+    if ($health.Trim() -ne 'healthy') { throw "$Service không healthy sau 120 giây." }
+}
+
 function Assert-Infrastructure {
     foreach ($container in @('finora-kafka', 'finora-keycloak', 'finora-user-redis', 'finora-user', 'finora-ai', 'finora-fineract')) {
         if (-not (Test-E2EContainerRunning -Name $container)) {
@@ -198,34 +250,77 @@ function Assert-Infrastructure {
         }
     }
     Assert-UserImageCurrent
-    if (-not (Test-E2EContainerRunning -Name 'finora-blockchain-postgres')) {
-        Write-Host '[..] Bật blockchain-postgres (không tạo lại container đang có)'
-        $composeFile = Join-Path $platformRoot 'docker\docker-compose.yml'
-        # Biến môi trường của tiến trình được Compose ưu tiên hơn --env-file khi nội suy, nên không cần sửa docker/.env.
-        $previous = @{}
-        foreach ($name in @('BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD', 'BLOCKCHAIN_DB_PASSWORD')) {
-            $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
-            [Environment]::SetEnvironmentVariable($name, $localSecrets[$name], 'Process')
+    Start-LocalPostgres -Service 'blockchain-postgres' -Container 'finora-blockchain-postgres' -Profile 'blockchain' `
+        -SecretNames @('BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD', 'BLOCKCHAIN_DB_PASSWORD')
+    if ($Database -eq 'local') {
+        foreach ($db in $localDatabases.Values) {
+            Start-LocalPostgres -Service $db.Service -Container $db.Container -Profile $db.Profile `
+                -SecretNames @("$($db.Prefix)_POSTGRES_ADMIN_PASSWORD", "$($db.Prefix)_DB_PASSWORD")
         }
-        try {
-            $result = Invoke-E2ENative -FilePath 'docker' -Arguments @('compose', '--env-file', $EnvFile, '-f', $composeFile,
-                '--profile', 'blockchain', 'up', '-d', '--no-recreate', 'blockchain-postgres')
-        } finally {
-            foreach ($name in $previous.Keys) { [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process') }
-        }
-        if ($result.ExitCode -ne 0) { throw 'Không bật được blockchain-postgres.' }
-        $deadline = (Get-Date).AddSeconds(120)
-        do {
-            Start-Sleep -Seconds 3
-            $health = (Invoke-E2ENative -FilePath 'docker' -Arguments @('inspect', '--format', '{{.State.Health.Status}}', 'finora-blockchain-postgres')).Lines -join ''
-        } while ($health.Trim() -ne 'healthy' -and (Get-Date) -lt $deadline)
-        if ($health.Trim() -ne 'healthy') { throw 'blockchain-postgres không healthy sau 120 giây.' }
     }
-    Write-Host '[OK] Hạ tầng Docker sẵn sàng'
+    Write-Host "[OK] Hạ tầng Docker sẵn sàng (DB $Database)"
 }
 
+if ($Database -eq 'local') {
+    foreach ($name in $localDatabases.Keys) {
+        $db = $localDatabases[$name]
+        $prefix = $db.Prefix
+        $port = Get-DockerSetting "$($prefix)_POSTGRES_HOST_PORT" $db.DefaultPort
+        $databaseName = Get-DockerSetting "$($prefix)_DB_NAME" "finora_$name"
+        $serviceEnv = $catalog[$name].Env
+        $serviceEnv["$($prefix)_DB_URL"] = "jdbc:postgresql://localhost:$port/$databaseName"
+        $serviceEnv["$($prefix)_DB_USERNAME"] = Get-DockerSetting "$($prefix)_DB_USERNAME" "finora_$name"
+        $serviceEnv["$($prefix)_DB_PASSWORD"] = $localSecrets["$($prefix)_DB_PASSWORD"]
+    }
+    # Fineract local dùng chung với DB Loan dev của máy này: Product của stack E2E mang không gian tên riêng để id
+    # Product mới (bắt đầu từ 1) không trùng externalId/tên/shortName Product đã có.
+    $catalog['loan'].Env['FINERACT_PRODUCT_NAMESPACE'] = 'E2E'
+}
 if ($PaymentClockOffset) {
     $catalog['payment'].Env['FINORA_E2E_CLOCK_OFFSET'] = $PaymentClockOffset
+}
+if ($LoanClockOffset) {
+    $catalog['loan'].Env['FINORA_E2E_CLOCK_OFFSET'] = $LoanClockOffset
+}
+
+function Resolve-RescheduleReasonId {
+    <#
+      Worker cơ cấu của Loan fail-closed khi thiếu reason code (`FINERACT_RESCHEDULE_REASON_ID`). Launcher tìm giá trị đang
+      bật của code hệ thống `LoanRescheduleReason` trên Fineract local (chỉ đọc); không có thì để Loan chạy fail-closed.
+    #>
+    $loanEnv = Read-E2EDotEnv -Path (Join-Path $platformRoot 'finora-loan\.env')
+    $user = Get-DockerSetting 'FINERACT_API_USERNAME' ([string]$loanEnv['FINERACT_API_USERNAME'])
+    $password = Get-DockerSetting 'FINERACT_API_PASSWORD' ([string]$loanEnv['FINERACT_API_PASSWORD'])
+    if (-not $user -or -not $password) { return '' }
+    $baseUrl = Get-DockerSetting 'FINERACT_BASE_URL' 'http://localhost:18443/fineract-provider/api/v1'
+    $tenant = Get-DockerSetting 'FINERACT_TENANT_ID' 'default'
+    try {
+        $codes = Invoke-E2EFineractGet -BaseUrl $baseUrl -Path '/codes' -Username $user -Password $password -Tenant $tenant
+        $code = @($codes | ForEach-Object { $_ } | Where-Object { (Get-E2EField $_ 'name') -eq 'LoanRescheduleReason' }) | Select-Object -First 1
+        if ($null -eq $code) { return '' }
+        $values = Invoke-E2EFineractGet -BaseUrl $baseUrl -Path "/codes/$(Get-E2EField $code 'id')/codevalues" -Username $user -Password $password -Tenant $tenant
+        $active = @($values | ForEach-Object { $_ } | Where-Object { Get-E2EField $_ 'active' }) | Select-Object -First 1
+        if ($null -eq $active) { return '' }
+        return [string](Get-E2EField $active 'id')
+    } catch {
+        Write-Host "[WARN] Không đọc được reason code cơ cấu từ Fineract: $($_.Exception.Message)" -ForegroundColor Yellow
+        return ''
+    }
+}
+
+$rescheduleReasonId = Resolve-RescheduleReasonId
+if ($rescheduleReasonId) {
+    $catalog['loan'].Env['LOAN_RESCHEDULE_WORKER_ENABLED'] = 'true'
+    $catalog['loan'].Env['FINERACT_RESCHEDULE_REASON_ID'] = $rescheduleReasonId
+} else {
+    Write-Host '[WARN] Fineract local chưa có reason code LoanRescheduleReason đang bật; worker cơ cấu của Loan chạy fail-closed.' -ForegroundColor Yellow
+}
+
+function Get-ClockOffsetFor {
+    param([string]$Name)
+    if ($Name -eq 'payment') { return $PaymentClockOffset }
+    if ($Name -eq 'loan') { return $LoanClockOffset }
+    return ''
 }
 
 function Start-FinoraService {
@@ -257,7 +352,8 @@ function Start-FinoraService {
     }
     $State.processes = @($State.processes) + [pscustomobject]@{
         name = $Name; pid = $process.Id; port = $spec.Port; log = $stdout
-        clockOffset = $(if ($Name -eq 'payment') { $PaymentClockOffset } else { '' })
+        clockOffset = (Get-ClockOffsetFor -Name $Name)
+        database = $(if ($localDatabases.Contains($Name)) { $Database } else { '' })
         startedAt = (Get-Date).ToUniversalTime().ToString('o')
     }
     Write-State -State $State
@@ -307,8 +403,11 @@ function Stop-NamedServices {
 }
 
 function Write-ClockWarning {
-    if ($PaymentClockOffset -and $Services -contains 'payment') {
-        Write-Host "[WARN] Payment chạy đồng hồ E2E lệch $PaymentClockOffset. Trả về đồng hồ thật: -Action Restart -Services payment" -ForegroundColor Yellow
+    foreach ($name in @('payment', 'loan')) {
+        $offset = Get-ClockOffsetFor -Name $name
+        if ($offset -and $Services -contains $name) {
+            Write-Host "[WARN] $name chạy đồng hồ E2E lệch $offset. Trả về đồng hồ thật: -Action Restart -Services $name" -ForegroundColor Yellow
+        }
     }
 }
 
@@ -319,7 +418,8 @@ switch ($Action) {
             $alive = [bool](Get-Process -Id $entry.pid -ErrorAction SilentlyContinue)
             $listening = Test-E2ETcpPort -Port $entry.port
             $clock = [string](Get-E2EField $entry 'clockOffset')
-            Write-Host ("{0,-13} pid={1,-6} port={2} alive={3} listening={4} clock={5}" -f $entry.name, $entry.pid, $entry.port, $alive, $listening, $(if ($clock) { $clock } else { 'thật' }))
+            $db = [string](Get-E2EField $entry 'database')
+            Write-Host ("{0,-13} pid={1,-6} port={2} alive={3} listening={4} clock={5} db={6}" -f $entry.name, $entry.pid, $entry.port, $alive, $listening, $(if ($clock) { $clock } else { 'thật' }), $(if ($db) { $db } else { '-' }))
         }
     }
     'Stop' { Stop-FinoraServices }
@@ -328,6 +428,15 @@ switch ($Action) {
         foreach ($name in $Services) {
             if (-not $catalog.Contains($name)) { throw "Service không hợp lệ: $name" }
         }
+        # Chạy lại phải giữ đúng DB service đang dùng: đổi nhầm local ↔ shared giữa lượt làm service đọc nhầm dữ liệu.
+        $current = Read-State
+        foreach ($entry in @($current.processes | Where-Object { $Services -contains $_.name })) {
+            $recorded = [string](Get-E2EField $entry 'database')
+            if ($recorded -and $recorded -ne $Database) {
+                throw "$($entry.name) đang chạy với DB $recorded; gọi lại với -Database $recorded."
+            }
+        }
+        Assert-Infrastructure
         Stop-NamedServices -Names $Services
         $state = Read-State
         foreach ($name in $Services) { Start-FinoraService -Name $name -State $state }
