@@ -37,7 +37,7 @@ class CicMappingWorkerTest {
     }
 
     @Test
-    void guiKeycloakUserIdLamBorrowerIdVaCccdQuaKenhNoiBo() {
+    void guiUserIdCuaHoSoLamBorrowerIdVaCccdQuaKenhNoiBo() {
         when(taskService.claim(12L)).thenReturn(new CicMappingTaskService.ClaimedTask(12L, 7L, 1));
         when(userProfileRepository.findById(7L)).thenReturn(Optional.of(profile("036094001234")));
 
@@ -45,7 +45,8 @@ class CicMappingWorkerTest {
 
         verify(client).register(
                 "test-internal-key",
-                new RegisterBorrowerMappingRequest(USER_ID.toString(), "036094001234"));
+                // B26: borrowerId = claim user_id (user_profiles.id = 7), cùng khóa với event Loan/Payment.
+                new RegisterBorrowerMappingRequest("7", "036094001234"));
         verify(taskService).complete(12L);
     }
 

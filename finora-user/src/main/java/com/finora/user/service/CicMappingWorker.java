@@ -38,10 +38,12 @@ public class CicMappingWorker {
             requireIdentity(profile);
             requireApiKey();
 
+            // B26: borrowerId trong event Loan/Payment/Investment là claim `user_id` = user_profiles.id, không phải
+            // keycloakUserId. Mapping phải dùng cùng định danh để CIC khớp được event nợ quá hạn với CCCD.
             client.register(
                     properties.getInternalApiKey(),
                     new RegisterBorrowerMappingRequest(
-                            profile.getKeycloakUserId().toString(),
+                            String.valueOf(profile.getId()),
                             profile.getIdNumberEncrypted()));
             taskService.complete(task.taskId());
             log.info("Đã đồng bộ ánh xạ CIC: taskId={}, userProfileId={}",
@@ -70,7 +72,7 @@ public class CicMappingWorker {
     }
 
     private static void requireIdentity(UserProfile profile) {
-        if (profile.getKeycloakUserId() == null
+        if (profile.getId() == null
                 || profile.getIdNumberEncrypted() == null
                 || profile.getIdNumberEncrypted().isBlank()) {
             throw new PermanentMappingException("PROFILE_IDENTITY_MISSING");

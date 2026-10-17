@@ -72,11 +72,11 @@ Notification chỉ là consumer ở topic servicing đã đăng ký rõ. Payment
 Mapping `borrowerId ↔ CCCD` được đăng ký trực tiếp vào CIC qua API nội bộ có
 `X-Finora-Internal-Key`; tuyệt đối không đưa CCCD thô vào Kafka. Event đến trước mapping
 được giữ trong `cic_pending_delinquency_events` và replay sau khi mapping được tạo.
-User tự tạo `user_cic_mapping_tasks` cùng transaction xác nhận eKYC, dùng `keycloakUserId`
-làm `borrowerId` và retry có lease. Task chỉ giữ `user_profile_id`; không sao chép CCCD thô.
+User tự tạo `user_cic_mapping_tasks` cùng transaction xác nhận eKYC, dùng ID hồ sơ (`user_profiles.id`, chính là
+claim `user_id`) làm `borrowerId` và retry có lease. Task chỉ giữ `user_profile_id`; không sao chép CCCD thô.
 
-Kiểm ngày 2026-10-17: Loan/Investment/Payment/AI dùng claim `user_id` (ID hồ sơ) làm `borrowerId`, khác khóa
-`keycloakUserId` của mapping (defect B26, chờ owner chốt một định danh). Bản CIC Node đang deploy chỉ có API tra cứu
+Loan/Investment/Payment/AI dùng claim `user_id` (ID hồ sơ) làm `borrowerId`; từ Wave 2C mapping CIC cũng dùng đúng
+khóa này (B26 đã sửa ở `CicMappingWorker`, trước đó gửi `keycloakUserId`). Bản CIC Node đang deploy chỉ có API tra cứu
 điểm theo CCCD, chưa có endpoint mapping hay consumer Kafka (B27); worker mapping của User mặc định tắt
 (`USER_CIC_MAPPING_ENABLED=false`).
 
