@@ -1610,6 +1610,8 @@ function Invoke-NotificationChecks {
     $investorTypes = @('INVESTOR_SIGNATURE_REQUESTED', 'INVESTOR_CONTRACT_ACTIVATED', 'NOTES_ISSUED')
     if ($WithRepayment) { $borrowerTypes += 'REPAYMENT_RECORDED'; $investorTypes += 'REPAYMENT_CREDITED' }
     if ($WithWithdrawal) { $borrowerTypes += @('WITHDRAWAL_COMPLETED', 'WITHDRAWAL_FAILED') }
+    # P7 (D78): mở phiếu đồng thuận cơ cấu thì mỗi nhà đầu tư được mời, người vay biết đang chờ biểu quyết.
+    if ($Servicing -eq 'Reschedule') { $borrowerTypes += 'RESCHEDULE_UNDER_INVESTOR_VOTE'; $investorTypes += 'RESCHEDULE_CONSENT_REQUESTED' }
     foreach ($spec in @(@{ Actor = $Borrower; Label = 'borrower'; Types = $borrowerTypes }, @{ Actor = $Investor; Label = 'investor'; Types = $investorTypes })) {
         $actor = $spec.Actor
         $types = $spec.Types
@@ -1663,6 +1665,53 @@ function Invoke-NotificationChecks {
             -Detail "deliveries=$summary providers=$((@($sent | ForEach-Object { [string](Field $_ 'provider') }) | Select-Object -Unique) -join ',')"
     } catch {
         Add-E2ECheck -Name 'notification.push-mock-delivery' -Passed $false -Detail $_.Exception.Message
+    }
+}
+
+function Invoke-ProducerFieldChecks {
+    <#
+      W3F P1–P5 (D76–D77): event mang người nhận để Notification không phải tra bảng, `LoanDisbursed` mang kỳ trả kế tiếp lấy
+      từ lịch Fineract, khoản trả kỳ trước hạn có event giữ và hủy riêng. Đọc thẳng `data` của record Kafka.
+    #>
+    param($Application, [string]$ContractNumber, $Loan, [string]$RepaymentId)
+    Write-E2EStep 'Field mới của producer (W3F P1–P5)'
+    $borrowerId = [string](Field $Application 'borrowerId')
+    $specs = @(
+        @{ Topic = 'finora.loan.borrower-signature-requested'; Needle = $ContractNumber },
+        @{ Topic = 'finora.loan.contract-activated'; Needle = $ContractNumber },
+        @{ Topic = 'finora.loan.disbursed'; Needle = $ContractNumber }
+    )
+    if ($RepaymentId) { $specs += @{ Topic = 'finora.payment.repayment-distributed'; Needle = $RepaymentId } }
+    $problems = @()
+    $disbursed = $null
+    foreach ($spec in $specs) {
+        $record = @(Get-E2EKafkaRecords -Container $KafkaContainer -Topic $spec.Topic -Contains @($spec.Needle)) | Select-Object -First 1
+        $value = if ($null -ne $record) { [string](Field $record.Json 'data.borrowerId') } else { '' }
+        if ($value -ne $borrowerId) { $problems += "$($spec.Topic):$(if ($value) { 'khac' } else { 'thieu' })" }
+        if ($spec.Topic -eq 'finora.loan.disbursed') { $disbursed = $record }
+    }
+    Add-E2ECheck -Name 'kafka.events-carry-borrower' -Passed ($problems.Count -eq 0) -Detail "events=$($specs.Count) problems=$($problems -join ',')"
+
+    $schedule = Get-FineractLoan -FineractLoanId $Loan.FineractLoanId -Associations 'repaymentSchedule'
+    $first = @(Field $schedule 'repaymentSchedule.periods' | Where-Object { (Field $_ 'period') -eq 1 }) | Select-Object -First 1
+    $expectedDate = Format-FineractDate (Field $first 'dueDate')
+    $nextDate = if ($null -ne $disbursed) { [string](Field $disbursed.Json 'data.nextDueDate') } else { '' }
+    $nextAmount = if ($null -ne $disbursed) { [string](Field $disbursed.Json 'data.nextDueAmount') } else { '' }
+    $amountOk = $nextAmount -match '^\d+\.\d{2}$' -and [decimal]$nextAmount -gt 0
+    Add-E2ECheck -Name 'kafka.disbursed-next-due' -Passed ($nextDate -eq $expectedDate -and $amountOk) `
+        -Detail "nextDueDate=$nextDate fineractPeriod1=$expectedDate nextDueAmount=$nextAmount"
+
+    # Fixture trả kỳ giữ một khoản trả trước hạn rồi hủy: đúng một event giữ và một event hủy, cùng người vay.
+    $repaymentEvidence = (Get-E2EContext).Evidence['repayment']
+    $held = if ($null -ne $repaymentEvidence) { [string]$repaymentEvidence['cancelledHeldRepaymentId'] } else { '' }
+    if ($Servicing -eq 'Installment' -and $held) {
+        $collected = @(Get-E2EKafkaRecords -Container $KafkaContainer -Topic 'finora.payment.repayment-collected' -Contains @($held))
+        $cancelled = @(Get-E2EKafkaRecords -Container $KafkaContainer -Topic 'finora.payment.repayment-cancelled' -Contains @($held))
+        $collectedIds = @($collected | ForEach-Object { $_.EventId } | Where-Object { $_ } | Select-Object -Unique).Count
+        $cancelledIds = @($cancelled | ForEach-Object { $_.EventId } | Where-Object { $_ } | Select-Object -Unique).Count
+        $sameBorrower = @(@($collected) + @($cancelled) | Where-Object { [string](Field $_.Json 'data.borrowerId') -ne $borrowerId }).Count -eq 0
+        Add-E2ECheck -Name 'kafka.held-installment-events' -Passed ($collectedIds -eq 1 -and $cancelledIds -eq 1 -and $sameBorrower) `
+            -Detail "collected=$collectedIds cancelled=$cancelledIds sameBorrower=$sameBorrower dueDate=$(if ($collected.Count) { Field $collected[0].Json 'data.dueDate' })"
     }
 }
 
@@ -2434,6 +2483,7 @@ try {
         Invoke-AccessControlChecks -Borrower $borrower -Investor $investor -Admin $admin -Application $application `
             -ContractNumber $contractNumber -Loan $loan -Order $order -RepaymentId $repaymentId
         $null = Collect-KafkaEvidence -Application $application -ContractNumber $contractNumber -RepaymentId $repaymentId
+        Invoke-ProducerFieldChecks -Application $application -ContractNumber $contractNumber -Loan $loan -RepaymentId $repaymentId
         Invoke-ProofChecks -Admin $admin -Application $application -RepaymentId $repaymentId
         $withWithdrawal = (-not $SkipRepayment) -and $Servicing -eq 'Installment' -and -not $FaultDrill
         Invoke-NotificationChecks -Borrower $borrower -Investor $investor -Admin $admin `
