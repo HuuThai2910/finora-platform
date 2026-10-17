@@ -58,7 +58,8 @@ public class ContractDocumentRenderer {
         line(document, "Lịch dưới đây được lập theo ngày giải ngân dự kiến. Lịch chính thức có thể được cập nhật theo ngày giải ngân thực tế.");
         appendPeriods(document, schedule.getPeriodsSnapshotJson());
         blankLine(document);
-        line(document, LoanServicingContractTerms.plainText(application.getRequestedTermMonths()));
+        line(document, LoanServicingContractTerms.plainText(
+                application.getRequestedTermMonths(), ContractTextVersion.dailyInterest(application)));
         blankLine(document);
         line(document, "5. XÁC NHẬN CỦA NGƯỜI VAY");
         line(document, "Người vay xác nhận đã đọc số tiền vay, lãi suất, thời hạn, tổng nghĩa vụ thanh toán và toàn bộ lịch trả nợ nêu trên.");

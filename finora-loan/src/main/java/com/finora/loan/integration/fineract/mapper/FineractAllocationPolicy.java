@@ -21,7 +21,7 @@ final class FineractAllocationPolicy {
     static String strategy(String configVersion) {
         String value = normalize(configVersion);
         if (value.endsWith("V1")) return STANDARD;
-        if (value.endsWith("V2") || value.endsWith("V3")) return ADVANCED;
+        if (value.endsWith("V2") || value.endsWith("V3") || value.endsWith("V4")) return ADVANCED;
         throw new IllegalArgumentException("FINERACT_PRODUCT_CONFIG_VERSION không được hỗ trợ: " + configVersion);
     }
 
@@ -45,14 +45,31 @@ final class FineractAllocationPolicy {
     }
 
     /**
-     * V2 giữ nguyên lịch sử re-amortization. V3 phân bổ vào các kỳ gần nhất trước để khoản
-     * trả thêm làm ngắn thời gian còn lại, thay vì giảm đều số tiền của mọi kỳ tương lai.
+     * V2 giữ nguyên lịch sử re-amortization. V3/V4 phân bổ vào các kỳ gần nhất trước để khoản trả thêm làm ngắn thời
+     * gian còn lại, thay vì giảm đều số tiền của mọi kỳ tương lai.
      */
     static String futureInstallmentAllocationRule(String configVersion) {
         String value = normalize(configVersion);
         if (value.endsWith("V2")) return "REAMORTIZATION";
-        if (value.endsWith("V3")) return "NEXT_INSTALLMENT";
+        if (value.endsWith("V3") || value.endsWith("V4")) return "NEXT_INSTALLMENT";
         throw new IllegalArgumentException("Không có future allocation rule cho: " + configVersion);
+    }
+
+    /**
+     * V4 (quyết định D15, sửa B28/B29) bật tính lại lãi: lãi chạy theo dư nợ thực tế và số ngày thực tế, nên gốc trả
+     * thêm không còn chịu lãi các kỳ sau và tất toán chỉ thu lãi đến ngày tất toán. V1–V3 tính sẵn lãi cả lịch nên trả
+     * trước/tất toán kéo theo lãi tương lai.
+     */
+    static boolean interestRecalculation(String configVersion) {
+        return normalize(configVersion).endsWith("V4");
+    }
+
+    /**
+     * Fineract 1.15 chỉ cho bật tính lại lãi khi lãi tính theo ngày ({@code 0}); V1–V3 tính theo kỳ trả nợ ({@code 1}).
+     * Product, lịch tính thử và khoản vay booking phải dùng cùng giá trị, nếu không Fineract từ chối khoản vay.
+     */
+    static int interestCalculationPeriodType(String configVersion) {
+        return interestRecalculation(configVersion) ? 0 : 1;
     }
 
     private static String normalize(String value) {

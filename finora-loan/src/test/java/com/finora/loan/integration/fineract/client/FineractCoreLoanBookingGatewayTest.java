@@ -73,6 +73,40 @@ class FineractCoreLoanBookingGatewayTest {
     }
 
     @Test
+    void v4LoanIsBookedWithDailyInterestCalculationLikeItsProduct() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://fineract.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        FineractCoreLoanBookingGateway gateway = new FineractCoreLoanBookingGateway(
+                builder.build(), passThroughExecutor(),
+                new FineractBookingProperties(1L, 1L, 1L, "en", "yyyy-MM-dd"),
+                Clock.fixed(Instant.parse("2026-10-17T03:00:00Z"), ZoneOffset.UTC));
+
+        server.expect(requestTo("http://fineract.test/clients?externalId=FINORA-BORROWER-BORROWER-1"))
+                .andRespond(withSuccess("{\"pageItems\":[{\"id\":2}]}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://fineract.test/loans?externalId=LC-4"))
+                .andRespond(withSuccess("{\"pageItems\":[]}", MediaType.APPLICATION_JSON));
+        // Product V4 chỉ nhận khoản vay tính lãi theo ngày (Fineract 1.15 bắt buộc khi bật tính lại lãi).
+        server.expect(requestTo("http://fineract.test/loans"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().string(Matchers.containsString("\"interestCalculationPeriodType\":0")))
+                .andRespond(withSuccess("{\"resourceId\":3}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://fineract.test/loans/3"))
+                .andRespond(withSuccess("{\"status\":{\"pendingApproval\":true}}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://fineract.test/loans/3?command=approve"))
+                .andRespond(withSuccess("{\"resourceId\":3}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://fineract.test/loans/3"))
+                .andRespond(withSuccess("{\"status\":{\"approved\":true}}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("http://fineract.test/loans/3?command=disburse"))
+                .andRespond(withSuccess("{\"resourceId\":3}", MediaType.APPLICATION_JSON));
+
+        gateway.bookAndDisburse(new CoreLoanBookingGateway.CoreLoanBookingCommand(
+                1L, "LC-4", "BORROWER-1", 2L, new BigDecimal("10000000"), 6,
+                new BigDecimal("12"), "FINORA-FINERACT-V4", LocalDate.of(2026, 10, 17), "PAY-4"));
+
+        server.verify();
+    }
+
+    @Test
     void booksEveryCoreDateOnTheVietnamBusinessDateOfActualDisbursement() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://fineract.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

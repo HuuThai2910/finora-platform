@@ -44,7 +44,8 @@ public class FineractProductPayloadMapper {
         payload.put("interestRateFrequencyType", 3);
         payload.put("amortizationType", repaymentPolicy.amortizationType(source.repaymentMethod()));
         payload.put("interestType", repaymentPolicy.interestType());
-        payload.put("interestCalculationPeriodType", repaymentPolicy.interestCalculationPeriodType());
+        payload.put("interestCalculationPeriodType",
+                repaymentPolicy.interestCalculationPeriodType(source.configVersion()));
         payload.put("transactionProcessingStrategyCode", FineractAllocationPolicy.strategy(source.configVersion()));
         if (FineractAllocationPolicy.advanced(source.configVersion())) {
             // Fineract 1.15 chỉ cho phép Advanced Payment Allocation trên lịch PROGRESSIVE.
@@ -54,7 +55,18 @@ public class FineractProductPayloadMapper {
             payload.put("paymentAllocation", FineractAllocationPolicy.paymentAllocation(source.configVersion()));
         }
         payload.put("accountingRule", 1);
-        payload.put("isInterestRecalculationEnabled", false);
+        boolean recalculation = FineractAllocationPolicy.interestRecalculation(source.configVersion());
+        payload.put("isInterestRecalculationEnabled", recalculation);
+        if (recalculation) {
+            // V4 (D15): lãi theo dư nợ thực tế, mốc tính lãi hằng ngày, không cộng dồn lãi vào gốc. Tất toán tính lãi
+            // đến đúng ngày tất toán; trả thêm gốc thì Fineract điều chỉnh kỳ cuối thay vì thu lãi các kỳ tương lai.
+            payload.put("interestRecalculationCompoundingMethod", 0);
+            payload.put("rescheduleStrategyMethod", 4);
+            payload.put("recalculationRestFrequencyType", 2);
+            payload.put("recalculationRestFrequencyInterval", 1);
+            payload.put("preClosureInterestCalculationStrategy", 1);
+            payload.put("isArrearsBasedOnOriginalSchedule", false);
+        }
         payload.put("daysInYearType", 1);
         payload.put("daysInMonthType", 1);
         payload.put("dateFormat", "yyyy-MM-dd");
@@ -112,6 +124,11 @@ public class FineractProductPayloadMapper {
         }
         if (!matchesEnum(product.path("loanScheduleType"), "PROGRESSIVE")) {
             throw contractMismatch("Product Fineract V2 tồn tại nhưng loanScheduleType không phải PROGRESSIVE");
+        }
+        boolean expectedRecalculation = FineractAllocationPolicy.interestRecalculation(configVersion);
+        if (product.path("isInterestRecalculationEnabled").asBoolean(false) != expectedRecalculation) {
+            // Product V4 tắt tính lại lãi sẽ thu lãi tương lai khi trả trước/tất toán (B28/B29): không tái sử dụng.
+            throw contractMismatch("Product Fineract tồn tại nhưng cờ tính lại lãi không khớp " + configVersion);
         }
         String expectedFutureRule = FineractAllocationPolicy.futureInstallmentAllocationRule(configVersion);
         JsonNode allocations = product.path("paymentAllocation");

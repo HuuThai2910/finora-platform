@@ -19,6 +19,32 @@ class LoanServicingContractTermsTest {
     }
 
     @Test
+    void dailyInterestContractExplainsHowEarlyInstallmentsAndPrepaymentsAreTreated() {
+        String text = LoanServicingContractTerms.plainText(6, true);
+
+        // Q3: ba câu bắt buộc cho hợp đồng core V4 (lãi theo ngày, ghi nhận kỳ đúng hạn, giảm lãi bằng trả trước).
+        assertThat(text)
+                .contains("lãi tính trên dư nợ gốc thực tế và số ngày thực tế")
+                .contains("Khoản thanh toán kỳ trước ngày đến hạn được ghi nhận vào đúng ngày đến hạn")
+                .contains("muốn giảm lãi, người vay chọn trả trước một phần")
+                .contains("khoản của kỳ phải trả gần nhất (lãi chỉ tính đến ngày giao dịch)")
+                // D16: khoản đang giữ hủy được (tiền về ví) và phải hủy trước khi trả trước/tất toán.
+                .contains("có thể hủy khoản thanh toán để nhận lại tiền vào ví")
+                .doesNotContain("nghĩa vụ đã đến hạn")
+                .contains("không thu lãi của các tháng tương lai")
+                .contains(LoanServicingContractTerms.DAILY_INTEREST_POLICY_VERSION)
+                .contains(LoanServicingContractTerms.EARLY_SETTLEMENT_POLICY_VERSION)
+                .doesNotContain("Product V3");
+        assertThat(LoanServicingContractTerms.html(6, true))
+                .contains("ghi nhận vào đúng ngày đến hạn")
+                .contains(LoanServicingContractTerms.DAILY_INTEREST_POLICY_VERSION);
+        // Hợp đồng core V1–V3 giữ nguyên văn bản đã dùng để ký.
+        assertThat(LoanServicingContractTerms.plainText(6, false)).isEqualTo(LoanServicingContractTerms.plainText(6))
+                .contains("Product V3 ưu tiên rút ngắn số kỳ")
+                .doesNotContain("ghi nhận vào đúng ngày đến hạn");
+    }
+
+    @Test
     void mediumTermContractDisclosesYearBasedFeeBands() {
         assertThat(LoanServicingContractTerms.plainText(24))
                 .contains("trong 12 tháng đầu áp dụng 2%")

@@ -171,6 +171,82 @@ class FineractPayloadMapperTest {
     }
 
     @Test
+    void shouldCreateV4ProductWithDailyInterestRecalculationSoPrepaymentNeverChargesFutureInterest() {
+        FineractProductConfiguration v4 = new FineractProductConfiguration(
+                1L, 4L, "PERSONAL_V4", "Vay tiêu dùng V4",
+                new BigDecimal("10000000"), new BigDecimal("100000000"),
+                6, 24, new BigDecimal("12.0000"), RepaymentMethod.ANNUITY,
+                "FINORA-LP-1-V4", "FINORA-FINERACT-V4");
+
+        var payload = productMapper.toCreateProductPayload(v4);
+
+        // D15 (B28/B29): lãi theo dư nợ và số ngày thực tế; tất toán tính lãi đến ngày tất toán.
+        assertThat(payload)
+                .containsEntry("isInterestRecalculationEnabled", true)
+                .containsEntry("interestCalculationPeriodType", 0)
+                .containsEntry("interestRecalculationCompoundingMethod", 0)
+                .containsEntry("rescheduleStrategyMethod", 4)
+                .containsEntry("recalculationRestFrequencyType", 2)
+                .containsEntry("recalculationRestFrequencyInterval", 1)
+                .containsEntry("preClosureInterestCalculationStrategy", 1)
+                .containsEntry("isArrearsBasedOnOriginalSchedule", false)
+                .containsEntry("loanScheduleType", "PROGRESSIVE");
+        @SuppressWarnings("unchecked")
+        var allocations = (List<Map<String, Object>>) payload.get("paymentAllocation");
+        assertThat(allocations).singleElement().satisfies(rule ->
+                assertThat(rule).containsEntry("futureInstallmentAllocationRule", "NEXT_INSTALLMENT"));
+        // V3 giữ nguyên cách cũ để sản phẩm đang có không đổi nghĩa khi đối chiếu lại.
+        var v3 = productMapper.toCreateProductPayload(new FineractProductConfiguration(
+                1L, 3L, "PERSONAL_V3", "Vay tiêu dùng V3",
+                new BigDecimal("10000000"), new BigDecimal("100000000"),
+                6, 24, new BigDecimal("12.0000"), RepaymentMethod.ANNUITY,
+                "FINORA-LP-1-V3", "FINORA-FINERACT-V3"));
+        assertThat(v3).containsEntry("isInterestRecalculationEnabled", false)
+                .containsEntry("interestCalculationPeriodType", 1)
+                .doesNotContainKey("preClosureInterestCalculationStrategy");
+    }
+
+    @Test
+    void scheduleRequestUsesTheSameInterestCalculationAsTheProductVersion() {
+        var v4 = scheduleMapper.toSchedulePayload(new ScheduleCalculationRequest(
+                1L, 1001L, new BigDecimal("10000000"), 6, new BigDecimal("12"),
+                RepaymentMethod.ANNUITY, "FINORA-FINERACT-V4",
+                LocalDate.of(2026, 10, 17), LocalDate.of(2026, 10, 17)), 2001L);
+        var v3 = scheduleMapper.toSchedulePayload(new ScheduleCalculationRequest(
+                1L, 1001L, new BigDecimal("10000000"), 6, new BigDecimal("12"),
+                RepaymentMethod.ANNUITY, "FINORA-FINERACT-V3",
+                LocalDate.of(2026, 10, 17), LocalDate.of(2026, 10, 17)), 2001L);
+
+        // Lệch kiểu tính lãi giữa khoản vay và Product làm Fineract từ chối tính lịch.
+        assertThat(v4).containsEntry("interestCalculationPeriodType", 0);
+        assertThat(v3).containsEntry("interestCalculationPeriodType", 1);
+    }
+
+    @Test
+    void shouldRejectReconciledV4ProductWhenInterestRecalculationIsOff() throws Exception {
+        String json = """
+                {
+                  "transactionProcessingStrategyCode": "advanced-payment-allocation-strategy",
+                  "loanScheduleType": {"code": "loanScheduleType.progressive", "value": "Progressive"},
+                  "isInterestRecalculationEnabled": RECALC,
+                  "paymentAllocation": [{
+                    "transactionType": "DEFAULT",
+                    "futureInstallmentAllocationRule": "NEXT_INSTALLMENT",
+                    "paymentAllocationOrder": [{},{},{},{},{},{},{},{},{},{},{},{}]
+                  }]
+                }
+                """;
+
+        // Product cùng externalId nhưng tắt tính lại lãi sẽ thu lãi tương lai: không được tái sử dụng.
+        assertThatThrownBy(() -> productMapper.validateReconciledProduct(
+                objectMapper.readTree(json.replace("RECALC", "false")), "FINORA-FINERACT-V4"))
+                .isInstanceOf(FineractIntegrationException.class)
+                .hasMessageContaining("tính lại lãi");
+        productMapper.validateReconciledProduct(objectMapper.readTree(json.replace("RECALC", "true")),
+                "FINORA-FINERACT-V4");
+    }
+
+    @Test
     void shouldAcceptReconciledV2ProductOnlyWhenAdvancedAllocationIsIntact() throws Exception {
         JsonNode product = objectMapper.readTree("""
                 {

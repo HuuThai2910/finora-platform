@@ -244,8 +244,9 @@ finora:
     preview-client-external-id: ${FINERACT_PREVIEW_CLIENT_EXTERNAL_ID:FINORA-PREVIEW-CLIENT}
     connect-timeout: ${FINERACT_CONNECT_TIMEOUT:3s}
     read-timeout: ${FINERACT_READ_TIMEOUT:30s}
-    # V3 áp dụng cho Product/mapping tạo mới; V2 REAMORTIZATION và V1 giữ snapshot để đọc tương thích.
-    product-config-version: ${FINERACT_PRODUCT_CONFIG_VERSION:FINORA-FINERACT-V3}
+    # V4 (D15) áp dụng cho Product/mapping tạo mới: tính lại lãi hằng ngày. V3/V2/V1 giữ snapshot để đọc tương thích;
+    # Product đã đồng bộ không đổi version (chỉ Product DRAFT mới đồng bộ).
+    product-config-version: ${FINERACT_PRODUCT_CONFIG_VERSION:FINORA-FINERACT-V4}
     max-attempts: ${FINERACT_MAX_ATTEMPTS:3}
     retry-backoff: ${FINERACT_RETRY_BACKOFF:30s}
     retry-batch-size: ${FINERACT_RETRY_BATCH_SIZE:20}

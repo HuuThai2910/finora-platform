@@ -33,6 +33,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class ContractPdfRenderer {
 
+    /** Bản PDF cho khoản vay core V1–V3; core V4 dùng {@link ContractTextVersion#DAILY_INTEREST_PDF_VERSION}. */
     public static final String DOCUMENT_VERSION = "CONTRACT_PDF_V2";
     private static final ZoneId VIETNAM = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy");
@@ -57,7 +58,7 @@ public class ContractPdfRenderer {
                 contractNumber, application, schedule, termsVersion, expiresAt,
                 "CHỜ NGƯỜI VAY XÁC NHẬN", null, null, null, null
         ));
-        return artifact(ContractPdfArtifactType.SIGNABLE, content);
+        return artifact(ContractPdfArtifactType.SIGNABLE, pdfVersion(application), content);
     }
 
     public ContractPdfArtifact renderFundedSignable(
@@ -95,7 +96,7 @@ public class ContractPdfRenderer {
                                 + " bên cho vay ký cùng PDF/hash trước người vay.")
                 .replace("</body></html>", appendix + "</body></html>");
         byte[] content = render(funded);
-        return artifact(ContractPdfArtifactType.SIGNABLE, content);
+        return artifact(ContractPdfArtifactType.SIGNABLE, pdfVersion(application), content);
     }
 
     public ContractPdfArtifact renderSignedReceipt(
@@ -111,7 +112,7 @@ public class ContractPdfRenderer {
                 contract.getSignatureMethod() == null ? null : contract.getSignatureMethod().name(),
                 signedDocumentHash
         ));
-        return artifact(ContractPdfArtifactType.SIGNED_RECEIPT, content);
+        return artifact(ContractPdfArtifactType.SIGNED_RECEIPT, pdfVersion(application), content);
     }
 
     public ContractPdfArtifact renderSignedReceipt(
@@ -149,7 +150,7 @@ public class ContractPdfRenderer {
                 <table class="info"><tr><th>Mã nhà đầu tư</th><th>Phần vốn</th><th>Trạng thái</th><th>Phương thức</th><th>Thời điểm ký</th><th>Evidence hash</th></tr>%s</table>
                 """.formatted(rows);
         byte[] content = render(base.replace("</body></html>", evidence + "</body></html>"));
-        return artifact(ContractPdfArtifactType.SIGNED_RECEIPT, content);
+        return artifact(ContractPdfArtifactType.SIGNED_RECEIPT, pdfVersion(application), content);
     }
 
     private static String lenderSignatureSummary(List<ContractParty> lenders) {
@@ -181,8 +182,14 @@ public class ContractPdfRenderer {
         return party.getSignatureProvider().name() + " / " + party.getSignatureMethod().name();
     }
 
-    private ContractPdfArtifact artifact(ContractPdfArtifactType type, byte[] content) {
-        return new ContractPdfArtifact(type, DOCUMENT_VERSION, content, hashingService.sha256Bytes(content));
+    private ContractPdfArtifact artifact(ContractPdfArtifactType type, String version, byte[] content) {
+        return new ContractPdfArtifact(type, version, content, hashingService.sha256Bytes(content));
+    }
+
+    /** PDF của hồ sơ core V4 mang điều 4 tính lãi theo ngày nên là một phiên bản tài liệu riêng. */
+    private static String pdfVersion(LoanApplication application) {
+        return ContractTextVersion.dailyInterest(application)
+                ? ContractTextVersion.DAILY_INTEREST_PDF_VERSION : DOCUMENT_VERSION;
     }
 
     private byte[] render(String html) {
@@ -270,18 +277,19 @@ public class ContractPdfRenderer {
                   <div class="notice blue"><b>XÁC NHẬN CỦA HỆ THỐNG FINORA</b><br/>FINORA ghi nhận phiên bản, trạng thái, thời điểm và phương thức thao tác. Receipt này là bằng chứng hệ thống tách rời; không tự chứng minh chữ ký PAdES đã được nhúng vào PDF.</div>
                 </body></html>
                 """.formatted(
-                css(), escape(contractNumber), summary(application, schedule, finalRate),
+                css(pdfVersion(application)), escape(contractNumber), summary(application, schedule, finalRate),
                 escape(application.getApplicationNumber()), escape(application.getBorrowerId()),
                 money(application.getRequestedAmount()), escape(purpose(application)),
                 application.getRequestedTermMonths(), date(schedule.getExpectedDisbursementDate()),
                 percentage(baseRate), percentage(finalRate), repaymentMethod(application),
                 money(schedule.getTotalInterest()), money(schedule.getTotalFees()),
                 money(schedule.getTotalPenalties()),
-                LoanServicingContractTerms.html(application.getRequestedTermMonths()),
+                LoanServicingContractTerms.html(
+                        application.getRequestedTermMonths(), ContractTextVersion.dailyInterest(application)),
                 date(schedule.getExpectedDisbursementDate()),
                 scheduleTable(schedule.getPeriodsSnapshotJson()), escape(receiptStatus),
                 signatureEvidence(signedBy, signedAt, signatureMethod), escape(termsVersion),
-                DOCUMENT_VERSION, escape(signedDocumentHash == null ? "Chưa xác nhận" : signedDocumentHash),
+                pdfVersion(application), escape(signedDocumentHash == null ? "Chưa xác nhận" : signedDocumentHash),
                 dateTime(expiresAt), escape(schedule.getCalculationPolicyVersion()),
                 escape(schedule.getResponseHash())
         );
@@ -405,9 +413,9 @@ public class ContractPdfRenderer {
                 .replace("'", "&#39;");
     }
 
-    private static String css() {
+    private static String css(String pdfVersion) {
         return """
-                @page { size: A4; margin: 17mm 16mm 19mm; @bottom-left { content: "FINORA - CONTRACT_PDF_V2"; color: #64748b; font-size: 8px; } @bottom-right { content: "Trang " counter(page) " / " counter(pages); color: #64748b; font-size: 8px; } }
+                @page { size: A4; margin: 17mm 16mm 19mm; @bottom-left { content: "FINORA - PDF_VERSION"; color: #64748b; font-size: 8px; } @bottom-right { content: "Trang " counter(page) " / " counter(pages); color: #64748b; font-size: 8px; } }
                 * { box-sizing: border-box; } body { font-family: "DejaVu Sans"; color: #172033; font-size: 10.3pt; line-height: 1.52; margin: 0; }
                 .watermark { position: fixed; top: 47%; left: 13%; transform: rotate(-32deg); color: #e7ebf1; font-size: 24pt; font-weight: 700; z-index: -1; }
                 .national { display: table; width: 100%; border-bottom: 2px solid #1d5bd7; padding-bottom: 10px; margin-bottom: 24px; }
@@ -426,6 +434,6 @@ public class ContractPdfRenderer {
                 .signatures { margin-top: 20px; } .signatures th { background: #eff5ff; color: #153a70; padding: 10px; border: 1px solid #d7dfea; }
                 .signatures td { width: 50%; height: 92px; border: 1px solid #d7dfea; text-align: center; vertical-align: middle; padding: 10px; }
                 .hash { word-wrap: break-word; font-size: 8pt; } .page-break { page-break-before: always; }
-                """;
+                """.replace("PDF_VERSION", pdfVersion);
     }
 }

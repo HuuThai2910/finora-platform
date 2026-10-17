@@ -57,7 +57,8 @@ public class FineractCoreLoanBookingGateway implements CoreLoanBookingGateway{
   body.put("externalId",external);body.put("principal",c.principal());body.put("loanTermFrequency",c.termMonths());
   body.put("loanTermFrequencyType",2);body.put("loanType","individual");body.put("numberOfRepayments",c.termMonths());
   body.put("repaymentEvery",1);body.put("repaymentFrequencyType",2);body.put("interestRatePerPeriod",c.annualRate());
-  body.put("amortizationType",1);body.put("interestType",0);body.put("interestCalculationPeriodType",1);
+  body.put("amortizationType",1);body.put("interestType",0);
+  body.put("interestCalculationPeriodType",FineractStrategyResolver.interestCalculationPeriodType(c.coreConfigVersion()));
   body.put("transactionProcessingStrategyCode",FineractStrategyResolver.strategy(c.coreConfigVersion()));
   body.put("expectedDisbursementDate",bookingDate.toString());body.put("submittedOnDate",bookingDate.toString());common(body);
   return resource(post("/loans",body,"create-loan"));
