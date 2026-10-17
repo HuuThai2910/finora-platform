@@ -7,8 +7,10 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Lệnh giải ngân chưa kết thúc cho màn sự cố của admin (R2). {@code nextAttemptAt = null} ở RECONCILIATION_REQUIRED nghĩa là
- * đã hết lượt tra cứu tự động và đang chờ vận hành.
+ * Lệnh giải ngân cho màn sự cố của admin (R2). {@code nextAttemptAt = null} ở RECONCILIATION_REQUIRED nghĩa là đã hết lượt
+ * tra cứu tự động và đang chờ vận hành. {@code attemptCount} là số lần gọi provider chuyển tiền,
+ * {@code reconciliationAttemptCount} là số lần tra cứu chưa ra kết quả (tra cứu thấy kết quả ngay thì vẫn 0);
+ * {@code errorCode} giữ lý do vào đối soát kể cả sau khi đã xong, ví dụ {@code PAYMENT_PROCESSING_INTERRUPTED}.
  */
 public record DisbursementReconciliationResponse(
         UUID sagaId,

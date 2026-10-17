@@ -44,6 +44,18 @@ public class AdminDisbursementReconciliationService {
                 .last(result.isLast()).build();
     }
 
+    /**
+     * Một lệnh giải ngân theo sagaId ở mọi trạng thái, kể cả đã xong: vận hành tra lại lệnh đã đóng sự cố, drill Q13
+     * kiểm provider chỉ được gọi một lần sau khi Payment chết giữa chừng.
+     */
+    @Transactional(readOnly = true)
+    public DisbursementReconciliationResponse find(UUID sagaId) {
+        requireAdmin();
+        return disbursements.findBySagaId(sagaId).map(DisbursementReconciliationResponse::from)
+                .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "DISBURSEMENT_NOT_FOUND",
+                        "Không tìm thấy lệnh giải ngân"));
+    }
+
     @Transactional
     public DisbursementReconciliationResponse requestRecheck(UUID sagaId) {
         requireAdmin();

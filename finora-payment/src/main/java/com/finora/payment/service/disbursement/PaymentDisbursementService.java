@@ -48,6 +48,7 @@ public class PaymentDisbursementService {
  private final Clock clock;
  private final TransactionTemplate transactionTemplate;
  private final PaymentDisbursementProperties properties;
+ private final com.finora.payment.config.PaymentE2EPausePoints pausePoints;
 
  @Transactional
  public void request(UUID eventId,DisbursementRequestedEventData data){
@@ -110,6 +111,8 @@ public class PaymentDisbursementService {
   Work work=transactionTemplate.execute(status->claim(id));if(work==null)return;
   if(work.reconcile()){reconcile(work);return;}
   PaymentProvider.PaymentProviderResult result=invokeProvider(work);
+  // Q13: drill E2E tắt Payment đúng lúc provider đã chuyển tiền mà Payment chưa lưu kết quả.
+  if(result.success())pausePoints.pause(com.finora.payment.config.PaymentE2EPausePoints.PROVIDER_DISBURSED_BEFORE_SAVE);
   transactionTemplate.executeWithoutResult(status->finish(work.id(),result));
  }
 

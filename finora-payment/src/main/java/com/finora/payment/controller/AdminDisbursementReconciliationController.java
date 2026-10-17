@@ -30,6 +30,11 @@ public class AdminDisbursementReconciliationController {
         return service.list(page, size);
     }
 
+    @GetMapping("/{sagaId}")
+    public DisbursementReconciliationResponse find(@PathVariable UUID sagaId) {
+        return service.find(sagaId);
+    }
+
     @PostMapping("/{sagaId}/recheck")
     public DisbursementReconciliationResponse recheck(@PathVariable UUID sagaId) {
         return service.requestRecheck(sagaId);
