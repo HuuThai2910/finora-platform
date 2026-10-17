@@ -36,6 +36,10 @@ public class PaymentDisbursement {
     @Column(name="error_code", length=80) private String errorCode;
     @Column(name="error_detail", length=500) private String errorDetail;
     @Column(name="completed_at") private Instant completedAt;
+    /** Số lần admin yêu cầu tra cứu lại provider sau khi hết lượt tự động (R2, V16). */
+    @Column(name="manual_recheck_count", nullable=false) private int manualRecheckCount;
+    @Column(name="last_manual_recheck_by", length=100) private String lastManualRecheckBy;
+    @Column(name="last_manual_recheck_at") private Instant lastManualRecheckAt;
     @Version @Column(nullable=false) private Long version;
     @Column(name="created_at", nullable=false, updatable=false) private Instant createdAt;
     @Column(name="updated_at", nullable=false) private Instant updatedAt;
@@ -82,6 +86,16 @@ public class PaymentDisbursement {
     public void recordReconciliationCheck(Instant now, Instant nextCheckAt) {
         if (status!=PaymentDisbursementStatus.RECONCILIATION_REQUIRED) throw new IllegalStateException("Lệnh không ở trạng thái đối soát");
         reconciliationAttemptCount++; nextAttemptAt=nextCheckAt; updatedAt=now;
+    }
+    /**
+     * Admin yêu cầu tra cứu lại provider theo sagaId (R2): hẹn lần tra cứu ngay và cấp lại lượt tra cứu tự động. Chỉ
+     * nhận lệnh đang đối soát; tuyệt đối không quay về gọi chuyển tiền.
+     */
+    public void requestManualRecheck(String actorId, Instant now) {
+        if (status!=PaymentDisbursementStatus.RECONCILIATION_REQUIRED) throw new IllegalStateException("Lệnh không ở trạng thái đối soát");
+        if (actorId==null || actorId.isBlank()) throw new IllegalArgumentException("Thiếu người yêu cầu tra cứu lại");
+        reconciliationAttemptCount=0; nextAttemptAt=java.util.Objects.requireNonNull(now);
+        manualRecheckCount++; lastManualRecheckBy=actorId.trim(); lastManualRecheckAt=now; updatedAt=now;
     }
     public void fail(String code, String detail, boolean retry, Instant retryAt, Instant now) {
         errorCode=code; errorDetail=detail == null ? null : detail.substring(0, Math.min(detail.length(),500));

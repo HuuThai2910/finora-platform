@@ -85,9 +85,11 @@ public class PaymentRepaymentService {
         if (preparation.replay() != null) return preparation.replay();
         ScheduledRepaymentCoreQuote quote = FineractQuoteErrors.read(
                 () -> fineract.scheduledRepaymentQuote(preparation.fineractLoanId()));
-        if (normalized.compareTo(quote.amount()) != 0) {
+        if (!quote.accepts(normalized)) {
+            BigDecimal partial = quote.partialOverdueAmount();
             throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, "REPAYMENT_AMOUNT_NOT_SCHEDULED_DUE",
-                    "Số tiền phải bằng nghĩa vụ hiện tại từ Fineract: " + quote.amount().toPlainString());
+                    "Số tiền phải bằng nghĩa vụ hiện tại từ Fineract: " + quote.payableAmount().toPlainString()
+                            + (partial == null ? "" : " (hoặc chỉ kỳ quá hạn cũ nhất: " + partial.toPlainString() + ")"));
         }
         PaymentRepaymentType type = quote.overdueAmount().signum() > 0
                 ? PaymentRepaymentType.OVERDUE_CURE : PaymentRepaymentType.SCHEDULED;
@@ -256,8 +258,10 @@ public class PaymentRepaymentService {
         ScheduledDueResponse.PendingRepayment pending = transactionTemplate.execute(status ->
                 inFlight.oldestInFlight(account.getLoanApplicationId())
                         .map(value -> ScheduledDueResponse.PendingRepayment.from(value, today)).orElse(null));
+        BigDecimal partial = quote.partialOverdueAmount();
         return new ScheduledDueResponse(account.getLoanApplicationId(),
-                quote.amount().setScale(2, java.math.RoundingMode.UNNECESSARY), overdue, account.getCurrency(),
+                quote.payableAmount().setScale(2, java.math.RoundingMode.UNNECESSARY), overdue,
+                partial == null ? null : partial.setScale(2, java.math.RoundingMode.UNNECESSARY), account.getCurrency(),
                 type, today, quote.nextDueDate(), deferredPostingDate(account, type, today, quote.nextDueDate()),
                 pending);
     }
@@ -385,6 +389,53 @@ public class PaymentRepaymentService {
         }
     }
 
+    /**
+     * B32 (D28): admin ghi lại khoản trả nợ RECONCILIATION_REQUIRED mà Fineract chưa có. Thứ tự: tra cứu theo externalId
+     * (có thì chỉ ghi nhận kết quả) → nhận việc → POST lại với đúng externalId, số tiền và ngày ghi nhận ban đầu. Fineract
+     * từ chối (4xx) thì tra cứu thêm một lần trước khi hoàn tiền, vì lỗi có thể là trùng externalId với giao dịch đã ghi;
+     * không tra được thì giữ đối soát, không hoàn tiền khi kết quả core chưa chắc chắn.
+     *
+     * @throws FineractRepaymentException khi chưa đọc được Fineract ở bước tra cứu đầu; khoản trả nợ không đổi
+     */
+    public void repostCorePosting(Long id, String actorId, java.time.Duration safeAfter) {
+        CoreWork work = transactionTemplate.execute(status -> repostWork(id, safeAfter));
+        if (work == null) throw new IllegalStateException("Không đọc được khoản trả nợ cần ghi lại");
+        java.util.Optional<PaymentRepayment.CoreBreakdown> posted =
+                fineract.findPostedRepayment(work.fineractLoanId(), work.reference());
+        if (posted.isPresent()) {
+            transactionTemplate.executeWithoutResult(status -> saveReconciledCoreResult(work.id(), posted.get()));
+            return;
+        }
+        Boolean claimed = transactionTemplate.execute(status -> claimRepost(work.id(), actorId));
+        // Worker đối soát vừa ghi nhận kết quả trong lúc tra cứu: không còn gì để ghi lại.
+        if (!Boolean.TRUE.equals(claimed)) return;
+        try {
+            PaymentRepayment.CoreBreakdown result = fineract.postRepayment(new RepaymentCoreCommand(
+                    work.fineractLoanId(), work.reference(), work.transactionDate(), work.amount()));
+            transactionTemplate.executeWithoutResult(status -> saveCoreResult(work.id(), result));
+        } catch (FineractRepaymentException exception) {
+            if (exception.outcomeUnknown()) {
+                transactionTemplate.executeWithoutResult(status -> recordCoreFailure(work.id(), exception));
+                return;
+            }
+            java.util.Optional<PaymentRepayment.CoreBreakdown> duplicate;
+            try {
+                duplicate = fineract.findPostedRepayment(work.fineractLoanId(), work.reference());
+            } catch (FineractRepaymentException lookupFailure) {
+                transactionTemplate.executeWithoutResult(status -> repayments.findByIdForUpdate(work.id())
+                        .orElseThrow().requireReconciliation("FINERACT_REPOST_REJECTED_UNVERIFIED",
+                                "Fineract từ chối lần ghi lại nhưng chưa tra cứu được theo externalId; không hoàn tiền",
+                                clock.instant()));
+                return;
+            }
+            if (duplicate.isPresent()) {
+                transactionTemplate.executeWithoutResult(status -> saveCoreResult(work.id(), duplicate.get()));
+            } else {
+                transactionTemplate.executeWithoutResult(status -> recordCoreFailure(work.id(), exception));
+            }
+        }
+    }
+
     @Transactional
     public void distribute(Long id) {
         PaymentRepayment repayment = repayments.findByIdForUpdate(id).orElseThrow();
@@ -494,6 +545,30 @@ public class PaymentRepaymentService {
                     new LedgerPostingEntryCommand(borrowerWallet.walletId(), null, LedgerBalanceBucket.AVAILABLE,
                             LedgerDirection.CREDIT, value.getAmount()))));
         value.fail(exception.code(), exception.getMessage(), clock.instant());
+    }
+
+    @Transactional
+    CoreWork repostWork(Long id, java.time.Duration safeAfter) {
+        PaymentRepayment value = repayments.findByIdForUpdate(id).orElseThrow();
+        if (value.getStatus() != PaymentRepaymentStatus.RECONCILIATION_REQUIRED) {
+            throw new BusinessException(HttpStatus.CONFLICT, "REPAYMENT_NOT_RECONCILABLE",
+                    "Chỉ giao dịch RECONCILIATION_REQUIRED mới được ghi lại vào hệ thống lõi");
+        }
+        Instant availableAt = value.coreRepostAvailableAt(safeAfter);
+        if (clock.instant().isBefore(availableAt)) {
+            throw new BusinessException(HttpStatus.CONFLICT, "REPAYMENT_REPOST_TOO_EARLY",
+                    "Lần ghi hệ thống lõi gần nhất chưa đủ thời gian an toàn; chỉ ghi lại được từ " + availableAt);
+        }
+        return new CoreWork(value.getId(), value.getFineractLoanId(), reference(value),
+                value.corePostingDate(), value.getCoreAmount());
+    }
+
+    @Transactional
+    boolean claimRepost(Long id, String actorId) {
+        PaymentRepayment value = repayments.findByIdForUpdate(id).orElseThrow();
+        if (value.getStatus() != PaymentRepaymentStatus.RECONCILIATION_REQUIRED) return false;
+        value.startCoreRepost(actorId, clock.instant());
+        return true;
     }
 
     @Transactional

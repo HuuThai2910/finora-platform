@@ -41,6 +41,13 @@ public class PartialPrepaymentQuoteService {
         LocalDate today = LocalDate.now(clock);
         PartialPrepaymentCoreSnapshot core = FineractQuoteErrors.read(
                 () -> fineract.partialPrepaymentSnapshot(preparation.fineractLoanId(), today));
+        // D27: chỉ trả trước gốc khi không còn kỳ quá hạn. Fineract phân bổ khoản trả vào các kỳ quá hạn trước, nên
+        // "gốc trả thêm" sẽ chỉ trả nợ quá hạn mà vẫn bị tính phí trả trước. Kiểm theo kỳ chưa trả cũ nhất của lịch,
+        // không phụ thuộc job tính quá hạn cuối ngày của Fineract. Tất toán toàn bộ vẫn được phép.
+        if (core.nextDueDate() != null && core.nextDueDate().isBefore(today)) {
+            throw new BusinessException(HttpStatus.CONFLICT, "PARTIAL_PREPAYMENT_LOAN_OVERDUE",
+                    "Khoản vay đang quá hạn. Hãy thanh toán phần quá hạn trước khi trả trước gốc");
+        }
         if (normalized.compareTo(core.outstandingPrincipal()) >= 0) {
             throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, "PARTIAL_PREPAYMENT_AMOUNT_TOO_HIGH",
                     "Phần gốc trả trước phải nhỏ hơn gốc còn lại; dùng luồng tất toán để đóng toàn bộ khoản vay");

@@ -808,6 +808,154 @@ class FinoraPaymentApplicationIT {
     }
 
     @Test
+    void overdueSeveralInstallmentsQuotesTheFullCureAndOnlyAcceptsTheOldestInstallmentAsPartial() {
+        long applicationId = 535L;
+        long fineractLoanId = 735L;
+        activateLoan(applicationId, 635L, fineractLoanId, "FINORA-FINERACT-V4", "AGRIBANK_REFERENCE_FINORA_2026_V2");
+        actAsBorrower("BORROWER-535");
+        fundBorrower("6000000", "topup-cure-535");
+        LocalDate today = LocalDate.now(clock);
+        // B31: quá hạn ba kỳ. Template Fineract chỉ báo kỳ cũ nhất; totalOverdue là cả ba kỳ.
+        when(repaymentCoreGateway.scheduledRepaymentQuote(fineractLoanId)).thenReturn(new ScheduledRepaymentCoreQuote(
+                new BigDecimal("1726000.00"), new BigDecimal("5178000.00"), today.minusDays(91)));
+
+        var due = repaymentService.scheduledDue(applicationId);
+        assertThat(due.amount()).isEqualByComparingTo("5178000.00");
+        assertThat(due.overdueAmount()).isEqualByComparingTo("5178000.00");
+        assertThat(due.partialOverdueAmount()).isEqualByComparingTo("1726000.00");
+        assertThat(due.repaymentType()).isEqualTo(com.finora.payment.domain.repayment.PaymentRepaymentType.OVERDUE_CURE);
+        assertThat(due.postOn()).isNull();
+
+        assertThatThrownBy(() -> repaymentService.create(applicationId, new BigDecimal("3452000.00"), today, "cure-535-odd"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("REPAYMENT_AMOUNT_NOT_SCHEDULED_DUE"));
+        assertThat(borrowerAvailable("BORROWER-535")).isEqualByComparingTo("6000000.00");
+
+        // Trả bớt đúng kỳ cũ nhất: vẫn là khắc phục quá hạn, ghi Fineract ngay (không giữ tới ngày đến hạn).
+        var partial = repaymentService.create(applicationId, new BigDecimal("1726000.00"), today, "cure-535-partial");
+        PaymentRepayment collected = repaymentRepository.findByRepaymentId(partial.repaymentId()).orElseThrow();
+        assertThat(collected.getRepaymentType())
+                .isEqualTo(com.finora.payment.domain.repayment.PaymentRepaymentType.OVERDUE_CURE);
+        assertThat(partial.postOn()).isNull();
+        assertThat(borrowerAvailable("BORROWER-535")).isEqualByComparingTo("4274000.00");
+    }
+
+    @Test
+    void overdueLoanCannotQuotePartialPrepaymentSoNoFeeIsChargedOnMoneyThatOnlyCuresArrears() {
+        long applicationId = 536L;
+        long fineractLoanId = 736L;
+        activateLoan(applicationId, 636L, fineractLoanId, "FINORA-FINERACT-V4", "AGRIBANK_REFERENCE_FINORA_2026_V2");
+        actAsBorrower("BORROWER-536");
+        LocalDate today = LocalDate.now(clock);
+        // Kỳ chưa trả cũ nhất đến hạn 5 ngày trước: khoản vay quá hạn dù job tính quá hạn của Fineract chưa chạy.
+        when(repaymentCoreGateway.partialPrepaymentSnapshot(fineractLoanId, today))
+                .thenReturn(new PartialPrepaymentCoreSnapshot(today, new BigDecimal("1726000.00"),
+                        new BigDecimal("10102000.00"), new BigDecimal("10000000.00"),
+                        today.minusDays(5), new BigDecimal("1726000.00"), 6, today.minusMonths(1), today.plusMonths(5)));
+
+        assertThatThrownBy(() -> partialPrepaymentQuoteService.create(applicationId, new BigDecimal("3000000.00")))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("PARTIAL_PREPAYMENT_LOAN_OVERDUE"));
+    }
+
+    @Test
+    void repaymentTheCoreNeverReceivedIsRepostedOnceWithTheSameReferenceAfterTheSafeWindow() {
+        PaymentRepayment stuck = stuckOverdueRepayment(537L, 737L, "537");
+        String reference = "FINORA-REPAY-" + stuck.getRepaymentId();
+
+        // Lần ghi core vừa kết thúc không rõ kết quả: request cũ có thể còn chạy ở Fineract nên chưa được ghi lại.
+        assertThatThrownBy(() -> repaymentService.repostCorePosting(stuck.getId(), "admin-1", Duration.ofMinutes(15)))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("REPAYMENT_REPOST_TOO_EARLY"));
+
+        testClock.advance(Duration.ofMinutes(16));
+        when(repaymentCoreGateway.findPostedRepayment(737L, reference)).thenReturn(java.util.Optional.empty());
+        org.mockito.Mockito.doReturn(coreBreakdown(9737L)).when(repaymentCoreGateway).postRepayment(any());
+        repaymentService.repostCorePosting(stuck.getId(), "admin-1", Duration.ofMinutes(15));
+
+        ArgumentCaptor<RepaymentCoreCommand> commands = ArgumentCaptor.forClass(RepaymentCoreCommand.class);
+        verify(repaymentCoreGateway, org.mockito.Mockito.times(2)).postRepayment(commands.capture());
+        assertThat(commands.getAllValues()).allSatisfy(command -> {
+            assertThat(command.repaymentReference()).isEqualTo(reference);
+            assertThat(command.transactionDate()).isEqualTo(stuck.corePostingDate());
+            assertThat(command.amount()).isEqualByComparingTo("1726000.00");
+        });
+        PaymentRepayment reposted = repaymentRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(reposted.getStatus()).isEqualTo(PaymentRepaymentStatus.CORE_POSTED);
+        assertThat(reposted.getFineractTransactionId()).isEqualTo(9737L);
+        assertThat(reposted.getCoreRepostCount()).isEqualTo(1);
+        assertThat(reposted.getLastCoreRepostBy()).isEqualTo("admin-1");
+        assertThat(borrowerAvailable("BORROWER-537")).isEqualByComparingTo("274000.00");
+    }
+
+    @Test
+    void repostRejectedAsDuplicateOfAPostingThatLandedLateIsNeverRefunded() {
+        PaymentRepayment stuck = stuckOverdueRepayment(538L, 738L, "538");
+        String reference = "FINORA-REPAY-" + stuck.getRepaymentId();
+        testClock.advance(Duration.ofMinutes(16));
+        // Tra cứu trước khi ghi lại chưa thấy; Fineract từ chối vì lần ghi cũ vừa vào; tra cứu sau đó thấy giao dịch.
+        when(repaymentCoreGateway.findPostedRepayment(738L, reference))
+                .thenReturn(java.util.Optional.empty(), java.util.Optional.of(coreBreakdown(9738L)));
+        org.mockito.Mockito.doThrow(new com.finora.payment.integration.fineract.FineractRepaymentException(
+                "FINERACT_REPAYMENT_REJECTED", "Fineract từ chối repayment với HTTP 403", false, null))
+                .when(repaymentCoreGateway).postRepayment(any());
+
+        repaymentService.repostCorePosting(stuck.getId(), "admin-1", Duration.ofMinutes(15));
+
+        PaymentRepayment value = repaymentRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(value.getStatus()).isEqualTo(PaymentRepaymentStatus.CORE_POSTED);
+        assertThat(value.getFineractTransactionId()).isEqualTo(9738L);
+        assertThat(borrowerAvailable("BORROWER-538")).isEqualByComparingTo("274000.00");
+    }
+
+    @Test
+    void repostTheCoreRejectsAndStillDoesNotHaveIsRefundedToTheBorrower() {
+        PaymentRepayment stuck = stuckOverdueRepayment(539L, 739L, "539");
+        String reference = "FINORA-REPAY-" + stuck.getRepaymentId();
+        testClock.advance(Duration.ofMinutes(16));
+        when(repaymentCoreGateway.findPostedRepayment(739L, reference)).thenReturn(java.util.Optional.empty());
+        org.mockito.Mockito.doThrow(new com.finora.payment.integration.fineract.FineractRepaymentException(
+                "FINERACT_REPAYMENT_REJECTED", "Fineract từ chối repayment với HTTP 400", false, null))
+                .when(repaymentCoreGateway).postRepayment(any());
+
+        repaymentService.repostCorePosting(stuck.getId(), "admin-1", Duration.ofMinutes(15));
+
+        PaymentRepayment value = repaymentRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(value.getStatus()).isEqualTo(PaymentRepaymentStatus.FAILED);
+        assertThat(value.getErrorCode()).isEqualTo("FINERACT_REPAYMENT_REJECTED");
+        assertThat(borrowerAvailable("BORROWER-539")).isEqualByComparingTo("2000000.00");
+    }
+
+    /** Khoản khắc phục quá hạn đã thu tiền, lần ghi Fineract không rõ kết quả → RECONCILIATION_REQUIRED. */
+    private PaymentRepayment stuckOverdueRepayment(long applicationId, long fineractLoanId, String suffix) {
+        activateLoan(applicationId, 600L + applicationId - 500L, fineractLoanId, "FINORA-FINERACT-V4",
+                "AGRIBANK_REFERENCE_FINORA_2026_V2");
+        actAsBorrower("BORROWER-" + suffix);
+        fundBorrower("2000000", "topup-repost-" + suffix);
+        LocalDate today = LocalDate.now(clock);
+        when(repaymentCoreGateway.scheduledRepaymentQuote(fineractLoanId)).thenReturn(new ScheduledRepaymentCoreQuote(
+                new BigDecimal("1726000.00"), new BigDecimal("1726000.00"), today.minusDays(3)));
+        var collected = repaymentService.create(applicationId, new BigDecimal("1726000.00"), today, "repost-" + suffix);
+        PaymentRepayment value = repaymentRepository.findByRepaymentId(collected.repaymentId()).orElseThrow();
+        org.mockito.Mockito.doThrow(new com.finora.payment.integration.fineract.FineractRepaymentException(
+                "FINERACT_REPAYMENT_OUTCOME_UNKNOWN", "Mất kết nối khi ghi repayment", true, null))
+                .when(repaymentCoreGateway).postRepayment(any());
+        repaymentService.postToCore(value.getId());
+        PaymentRepayment stuck = repaymentRepository.findById(value.getId()).orElseThrow();
+        assertThat(stuck.getStatus()).isEqualTo(PaymentRepaymentStatus.RECONCILIATION_REQUIRED);
+        assertThat(borrowerAvailable("BORROWER-" + suffix)).isEqualByComparingTo("274000.00");
+        return stuck;
+    }
+
+    private static PaymentRepayment.CoreBreakdown coreBreakdown(long transactionId) {
+        return new PaymentRepayment.CoreBreakdown(transactionId, new BigDecimal("1624000.00"),
+                new BigDecimal("102000.00"), BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2),
+                new BigDecimal("8376000.00"), BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2),
+                BigDecimal.ZERO.setScale(2), new BigDecimal("8376000.00"), BigDecimal.ZERO.setScale(2),
+                LocalDate.now().plusMonths(1), new BigDecimal("1726000.00"));
+    }
+
+    @Test
     void prepaymentQuoteCannotBeExecutedAfterAnotherRepaymentChangedTheLoan() {
         long applicationId = 534L;
         long fineractLoanId = 734L;

@@ -158,6 +158,13 @@ public class FineractRepaymentGateway implements RepaymentCoreGateway {
             // 4xx: Fineract kiểm tra nghiệp vụ và từ chối, chưa ghi gì nên được hoàn tiền. 5xx (hoặc proxy timeout) không
             // chứng minh giao dịch đã rollback, nên phải đối soát theo externalId thay vì hoàn tiền.
             if (exception.getStatusCode().is4xxClientError()) {
+                // Fineract 1.15 trả 403 `error.msg.loan.repayment.duplicate.externalId` khi externalId đã có giao dịch
+                // (kiểm trên Fineract local ngày 2026-10-17). Giao dịch của chính lệnh này đã vào core: không được hoàn
+                // tiền, phải đối soát theo externalId (B32).
+                if (exception.getResponseBodyAsString().contains("duplicate.externalId")) {
+                    throw new FineractRepaymentException("FINERACT_REPAYMENT_DUPLICATE_EXTERNAL_ID",
+                            "Fineract đã có repayment với externalId này; đối soát thay vì hoàn tiền", true, exception);
+                }
                 throw new FineractRepaymentException("FINERACT_REPAYMENT_REJECTED",
                         "Fineract từ chối repayment với HTTP " + exception.getStatusCode().value(), false, exception);
             }

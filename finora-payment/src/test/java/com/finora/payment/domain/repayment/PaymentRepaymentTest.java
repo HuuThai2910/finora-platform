@@ -57,6 +57,28 @@ class PaymentRepaymentTest {
     }
 
     @Test
+    void coreRepostOnlyStartsFromReconciliationAfterTheSafeWindowAndRecordsWhoAndWhen() {
+        PaymentRepayment repayment = repayment();
+        assertThatThrownBy(() -> repayment.startCoreRepost("admin-1", NOW)).isInstanceOf(IllegalStateException.class);
+        assertThat(repayment.coreRepostAvailableAt(java.time.Duration.ofMinutes(15))).isNull();
+
+        repayment.startCorePosting(NOW);
+        repayment.requireReconciliation("FINERACT_REPAYMENT_OUTCOME_UNKNOWN", "timeout", NOW.plusSeconds(15));
+        assertThat(repayment.coreRepostAvailableAt(java.time.Duration.ofMinutes(15)))
+                .isEqualTo(NOW.plusSeconds(15).plus(java.time.Duration.ofMinutes(15)));
+
+        repayment.startCoreRepost("admin-1", NOW.plusSeconds(1000));
+
+        assertThat(repayment.getStatus()).isEqualTo(PaymentRepaymentStatus.CORE_POSTING);
+        assertThat(repayment.getAttemptCount()).isEqualTo(2);
+        assertThat(repayment.getCoreRepostCount()).isEqualTo(1);
+        assertThat(repayment.getLastCoreRepostBy()).isEqualTo("admin-1");
+        assertThat(repayment.getLastCoreRepostAt()).isEqualTo(NOW.plusSeconds(1000));
+        assertThatThrownBy(() -> repayment.startCoreRepost("admin-1", NOW.plusSeconds(1001)))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void interruptedCorePostingMovesToReadOnlyReconciliationWithoutSecondAttempt() {
         PaymentRepayment repayment = repayment();
         repayment.startCorePosting(NOW);

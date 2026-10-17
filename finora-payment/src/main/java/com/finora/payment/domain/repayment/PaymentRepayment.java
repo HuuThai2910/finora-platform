@@ -57,6 +57,10 @@ public class PaymentRepayment {
     @Column(name = "error_code", length = 80) private String errorCode;
     @Column(name = "error_detail", length = 500) private String errorDetail;
     @Column(name = "completed_at") private Instant completedAt;
+    /** Số lần admin ghi lại vào Fineract sau khi tra cứu xác nhận core chưa có giao dịch (B32, D28). */
+    @Column(name = "core_repost_count", nullable = false) private int coreRepostCount;
+    @Column(name = "last_core_repost_by", length = 100) private String lastCoreRepostBy;
+    @Column(name = "last_core_repost_at") private Instant lastCoreRepostAt;
     @Version @Column(nullable = false) private Long version;
     @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt;
     @Column(name = "updated_at", nullable = false) private Instant updatedAt;
@@ -233,6 +237,31 @@ public class PaymentRepayment {
         errorCode = code;
         errorDetail = truncate(detail);
         status = PaymentRepaymentStatus.FAILED;
+        updatedAt = now;
+    }
+
+    /**
+     * Sớm nhất lúc nào được ghi lại vào Fineract (B32, D28): sau lần ghi hoặc lần chuyển sang đối soát gần nhất một
+     * khoảng an toàn, để request cũ chắc chắn đã kết thúc ở Fineract. {@code null} nếu không ở trạng thái đối soát.
+     */
+    public Instant coreRepostAvailableAt(java.time.Duration safeAfter) {
+        return status == PaymentRepaymentStatus.RECONCILIATION_REQUIRED ? updatedAt.plus(safeAfter) : null;
+    }
+
+    /**
+     * Ghi lại vào Fineract khi tra cứu theo externalId xác nhận core chưa có giao dịch. Chỉ từ RECONCILIATION_REQUIRED;
+     * trạng thái về CORE_POSTING như lần ghi thường nên worker phục hồi lần ghi bị ngắt vẫn áp dụng.
+     */
+    public void startCoreRepost(String actorId, Instant now) {
+        if (status != PaymentRepaymentStatus.RECONCILIATION_REQUIRED) {
+            throw new IllegalStateException("Chỉ ghi lại được khoản trả nợ đang chờ đối soát");
+        }
+        if (actorId == null || actorId.isBlank()) throw new IllegalArgumentException("Thiếu người yêu cầu ghi lại");
+        status = PaymentRepaymentStatus.CORE_POSTING;
+        attemptCount++;
+        coreRepostCount++;
+        lastCoreRepostBy = actorId;
+        lastCoreRepostAt = now;
         updatedAt = now;
     }
 

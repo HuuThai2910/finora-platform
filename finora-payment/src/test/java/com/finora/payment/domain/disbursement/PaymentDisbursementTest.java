@@ -11,6 +11,28 @@ import org.junit.jupiter.api.Test;
 
 class PaymentDisbursementTest {
 
+    @org.junit.jupiter.api.Test
+    void manualRecheckOnlyRearmsTheProviderLookupOfAReconciliationCase() {
+        java.time.Instant now = java.time.Instant.parse("2026-10-17T05:00:00Z");
+        PaymentDisbursement value = PaymentDisbursement.requested(java.util.UUID.randomUUID(), 1L, "LC-1", 2L,
+                "BORROWER-1", new java.math.BigDecimal("10000000.00"), "VND", "MOCK", "[]", now);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> value.requestManualRecheck("ADMIN-1", now))
+                .isInstanceOf(IllegalStateException.class);
+        value.start(now, now.plusSeconds(120));
+        value.requireReconciliation("PAYMENT_PROVIDER_UNCERTAIN", "timeout", now, null);
+        value.recordReconciliationCheck(now, null);
+
+        value.requestManualRecheck("ADMIN-1", now.plusSeconds(600));
+
+        // Chỉ hẹn tra cứu lại ngay, cấp lại lượt tự động; trạng thái vẫn là đối soát, không quay về chuyển tiền.
+        org.assertj.core.api.Assertions.assertThat(value.getStatus()).isEqualTo(PaymentDisbursementStatus.RECONCILIATION_REQUIRED);
+        org.assertj.core.api.Assertions.assertThat(value.getReconciliationAttemptCount()).isZero();
+        org.assertj.core.api.Assertions.assertThat(value.getNextAttemptAt()).isEqualTo(now.plusSeconds(600));
+        org.assertj.core.api.Assertions.assertThat(value.getAttemptCount()).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(value.getManualRecheckCount()).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(value.getLastManualRecheckBy()).isEqualTo("ADMIN-1");
+    }
+
     private static final Instant NOW = Instant.parse("2026-09-27T10:00:00Z");
     private static final Duration LEASE = Duration.ofMinutes(2);
 

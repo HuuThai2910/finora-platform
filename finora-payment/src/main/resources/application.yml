@@ -98,6 +98,8 @@ finora:
     repayment-worker-delay: ${PAYMENT_REPAYMENT_WORKER_DELAY:3000}
     reconciliation-worker-delay: ${PAYMENT_RECONCILIATION_WORKER_DELAY:30000}
     core-posting-stale-after: ${PAYMENT_CORE_POSTING_STALE_AFTER:1m}
+    # B32 (D28): admin chỉ ghi lại khoản trả nợ chờ đối soát sau khoảng này kể từ lần ghi core gần nhất.
+    core-repost-safe-after: ${PAYMENT_CORE_REPOST_SAFE_AFTER:15m}
     early-settlement:
       # Tỷ lệ phí, mức tối thiểu và cách chia nằm trong biểu phí hợp đồng đã ký (EarlySettlementPolicyCatalog),
       # không cấu hình bằng biến môi trường để không áp ngược cho khoản vay cũ (G-POLICY-W2).

@@ -181,6 +181,27 @@ class FineractRepaymentGatewayTest {
     }
 
     @Test
+    void duplicateExternalIdMeansTheRepaymentIsAlreadyInCoreSoItIsReconciledNeverRefunded() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://fineract.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        // Body thật của Fineract 1.15 khi externalId đã tồn tại (probe trên Fineract local ngày 2026-10-17).
+        server.expect(requestTo("http://fineract.test/loans/77/transactions?command=repayment"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.FORBIDDEN).contentType(MediaType.APPLICATION_JSON).body("""
+                        {"httpStatusCode":"403","userMessageGlobalisationCode":"error.msg.loan.repayment.duplicate.externalId",
+                         "defaultUserMessage":"Repayment: externalId `FINORA-REPAY-abc` already exists",
+                         "errors":[{"userMessageGlobalisationCode":"error.msg.loan.repayment.duplicate.externalId"}]}
+                        """));
+
+        assertThatThrownBy(() -> gateway(builder).postRepayment(repaymentCommand()))
+                .isInstanceOfSatisfying(FineractRepaymentException.class, exception -> {
+                    assertThat(exception.code()).isEqualTo("FINERACT_REPAYMENT_DUPLICATE_EXTERNAL_ID");
+                    assertThat(exception.outcomeUnknown()).isTrue();
+                });
+        server.verify();
+    }
+
+    @Test
     void serverErrorOnRepaymentPostIsUnknownAndMustBeReconciled() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://fineract.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
