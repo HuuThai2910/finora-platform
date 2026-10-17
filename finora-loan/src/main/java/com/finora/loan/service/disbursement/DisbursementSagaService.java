@@ -46,6 +46,7 @@ public class DisbursementSagaService {
     private final TransactionTemplate transactionTemplate;
     private final LoanFundingCancellationService fundingCancellationService;
     private final DisbursementSagaProperties properties;
+    private final com.finora.loan.config.E2EPausePoints pausePoints;
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void start(LoanContract contract, LoanApplication application, List<ContractParty> parties, Instant now) {
@@ -134,8 +135,10 @@ public class DisbursementSagaService {
         if (work == null) return;
         try {
             CoreLoanBookingGateway.CoreLoanBookingResult result = coreGateway.bookAndDisburse(work.command());
+            // Q13: drill E2E tắt Loan đúng lúc Fineract đã ghi khoản vay mà saga chưa lưu kết quả.
+            pausePoints.pause(com.finora.loan.config.E2EPausePoints.CORE_BOOKED_BEFORE_SAVE);
             transactionTemplate.executeWithoutResult(status ->
-                    complete(work.sagaId(), work.attempt(), result.fineractLoanId()));
+                    complete(work.sagaId(), work.attempt(), result.fineractLoanId(), result.maturityDate()));
         } catch (FineractIntegrationException exception) {
             transactionTemplate.executeWithoutResult(status -> fail(work.sagaId(), work.attempt(),
                     exception.getCode(), exception.getMessage(), exception.isRetryable()));
@@ -147,6 +150,12 @@ public class DisbursementSagaService {
 
     @Transactional
     public void complete(UUID sagaId, int attempt, Long fineractLoanId) {
+        complete(sagaId, attempt, fineractLoanId, null);
+    }
+
+    /** @param maturityDate ngày đáo hạn của khoản vay trên core, gửi kèm {@code LoanDisbursed} (B34); có thể {@code null} */
+    @Transactional
+    public void complete(UUID sagaId, int attempt, Long fineractLoanId, java.time.LocalDate maturityDate) {
         DisbursementSaga saga = locked(sagaId);
         Instant now = clock.instant();
         if (!saga.complete(attempt, fineractLoanId, now, now)) {
@@ -157,12 +166,13 @@ public class DisbursementSagaService {
         }
         LoanApplication application = applicationRepository.findById(saga.getLoanApplicationId()).orElseThrow();
         LoanContract contract = contractRepository.findByContractNumber(saga.getContractNumber()).orElseThrow();
-        servicingActivationService.activate(application, contract, fineractLoanId, now);
+        var loan = servicingActivationService.activate(application, contract, fineractLoanId, now);
         outboxService.recordForPublication("DisbursementSaga", sagaId.toString(), "LoanDisbursed", 1,
                 new LoanDisbursedEventData(sagaId, application.getId(), application.getApplicationNumber(),
                         saga.getContractNumber(), saga.getListingId(), saga.getAmount().toPlainString(),
                         saga.getCurrency(), saga.getPaymentReference(), fineractLoanId,
-                        application.getCoreConfigVersionSnapshot(), now, contract.getEarlySettlementPolicyVersion()));
+                        application.getCoreConfigVersionSnapshot(), now, contract.getEarlySettlementPolicyVersion(),
+                        loan.getLoanNumber(), maturityDate));
     }
 
     @Transactional

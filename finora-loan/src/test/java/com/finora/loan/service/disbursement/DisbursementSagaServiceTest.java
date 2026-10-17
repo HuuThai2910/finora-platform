@@ -62,7 +62,8 @@ class DisbursementSagaServiceTest {
                 Clock.fixed(now, ZoneOffset.UTC),
                 mock(TransactionTemplate.class),
                 fundingCancellation,
-                properties);
+                properties,
+                com.finora.loan.config.E2EPausePoints.disabled());
     }
 
     @Test
@@ -151,16 +152,22 @@ class DisbursementSagaServiceTest {
         DisbursementSaga saga = coreBookingSaga(NOW);
         when(sagaRepository.findBySagaIdForUpdate(saga.getSagaId())).thenReturn(Optional.of(saga));
         stubApplicationAndContract();
+        when(activationService.activate(any(), any(), anyLong(), any())).thenReturn(com.finora.loan.domain.servicing.FinoraLoan
+                .activate("LN-E2E-1", 10L, "LA-E2E-1", "LC-E2E-1", "borrower-1", 9001L,
+                        new java.math.BigDecimal("10000000.00"), "VND", NOW));
 
-        serviceAt(NOW.plusSeconds(5)).complete(saga.getSagaId(), 1, 9001L);
+        serviceAt(NOW.plusSeconds(5)).complete(saga.getSagaId(), 1, 9001L, java.time.LocalDate.of(2027, 4, 17));
 
-        // Payment tính phí trả trước theo biểu phí hợp đồng mang trong LoanDisbursed (G-POLICY-W2).
+        // Payment tính phí trả trước theo biểu phí hợp đồng mang trong LoanDisbursed (G-POLICY-W2); Investment ghi ngày
+        // đáo hạn của vị thế ngay lúc giải ngân (B34).
         org.mockito.ArgumentCaptor<Object> data = org.mockito.ArgumentCaptor.forClass(Object.class);
         verify(outboxService).recordForPublication(org.mockito.ArgumentMatchers.eq("DisbursementSaga"), anyString(),
                 org.mockito.ArgumentMatchers.eq("LoanDisbursed"), org.mockito.ArgumentMatchers.eq(1), data.capture());
         LoanDisbursedEventData event = (LoanDisbursedEventData) data.getValue();
         assertThat(event.fineractLoanId()).isEqualTo(9001L);
         assertThat(event.earlySettlementPolicyVersion()).isEqualTo("AGRIBANK_REFERENCE_FINORA_2026_V2");
+        assertThat(event.loanNumber()).isEqualTo("LN-E2E-1");
+        assertThat(event.maturityDate()).isEqualTo(java.time.LocalDate.of(2027, 4, 17));
         assertThat(saga.getStatus()).isEqualTo(DisbursementSagaStatus.COMPLETED);
     }
 

@@ -86,6 +86,9 @@ finora:
   # Bị từ chối khi khởi động nếu chữ ký không phải MOCK hoặc không chạy profile local.
   e2e:
     clock-offset: ${FINORA_E2E_CLOCK_OFFSET:PT0S}
+    # Drill E2E (Q13): giữ luồng ở một điểm để harness tắt JVM; cùng điều kiện với clock-offset.
+    pause-point: ${FINORA_E2E_PAUSE_POINT:}
+    pause-duration: ${FINORA_E2E_PAUSE_DURATION:PT0S}
   # Pin-token xác nhận thao tác nhạy cảm — khoá HS256 phải GIỐNG NHAU ở finora-user
   # (bên cấp) và payment/investment/loan (bên kiểm). Mặc định chỉ dùng cho máy dev.
   pin:

@@ -57,8 +57,11 @@ class FineractCoreLoanBookingGatewayTest {
         server.expect(requestTo("http://fineract.test/loans/3?command=approve"))
                 .andExpect(method(HttpMethod.POST))
                 .andRespond(withSuccess("{\"resourceId\":3}", MediaType.APPLICATION_JSON));
+        // Khoản đã duyệt có lịch theo ngày giải ngân thực tế: ngày đáo hạn này đi theo LoanDisbursed (B34).
         server.expect(requestTo("http://fineract.test/loans/3"))
-                .andRespond(withSuccess("{\"status\":{\"approved\":true}}", MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess(
+                        "{\"status\":{\"approved\":true},\"timeline\":{\"expectedMaturityDate\":[2027,4,4]}}",
+                        MediaType.APPLICATION_JSON));
         server.expect(requestTo("http://fineract.test/loans/3?command=disburse"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(content().string(Matchers.containsString("\"paymentTypeId\":1")))
@@ -69,6 +72,7 @@ class FineractCoreLoanBookingGatewayTest {
                 new BigDecimal("15"), "FINORA-FINERACT-V2", LocalDate.of(2026, 10, 4), "PAY-1"));
 
         assertThat(result.fineractLoanId()).isEqualTo(3L);
+        assertThat(result.maturityDate()).isEqualTo(LocalDate.of(2027, 4, 4));
         server.verify();
     }
 

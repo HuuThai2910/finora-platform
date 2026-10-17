@@ -38,7 +38,14 @@ public class FineractCoreLoanBookingGateway implements CoreLoanBookingGateway{
    loan=get("/loans/"+loanId,"read-approved-loan");
    if(!loan.path("status").path("active").asBoolean(false))disburse(loanId,c,bookingDate);
   }
-  return new CoreLoanBookingResult(loanId);
+  // Lần đọc cuối (đã duyệt hoặc đã giải ngân) có lịch theo ngày giải ngân thực tế bookingDate, nên ngày đáo hạn không
+  // đổi sau bước disburse cùng ngày; Investment dùng ngày này cho vị thế của nhà đầu tư (B34).
+  return new CoreLoanBookingResult(loanId,date(loan.path("timeline").path("expectedMaturityDate")));
+ }
+
+ private static LocalDate date(JsonNode value){
+  if(!value.isArray()||value.size()<3)return null;
+  return LocalDate.of(value.get(0).asInt(),value.get(1).asInt(),value.get(2).asInt());
  }
 
  private long ensureClient(String borrowerId,LocalDate bookingDate){
