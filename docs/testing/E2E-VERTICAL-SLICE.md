@@ -198,6 +198,13 @@ không chứng minh hành vi của một provider thật.
 | `notification.borrower-lifecycle`, `notification.investor-lifecycle` | Mỗi bên nhận thông báo in-app của từng mốc (ký, hiệu lực, giải ngân/Note, trả nợ, rút tiền thành công/thất bại), không mốc nào hai bản |
 | `notification.push-mock-delivery` | Thiết bị của người vay có lần gửi push `SENT`/`CONFIRMED` qua provider giả lập `LOG_MOCK`, không lần nào `FAILED`/`DEAD`; nhóm `WALLET` gửi cả trong giờ nghỉ nên luôn kiểm được |
 
+Chạy với CIC nhận quá hạn (D65): thêm `-WithLocalCic` (và `-CicPath <thư mục cic-service-node>` khi kiểm nhánh CIC chưa
+merge). Launcher chạy `node src/server.js` của CIC trên cổng 9000 với kho tệp `docker/e2e/out/cic/du-lieu.json` (seed copy
+lần đầu), khóa nội bộ sinh trong `out/.env.e2e`, consumer group `cic-loan-delinquency`; không dùng Vercel Blob hay bản
+deploy. Người vay E2E không eKYC nên harness đăng ký mapping `borrowerId ↔ CCCD` bằng CCCD tổng hợp đầu `999` (không phải
+mã tỉnh thật), thay vai worker User; AI không tra CIC cho người vay này, nên quyết định AI theo nhóm nợ hiện tại không
+nằm trong E2E (đã có test của AI).
+
 Chạy với Fabric thật (R6): thêm `-WithFabric` vào lệnh `Start` của launcher. Launcher kiểm RAM Docker (≥ 768 MiB trống),
 dựng mạng `docker/fabric-network` (idempotent), trỏ Blockchain sang `HYPERLEDGER_FABRIC` và nâng heap lên 256m; mạng tốn
 thêm khoảng 200 MiB. Harness tự đọc ledger từ state launcher. Xong thì `powershell -File

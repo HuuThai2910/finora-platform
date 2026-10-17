@@ -34,6 +34,12 @@ param(
     [switch]$WithFabric,
     # Bỏ qua kiểm tra jar cũ hơn mã nguồn (B65). Chỉ dùng khi cố ý chạy lại bản build trước để so sánh hành vi.
     [switch]$AllowStaleJar,
+    # D65: chạy CIC Node local (repo cic-service-node của Hải) có consumer Kafka `finora.loan.delinquency-changed` để kiểm
+    # CIC ghi nhận quá hạn. Mặc định FINORA vẫn dùng bản deploy (D1); bản Vercel không giữ được consumer Kafka.
+    [switch]$WithLocalCic,
+    # Thư mục ứng dụng CIC Node (chứa src/server.js); mặc định repo đặt cạnh finora-platform. Trỏ tới worktree khi kiểm
+    # nhánh CIC chưa merge.
+    [string]$CicPath = '',
     [int]$StartTimeoutSeconds = 300
 )
 
@@ -89,7 +95,8 @@ function Get-LocalSecrets {
     #>
     $secrets = Read-E2EDotEnv -Path $localSecretFile
     $changed = $false
-    $names = @('BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD', 'BLOCKCHAIN_DB_PASSWORD')
+    # CIC_INTERNAL_API_KEY_E2E: khóa nội bộ của CIC local (-WithLocalCic), không phải khóa của bản deploy.
+    $names = @('BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD', 'BLOCKCHAIN_DB_PASSWORD', 'CIC_INTERNAL_API_KEY_E2E')
     foreach ($db in $localDatabases.Values) { $names += @("$($db.Prefix)_POSTGRES_ADMIN_PASSWORD", "$($db.Prefix)_DB_PASSWORD") }
     foreach ($name in $names) {
         $fromDocker = Get-DockerSetting $name
@@ -471,6 +478,73 @@ function Get-ClockOffsetFor {
     return ''
 }
 
+$cicPort = 9000
+
+function Start-LocalCic {
+    <#
+      D65: CIC Node local, kho `tep` trong out/cic (seed copy từ repo CIC lần đầu, giữ qua các lượt như DB local), khóa nội
+      bộ sinh trong out/.env.e2e, consumer Kafka group `cic-loan-delinquency` (registry). Không dùng Vercel Blob, không gọi
+      bản deploy. Người vay E2E không eKYC nên harness tự đăng ký mapping bằng CCCD tổng hợp.
+    #>
+    param($State)
+    $root = if ($CicPath) { $CicPath } else { Join-Path (Split-Path $platformRoot -Parent) 'cic-service-node\cic-service-node' }
+    if (-not (Test-Path -LiteralPath (Join-Path $root 'src\server.js'))) { throw "Không thấy CIC Node tại $root (thiếu src\server.js); truyền -CicPath." }
+    if (-not (Test-Path -LiteralPath (Join-Path $root 'src\messaging'))) {
+        throw "CIC Node tại $root chưa có consumer Kafka (src\messaging); dùng nhánh feat/finora-delinquency-intake qua -CicPath."
+    }
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw 'Không tìm thấy Node.js 20+ để chạy CIC local.' }
+    $running = @($State.processes | Where-Object { $_.name -eq 'cic' -and (Get-Process -Id $_.pid -ErrorAction SilentlyContinue) })
+    if ($running.Count -gt 0) {
+        Write-Host "[OK] cic đã chạy từ launcher (pid $($running[0].pid))"
+        return
+    }
+    $State.processes = @($State.processes | Where-Object { $_.name -ne 'cic' })
+    if (Test-E2ETcpPort -Port $cicPort) { throw "Cổng $cicPort của CIC local đang bị tiến trình khác dùng." }
+    $dataDir = Join-Path $OutDir 'cic'
+    $dataFile = Join-Path $dataDir 'du-lieu.json'
+    if (-not (Test-Path -LiteralPath $dataFile)) {
+        New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+        Copy-Item -LiteralPath (Join-Path $root 'dulieu\du-lieu.json') -Destination $dataFile
+    }
+    $stdout = Join-Path $logDir 'cic.log'
+    $stderr = Join-Path $logDir 'cic.err.log'
+    Save-PreviousLog -Name 'cic' -Paths @($stdout, $stderr)
+    $cicEnv = [ordered]@{
+        CIC_PORT = [string]$cicPort; CIC_KHO = 'tep'; CIC_TEP_DU_LIEU = $dataFile
+        CIC_INTERNAL_API_KEY = $localSecrets['CIC_INTERNAL_API_KEY_E2E']
+        CIC_KAFKA_CONSUMER_ENABLED = 'true'; KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'
+        CIC_LOAN_DELINQUENCY_GROUP = 'cic-loan-delinquency'; LOAN_DELINQUENCY_CHANGED_TOPIC = 'finora.loan.delinquency-changed'
+        BLOB_READ_WRITE_TOKEN = ''
+    }
+    $previous = @{}
+    foreach ($key in $cicEnv.Keys) {
+        $previous[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
+        [Environment]::SetEnvironmentVariable($key, [string]$cicEnv[$key], 'Process')
+    }
+    try {
+        $process = Start-Process -FilePath 'node' -ArgumentList @('src/server.js') -WorkingDirectory $root `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
+    } finally {
+        foreach ($key in $cicEnv.Keys) { [Environment]::SetEnvironmentVariable($key, $previous[$key], 'Process') }
+    }
+    $State.processes = @($State.processes) + [pscustomobject]@{
+        name = 'cic'; pid = $process.Id; port = $cicPort; log = $stdout; clockOffset = ''; database = 'tep'
+        fineractVia = ''; ledger = ''; cicPath = $root; startedAt = (Get-Date).ToUniversalTime().ToString('o')
+    }
+    Write-State -State $State
+    $deadline = (Get-Date).AddSeconds(60)
+    while (-not (Test-E2ETcpPort -Port $cicPort)) {
+        if ($process.HasExited) {
+            Write-Host "[FAIL] cic dừng khi khởi động (exit $($process.ExitCode)). 30 dòng cuối log lỗi:" -ForegroundColor Red
+            Get-Content -LiteralPath $stderr -Tail 30 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "       $_" }
+            throw 'CIC local không khởi động được.'
+        }
+        if ((Get-Date) -ge $deadline) { throw "CIC local chưa mở cổng $cicPort sau 60 giây; xem $stdout." }
+        Start-Sleep -Seconds 2
+    }
+    Write-Host "[OK] cic local nghe cổng $cicPort (pid $($process.Id), kho tệp $dataFile)"
+}
+
 function Start-FinoraService {
     param([string]$Name, $State)
     $spec = $catalog[$Name]
@@ -527,7 +601,9 @@ function Stop-FinoraServices {
     $state = Read-State
     foreach ($entry in @($state.processes)) {
         $process = Get-Process -Id $entry.pid -ErrorAction SilentlyContinue
-        if ($process -and $process.ProcessName -eq 'java') {
+        # Chỉ dừng đúng loại tiến trình launcher đã bật cho tên đó: pid có thể đã bị tiến trình khác dùng lại.
+        $expected = if ($entry.name -eq 'cic') { 'node' } else { 'java' }
+        if ($process -and $process.ProcessName -eq $expected) {
             Stop-Process -Id $entry.pid -Force -Confirm:$false
             Write-Host "[OK] Dừng $($entry.name) (pid $($entry.pid))"
         }
@@ -611,6 +687,7 @@ switch ($Action) {
             # Khởi động lần lượt: sáu JVM cùng lúc làm máy dev quá tải CPU và Flyway/Kafka timeout.
             Start-FinoraService -Name $name -State $state
         }
+        if ($WithLocalCic) { Start-LocalCic -State $state }
         Write-ClockWarning
         Write-Host ''
         Write-Host "Log service: $logDir. Dừng toàn bộ: powershell -File docker/e2e/start-local-services.ps1 -Action Stop"
