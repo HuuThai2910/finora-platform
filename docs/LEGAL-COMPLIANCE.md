@@ -71,8 +71,13 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
   `riskAcknowledgementVersion` khớp bản hiện hành (`INVESTOR_RISK_V1`); Investment lưu version và thời điểm trên lệnh
   (migration V16), thiếu thì `400`, version cũ thì `409`. Câu xác nhận trên app gồm việc đã được cung cấp và đã xem
   thông tin khoản vay cùng hồ sơ người vay ẩn danh, và rủi ro không được bảo đảm vốn. Câu chữ là policy FINORA, cần
-  legal review trước production. Lệnh Auto-Invest chưa có xác nhận từng lệnh; owner phải quyết định cách lấy xác nhận
-  trước khi bật Auto-Invest ngoài demo.
+  legal review trước production.
+- Auto-Invest (Q5, Wave 2D): worker đặt lệnh thay nhà đầu tư nên xác nhận gắn với quy tắc. Bật quy tắc phải gửi đúng
+  bản công bố hiện hành (`400 RISK_ACKNOWLEDGEMENT_REQUIRED`, `409 RISK_DISCLOSURE_OUTDATED`); Investment lưu version và
+  thời điểm trên quy tắc (migration V17). Chỉ bật quy tắc đang tắt hoặc xác nhận bản công bố khác mới ghi thời điểm mới,
+  sửa tiêu chí không ghi đè bằng chứng. Đổi bản công bố thì quy tắc chưa xác nhận lại bị tạm dừng (worker ghi
+  `RISK_ACKNOWLEDGEMENT_OUTDATED`, không đặt lệnh); lệnh tự động mang version đã xác nhận như lệnh tự đặt. Xác nhận một
+  lần cho cả quy tắc thay cho từng lệnh là quyết định của owner (gói Q), cần legal review trước production.
 
 ### `LEGAL-AI-01` — Chấm điểm, tự động duyệt và khả năng giải trình
 
@@ -159,7 +164,7 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 | Catalog/preview/nộp hồ sơ | Loan + Web/Mobile | `LEGAL-DISCLOSURE-01` | Base rate và initial schedule snapshot; disclosure version | UI hiển thị đủ min/base/max, phí và câu chữ đã được duyệt |
 | Chấm điểm AI v17 | AI + Loan | `LEGAL-AI-01`, `LEGAL-DATA-01` | Versioned decision, snapshot/hash, bounded retry | User contract cho identity; retention/access review; kiểm thử fairness |
 | Định giá sau scoring | Loan + Fineract | `LEGAL-RATE-01`, `LEGAL-AI-01` | Grade adjustment, clamp, final schedule snapshot | Admin UI hiển thị so sánh base/final; quy trình phê duyệt policy |
-| Hồ sơ người vay cho nhà đầu tư | Loan + Investment + Mobile | `LEGAL-DISCLOSURE-02`, `LEGAL-DATA-01` | API chỉ đọc, `ROLE_INVESTOR`, chỉ hồ sơ đã lên sàn, allowlist không định danh và không SHAP; app ghi rõ hồ sơ giả lập; xác nhận của nhà đầu tư lưu version/thời điểm trên lệnh sơ cấp | Legal review câu xác nhận; cách xác nhận cho Auto-Invest |
+| Hồ sơ người vay cho nhà đầu tư | Loan + Investment + Mobile | `LEGAL-DISCLOSURE-02`, `LEGAL-DATA-01` | API chỉ đọc, `ROLE_INVESTOR`, chỉ hồ sơ đã lên sàn, allowlist không định danh và không SHAP; app ghi rõ hồ sơ giả lập; xác nhận của nhà đầu tư lưu version/thời điểm trên lệnh sơ cấp | Legal review câu xác nhận, kể cả xác nhận một lần cho quy tắc Auto-Invest (Q5) |
 | Duyệt, xác nhận điều khoản và ký | Loan + Investment + Mobile | `LEGAL-DISCLOSURE-01`, `LEGAL-CONTRACT-01`, `LEGAL-SERVICING-01` | Outcome-based non-worsening gate; PDF nhiều bên bất biến; từng bên ký cùng hash; hợp đồng V2 công bố policy trả trước/cơ cấu; event qua outbox | Legal review hình thức ký và biểu phí production; danh tính/chứng thư SmartCA riêng từng bên; PAdES nếu yêu cầu |
 | Bằng chứng toàn vẹn | Blockchain + service nguồn | `LEGAL-CONTRACT-01`, `LEGAL-DATA-01` | Durable hash-only proof, idempotency/retry/DLT local; mock được phân biệt; Fabric fail-closed | Event contract đã duyệt, Fabric network/chaincode, access/retention và legal review cách trình bày bằng chứng |
 | Giải ngân/trả nợ | Loan + Payment + Fineract + Investment | `LEGAL-PAYMENT-01`, `LEGAL-SERVICING-01` | Wallet/top-up/hold/capture, ledger cân bằng, quote trả trước có snapshot policy, phí chia 80/20, Fineract là nguồn breakdown; ZaloPay top-up sandbox và disbursement mock | Đối tác tài khoản/ví được phép, provider giải ngân/repayment thật, legal review phạm vi áp dụng và biểu phí |

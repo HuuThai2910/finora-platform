@@ -208,6 +208,16 @@ lại; `finish` chỉ ghi kết quả khi còn `PROCESSING/RECONCILIATION_REQUIR
 `WAITING_PAYMENT`, event mâu thuẫn vào DLT. Investment nhận `LoanDisbursed` trước event Contract (khác topic) vẫn phát
 hành Note; event Contract đến muộn không làm trạng thái lùi.
 
+**CURRENT STATE (2026-10-17, Wave 2D, plan [`W2D`](../plans/W2D-incident-operations-overdue-cure-and-auto-invest-acknowledgement.md)):**
+thao tác sự cố cho ADMIN, không cái nào chuyển tiền lần hai:
+
+- Loan `GET /api/v1/admin/disbursement-sagas?status=` (mặc định `REPAIR_REQUIRED`) và `POST /{sagaId}/requeue`
+  (`note` bắt buộc): `REPAIR_REQUIRED → RETRY_PENDING`, chỉ chạy lại bước ghi Fineract, booking đối chiếu theo số hợp
+  đồng; giới hạn tự động tính lại từ `repair_attempt_base`; lưu `repair_count`, ai, lúc nào, ghi chú (Loan V31).
+- Payment `GET /api/v1/admin/disbursement-reconciliation` (lệnh `PROCESSING/RETRY_PENDING/RECONCILIATION_REQUIRED`) và
+  `POST /{sagaId}/recheck`: chỉ với `RECONCILIATION_REQUIRED`, đặt lại lượt tra cứu provider theo `sagaId`, ghi ai và lúc
+  nào (Payment V16). Gateway route đường này về Payment trước `/api/v1/admin/**` của Loan.
+
 ## F06 — Thu nợ và phân bổ
 
 **Trigger:** borrower thanh toán hoặc auto-debit đến hạn. **Orchestrator:** Loan cho nghĩa vụ kỳ hạn; Payment cho execution tài chính.
@@ -278,6 +288,22 @@ cả lãi (fixture `r1b-*-20261017-063*`). Payment đúng khi đọc nghĩa vụ
   hiện báo giá sau khi có khoản mới → `409 *_QUOTE_STALE`.
 - `RepaymentDistributed.v1` không đổi schema; consumer Loan/Investment dùng `completedAt` nên phân phối ngày đến hạn
   không đổi cách chiếu. Notification (R7) phải đọc khoản đang giữ trước khi nhắc lịch.
+
+**CURRENT STATE (2026-10-17, Wave 2D, plan [`W2D`](../plans/W2D-incident-operations-overdue-cure-and-auto-invest-acknowledgement.md)):**
+
+- Khắc phục quá hạn (D26, sửa B31): `scheduled-due.amount` khi quá hạn là toàn bộ phần quá hạn
+  (`max(template, summary.totalOverdue)`); template Fineract chỉ báo kỳ chưa trả cũ nhất. Quá hạn nhiều kỳ thì
+  `partialOverdueAmount` là kỳ cũ nhất; POST chỉ nhận một trong hai số. Loan chỉ hồi phục `DEFAULTED → ACTIVE` khi DPD
+  và tiền quá hạn đều về 0.
+- Báo giá trả trước một phần khi khoản vay quá hạn → `409 PARTIAL_PREPAYMENT_LOAN_OVERDUE` (D27, sửa B35).
+- Nhóm nợ trong `LoanDelinquencyChanged.v1` là nhóm của đợt quá hạn (D29, sửa B36): hồ sơ thu hồi còn mở thì nhóm không
+  giảm khi người vay trả bớt; Investment giữ Note `DEFAULTED` khi nhóm 3–5 nên khớp `DEFAULTED` của Loan. Hoàn tất cơ cấu
+  mà DPD đổi thì Loan phát event ngay (B37).
+- Khoản `RECONCILIATION_REQUIRED` mà Fineract chưa từng nhận (B32): admin
+  `POST /api/v1/admin/repayment-reconciliation/{repaymentId}/repost` sau `PAYMENT_CORE_REPOST_SAFE_AFTER` (mặc định 15
+  phút): tra cứu theo externalId → chưa có thì POST lại cùng externalId, `transactionDate = corePostingDate`, cùng số
+  tiền; 4xx thì tra cứu lại, có giao dịch → ghi nhận, không có → hoàn tiền `FAILED`, không tra được → giữ đối soát.
+  Lưu `core_repost_count`, ai, lúc nào (Payment V17). Hàng đợi trả nợ nhận `status` để web chỉ đọc việc còn mở.
 
 ## F07 — Tất toán sớm hoặc tái cơ cấu
 

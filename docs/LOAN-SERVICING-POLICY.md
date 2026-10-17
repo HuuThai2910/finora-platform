@@ -146,6 +146,11 @@ Breakdown và số tiền chính thức luôn lấy từ transaction Fineract. N
   + 3.000.000 → lãi 49.000, đúng lãi đã phát sinh, gốc 4.677.000.
 - Khoản vay core V1–V3 đã giải ngân không đổi được cấu hình trong Fineract: **chặn tự trả trước và tất toán trên
   app** (`409 PREPAYMENT_NOT_SUPPORTED_FOR_LEGACY_LOAN`, D17); trả kỳ và khắc phục quá hạn vẫn bình thường.
+- **Khoản vay đang quá hạn không trả trước một phần được** (`409 PARTIAL_PREPAYMENT_LOAN_OVERDUE`, D27, sửa B35):
+  Fineract phân bổ khoản trả vào các kỳ quá hạn trước, nên phần "gốc trả thêm" lúc đó chỉ trả nợ quá hạn mà vẫn bị
+  tính phí trả trước. Người vay thanh toán phần quá hạn (mục 3.4) rồi mới trả trước gốc; tất toán toàn bộ vẫn được.
+  Payment kiểm theo kỳ chưa trả cũ nhất trên lịch Fineract nên không phụ thuộc job tính quá hạn cuối ngày. Đây là policy
+  FINORA theo thực tiễn ngân hàng, không phải trích dẫn luật.
 - Quote công bố số đang đến hạn, gốc trả thêm, phí, tổng debit, dư gốc và kỳ kế tiếp **trước giao dịch**.
   Fineract 1.15 không có endpoint giả lập lịch mới theo một số tiền chưa post, nên FINORA không tự dựng
   một lịch “sau trả” để tránh sai khác với core. Sau POST thành công, response/event mang snapshot kỳ mới
@@ -309,6 +314,12 @@ mức tối thiểu hoặc tỷ lệ chia phí, đội phát hành phải đồn
 
 Khắc phục quá hạn là người vay thanh toán đủ toàn bộ phần đang quá hạn để khoản vay trở lại bình thường;
 không phải một lần “gia hạn tự động”. Trả thiếu chỉ làm giảm số tiền quá hạn, không đặt lại số ngày quá hạn.
+
+Trên app (D26, sửa B31), số tiền mặc định khi khoản vay quá hạn là **toàn bộ phần quá hạn** do Fineract báo
+(`summary.totalOverdue`), không chỉ kỳ quá hạn cũ nhất. Khi quá hạn nhiều kỳ, người vay được chọn **chỉ trả kỳ quá
+hạn cũ nhất**: khoản vay vẫn quá hạn, số ngày quá hạn tính lại từ kỳ chưa trả tiếp theo, và khoản vay đã chuyển nợ
+xấu (`DEFAULTED`) chỉ trở lại bình thường khi đã trả đủ phần quá hạn. App không nhận số tiền tự nhập khác hai con số
+này, vì Payment chỉ chấp nhận đúng nghĩa vụ Fineract đã báo.
 
 Thứ tự phân bổ chuẩn do Fineract cấu hình và FINORA đối chiếu:
 
@@ -481,11 +492,15 @@ hết toàn bộ khoản vay thì chuyển sang đã tất toán.
 phí mới và không tự xóa nghĩa vụ hợp đồng:
 
 ```text
-debtGroup =
+groupByDpd =
     DPD <= 9   ? 1 :
     DPD <= 90  ? 2 :
     DPD <= 180 ? 3 :
     DPD <= 360 ? 4 : 5
+
+debtGroup =
+    DPD == 0 hoặc hết tiền quá hạn ? 1 :
+    max(nhóm cao nhất của đợt quá hạn đang mở, groupByDpd)
 
 loanStatus =
     totalOutstanding == 0                  ? SETTLED :
@@ -499,7 +514,12 @@ Giải thích bằng tiếng Việt:
 - `DPD` (`Days Past Due`) — **số ngày quá hạn**, tính từ nghĩa vụ cũ nhất đã đến hạn nhưng chưa được
   thanh toán đủ; lấy từ servicing projection đồng bộ từ Fineract.
 - `debtGroup` — **nhóm nợ nội bộ 1–5 của FINORA/CIC mock**, dẫn xuất từ DPD theo các mốc trong công
-  thức. Đây là chỉ báo phục vụ đồ án, không phải kết luận CIC thật.
+  thức. Đây là chỉ báo phục vụ đồ án, không phải kết luận CIC thật. Trong một **đợt quá hạn** (từ lúc quá hạn tới khi
+  trả đủ phần quá hạn, tức hồ sơ thu hồi còn mở) nhóm không giảm khi người vay chỉ trả bớt (D29, sửa B36): anh F ở ví dụ
+  trên trả một phần còn DPD 50 thì vẫn nhóm 3, khớp trạng thái nợ xấu được giữ. Trả đủ phần quá hạn thì đợt kết thúc,
+  nhóm về 1; đợt quá hạn mới tính lại từ đầu. Event `LoanDelinquencyChanged`, hồ sơ thu hồi, danh mục nhà đầu tư và
+  thống kê nhóm nợ dùng cùng quy tắc. Thực tiễn ngân hàng còn yêu cầu theo dõi thêm một thời gian trả đúng hạn trước khi
+  hạ nhóm; FINORA chưa áp dụng thời gian theo dõi (owner quyết định trước production).
 - `totalOutstanding` — **tổng nghĩa vụ còn lại của khoản vay**, gồm các thành phần Fineract xác nhận.
 - `previousStatus` — **trạng thái FINORA trước lần đồng bộ hiện tại**, dùng để tránh tự động xóa trạng
   thái nợ xấu chỉ vì người vay trả được một phần.

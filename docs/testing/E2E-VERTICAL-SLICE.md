@@ -42,8 +42,17 @@ powershell -ExecutionPolicy Bypass -File docker/e2e/start-local-services.ps1 -Ac
 powershell -ExecutionPolicy Bypass -File docker/e2e/start-local-services.ps1 -Action Restart -Services payment
 ```
 
-`-PaymentClockOffset P<n>D` (chỉ harness dùng, Q12) chạy Payment với đồng hồ lệch n ngày; Payment từ chối khởi động
-nếu provider giải ngân hoặc nạp tiền không phải `mock`. `Status` hiện cột `clock` (`thật` hoặc độ lệch).
+`-PaymentClockOffset P<n>D` và `-LoanClockOffset P<n>D` (chỉ harness dùng, Q12) chạy Payment/Loan với đồng hồ lệch n
+ngày; Payment từ chối khởi động nếu provider giải ngân hoặc nạp tiền không phải `mock`, Loan từ chối nếu chữ ký không
+phải `MOCK` hoặc profile không phải `local`. `Status` hiện cột `clock` (`thật` hoặc độ lệch) và `database`.
+
+`-Database local` (mặc định từ Wave 2D, D24) chạy Loan, Payment, Investment, Notification trên bốn container PostgreSQL
+local riêng (`finora-loan-postgres` 15433, `finora-payment-postgres` 15434, `finora-investment-postgres` 15437,
+`finora-notification-postgres` 15438). Lần đầu launcher sinh mật khẩu ngẫu nhiên vào `docker/e2e/out/.env.e2e` (thư mục
+`out/` bị git-ignore, không in mật khẩu ra màn hình) và đặt `FINERACT_PRODUCT_NAMESPACE=E2E` cho Loan, nên Product E2E
+trên Fineract có externalId `FINORA-E2E-LP-*`, tên và shortName riêng, không trùng Product của DB dev. `-Database shared`
+dùng lại DB dev dùng chung trong `.env` của từng module; khi đó không được dời đồng hồ. `-Action Restart` từ chối nếu
+khác chế độ DB của lượt `Start`.
 
 Launcher khởi động lần lượt Loan, Payment, Investment, Notification, Blockchain, Gateway từ jar, đọc `.env`
 của từng module như IntelliJ và chỉ ghi đè các biến E2E: `SPRING_PROFILES_ACTIVE=local`,
@@ -53,8 +62,9 @@ provider `MOCK`, `FINORA_BORROWER_PROFILE_PROVIDER=mock` (người vay E2E chưa
 `-BorrowerProfileProvider user`). Cổng đang bị IntelliJ chiếm thì launcher dừng với thông báo rõ. Log nằm ở
 `docker/e2e/out/logs`.
 
-Khi chạy code hiện hành, Flyway của từng service áp migration còn thiếu lên DB dev dùng chung. Sau Wave 2C
-(2026-10-17) DB dev ở Loan V30, Investment V16, Payment V15.
+Flyway của từng service áp migration còn thiếu lên DB đang dùng. Với `-Database local` chỉ DB local đổi; sau Wave 2D
+(2026-10-17) DB local ở Loan V31, Payment V17, Investment V17. DB dev dùng chung vẫn ở mức Wave 2C (Loan V30,
+Investment V16, Payment V15) cho tới khi có người chạy code mới với `-Database shared` hoặc từ IntelliJ.
 
 ## 4. Chạy kịch bản
 
@@ -71,7 +81,7 @@ powershell -ExecutionPolicy Bypass -File docker/e2e/run-vertical-slice.ps1 -Dril
 | `-SkipRepayment` | Dừng sau khi giải ngân và phát hành Note |
 | `-KeepProductActive` | Không ngừng Product E2E sau khi chạy (mặc định ngừng để borrower thật không thấy) |
 | `-LoanAmount`, `-TermMonths` | Mặc định 10.000.000 VND, 6 tháng; số tiền phải chia hết mệnh giá Note |
-| `-Servicing` | Cơ chế servicing sau giải ngân (R1B): `Installment` (mặc định: trả kỳ 1 trước hạn, kiểm giữ/hủy/chặn, báo giá tất toán, dời đồng hồ tới ngày đến hạn — mục 4a), `PartialPrepayment` (khoản kỳ gần nhất + 3.000.000 gốc), `EarlySettlement` (tất toán, người vay nạp mock phần phí thiếu). Từ Wave 2C, lãi tương lai là check phải đạt (`prepayment.no-future-interest`, `settlement.no-future-interest`), không còn ghi defect |
+| `-Servicing` | Cơ chế servicing sau giải ngân (R1B): `Installment` (mặc định: trả kỳ 1 trước hạn, kiểm giữ/hủy/chặn, báo giá tất toán, dời đồng hồ tới ngày đến hạn — mục 4a), `PartialPrepayment` (khoản kỳ gần nhất + 3.000.000 gốc), `EarlySettlement` (tất toán, người vay nạp mock phần phí thiếu), `OverdueCure` (quá hạn 10 ngày, nhóm 2, rồi khắc phục), `DefaultCure` (10 → 91 ngày nợ xấu → trả bớt kỳ cũ nhất, vẫn `DEFAULTED` → khắc phục toàn bộ → 181 → 361 ngày → trả hết, `SETTLED`), `Reschedule` (người vay xin gia hạn 2 kỳ, admin thẩm định, nhà đầu tư đồng ý, Fineract đổi lịch). Ba fixture cuối cần `-Database local`. Từ Wave 2C, lãi tương lai là check phải đạt (`prepayment.no-future-interest`, `settlement.no-future-interest`); từ Wave 2D số khắc phục phải phủ toàn bộ quá hạn (`delinquency.<mốc>-quote-covers-overdue`, B31) |
 | `-KycGate` | Chỉ kiểm cổng eKYC (W2-KYC): người vay mới đọc `/users/me/kyc-summary` qua Gateway và bị Loan từ chối `409 BORROWER_KYC_REQUIRED`, không có hồ sơ nào được tạo. Cần launcher chạy với `-BorrowerProfileProvider user` |
 
 Mỗi lần chạy tạo tài khoản mới `e2e.borrower.<run>@finora.test` và `e2e.investor.<run>@finora.test`, nên
@@ -89,6 +99,12 @@ bước `Installment` của harness:
 2. Chạy lại Payment bằng launcher với `-PaymentClockOffset P<n>D` (n = số ngày tới ngày đến hạn).
 3. Chờ worker ghi Fineract đúng ngày đến hạn và phân phối, rồi trong `finally` trả Fineract về hôm nay, tắt business
    date và chạy lại Payment với đồng hồ thật.
+
+Từ Wave 2D, `Move-E2EClock -Date <yyyy-MM-dd> -Services loan,payment` dời cả Loan và Payment (chỉ khi `-Database
+local`, tối đa 999 ngày) và giả lập EOD của Fineract (D25): dời ngày tới thì chạy "Recalculate Interest For Loans"
+(`LA_RINT`, đưa lãi trên gốc quá hạn vào lịch) rồi "Update Loan Arrears Ageing" (`LA_ARAG`, cập nhật `summary.totalOverdue`);
+trả về hôm nay chỉ chạy `LA_ARAG`. Production chạy hai job này lúc 00:01. Helper ghi Fineract chỉ cho `/businessdate`,
+`/configurations/<id>` và `/jobs/<id>?command=executeJob`.
 
 Preflight và cuối mỗi lượt đều gọi `Reset-E2EClock`, nên lượt bị ngắt giữa chừng được dọn ở lượt sau. Trong cửa sổ đồng
 hồ lệch, PIN vẫn kiểm theo giờ UTC thật. Sau khi trả đồng hồ, khoản vay của lượt có giao dịch đề ngày đến hạn (tương lai
@@ -123,7 +139,8 @@ Không có API đổi ngày ở demo/production: offset chỉ đọc lúc Paymen
 
 ## 7. Giới hạn đã biết
 
-- Ca restart giữa saga, Fineract timeout và fixture 2/5/6 thuộc R1B (Wave 2D); đồng hồ E2E có từ Wave 2C (mục 4a).
+- Fixture 2/5/6 (`OverdueCure`, `Reschedule`, `DefaultCure`) chạy từ Wave 2D. Ca restart giữa saga và Fineract timeout
+  còn chờ Toxiproxy và điểm dừng profile E2E (Q13), kể cả lượt "Ghi lại vào hệ thống lõi" (B32) trên Fineract thật.
 - Nhánh bù trừ `LoanFundingCancelled` được chứng minh bằng integration test Loan/Investment; drill hết hạn ký
   trên stack thật cần test clock (R1B).
 - DB Loan dùng chung chứa khoản vay của máy khác mà Fineract local không có: worker sync ghi một dòng `warn` cho mỗi
@@ -149,3 +166,8 @@ Không có API đổi ngày ở demo/production: offset chỉ đọc lúc Paymen
 | Đặt lệnh `400 RISK_ACKNOWLEDGEMENT_REQUIRED` hoặc `409 RISK_DISCLOSURE_OUTDATED` | Thiếu hoặc lệch version xác nhận rủi ro so với cấu hình Investment |
 | Nộp hồ sơ `422 BORROWER_EXPOSURE_LIMIT_EXCEEDED` | Người vay E2E dùng lại tài khoản cũ còn hồ sơ mở; harness tạo tài khoản mới mỗi lần |
 | `PENDING_REVIEW nhưng assessment=FAILED` | AI không phản hồi; xem log Loan và container `finora-ai` |
+| Chữ tiếng Việt trong log của lượt chạy tách cửa sổ bị lỗi font, không tìm được "Kết quả" | Console Windows ghi theo code page cũ; đọc `docker/e2e/out/<runId>.json` (UTF-8) thay cho log |
+| DPD của Loan đứng ở 0 sau khi dời đồng hồ | Job `LA_ARAG` chưa chạy nên Fineract chưa cập nhật `totalOverdue`; harness chạy job sau mỗi lần đặt ngày, làm tay bằng `POST /jobs/<id của LA_ARAG>?command=executeJob` trên Fineract local |
+| Trả đủ số khắc phục ở khoản vay quá ngày đáo hạn mà vẫn còn quá hạn vài chục nghìn | Job `LA_RINT` chưa chạy nên lãi sau đáo hạn chưa vào nghĩa vụ; harness chạy job khi dời ngày, ở production đây là job cuối ngày |
+| Harness không thấy consent cơ cấu của nhà đầu tư | Investment trả trang có field `content` (PageResponse chung), Loan trả `data` (B33) |
+| `Move-E2EClock` báo chỉ dùng với DB local | Stack đang chạy `-Database shared`; dừng và chạy lại `-Action Start -Database local` |
