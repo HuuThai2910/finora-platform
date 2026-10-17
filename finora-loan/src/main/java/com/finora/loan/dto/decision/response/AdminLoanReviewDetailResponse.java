@@ -17,6 +17,8 @@ import java.time.Instant;
 import java.util.List;
 
 public record AdminLoanReviewDetailResponse(
+        /** ID số của hồ sơ vay; explorer bằng chứng blockchain tra {@code LOAN_APPLICATION} theo ID này (B73). */
+        Long id,
         String applicationNumber,
         String borrowerId,
         LoanApplicationStatus status,
@@ -46,7 +48,9 @@ public record AdminLoanReviewDetailResponse(
         Instant submittedAt,
         /** ID quản trị viên đã duyệt hoặc từ chối; {@code null} khi hồ sơ chưa có quyết định. */
         String adminDecidedBy,
-        Instant adminDecidedAt
+        Instant adminDecidedAt,
+        /** Số hợp đồng; {@code null} cho tới khi Contract được lập (sau khi khoản vay đủ vốn). */
+        String contractNumber
 ) {
     public record EligibilityEvidence(
             Integer age,
