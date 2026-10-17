@@ -4,9 +4,10 @@ spring:
   application:
     name: finora-loan
   datasource:
-    # Neon/local đều truyền qua môi trường; repository không giữ host hoặc tài khoản triển khai mặc định.
-    url: ${LOAN_DB_URL:jdbc:postgresql://ep-steep-fire-az704hm0-pooler.c-3.ap-southeast-1.aws.neon.tech/finora-loan?sslmode=require&channel_binding=require}
-    username: ${LOAN_DB_USERNAME:neondb_owner}
+    # Neon/local đều truyền qua môi trường (LOAN_DB_URL/USERNAME/PASSWORD). Mặc định là PostgreSQL local của
+    # docker-compose (loan-postgres, cổng 15433) như các service khác; repository không giữ host hay tài khoản cloud (D39).
+    url: ${LOAN_DB_URL:jdbc:postgresql://localhost:15433/finora_loan}
+    username: ${LOAN_DB_USERNAME:finora_loan}
     password: ${LOAN_DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
   jpa:
@@ -241,6 +242,12 @@ finora:
       worker-delay: ${AI_WORKER_DELAY:5000}
       worker-enabled: ${AI_WORKER_ENABLED:true}
       processing-lease: ${AI_PROCESSING_LEASE:2m}
+      # Danh tính Loan khi gọi AI (D34): client_credentials của finora-loan-client, client role ai:credit:score.
+      # Secret chỉ đặt trong .env (docker/keycloak/add-service-clients.sh ghi vào); thiếu thì chấm điểm chờ retry.
+      service-account:
+        token-url: ${KEYCLOAK_TOKEN_URL:http://localhost:8180/realms/finora/protocol/openid-connect/token}
+        client-id: ${KEYCLOAK_LOAN_CLIENT_ID:finora-loan-client}
+        client-secret: ${KEYCLOAK_LOAN_CLIENT_SECRET:}
   fineract:
     # mock cho demo local; đổi thành fineract khi đã chốt office/payment type và dữ liệu Client.
     booking-provider: ${FINERACT_BOOKING_PROVIDER:mock}

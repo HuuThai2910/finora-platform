@@ -179,6 +179,11 @@ services:
     environment:
       USER_SERVICE_URL: http://user:8085
       KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/finora/protocol/openid-connect/token
+      # Client riêng của AI và kiểm token request tới AI (D34, D35).
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_AI_CLIENT_ID:-finora-ai-client}
+      KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_AI_CLIENT_SECRET:-}"
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_ISSUER_URI:-http://localhost:8180/realms/finora}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/finora/protocol/openid-connect/certs
       # Lần lấy token đầu tiên sau khi Keycloak khởi động mất ~3 giây (nạp dữ liệu từ
       # Neon); mặc định 3 giây sẽ làm hồ sơ đầu tiên bị chấm như không có CIC.
       USER_TIMEOUT_SECONDS: "10"

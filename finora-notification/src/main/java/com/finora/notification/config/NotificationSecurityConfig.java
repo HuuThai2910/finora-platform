@@ -12,6 +12,8 @@ import org.springframework.security.web.SecurityFilterChain;
 @Configuration
 @RequiredArgsConstructor
 public class NotificationSecurityConfig {
+    public static final String INTERNAL_SEND_AUTHORITY = "notification:internal:send";
+
     private final DualBearerTokenResolver bearerTokenResolver;
     private final KeycloakJwtAuthenticationConverter converter;
 
@@ -21,7 +23,8 @@ public class NotificationSecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
-                        .requestMatchers("/api/internal/notifications/**").permitAll()
+                        // D36: chỉ service account của finora-user (client role notification:internal:send).
+                        .requestMatchers("/api/internal/notifications/**").hasAuthority(INTERNAL_SEND_AUTHORITY)
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth -> oauth
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(converter))

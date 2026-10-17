@@ -1,5 +1,7 @@
 # FINORA AI Service Dependencies
-fastapi==0.109.0
+# 0.115.6 (Starlette 0.41.3): TestClient của Starlette 0.35 (FastAPI 0.109) truyền `app=` cho httpx.Client, httpx 0.28
+# (bắt buộc bởi google-genai) đã bỏ tham số này nên mọi test dùng TestClient lỗi ngay khi tạo client (B44).
+fastapi==0.115.6
 uvicorn[standard]==0.27.0
 # google-genai 2.19.0 yêu cầu Pydantic >= 2.12.5; vẫn giữ major 2 để tương thích FastAPI hiện tại.
 pydantic==2.12.5
@@ -19,3 +21,7 @@ google-genai==2.19.0
 
 # HTTP client (gọi cic-service)
 httpx==0.28.1
+
+# Xác thực JWT Keycloak (RS256 qua JWKS) cho mọi endpoint (D35, W3A)
+PyJWT==2.10.1
+cryptography==44.0.2

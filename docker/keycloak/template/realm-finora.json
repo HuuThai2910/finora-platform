@@ -9,7 +9,14 @@
   "verifyEmail": false,
   "resetPasswordAllowed": false,
   "editUsernameAllowed": false,
-  "bruteForceProtected": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "maxDeltaTimeSeconds": 43200,
+  "quickLoginCheckMilliSeconds": 1000,
+  "minimumQuickLoginWaitSeconds": 60,
   "accessTokenLifespan": 900,
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
@@ -67,6 +74,12 @@
           "description": "Auto-Invest: giu/nha tien trong vi thay nha dau tu (chi hold/release)"
         }
       ],
+      "finora-loan-client": [
+        {
+          "name": "ai:credit:score",
+          "description": "Worker cham diem cua Loan goi AI /credit/explain (D34)"
+        }
+      ],
       "finora-user-client": [
         {
           "name": "user:profile:read",
@@ -91,6 +104,14 @@
         {
           "name": "user:admin:assign_role",
           "description": "Gan hoac doi vai tro nguoi dung"
+        },
+        {
+          "name": "ai:ekyc:ocr",
+          "description": "Service account finora-user goi AI OCR CCCD (D34); khong nam trong role nguoi dung"
+        },
+        {
+          "name": "notification:internal:send",
+          "description": "Service account finora-user goi endpoint noi bo gui email cua Notification (D36)"
         }
       ]
     }
@@ -107,6 +128,50 @@
       "bearerOnly": false,
       "clientAuthenticatorType": "client-secret",
       "secret": "__KEYCLOAK_INVESTMENT_CLIENT_SECRET__",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true,
+      "attributes": {
+        "client_credentials.use_refresh_token": "false"
+      },
+      "defaultClientScopes": [
+        "roles"
+      ]
+    },
+    {
+      "clientId": "finora-loan-client",
+      "name": "FINORA Loan Service",
+      "description": "Service account cua finora-loan: worker cham diem goi AI khi khong co JWT nguoi dung (D34)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "__KEYCLOAK_LOAN_CLIENT_SECRET__",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true,
+      "attributes": {
+        "client_credentials.use_refresh_token": "false"
+      },
+      "defaultClientScopes": [
+        "roles"
+      ]
+    },
+    {
+      "clientId": "finora-ai-client",
+      "name": "FINORA AI Service",
+      "description": "Service account cua finora-ai: chi doc ho so User de lay CCCD just-in-time khi cham diem (D34)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "__KEYCLOAK_AI_CLIENT_SECRET__",
       "standardFlowEnabled": false,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
@@ -213,6 +278,28 @@
           "query-groups",
           "view-realm"
         ],
+        "finora-user-client": [
+          "user:admin:read_all",
+          "ai:ekyc:ocr",
+          "notification:internal:send"
+        ]
+      }
+    },
+    {
+      "username": "service-account-finora-loan-client",
+      "enabled": true,
+      "serviceAccountClientId": "finora-loan-client",
+      "clientRoles": {
+        "finora-loan-client": [
+          "ai:credit:score"
+        ]
+      }
+    },
+    {
+      "username": "service-account-finora-ai-client",
+      "enabled": true,
+      "serviceAccountClientId": "finora-ai-client",
+      "clientRoles": {
         "finora-user-client": [
           "user:admin:read_all"
         ]

@@ -102,7 +102,8 @@ public class AiCreditScoringHttpClient implements AiCreditScoringGateway {
         }
         if (cause instanceof RestClientResponseException responseException) {
             HttpStatusCode status = responseException.getStatusCode();
-            boolean retryable = status.value() == 429 || status.is5xxServerError();
+            // 401: token service account hết hạn hoặc Keycloak đổi khóa; interceptor đã bỏ token cũ nên lần sau lấy mới.
+            boolean retryable = status.value() == 401 || status.value() == 429 || status.is5xxServerError();
             return new AiCreditIntegrationException(
                     retryable ? "AI_TEMPORARY_ERROR" : "AI_REQUEST_REJECTED",
                     "AI Service từ chối request với HTTP " + status.value(),

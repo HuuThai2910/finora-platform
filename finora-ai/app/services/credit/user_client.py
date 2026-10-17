@@ -28,7 +28,9 @@ KEYCLOAK_TOKEN_URL = os.getenv(
     "KEYCLOAK_TOKEN_URL",
     "http://localhost:8180/realms/finora/protocol/openid-connect/token",
 )
-KEYCLOAK_CLIENT_ID = os.getenv("KEYCLOAK_CLIENT_ID", "finora-user-client")
+# Client riêng của AI (D34) chỉ được gán user:admin:read_all; trước W3A AI dùng finora-user-client, client có cả quyền
+# quản trị user của Keycloak.
+KEYCLOAK_CLIENT_ID = os.getenv("KEYCLOAK_CLIENT_ID", "finora-ai-client")
 KEYCLOAK_CLIENT_SECRET = os.getenv("KEYCLOAK_CLIENT_SECRET", "")
 
 # Đổi token sớm hơn hạn để một request khởi hành sát giờ không hết hiệu lực giữa đường.

@@ -43,6 +43,10 @@ services:
     environment:
       KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_CLIENT_SECRET}"
       KEYCLOAK_INVESTMENT_CLIENT_SECRET: "${KEYCLOAK_INVESTMENT_CLIENT_SECRET}"
+      # Client service account của Loan/AI (D34). Chưa có thì render secret ngẫu nhiên để Keycloak vẫn khởi động;
+      # docker/keycloak/add-service-clients.sh đặt secret thật và ghi vào .env.
+      KEYCLOAK_LOAN_CLIENT_SECRET: "${KEYCLOAK_LOAN_CLIENT_SECRET:-}"
+      KEYCLOAK_AI_CLIENT_SECRET: "${KEYCLOAK_AI_CLIENT_SECRET:-}"
     command:
       - sh
       - -c
@@ -56,7 +60,14 @@ services:
           echo "Thieu KEYCLOAK_INVESTMENT_CLIENT_SECRET trong docker/.env" >&2
           exit 1
         fi
-        sed -e "s|__KEYCLOAK_CLIENT_SECRET__|$$KEYCLOAK_CLIENT_SECRET|g"             -e "s|__KEYCLOAK_INVESTMENT_CLIENT_SECRET__|$$KEYCLOAK_INVESTMENT_CLIENT_SECRET|g"             /template/realm-finora.json > /import/realm-finora.json
+        LOAN_SECRET="$$KEYCLOAK_LOAN_CLIENT_SECRET"
+        AI_SECRET="$$KEYCLOAK_AI_CLIENT_SECRET"
+        if [ -z "$$LOAN_SECRET" ] || [ -z "$$AI_SECRET" ]; then
+          echo "Chua co KEYCLOAK_LOAN_CLIENT_SECRET/KEYCLOAK_AI_CLIENT_SECRET: chay docker/keycloak/add-service-clients.sh" >&2
+        fi
+        [ -n "$$LOAN_SECRET" ] || LOAN_SECRET="$$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 43)"
+        [ -n "$$AI_SECRET" ] || AI_SECRET="$$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 43)"
+        sed -e "s|__KEYCLOAK_CLIENT_SECRET__|$$KEYCLOAK_CLIENT_SECRET|g"             -e "s|__KEYCLOAK_INVESTMENT_CLIENT_SECRET__|$$KEYCLOAK_INVESTMENT_CLIENT_SECRET|g"             -e "s|__KEYCLOAK_LOAN_CLIENT_SECRET__|$$LOAN_SECRET|g"             -e "s|__KEYCLOAK_AI_CLIENT_SECRET__|$$AI_SECRET|g"             /template/realm-finora.json > /import/realm-finora.json
         echo "Da render /import/realm-finora.json"
     volumes:
       - ./keycloak/template:/template:ro
@@ -277,8 +288,13 @@ services:
       CIC_SERVICE_URL: ${CIC_SERVICE_URL:-https://cic-service-node.vercel.app}
       USER_SERVICE_URL: ${AI_USER_SERVICE_URL:-http://user:8085}
       KEYCLOAK_TOKEN_URL: ${AI_KEYCLOAK_TOKEN_URL:-http://keycloak:8080/realms/finora/protocol/openid-connect/token}
-      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-finora-user-client}
-      KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_CLIENT_SECRET}"
+      # Client riêng của AI (D34): chỉ đọc hồ sơ User, không còn giữ secret finora-user-client (quản trị Keycloak).
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_AI_CLIENT_ID:-finora-ai-client}
+      KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_AI_CLIENT_SECRET:-}"
+      # Kiểm access token của request tới AI (D35): issuer cố định theo KC_HOSTNAME_URL, JWKS qua mạng Docker.
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8180}/realms/${KEYCLOAK_REALM:-finora}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM:-finora}/protocol/openid-connect/certs
+      FINORA_ENVIRONMENT: ${FINORA_ENVIRONMENT:-local}
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
     ports:
       - "127.0.0.1:${AI_HOST_PORT:-8000}:8000"

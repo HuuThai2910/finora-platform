@@ -15,7 +15,9 @@ import org.springframework.web.bind.annotation.RequestBody;
  */
 @FeignClient(
         name = "notification-service",
-        url = "${finora.notification.url:http://localhost:8086}"
+        url = "${finora.notification.url:http://localhost:8086}",
+        // Endpoint nội bộ của Notification chỉ nhận token có notification:internal:send (D34, D36).
+        configuration = com.finora.user.client.ServiceAccountFeignConfig.class
 )
 public interface NotificationClient {
 
