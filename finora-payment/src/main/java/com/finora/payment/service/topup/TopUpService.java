@@ -2,6 +2,7 @@ package com.finora.payment.service.topup;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finora.common.environment.FinoraEnvironment;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.security.SecurityUtils;
 import com.finora.payment.config.TopUpProperties;
@@ -49,6 +50,7 @@ public class TopUpService {
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
+    private final FinoraEnvironment environment;
 
     public TopUpResponse create(BigDecimal amount, String idempotencyKey) {
         String ownerId = SecurityUtils.getCurrentUserId();
@@ -57,7 +59,7 @@ public class TopUpService {
         PaymentTopUp prepared = transactionTemplate.execute(status ->
                 prepare(ownerId, normalized, requireText(idempotencyKey, "Idempotency-Key"), hash));
         if (prepared == null) throw new IllegalStateException("Không tạo được lệnh nạp tiền");
-        if (!prepared.getStatus().name().equals("PROVIDER_PENDING")) return TopUpResponse.from(prepared);
+        if (!prepared.getStatus().name().equals("PROVIDER_PENDING")) return response(prepared);
 
         try {
             TopUpProvider.TopUpProviderResult result = provider.create(new TopUpProvider.TopUpProviderCommand(
@@ -65,7 +67,7 @@ public class TopUpService {
             return transactionTemplate.execute(status -> {
                 PaymentTopUp locked = topUpRepository.findByTopUpIdForUpdate(prepared.getTopUpId()).orElseThrow();
                 locked.awaitingPayment(result.checkoutUrl(), result.qrPayload(), result.expiresAt(), clock.instant());
-                return TopUpResponse.from(locked);
+                return response(locked);
             });
         } catch (RuntimeException exception) {
             transactionTemplate.executeWithoutResult(status -> {
@@ -82,10 +84,19 @@ public class TopUpService {
         PaymentTopUp topUp = topUpRepository.findByTopUpId(topUpId)
                 .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "TOPUP_NOT_FOUND", "Không tìm thấy lệnh nạp tiền"));
         requireOwner(topUp, ownerId);
-        return TopUpResponse.from(topUp);
+        return response(topUp);
     }
 
+    /**
+     * Nút "Giả lập thanh toán thành công" (tiền sandbox, LEGAL-PAYMENT-01). Chỉ tồn tại khi môi trường cho phép giả lập
+     * và provider nạp tiền là mock (D37); ngoài ra trả 404 như endpoint không có. Lệnh đã quá hạn thanh toán thì không
+     * ghi có được nữa.
+     */
     public TopUpResponse completeMock(UUID topUpId) {
+        if (!mockCompletionEnabled()) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "TOPUP_MOCK_COMPLETION_UNAVAILABLE",
+                    "Môi trường này không có chức năng giả lập thanh toán");
+        }
         String ownerId = SecurityUtils.getCurrentUserId();
         return transactionTemplate.execute(status -> {
             PaymentTopUp topUp = topUpRepository.findByTopUpIdForUpdate(topUpId)
@@ -94,9 +105,20 @@ public class TopUpService {
             if (!"MOCK".equals(topUp.getProvider())) {
                 throw new BusinessException(HttpStatus.CONFLICT, "TOPUP_NOT_MOCK", "Chỉ lệnh mock mới được xác nhận thủ công");
             }
+            if (topUp.isExpired(clock.instant())) {
+                throw new BusinessException(HttpStatus.CONFLICT, "TOPUP_EXPIRED", "Lệnh nạp tiền đã hết hạn thanh toán");
+            }
             credit(topUp, "MOCK-" + topUp.getTopUpId());
-            return TopUpResponse.from(topUp);
+            return response(topUp);
         });
+    }
+
+    private boolean mockCompletionEnabled() {
+        return environment.allowsSimulation() && "mock".equals(properties.provider());
+    }
+
+    private TopUpResponse response(PaymentTopUp topUp) {
+        return TopUpResponse.from(topUp, mockCompletionEnabled(), clock.instant());
     }
 
     public boolean processZaloPayCallback(String data, String mac) {
