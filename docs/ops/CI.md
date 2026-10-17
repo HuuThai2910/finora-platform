@@ -72,11 +72,12 @@ gitleaks quét lịch sử của HEAD (`--log-opts="--full-history HEAD"`): mặ
 vào kết quả. `--redact` che giá trị trong log. Không dùng `gitleaks-action` vì action này đòi license key với repository của
 tổ chức; image OSS (MIT) không cần.
 
-Kết quả rà ngày 2026-10-17: không có secret thật trong lịch sử của `feat/finora-remaining-wave-3`; bốn phát hiện là false
-positive đã ghi fingerprint trong [`.gitleaksignore`](../../.gitleaksignore) (hằng khóa idempotency trong test, URL JDBC
-của Keycloak trong compose cũ, một dòng roadmap mô tả API eKYC, khóa mã hóa số tài khoản dev của W3B bị cổng môi trường D37
-chặn ở staging/production). Không chép nguyên văn chuỗi bị nhận nhầm vào tài liệu, kể cả `.gitleaksignore`: chép lại sẽ tạo
-phát hiện mới ở commit đó. Nhánh
+Kết quả rà ngày 2026-10-17: không có secret thật trong lịch sử của `feat/finora-remaining-wave-3` (79 commit có diff, gồm
+W3B, W3C, W3D, W3F); sáu phát hiện là false positive đã ghi fingerprint trong [`.gitleaksignore`](../../.gitleaksignore) (hằng khóa
+idempotency trong test, URL JDBC của Keycloak trong compose cũ, một dòng roadmap mô tả API eKYC, khóa mã hóa số tài khoản dev
+của W3B bị cổng môi trường D37 chặn ở staging/production, token push giả trong test Notification, khai báo record chứa tham
+số khóa riêng trong test PAdES). Không chép nguyên văn chuỗi bị nhận nhầm vào tài liệu, kể cả `.gitleaksignore`: chép lại sẽ
+tạo phát hiện mới ở commit đó. Nhánh
 `origin/chatbot-ai` (Hải, chưa merge) có một phát hiện `INTERNAL_TOKEN_TEST` trong
 `docs/superpowers/plans/2026-10-15-tro-ly-finora.md`: Hải xác nhận là giá trị giả trước khi merge nhánh đó.
 

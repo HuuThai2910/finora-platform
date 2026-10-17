@@ -9,3 +9,7 @@ e6ce295112f875c85ecbb80899e84296b15ccf3b:docker/docker-compose.yml:generic-api-k
 # W3B (D44): khóa mã hóa số tài khoản mặc định chỉ dùng máy dev; FinoraEnvironmentConfig từ chối khởi động ở
 # staging/production khi còn khóa này (D37). Môi trường thật đặt PAYMENT_ACCOUNT_ENCRYPTION_KEY riêng.
 ba9e65432e0300f0ab1986b1b4fb42e6b8aeb684:finora-payment/src/main/java/com/finora/payment/config/PaymentSimulatedSettings.java:generic-api-key:14
+# R7: token push giả và mã băm giả trong unit test của Notification (không phải token Expo thật).
+1897f4a8396da9e8872f9190df728970fac39bc9:finora-notification/src/test/java/com/finora/notification/service/push/PushTokensTest.java:generic-api-key:35
+# W3C: khai báo record chứa tham số kiểu khóa riêng trong test PAdES; khóa sinh lúc chạy test, không commit khóa nào.
+738d79c4a45a7fa845560591c298e574d2ef25fd:finora-loan/src/test/java/com/finora/loan/service/contract/pades/PadesTestSigners.java:generic-api-key:33
