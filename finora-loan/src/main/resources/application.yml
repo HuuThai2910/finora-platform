@@ -67,14 +67,22 @@ springdoc:
 management:
   endpoint:
     health:
-      show-details: never
+      # Ai cũng thấy tên và trạng thái từng thành phần; lý do/thời điểm chỉ hiện với token ROLE_ADMIN (W3E, D56).
+      show-components: always
+      show-details: when-authorized
+      roles: ADMIN
       probes:
         enabled: true
       group:
+        # Liveness chỉ hỏi JVM còn chạy: dependency lỗi không được làm orchestrator khởi động lại Loan.
         liveness:
           include: livenessState
+        # Readiness gồm dependency mọi request đều cần. Kafka không vào đây: outbox giữ event trong DB khi broker tắt.
         readiness:
           include: readinessState,db
+        # Sự cố vận hành cần người xử lý nhưng không được rút Loan khỏi traffic (D57).
+        operations:
+          include: fineractEndOfDay,kafka
   endpoints:
     web:
       exposure:
@@ -206,6 +214,13 @@ finora:
     servicing-sync:
       enabled: ${LOAN_SERVICING_SYNC_ENABLED:true}
       worker-delay: ${LOAN_SERVICING_SYNC_WORKER_DELAY:60000}
+    operations:
+      # D57/D25: health `fineractEndOfDay` DOWN khi LA_RINT/LA_ARAG không chạy thành công trong stale-after.
+      # Tài khoản Fineract của Loan cần quyền READ_SCHEDULER; provider booking mock thì kiểm tra không áp dụng.
+      fineract-eod:
+        enabled: ${LOAN_FINERACT_EOD_CHECK_ENABLED:true}
+        stale-after: ${LOAN_FINERACT_EOD_STALE_AFTER:26h}
+        refresh-interval: ${LOAN_FINERACT_EOD_REFRESH_INTERVAL:5m}
     reschedule:
       # Fail-closed: chỉ bật khi đã tạo reason code trong Fineract và điền ID bên dưới.
       worker-enabled: ${LOAN_RESCHEDULE_WORKER_ENABLED:false}
