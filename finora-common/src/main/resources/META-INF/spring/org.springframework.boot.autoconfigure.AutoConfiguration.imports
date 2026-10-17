@@ -1,0 +1,2 @@
+com.finora.common.observability.OperationalMetricsAutoConfiguration
+com.finora.common.observability.KafkaHealthAutoConfiguration
