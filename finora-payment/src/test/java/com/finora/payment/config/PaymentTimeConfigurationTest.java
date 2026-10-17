@@ -2,7 +2,10 @@ package com.finora.payment.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -15,6 +18,20 @@ class PaymentTimeConfigurationTest {
     void businessClockUsesVietnamZone() {
         assertThat(PaymentTimeConfiguration.businessClock("Asia/Ho_Chi_Minh").getZone())
                 .isEqualTo(ZoneId.of("Asia/Ho_Chi_Minh"));
+    }
+
+    @Test
+    void e2eClockOffsetMovesTheBusinessDateOnlyWithMockMoneyProviders() {
+        Clock business = Clock.fixed(Instant.parse("2026-10-17T03:00:00Z"), ZoneId.of("Asia/Ho_Chi_Minh"));
+
+        Clock shifted = PaymentTimeConfiguration.e2eClock(business, Duration.ofDays(31), "mock", "mock");
+
+        assertThat(LocalDate.now(shifted)).isEqualTo(LocalDate.of(2026, 11, 17));
+        assertThat(PaymentTimeConfiguration.e2eClock(business, Duration.ZERO, "zalopay", "zalopay"))
+                .isSameAs(business);
+        // Đồng hồ giả không bao giờ chạy cùng provider tiền thật.
+        assertThatThrownBy(() -> PaymentTimeConfiguration.e2eClock(business, Duration.ofDays(31), "mock", "zalopay"))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test

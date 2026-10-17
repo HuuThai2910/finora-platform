@@ -32,6 +32,11 @@ public class PaymentRepayment {
     @Column(name = "finora_fee_share", nullable = false, precision = 18, scale = 2, updatable = false) private BigDecimal finoraFeeShare;
     @Column(nullable = false, length = 3, updatable = false) private String currency;
     @Column(name = "transaction_date", nullable = false, updatable = false) private LocalDate transactionDate;
+    /**
+     * Ngày ghi giao dịch vào Fineract khi khác ngày thu (D16): khoản trả kỳ trước hạn của khoản vay core V4 được giữ ở
+     * clearing và ghi đúng ngày đến hạn để lãi của kỳ không đổi. {@code null}: ghi ngay theo {@link #transactionDate}.
+     */
+    @Column(name = "post_on", updatable = false) private LocalDate postOn;
     @Enumerated(EnumType.STRING) @Column(nullable = false, length = 30) private PaymentRepaymentStatus status;
     @Column(name = "wallet_ledger_transaction_id", nullable = false, updatable = false) private UUID walletLedgerTransactionId;
     @Column(name = "distribution_ledger_transaction_id") private UUID distributionLedgerTransactionId;
@@ -65,9 +70,19 @@ public class PaymentRepayment {
     public static PaymentRepayment collected(String idempotencyKey, PaymentLoanAccount account,
             BigDecimal amount, LocalDate transactionDate, PaymentRepaymentType repaymentType,
             UUID walletLedgerTransactionId, Instant now) {
+        return collected(idempotencyKey, account, amount, transactionDate, repaymentType, null,
+                walletLedgerTransactionId, now);
+    }
+
+    public static PaymentRepayment collected(String idempotencyKey, PaymentLoanAccount account,
+            BigDecimal amount, LocalDate transactionDate, PaymentRepaymentType repaymentType, LocalDate postOn,
+            UUID walletLedgerTransactionId, Instant now) {
         if (repaymentType != PaymentRepaymentType.SCHEDULED
                 && repaymentType != PaymentRepaymentType.OVERDUE_CURE) {
             throw new IllegalArgumentException("Factory collected chỉ dùng cho trả kỳ hoặc khắc phục quá hạn");
+        }
+        if (postOn != null && (repaymentType != PaymentRepaymentType.SCHEDULED || !postOn.isAfter(transactionDate))) {
+            throw new IllegalArgumentException("Chỉ khoản trả kỳ trước ngày đến hạn mới được hẹn ngày ghi core");
         }
         PaymentRepayment value = new PaymentRepayment();
         value.repaymentId = UUID.randomUUID();
@@ -83,6 +98,7 @@ public class PaymentRepayment {
         value.finoraFeeShare = BigDecimal.ZERO.setScale(2);
         value.currency = account.getCurrency();
         value.transactionDate = transactionDate;
+        value.postOn = postOn;
         value.status = PaymentRepaymentStatus.COLLECTED;
         value.walletLedgerTransactionId = walletLedgerTransactionId;
         value.createdAt = now;
@@ -141,6 +157,27 @@ public class PaymentRepayment {
     public void startCorePosting(Instant now) {
         status = PaymentRepaymentStatus.CORE_POSTING;
         attemptCount++;
+        updatedAt = now;
+    }
+
+    /** Ngày ghi giao dịch vào Fineract: ngày đến hạn với khoản trả kỳ được giữ (D16), còn lại là ngày thu tiền. */
+    public LocalDate corePostingDate() {
+        return postOn == null ? transactionDate : postOn;
+    }
+
+    /** Khoản trả kỳ trước hạn còn nằm ở clearing, chưa tới ngày ghi Fineract. */
+    public boolean awaitingDueDate(LocalDate today) {
+        return status == PaymentRepaymentStatus.COLLECTED && postOn != null && postOn.isAfter(today);
+    }
+
+    /** Người vay hủy khoản trả kỳ đang giữ trước ngày ghi nhận; tiền được hoàn về ví trong cùng transaction. */
+    public void cancelBeforeDueDate(LocalDate today, Instant now) {
+        if (!awaitingDueDate(today)) {
+            throw new IllegalStateException("Chỉ hủy được khoản trả kỳ trước hạn khi chưa tới ngày ghi nhận");
+        }
+        status = PaymentRepaymentStatus.CANCELLED;
+        errorCode = "CANCELLED_BY_BORROWER";
+        errorDetail = null;
         updatedAt = now;
     }
 

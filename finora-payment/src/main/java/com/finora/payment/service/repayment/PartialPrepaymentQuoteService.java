@@ -24,10 +24,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 @RequiredArgsConstructor
 public class PartialPrepaymentQuoteService {
-    static final java.util.Set<String> SUPPORTED_CORE_VERSIONS = java.util.Set.of(
-            "FINORA-FINERACT-V2", "FINORA-FINERACT-V3");
     private final PaymentLoanAccountRepository loanAccounts;
     private final PartialPrepaymentQuoteRepository quotes;
+    private final RepaymentInFlightGuard inFlight;
     private final RepaymentCoreGateway fineract;
     private final EarlySettlementFeeCalculator feeCalculator;
     private final EarlySettlementPolicyProperties policy;
@@ -83,6 +82,7 @@ public class PartialPrepaymentQuoteService {
 
     private QuotePreparation prepare(Long applicationId, String borrowerId) {
         PaymentLoanAccount account = requireEligibleAccount(applicationId, borrowerId);
+        inFlight.requireNoneBeforeQuote(applicationId);
         return new QuotePreparation(account.getFineractLoanId(), account.getEarlySettlementPolicyVersion());
     }
 
@@ -98,10 +98,7 @@ public class PartialPrepaymentQuoteService {
             throw new BusinessException(HttpStatus.CONFLICT, "PAYMENT_LOAN_NOT_ACTIVE",
                     "Khoản vay không còn hoạt động");
         }
-        if (!SUPPORTED_CORE_VERSIONS.contains(account.getCoreConfigVersion())) {
-            throw new BusinessException(HttpStatus.CONFLICT, "PARTIAL_PREPAYMENT_REQUIRES_ADVANCED_CORE",
-                    "Khoản vay này dùng chiến lược core cũ và không hỗ trợ tái phân bổ trả trước một phần");
-        }
+        SelfServicePrepaymentPolicy.requireDailyInterestCore(account);
         return account;
     }
 

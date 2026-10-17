@@ -85,6 +85,10 @@ public class PartialPrepaymentQuote {
     }
 
     private static String allocationStrategy(String coreConfigVersion) {
+        if (coreConfigVersion != null && coreConfigVersion.endsWith("V4")) {
+            // D15: phần gốc trả thêm vào các kỳ gần nhất, lãi tính lại hằng ngày trên dư nợ thực tế.
+            return "advanced-payment-allocation-strategy/NEXT_INSTALLMENT/DAILY_INTEREST_RECALCULATION";
+        }
         if (coreConfigVersion != null && coreConfigVersion.endsWith("V3")) {
             return "advanced-payment-allocation-strategy/NEXT_INSTALLMENT";
         }

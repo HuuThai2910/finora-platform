@@ -1,8 +1,11 @@
 package com.finora.payment.dto.response;
 
+import com.finora.payment.domain.repayment.PaymentRepayment;
+import com.finora.payment.domain.repayment.PaymentRepaymentStatus;
 import com.finora.payment.domain.repayment.PaymentRepaymentType;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.UUID;
 
 /**
  * Nghĩa vụ phải trả ngay lúc này theo Fineract — đúng con số mà {@code POST /api/v1/repayments} sẽ kiểm.
@@ -14,6 +17,10 @@ import java.time.LocalDate;
  * @param overdueAmount phần đã quá hạn trong {@code amount}; lớn hơn 0 thì lệnh là khắc phục quá hạn
  * @param repaymentType loại lệnh sẽ được tạo nếu trả đúng số tiền này
  * @param businessDate  ngày nghiệp vụ Việt Nam của báo giá; lệnh trả nợ phải được gửi trong cùng ngày
+ * @param dueDate       ngày đến hạn của kỳ mà {@code amount} thanh toán; {@code null} nếu core không trả lịch
+ * @param postOn        nếu trả ngay bây giờ: ngày khoản tiền được ghi vào sổ nợ (ngày đến hạn, D16); {@code null} là
+ *                      ghi ngay
+ * @param pending       khoản đã thu nhưng chưa ghi xong vào sổ nợ; khác {@code null} thì chưa trả thêm được
  */
 public record ScheduledDueResponse(
         Long loanApplicationId,
@@ -21,6 +28,21 @@ public record ScheduledDueResponse(
         BigDecimal overdueAmount,
         String currency,
         PaymentRepaymentType repaymentType,
-        LocalDate businessDate
+        LocalDate businessDate,
+        LocalDate dueDate,
+        LocalDate postOn,
+        PendingRepayment pending
 ) {
+
+    /**
+     * @param postOn ngày ghi nhận đã hẹn; khác {@code null} với khoản trả kỳ trước hạn, hủy được trước ngày này
+     */
+    public record PendingRepayment(UUID repaymentId, BigDecimal amount, PaymentRepaymentStatus status,
+            LocalDate postOn, boolean cancellable) {
+
+        public static PendingRepayment from(PaymentRepayment value, LocalDate today) {
+            return new PendingRepayment(value.getRepaymentId(), value.getAmount(), value.getStatus(),
+                    value.getPostOn(), value.awaitingDueDate(today));
+        }
+    }
 }

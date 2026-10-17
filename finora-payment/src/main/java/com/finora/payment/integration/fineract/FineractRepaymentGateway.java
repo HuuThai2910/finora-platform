@@ -42,8 +42,10 @@ public class FineractRepaymentGateway implements RepaymentCoreGateway {
                 throw new FineractRepaymentException("FINERACT_NO_SCHEDULED_DUE",
                         "Khoản vay không có nghĩa vụ đến hạn để thanh toán", false, null);
             }
-            JsonNode loan = get("/loans/%d".formatted(fineractLoanId));
-            return new ScheduledRepaymentCoreQuote(amount, money(loan.path("summary"), "totalOverdue"));
+            JsonNode loan = get("/loans/%d?associations=repaymentSchedule".formatted(fineractLoanId));
+            // Ngày đến hạn của kỳ mà khoản này thanh toán: Payment giữ khoản trả sớm tới đúng ngày đó (D16).
+            return new ScheduledRepaymentCoreQuote(amount, money(loan.path("summary"), "totalOverdue"),
+                    nextDue(loan.path("repaymentSchedule").path("periods")).date());
         } catch (FineractRepaymentException exception) {
             throw exception;
         } catch (RestClientResponseException exception) {

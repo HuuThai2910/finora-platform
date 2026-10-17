@@ -32,6 +32,15 @@ public class PaymentLoanAccount {
 
     public enum Status { ACTIVE, CLOSED }
 
+    /**
+     * Core V4 tính lãi trên dư nợ và số ngày thực tế (D15). Chỉ khoản vay này được trả trước/tất toán tự phục vụ (D17)
+     * và có khoản trả kỳ sớm ghi đúng ngày đến hạn (D16); core V1–V3 tính trước lãi cho cả kỳ hạn.
+     */
+    public boolean dailyInterestCore() {
+        return coreConfigVersion != null
+                && coreConfigVersion.trim().toUpperCase(java.util.Locale.ROOT).endsWith("V4");
+    }
+
     public static PaymentLoanAccount activate(Long applicationId, String contractNumber, Long listingId,
             String borrowerId, Long fineractLoanId, String coreConfigVersion, String currency, Instant now) {
         return activate(applicationId, contractNumber, listingId, borrowerId, fineractLoanId, coreConfigVersion,

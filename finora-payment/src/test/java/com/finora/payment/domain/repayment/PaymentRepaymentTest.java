@@ -69,6 +69,62 @@ class PaymentRepaymentTest {
     }
 
     @Test
+    void earlyInstallmentOnDailyInterestLoanIsHeldUntilItsDueDate() {
+        PaymentLoanAccount account = PaymentLoanAccount.activate(1L, "LC-1", 2L, "borrower", 3L,
+                "FINORA-FINERACT-V4", "VND", NOW);
+        LocalDate paidOn = LocalDate.of(2026, 10, 17);
+        LocalDate dueDate = LocalDate.of(2026, 11, 2);
+
+        PaymentRepayment repayment = PaymentRepayment.collected("idem-early", account, new BigDecimal("1725000.00"),
+                paidOn, PaymentRepaymentType.SCHEDULED, dueDate, UUID.randomUUID(), NOW);
+
+        // D16: thu tiền hôm nay nhưng ghi Fineract đúng ngày đến hạn để lãi của kỳ không đổi.
+        assertThat(account.dailyInterestCore()).isTrue();
+        assertThat(repayment.getTransactionDate()).isEqualTo(paidOn);
+        assertThat(repayment.corePostingDate()).isEqualTo(dueDate);
+        assertThat(repayment.awaitingDueDate(paidOn)).isTrue();
+        assertThat(repayment.awaitingDueDate(dueDate.minusDays(1))).isTrue();
+        assertThat(repayment.awaitingDueDate(dueDate)).isFalse();
+        // Từ ngày đến hạn khoản tiền thuộc về worker ghi core, người vay không hủy được nữa.
+        assertThatThrownBy(() -> repayment.cancelBeforeDueDate(dueDate, NOW))
+                .isInstanceOf(IllegalStateException.class);
+
+        repayment.cancelBeforeDueDate(paidOn, NOW);
+        assertThat(repayment.getStatus()).isEqualTo(PaymentRepaymentStatus.CANCELLED);
+        assertThat(repayment.getErrorCode()).isEqualTo("CANCELLED_BY_BORROWER");
+        assertThat(repayment.awaitingDueDate(paidOn)).isFalse();
+    }
+
+    @Test
+    void onlyAScheduledInstallmentPaidBeforeItsDueDateCanBeHeld() {
+        PaymentLoanAccount account = PaymentLoanAccount.activate(1L, "LC-1", 2L, "borrower", 3L,
+                "FINORA-FINERACT-V4", "VND", NOW);
+        LocalDate today = LocalDate.of(2026, 10, 17);
+
+        assertThatThrownBy(() -> PaymentRepayment.collected("idem-cure", account, new BigDecimal("1000.00"), today,
+                PaymentRepaymentType.OVERDUE_CURE, today.plusDays(5), UUID.randomUUID(), NOW))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> PaymentRepayment.collected("idem-today", account, new BigDecimal("1000.00"), today,
+                PaymentRepaymentType.SCHEDULED, today, UUID.randomUUID(), NOW))
+                .isInstanceOf(IllegalArgumentException.class);
+        PaymentRepayment immediate = PaymentRepayment.collected("idem-now", account, new BigDecimal("1000.00"), today,
+                PaymentRepaymentType.SCHEDULED, UUID.randomUUID(), NOW);
+        assertThat(immediate.getPostOn()).isNull();
+        assertThat(immediate.corePostingDate()).isEqualTo(today);
+        assertThat(immediate.awaitingDueDate(today)).isFalse();
+    }
+
+    @Test
+    void onlyCoreV4AccountsUseDailyInterestServicing() {
+        assertThat(PaymentLoanAccount.activate(1L, "LC-1", 2L, "b", 3L, "FINORA-FINERACT-V3", "VND", NOW)
+                .dailyInterestCore()).isFalse();
+        assertThat(PaymentLoanAccount.activate(1L, "LC-1", 2L, "b", 3L, null, "VND", NOW)
+                .dailyInterestCore()).isFalse();
+        assertThat(PaymentLoanAccount.activate(1L, "LC-1", 2L, "b", 3L, "FINORA-FINERACT-V4", "VND", NOW)
+                .dailyInterestCore()).isTrue();
+    }
+
+    @Test
     void recordsOverdueCureAsASeparateBusinessMechanism() {
         PaymentLoanAccount account = PaymentLoanAccount.activate(1L, "LC-1", 2L, "borrower", 3L, "VND", NOW);
 

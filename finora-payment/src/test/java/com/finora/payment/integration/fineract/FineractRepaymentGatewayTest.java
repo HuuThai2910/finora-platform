@@ -26,12 +26,20 @@ class FineractRepaymentGatewayTest {
         FineractRepaymentGateway gateway = gateway(builder);
         server.expect(requestTo("http://fineract.test/loans/77/transactions/template?command=repayment"))
                 .andRespond(withSuccess(repaymentTemplateJson("2680000.000000"), MediaType.APPLICATION_JSON));
-        server.expect(requestTo("http://fineract.test/loans/77"))
-                .andRespond(withSuccess("{\"summary\":{\"totalOverdue\":250000.00}}", MediaType.APPLICATION_JSON));
+        // Kỳ 1 đã trả hết, kỳ 2 còn nợ: ngày đến hạn của khoản đang thu là ngày của kỳ 2 (D16).
+        server.expect(requestTo("http://fineract.test/loans/77?associations=repaymentSchedule"))
+                .andRespond(withSuccess("""
+                        {"summary":{"totalOverdue":250000.00},
+                         "repaymentSchedule":{"periods":[
+                           {"dueDate":[2026,10,17]},
+                           {"period":1,"dueDate":[2026,11,17],"totalOutstandingForPeriod":0},
+                           {"period":2,"dueDate":[2026,12,17],"totalOutstandingForPeriod":2680000.000000}]}}
+                        """, MediaType.APPLICATION_JSON));
 
         ScheduledRepaymentCoreQuote quote = gateway.scheduledRepaymentQuote(77L);
         assertThat(quote.amount()).isEqualByComparingTo("2680000.00");
         assertThat(quote.overdueAmount()).isEqualByComparingTo("250000.00");
+        assertThat(quote.nextDueDate()).isEqualTo(java.time.LocalDate.of(2026, 12, 17));
         server.verify();
     }
 

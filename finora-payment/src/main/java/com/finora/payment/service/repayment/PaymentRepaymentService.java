@@ -65,6 +65,7 @@ public class PaymentRepaymentService {
     private final WalletAccountService wallets;
     private final RepaymentCoreGateway fineract;
     private final RepaymentAllocator allocator;
+    private final RepaymentInFlightGuard inFlight;
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final TransactionTemplate transactionTemplate;
@@ -91,7 +92,53 @@ public class PaymentRepaymentService {
         PaymentRepaymentType type = quote.overdueAmount().signum() > 0
                 ? PaymentRepaymentType.OVERDUE_CURE : PaymentRepaymentType.SCHEDULED;
         return transactionTemplate.execute(status -> collect(preparation, normalized, effectiveDate,
-                type, idempotencyKey));
+                type, quote.nextDueDate(), idempotencyKey));
+    }
+
+    /**
+     * D16: trả kỳ trước ngày đến hạn trên khoản vay core V4 thì giữ ở clearing và ghi Fineract đúng ngày đến hạn, để lãi
+     * của kỳ không đổi và các kỳ sau giữ nguyên. Core V1–V3 tính trước lãi nên ghi ngay vẫn đúng lịch; khoản khắc phục
+     * quá hạn và khoản trả đúng ngày đến hạn luôn ghi ngay.
+     */
+    static LocalDate deferredPostingDate(PaymentLoanAccount account, PaymentRepaymentType type, LocalDate today,
+            LocalDate dueDate) {
+        if (type != PaymentRepaymentType.SCHEDULED || !account.dailyInterestCore() || dueDate == null) return null;
+        return dueDate.isAfter(today) ? dueDate : null;
+    }
+
+    /**
+     * Người vay hủy khoản trả kỳ trước hạn đang giữ (D16) trước ngày ghi nhận, ví dụ để trả trước một phần hoặc tất toán
+     * theo dư nợ hiện tại. Tiền về lại số dư khả dụng; từ ngày ghi nhận trở đi khoản này không hủy được nữa.
+     */
+    @Transactional
+    public RepaymentResponse cancelPending(UUID repaymentId) {
+        String borrowerId = SecurityUtils.getCurrentUserId();
+        PaymentRepayment found = repayments.findByRepaymentId(repaymentId)
+                .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "REPAYMENT_NOT_FOUND",
+                        "Không tìm thấy giao dịch trả nợ"));
+        if (!found.getBorrowerId().equals(borrowerId)) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "REPAYMENT_OWNER_MISMATCH",
+                    "Không được hủy giao dịch của người khác");
+        }
+        // Cùng thứ tự khóa với lệnh trả kỳ: tài khoản vay trước, giao dịch sau.
+        loanAccounts.findByLoanApplicationIdForUpdate(found.getLoanApplicationId());
+        PaymentRepayment value = repayments.findByIdForUpdate(found.getId()).orElseThrow();
+        if (value.getStatus() == PaymentRepaymentStatus.CANCELLED) return RepaymentResponse.from(value);
+        LocalDate today = LocalDate.now(clock);
+        if (!value.awaitingDueDate(today)) {
+            throw new BusinessException(HttpStatus.CONFLICT, "REPAYMENT_NOT_CANCELLABLE",
+                    "Chỉ hủy được khoản trả kỳ trước hạn khi chưa tới ngày ghi nhận vào sổ nợ");
+        }
+        WalletView borrowerWallet = wallets.open(WalletOwnerType.BORROWER, value.getBorrowerId(), value.getCurrency());
+        ledger.post(new LedgerPostingCommand("REPAYMENT-CANCEL-REFUND:" + value.getRepaymentId(),
+                LedgerTransactionType.ADJUSTMENT, "REPAYMENT_CANCEL_REFUND", value.getRepaymentId().toString(),
+                value.getCurrency(), List.of(
+                    new LedgerPostingEntryCommand(null, "CLEARING:REPAYMENT", LedgerBalanceBucket.CLEARING,
+                            LedgerDirection.DEBIT, value.getAmount()),
+                    new LedgerPostingEntryCommand(borrowerWallet.walletId(), null, LedgerBalanceBucket.AVAILABLE,
+                            LedgerDirection.CREDIT, value.getAmount()))));
+        value.cancelBeforeDueDate(today, clock.instant());
+        return RepaymentResponse.from(value);
     }
 
     @Transactional
@@ -118,7 +165,7 @@ public class PaymentRepaymentService {
             throw new BusinessException(HttpStatus.CONFLICT, "EARLY_SETTLEMENT_QUOTE_NOT_ACTIVE",
                     exception.getMessage());
         }
-        PaymentLoanAccount account = loanAccounts.findByLoanApplicationId(quote.getLoanApplicationId())
+        PaymentLoanAccount account = loanAccounts.findByLoanApplicationIdForUpdate(quote.getLoanApplicationId())
                 .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "PAYMENT_LOAN_NOT_FOUND",
                         "Khoản vay chưa sẵn sàng để tất toán"));
         if (account.getStatus() != PaymentLoanAccount.Status.ACTIVE
@@ -127,6 +174,9 @@ public class PaymentRepaymentService {
             throw new BusinessException(HttpStatus.CONFLICT, "EARLY_SETTLEMENT_LOAN_CHANGED",
                     "Khoản vay không còn khớp với báo giá tất toán");
         }
+        // Một khoản trả kỳ được thu sau khi lập báo giá làm số tất toán cũ thu thừa.
+        inFlight.requireUnchangedSince(account.getLoanApplicationId(), quote.getCreatedAt(),
+                "EARLY_SETTLEMENT_QUOTE_STALE");
         WalletView wallet = wallets.open(WalletOwnerType.BORROWER, borrowerId, account.getCurrency());
         LedgerPostingResult posting = ledger.post(new LedgerPostingCommand(
                 "EARLY-SETTLEMENT-COLLECT:" + idempotencyKey, LedgerTransactionType.REPAYMENT,
@@ -164,7 +214,7 @@ public class PaymentRepaymentService {
             throw new BusinessException(HttpStatus.CONFLICT, "PARTIAL_PREPAYMENT_QUOTE_NOT_ACTIVE",
                     exception.getMessage());
         }
-        PaymentLoanAccount account = loanAccounts.findByLoanApplicationId(quote.getLoanApplicationId())
+        PaymentLoanAccount account = loanAccounts.findByLoanApplicationIdForUpdate(quote.getLoanApplicationId())
                 .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "PAYMENT_LOAN_NOT_FOUND",
                         "Khoản vay chưa sẵn sàng để trả trước"));
         if (account.getStatus() != PaymentLoanAccount.Status.ACTIVE
@@ -174,6 +224,8 @@ public class PaymentRepaymentService {
             throw new BusinessException(HttpStatus.CONFLICT, "PARTIAL_PREPAYMENT_LOAN_CHANGED",
                     "Khoản vay không còn khớp với báo giá trả trước một phần");
         }
+        inFlight.requireUnchangedSince(account.getLoanApplicationId(), quote.getCreatedAt(),
+                "PARTIAL_PREPAYMENT_QUOTE_STALE");
         WalletView wallet = wallets.open(WalletOwnerType.BORROWER, borrowerId, account.getCurrency());
         LedgerPostingResult posting = ledger.post(new LedgerPostingCommand(
                 "PARTIAL-PREPAYMENT-COLLECT:" + idempotencyKey, LedgerTransactionType.REPAYMENT,
@@ -197,10 +249,17 @@ public class PaymentRepaymentService {
         ScheduledRepaymentCoreQuote quote = FineractQuoteErrors.read(
                 () -> fineract.scheduledRepaymentQuote(account.getFineractLoanId()));
         BigDecimal overdue = quote.overdueAmount().setScale(2, java.math.RoundingMode.UNNECESSARY);
+        LocalDate today = LocalDate.now(clock);
+        PaymentRepaymentType type = overdue.signum() > 0
+                ? PaymentRepaymentType.OVERDUE_CURE : PaymentRepaymentType.SCHEDULED;
+        // Khoản đã thu mà core chưa ghi: Fineract vẫn báo kỳ đó chưa trả, client phải hiển thị "đã thanh toán, chờ ghi nhận".
+        ScheduledDueResponse.PendingRepayment pending = transactionTemplate.execute(status ->
+                inFlight.oldestInFlight(account.getLoanApplicationId())
+                        .map(value -> ScheduledDueResponse.PendingRepayment.from(value, today)).orElse(null));
         return new ScheduledDueResponse(account.getLoanApplicationId(),
                 quote.amount().setScale(2, java.math.RoundingMode.UNNECESSARY), overdue, account.getCurrency(),
-                overdue.signum() > 0 ? PaymentRepaymentType.OVERDUE_CURE : PaymentRepaymentType.SCHEDULED,
-                LocalDate.now(clock));
+                type, today, quote.nextDueDate(), deferredPostingDate(account, type, today, quote.nextDueDate()),
+                pending);
     }
 
     private PaymentLoanAccount requireOwnedActiveAccount(Long loanApplicationId, String borrowerId) {
@@ -240,14 +299,17 @@ public class PaymentRepaymentService {
     }
 
     private RepaymentResponse collect(CollectionPreparation preparation, BigDecimal amount,
-            LocalDate effectiveDate, PaymentRepaymentType repaymentType, String idempotencyKey) {
-        PaymentLoanAccount account = loanAccounts.findByLoanApplicationId(preparation.loanApplicationId())
+            LocalDate effectiveDate, PaymentRepaymentType repaymentType, LocalDate dueDate, String idempotencyKey) {
+        // Khóa tài khoản vay: hai lệnh trả đồng thời không được cùng thấy "chưa có khoản chờ" rồi thu hai lần một kỳ.
+        PaymentLoanAccount account = loanAccounts.findByLoanApplicationIdForUpdate(preparation.loanApplicationId())
                 .orElseThrow(() -> new IllegalStateException("Khoản vay biến mất khi thu tiền"));
         PaymentRepayment replay = repayments.findByIdempotencyKey(idempotencyKey).orElse(null);
         if (replay != null) {
             requireSame(replay, account, amount, effectiveDate);
             return RepaymentResponse.from(replay);
         }
+        inFlight.requireNoneBeforeScheduledPayment(account.getLoanApplicationId());
+        LocalDate postOn = deferredPostingDate(account, repaymentType, effectiveDate, dueDate);
         WalletView borrowerWallet = wallets.open(WalletOwnerType.BORROWER, preparation.borrowerId(), account.getCurrency());
         LedgerPostingResult posting = ledger.post(new LedgerPostingCommand("REPAYMENT-COLLECT:" + idempotencyKey,
                 LedgerTransactionType.REPAYMENT, "LOAN_REPAYMENT", account.getLoanApplicationId().toString(),
@@ -257,7 +319,7 @@ public class PaymentRepaymentService {
                     new LedgerPostingEntryCommand(null, "CLEARING:REPAYMENT", LedgerBalanceBucket.CLEARING,
                             LedgerDirection.CREDIT, amount))));
         PaymentRepayment repayment = repayments.save(PaymentRepayment.collected(idempotencyKey, account,
-                amount, effectiveDate, repaymentType, posting.transactionId(), clock.instant()));
+                amount, effectiveDate, repaymentType, postOn, posting.transactionId(), clock.instant()));
         return RepaymentResponse.from(repayment);
     }
 
@@ -273,7 +335,9 @@ public class PaymentRepaymentService {
 
     @Transactional(readOnly = true)
     public List<Long> collectedIds() {
-        return repayments.findIdsByStatus(PaymentRepaymentStatus.COLLECTED, PageRequest.of(0, 20));
+        // Khoản trả kỳ trước hạn (D16) chỉ tới lượt khi đã tới ngày đến hạn theo ngày nghiệp vụ Việt Nam.
+        return repayments.findIdsByStatusDueBy(PaymentRepaymentStatus.COLLECTED, LocalDate.now(clock),
+                PageRequest.of(0, 20));
     }
 
     @Transactional(readOnly = true)
@@ -399,9 +463,11 @@ public class PaymentRepaymentService {
     CoreWork claim(Long id) {
         PaymentRepayment value = repayments.findByIdForUpdate(id).orElseThrow();
         if (value.getStatus() != PaymentRepaymentStatus.COLLECTED) return null;
+        // Danh sách có thể được đọc trước nửa đêm: không bao giờ ghi core trước ngày đến hạn đã hẹn.
+        if (value.awaitingDueDate(LocalDate.now(clock))) return null;
         value.startCorePosting(clock.instant());
         return new CoreWork(value.getId(), value.getFineractLoanId(), reference(value),
-                value.getTransactionDate(), value.getCoreAmount());
+                value.corePostingDate(), value.getCoreAmount());
     }
 
     @Transactional
@@ -435,7 +501,7 @@ public class PaymentRepaymentService {
         PaymentRepayment value = repayments.findByIdForUpdate(id).orElseThrow();
         if (value.getStatus() != PaymentRepaymentStatus.RECONCILIATION_REQUIRED) return null;
         return new CoreWork(value.getId(), value.getFineractLoanId(), reference(value),
-                value.getTransactionDate(), value.getCoreAmount());
+                value.corePostingDate(), value.getCoreAmount());
     }
 
     @Transactional

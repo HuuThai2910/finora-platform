@@ -2,6 +2,9 @@ package com.finora.payment;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.finora.common.exception.BusinessException;
@@ -33,8 +36,11 @@ import com.finora.payment.integration.fineract.ScheduledRepaymentCoreQuote;
 import com.finora.payment.service.disbursement.PaymentDisbursementService;
 import com.finora.payment.service.hold.HoldTransferService;
 import com.finora.payment.service.topup.TopUpService;
+import com.finora.payment.service.repayment.EarlySettlementQuoteService;
 import com.finora.payment.service.repayment.PaymentRepaymentService;
 import com.finora.payment.service.repayment.PartialPrepaymentQuoteService;
+import com.finora.payment.integration.fineract.EarlySettlementCoreQuote;
+import com.finora.payment.integration.fineract.RepaymentCoreCommand;
 import com.finora.payment.service.servicing.PaymentServicingProjectionService;
 import com.finora.payment.repository.ledger.LedgerEntryRepository;
 import com.finora.payment.repository.ledger.LedgerTransactionRepository;
@@ -47,8 +53,10 @@ import com.finora.payment.service.wallet.WalletAccountService;
 import com.finora.payment.service.wallet.WalletView;
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -59,7 +67,11 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
+import org.mockito.ArgumentCaptor;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.dao.DataAccessException;
@@ -148,11 +160,28 @@ class FinoraPaymentApplicationIT {
     @Autowired
     private Clock clock;
 
+    @Autowired
+    private MutableTestClock testClock;
+
+    @Autowired
+    private EarlySettlementQuoteService earlySettlementQuoteService;
+
     @MockBean
     private RepaymentCoreGateway repaymentCoreGateway;
 
+    /** Đồng hồ chung của mọi bean Payment; test dời tới ngày đến hạn để kiểm khoản trả kỳ được giữ (D16). */
+    @TestConfiguration
+    static class TestClockConfiguration {
+        @Bean
+        @Primary
+        MutableTestClock testClock() {
+            return new MutableTestClock(ZoneId.of("Asia/Ho_Chi_Minh"));
+        }
+    }
+
     @BeforeEach
     void cleanLedger() {
+        testClock.reset();
         jdbcTemplate.execute("""
                 TRUNCATE TABLE payment_repayments, payment_partial_prepayment_quotes, payment_early_settlement_quotes,
                     payment_note_ownership, payment_loan_accounts,
@@ -542,7 +571,7 @@ class FinoraPaymentApplicationIT {
     }
 
     @Test
-    void partialPrepaymentQuotesCollectsPostsAndDistributesWithV2CoreAccount() {
+    void partialPrepaymentQuotesCollectsPostsAndDistributesWithDailyInterestCoreAccount() {
         long applicationId = 502L;
         long listingId = 602L;
         long fineractLoanId = 702L;
@@ -554,10 +583,11 @@ class FinoraPaymentApplicationIT {
         disbursement.start(disbursedAt, disbursedAt.plusSeconds(120));
         disbursement.complete("MOCK-502", UUID.randomUUID(), disbursedAt);
         disbursementRepository.saveAndFlush(disbursement);
-        // Hợp đồng LOAN_TERMS_V2 công bố biểu phí AGRIBANK V2; LoanDisbursed mang phiên bản đó sang Payment.
+        // Hợp đồng công bố biểu phí AGRIBANK V2; LoanDisbursed mang phiên bản đó sang Payment. Chỉ core V4 (lãi theo
+        // dư nợ và số ngày thực tế) được trả trước một phần tự phục vụ (D17).
         servicingProjectionService.activateLoan(UUID.randomUUID(), new LoanDisbursedEventData(
                 sagaId, applicationId, "LA-502", "LC-502", listingId, "10000000.00", "VND",
-                "MOCK-502", fineractLoanId, "FINORA-FINERACT-V2", disbursedAt, "AGRIBANK_REFERENCE_FINORA_2026_V2"));
+                "MOCK-502", fineractLoanId, "FINORA-FINERACT-V4", disbursedAt, "AGRIBANK_REFERENCE_FINORA_2026_V2"));
         servicingProjectionService.updateOwnership(UUID.randomUUID(), new NoteOwnershipChangedEventData(
                 applicationId, listingId, "VND", "ISSUED", "NOTE-ISSUE-502", disbursedAt,
                 List.of(new NoteOwnershipChangedEventData.NoteOwner(
@@ -640,7 +670,192 @@ class FinoraPaymentApplicationIT {
                 .isNull();
     }
 
+    @Test
+    void earlyInstallmentOnDailyInterestLoanIsHeldUntilItsDueDateThenPostedWithThatDate() {
+        long applicationId = 531L;
+        long fineractLoanId = 731L;
+        activateLoan(applicationId, 631L, fineractLoanId, "FINORA-FINERACT-V4", "AGRIBANK_REFERENCE_FINORA_2026_V2");
+        issueNote(applicationId, 631L, 831L, "INVESTOR-531");
+        actAsBorrower("BORROWER-531");
+        fundBorrower("1725000", "topup-early-531");
+        LocalDate today = LocalDate.now(clock);
+        LocalDate dueDate = today.plusDays(16);
+        when(repaymentCoreGateway.scheduledRepaymentQuote(fineractLoanId)).thenReturn(new ScheduledRepaymentCoreQuote(
+                new BigDecimal("1725000.00"), BigDecimal.ZERO.setScale(2), dueDate));
+
+        var due = repaymentService.scheduledDue(applicationId);
+        assertThat(due.dueDate()).isEqualTo(dueDate);
+        assertThat(due.postOn()).isEqualTo(dueDate);
+        assertThat(due.pending()).isNull();
+
+        var held = repaymentService.create(applicationId, new BigDecimal("1725000.00"), today, "early-531");
+        assertThat(held.status()).isEqualTo(PaymentRepaymentStatus.COLLECTED);
+        assertThat(held.transactionDate()).isEqualTo(today);
+        assertThat(held.postOn()).isEqualTo(dueDate);
+        assertThat(borrowerAvailable("BORROWER-531")).isEqualByComparingTo("0.00");
+        Long id = repaymentRepository.findByRepaymentId(held.repaymentId()).orElseThrow().getId();
+        // D16: chưa tới ngày đến hạn thì worker không thấy, gọi trực tiếp cũng không ghi core.
+        assertThat(repaymentService.collectedIds()).doesNotContain(id);
+        repaymentService.postToCore(id);
+        verify(repaymentCoreGateway, never()).postRepayment(any());
+        assertThat(repaymentService.scheduledDue(applicationId).pending()).satisfies(pending -> {
+            assertThat(pending.repaymentId()).isEqualTo(held.repaymentId());
+            assertThat(pending.postOn()).isEqualTo(dueDate);
+            assertThat(pending.cancellable()).isTrue();
+        });
+        // Không trả hai lần cùng một kỳ, không báo giá trên dư nợ chưa gồm khoản đang giữ.
+        assertThatThrownBy(() -> repaymentService.create(applicationId, new BigDecimal("1725000.00"), today,
+                "early-531-again")).isInstanceOfSatisfying(BusinessException.class,
+                exception -> assertThat(exception.getCode()).isEqualTo("INSTALLMENT_ALREADY_PAID_PENDING"));
+        assertThatThrownBy(() -> partialPrepaymentQuoteService.create(applicationId, new BigDecimal("3000000.00")))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("INSTALLMENT_PENDING_POSTING"));
+        assertThatThrownBy(() -> earlySettlementQuoteService.create(applicationId))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("INSTALLMENT_PENDING_POSTING"));
+        // Gửi lại đúng lệnh cũ vẫn trả kết quả cũ, không bị chặn.
+        assertThat(repaymentService.create(applicationId, new BigDecimal("1725000.00"), today, "early-531")
+                .repaymentId()).isEqualTo(held.repaymentId());
+
+        testClock.advance(Duration.ofDays(16));
+        when(repaymentCoreGateway.postRepayment(any())).thenReturn(new PaymentRepayment.CoreBreakdown(
+                931L, new BigDecimal("1626000.00"), new BigDecimal("99000.00"),
+                BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2),
+                new BigDecimal("8374000.00"), BigDecimal.ZERO.setScale(2),
+                BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2),
+                new BigDecimal("8374000.00"), BigDecimal.ZERO.setScale(2),
+                dueDate.plusMonths(1), new BigDecimal("1725000.00")));
+        assertThat(repaymentService.collectedIds()).contains(id);
+        assertThatThrownBy(() -> repaymentService.cancelPending(held.repaymentId()))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("REPAYMENT_NOT_CANCELLABLE"));
+        repaymentService.postToCore(id);
+        ArgumentCaptor<RepaymentCoreCommand> command = ArgumentCaptor.forClass(RepaymentCoreCommand.class);
+        verify(repaymentCoreGateway).postRepayment(command.capture());
+        // Ghi đúng ngày đến hạn nên Fineract giữ nguyên lãi của kỳ theo lịch.
+        assertThat(command.getValue().transactionDate()).isEqualTo(dueDate);
+        repaymentService.distribute(id);
+
+        PaymentRepayment completed = repaymentRepository.findById(id).orElseThrow();
+        assertThat(completed.getStatus()).isEqualTo(PaymentRepaymentStatus.COMPLETED);
+        assertThat(completed.getInterestAmount()).isEqualByComparingTo("99000.00");
+        assertThat(walletRepository.findByOwnerTypeAndOwnerIdAndCurrency(
+                WalletOwnerType.INVESTOR, "INVESTOR-531", "VND").orElseThrow().getAvailableBalance())
+                .isEqualByComparingTo("1725000.00");
+    }
+
+    @Test
+    void borrowerCancelsHeldInstallmentForARefundAndCanThenQuoteSettlement() {
+        long applicationId = 532L;
+        long fineractLoanId = 732L;
+        activateLoan(applicationId, 632L, fineractLoanId, "FINORA-FINERACT-V4", "AGRIBANK_REFERENCE_FINORA_2026_V2");
+        actAsBorrower("BORROWER-532");
+        fundBorrower("1725000", "topup-cancel-532");
+        LocalDate today = LocalDate.now(clock);
+        when(repaymentCoreGateway.scheduledRepaymentQuote(fineractLoanId)).thenReturn(new ScheduledRepaymentCoreQuote(
+                new BigDecimal("1725000.00"), BigDecimal.ZERO.setScale(2), today.plusDays(10)));
+        var held = repaymentService.create(applicationId, new BigDecimal("1725000.00"), today, "cancel-532");
+
+        actAsBorrower("BORROWER-OTHER");
+        assertThatThrownBy(() -> repaymentService.cancelPending(held.repaymentId()))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("REPAYMENT_OWNER_MISMATCH"));
+        actAsBorrower("BORROWER-532");
+        var cancelled = repaymentService.cancelPending(held.repaymentId());
+        assertThat(cancelled.status()).isEqualTo(PaymentRepaymentStatus.CANCELLED);
+        assertThat(borrowerAvailable("BORROWER-532")).isEqualByComparingTo("1725000.00");
+        // Hủy lại không hoàn tiền lần hai.
+        assertThat(repaymentService.cancelPending(held.repaymentId()).status())
+                .isEqualTo(PaymentRepaymentStatus.CANCELLED);
+        assertThat(borrowerAvailable("BORROWER-532")).isEqualByComparingTo("1725000.00");
+        assertThat(repaymentService.scheduledDue(applicationId).pending()).isNull();
+
+        when(repaymentCoreGateway.earlySettlementQuote(fineractLoanId, today)).thenReturn(new EarlySettlementCoreQuote(
+                today, new BigDecimal("10049000.00"), new BigDecimal("10000000.00"), new BigDecimal("49000.00"),
+                BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2), 6, today.minusDays(15),
+                today.plusMonths(6)));
+        var quote = earlySettlementQuoteService.create(applicationId);
+        assertThat(quote.coreAmount()).isEqualByComparingTo("10049000.00");
+    }
+
+    @Test
+    void legacyCoreLoanBlocksSelfServicePrepaymentButStillPaysInstallmentsImmediately() {
+        long applicationId = 533L;
+        long fineractLoanId = 733L;
+        activateLoan(applicationId, 633L, fineractLoanId, "FINORA-FINERACT-V3", "AGRIBANK_REFERENCE_FINORA_2026_V2");
+        actAsBorrower("BORROWER-533");
+
+        // D17: core V3 báo giá cả lãi các tháng tương lai (B28/B29) nên không cho tự trả trước hoặc tất toán.
+        assertThatThrownBy(() -> partialPrepaymentQuoteService.create(applicationId, new BigDecimal("3000000.00")))
+                .isInstanceOfSatisfying(BusinessException.class, exception -> {
+                    assertThat(exception.getStatus()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
+                    assertThat(exception.getCode()).isEqualTo("PREPAYMENT_NOT_SUPPORTED_FOR_LEGACY_LOAN");
+                });
+        assertThatThrownBy(() -> earlySettlementQuoteService.create(applicationId))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getCode()).isEqualTo("PREPAYMENT_NOT_SUPPORTED_FOR_LEGACY_LOAN"));
+
+        fundBorrower("1725000", "topup-legacy-533");
+        LocalDate today = LocalDate.now(clock);
+        when(repaymentCoreGateway.scheduledRepaymentQuote(fineractLoanId)).thenReturn(new ScheduledRepaymentCoreQuote(
+                new BigDecimal("1725000.00"), BigDecimal.ZERO.setScale(2), today.plusDays(16)));
+        // Core V3 tính trước lãi cả kỳ: trả sớm ghi ngay vẫn đúng lịch, không cần giữ tới ngày đến hạn.
+        assertThat(repaymentService.scheduledDue(applicationId).postOn()).isNull();
+        var collected = repaymentService.create(applicationId, new BigDecimal("1725000.00"), today, "legacy-533");
+        assertThat(collected.postOn()).isNull();
+        assertThat(repaymentService.collectedIds())
+                .contains(repaymentRepository.findByRepaymentId(collected.repaymentId()).orElseThrow().getId());
+    }
+
+    @Test
+    void prepaymentQuoteCannotBeExecutedAfterAnotherRepaymentChangedTheLoan() {
+        long applicationId = 534L;
+        long fineractLoanId = 734L;
+        activateLoan(applicationId, 634L, fineractLoanId, "FINORA-FINERACT-V4", "AGRIBANK_REFERENCE_FINORA_2026_V2");
+        actAsBorrower("BORROWER-534");
+        fundBorrower("8000000", "topup-stale-534");
+        LocalDate today = LocalDate.now(clock);
+        when(repaymentCoreGateway.partialPrepaymentSnapshot(fineractLoanId, today))
+                .thenReturn(new PartialPrepaymentCoreSnapshot(today, new BigDecimal("1725000.00"),
+                        new BigDecimal("10049000.00"), new BigDecimal("10000000.00"),
+                        today, new BigDecimal("1725000.00"), 6, today.minusMonths(1), today.plusMonths(5)));
+        var quote = partialPrepaymentQuoteService.create(applicationId, new BigDecimal("3000000.00"));
+
+        // Kỳ đến hạn hôm nay được trả riêng sau khi lập báo giá: báo giá cũ sẽ thu kỳ này lần hai.
+        when(repaymentCoreGateway.scheduledRepaymentQuote(fineractLoanId)).thenReturn(new ScheduledRepaymentCoreQuote(
+                new BigDecimal("1725000.00"), BigDecimal.ZERO.setScale(2), today));
+        var installment = repaymentService.create(applicationId, new BigDecimal("1725000.00"), today, "stale-534");
+        assertThat(installment.postOn()).isNull();
+        assertThatThrownBy(() -> repaymentService.createPartialPrepayment(quote.quoteId(), "stale-534-prepay"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("PARTIAL_PREPAYMENT_QUOTE_STALE"));
+        assertThat(borrowerAvailable("BORROWER-534")).isEqualByComparingTo("6275000.00");
+    }
+
+    private void issueNote(long applicationId, long listingId, long noteId, String investorId) {
+        servicingProjectionService.updateOwnership(UUID.randomUUID(), new NoteOwnershipChangedEventData(
+                applicationId, listingId, "VND", "ISSUED", "NOTE-ISSUE-" + applicationId,
+                Instant.parse("2026-10-01T00:00:00Z"),
+                List.of(new NoteOwnershipChangedEventData.NoteOwner(
+                        noteId, "NOTE-" + applicationId, investorId, "10000000.00"))));
+    }
+
+    private void fundBorrower(String amount, String idempotencyKey) {
+        TopUpResponse topUp = topUpService.create(new BigDecimal(amount), idempotencyKey);
+        topUpService.completeMock(topUp.topUpId());
+    }
+
+    private BigDecimal borrowerAvailable(String borrowerId) {
+        return walletRepository.findByOwnerTypeAndOwnerIdAndCurrency(WalletOwnerType.BORROWER, borrowerId, "VND")
+                .orElseThrow().getAvailableBalance();
+    }
+
     private long activateLoanForQuote(long applicationId, long listingId, long fineractLoanId, String policyVersion) {
+        return activateLoan(applicationId, listingId, fineractLoanId, "FINORA-FINERACT-V4", policyVersion);
+    }
+
+    private long activateLoan(long applicationId, long listingId, long fineractLoanId, String coreVersion,
+            String policyVersion) {
         UUID sagaId = UUID.randomUUID();
         Instant disbursedAt = Instant.parse("2026-10-01T00:00:00Z");
         String borrower = "BORROWER-" + applicationId;
@@ -652,7 +867,7 @@ class FinoraPaymentApplicationIT {
         disbursementRepository.saveAndFlush(disbursement);
         servicingProjectionService.activateLoan(UUID.randomUUID(), new LoanDisbursedEventData(
                 sagaId, applicationId, "LA-" + applicationId, "LC-" + applicationId, listingId, "10000000.00", "VND",
-                "MOCK-" + applicationId, fineractLoanId, "FINORA-FINERACT-V3", disbursedAt, policyVersion));
+                "MOCK-" + applicationId, fineractLoanId, coreVersion, disbursedAt, policyVersion));
         return fineractLoanId;
     }
 

@@ -54,6 +54,10 @@ server:
 finora:
   # Múi giờ của ngày nghiệp vụ (ngày trả nợ, báo giá, mã đơn ZaloPay). Phải trùng múi giờ tenant Fineract.
   business-time-zone: ${FINORA_BUSINESS_TIME_ZONE:Asia/Ho_Chi_Minh}
+  # Chỉ harness E2E đặt (Q12): dời đồng hồ Payment, ví dụ P31D, để kiểm khoản trả kỳ ghi đúng ngày đến hạn.
+  # Bị từ chối khi khởi động nếu provider giải ngân hoặc nạp tiền không phải mock.
+  e2e:
+    clock-offset: ${FINORA_E2E_CLOCK_OFFSET:PT0S}
   # Pin-token xác nhận thao tác nhạy cảm — khoá HS256 phải GIỐNG NHAU ở finora-user
   # (bên cấp) và payment/investment/loan (bên kiểm). Mặc định chỉ dùng cho máy dev.
   pin:

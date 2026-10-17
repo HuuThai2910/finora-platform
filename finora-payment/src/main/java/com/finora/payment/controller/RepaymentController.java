@@ -87,4 +87,14 @@ public class RepaymentController {
     public RepaymentResponse get(@PathVariable UUID repaymentId) {
         return service.get(repaymentId);
     }
+
+    /**
+     * Hủy khoản trả kỳ trước hạn đang chờ ghi nhận vào sổ nợ (D16); tiền hoàn về ví. Cần PIN vì hủy nhầm làm kỳ bị quá hạn.
+     * Gọi lại với khoản đã hủy trả nguyên kết quả.
+     */
+    @PostMapping("/{repaymentId}/cancel")
+    @RequirePin(PinScope.REPAYMENT)
+    public RepaymentResponse cancel(@PathVariable UUID repaymentId) {
+        return service.cancelPending(repaymentId);
+    }
 }

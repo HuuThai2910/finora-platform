@@ -25,6 +25,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class EarlySettlementQuoteService {
     private final PaymentLoanAccountRepository loanAccounts;
     private final EarlySettlementQuoteRepository quotes;
+    private final RepaymentInFlightGuard inFlight;
     private final RepaymentCoreGateway fineract;
     private final EarlySettlementFeeCalculator feeCalculator;
     private final EarlySettlementPolicyProperties policy;
@@ -69,6 +70,9 @@ public class EarlySettlementQuoteService {
 
     private QuotePreparation prepare(Long applicationId, String borrowerId) {
         PaymentLoanAccount account = requireActiveAccount(applicationId, borrowerId);
+        // D17: core V1–V3 báo giá tất toán gồm cả lãi các tháng tương lai (B29), không cho tự tất toán.
+        SelfServicePrepaymentPolicy.requireDailyInterestCore(account);
+        inFlight.requireNoneBeforeQuote(applicationId);
         return new QuotePreparation(account.getFineractLoanId(), account.getEarlySettlementPolicyVersion());
     }
 
