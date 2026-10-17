@@ -25,6 +25,9 @@ public class NotificationSecurityConfig {
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         // D36: chỉ service account của finora-user (client role notification:internal:send).
                         .requestMatchers("/api/internal/notifications/**").hasAuthority(INTERNAL_SEND_AUTHORITY)
+                        // R7: thao tác vận hành push/event chờ chỉ cho ADMIN. Đặt dưới /api/v1/notifications để Gateway
+                        // đưa về Notification sẵn có, không để route /api/v1/admin/** của Loan nuốt mất.
+                        .requestMatchers("/api/v1/notifications/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth -> oauth
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(converter))
