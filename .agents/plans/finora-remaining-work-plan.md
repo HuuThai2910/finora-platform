@@ -510,6 +510,8 @@ Trạng thái Wave 3 ([`W3C`](W3C-pades-contract-signing.md), Hải review phầ
 hợp đồng mới ký PAdES-B-B nối tiếp, bản SIGNABLE là tiền tố byte của bản ký đủ, biên nhận riêng (D45–D49, B45–B49),
 Loan V32. Loan 283 unit + 19 IT xanh; pyHanko 0.25.1 xác nhận ba chữ ký hợp lệ đúng thuộc tính PAdES-B-B. Còn lại: ký
 SmartCA UAT thật (cần người duyệt trên app, W3C §13), kiểm bằng Acrobat; chứng thư MOCK/UAT không có giá trị pháp lý.
+E2E `w3cdf-installment-20261017-192843` (91/91): hai chữ ký nhúng, bản SIGNABLE là tiền tố byte của bản ký đủ (52.127 → 120.391 byte), biên nhận
+giống nhau ở hai phía và được neo qua `pdfReceiptHash` (D75).
 
 ### Acceptance nếu chọn PAdES
 
@@ -548,7 +550,8 @@ Trạng thái Wave 3 ([`W3D`](W3D-fabric-proofs.md)): mạng Fabric local thật
 proof và worker đối soát (D50–D54, B50–B54). Blockchain 49 unit + 11 IT xanh; chạy thật: bốn mốc ghi lên block 4–7,
 Org2 đọc độc lập cùng hash, hash giả cùng id bị từ chối, sửa hash trong PostgreSQL bị phát hiện `MISMATCHED`, drill
 dừng `peer0.org2` giữ `PENDING` rồi ghi đúng một lần khi peer quay lại. Mặc định vẫn MOCK; harness kiểm proof qua API
-cho cả hai ledger. Còn lại: trang explorer web, chứng cứ pháp lý `NEEDS_LEGAL_REVIEW`, Fabric CA và nhiều orderer cho
+cho cả hai ledger: E2E `w3cdf-installment-20261017-192843` (ledger MOCK) có đủ bốn proof `CONFIRMED`, hash tính lại từ `data` của event Kafka nguồn
+`MATCHED`, artifact bị sửa `MISMATCHED`. Lượt `-WithFabric` chạy ở hồi quy cuối Wave 3. Còn lại: trang explorer web, chứng cứ pháp lý `NEEDS_LEGAL_REVIEW`, Fabric CA và nhiều orderer cho
 production.
 
 ### Acceptance
@@ -574,7 +577,8 @@ preference, provider push/SMS/email đầy đủ và bounded retry/DLT cho mọi
 
 Trạng thái Wave 3 ([`W3F`](W3F-notifications-expo-push.md), Hải review trước merge): Notification xử lý mọi event
 Loan/Investment/Payment hiện có và event rút tiền, Expo Push (D60–D64, B60–B64; B24 đã sửa), Notification V2–V4.
-134 unit + 18 IT xanh; mobile đăng ký thiết bị và màn "Cài đặt thông báo". Còn lại: push trên máy thật (cần EAS
+134 unit + 18 IT xanh; mobile đăng ký thiết bị và màn "Cài đặt thông báo". E2E `w3cdf-installment-20261017-192843`: người vay nhận đủ sáu loại
+thông báo theo mốc, nhà đầu tư bốn loại, không trùng; push của thiết bị giả lập `SENT` qua `LOG_MOCK` ở năm nhóm. Còn lại: push trên máy thật (cần EAS
 projectId và development build), producer bổ sung `borrowerId`/event giữ khoản trả kỳ (P1–P7), mã hóa token khi lưu (R8B).
 
 ## 13. R8 — Security, privacy và audit

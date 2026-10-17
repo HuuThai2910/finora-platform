@@ -70,6 +70,23 @@ $FineractUser = Get-Setting 'FINERACT_API_USERNAME'
 $FineractPassword = Get-Setting 'FINERACT_API_PASSWORD'
 $FineractTenant = Get-Setting 'FINERACT_TENANT_ID' 'default'
 
+# R6/W3D: launcher ghi ledger của Blockchain vào state (`mock` hoặc `fabric` khi bật -WithFabric). Evidence và check proof
+# theo đúng ledger đang chạy: receipt MOCK không bao giờ được ghi là bằng chứng on-chain.
+$ProofLedger = 'mock'
+$launcherStatePath = Join-Path $PSScriptRoot 'out\services.json'
+if (Test-Path -LiteralPath $launcherStatePath) {
+    $blockchainEntry = @((Get-Content -Raw -Encoding UTF8 -LiteralPath $launcherStatePath | ConvertFrom-Json).processes |
+        Where-Object { $_.name -eq 'blockchain' }) | Select-Object -First 1
+    if ($blockchainEntry -and [string]$blockchainEntry.ledger -eq 'fabric') { $ProofLedger = 'fabric' }
+}
+# Event nguồn của từng mốc proof: auditor lấy `data` của đúng event này để tính lại hash (D52).
+$ProofSourceTopics = @{
+    LoanContractActivated = 'finora.loan.contract-activated'
+    LoanDisbursed = 'finora.loan.disbursed'
+    RepaymentDistributed = 'finora.payment.repayment-distributed'
+    NoteOwnershipChanged = 'finora.investment.note-ownership-changed'
+}
+
 $null = Initialize-E2EContext -RunId $RunId -OutDir $OutDir
 Set-E2EEvidence 'environment' ([ordered]@{
     gateway = $GatewayUrl; loan = $LoanUrl; payment = $PaymentUrl; investment = $InvestmentUrl
@@ -78,11 +95,11 @@ Set-E2EEvidence 'environment' ([ordered]@{
         user = 'container finora-user (build từ source hiện hành)'
         ai = 'container finora-ai v17'
         cic = (Get-Setting 'CIC_SERVICE_URL' 'https://cic-service-node.vercel.app')
-        signature = 'MOCK + CLICK_WRAP_MVP (không phải SmartCA/PAdES)'
+        signature = 'MOCK + CLICK_WRAP_MVP, PDF ký PAdES-B-B bằng chứng thư demo (không phải SmartCA, không có giá trị pháp lý)'
         topUp = 'mock provider (tiền giả, không phải ZaloPay)'
         disbursement = 'mock provider (không chuyển tiền ra ngoài)'
         fineract = 'Fineract 1.15 local thật'
-        blockchain = 'MOCK proof ledger (không phải Fabric)'
+        blockchain = $(if ($ProofLedger -eq 'fabric') { 'Hyperledger Fabric local thật (-WithFabric: Org1 ghi, Org2 kiểm, 1 orderer)' } else { 'MOCK proof ledger (không phải Fabric)' })
         borrowerKyc = $(if ($KycGate) { 'Adapter User thật: Loan chuyển tiếp token người vay tới /api/v1/users/me/kyc-summary' } else { 'Loan borrower profile mock VERIFIED/30 tuổi (FINORA_BORROWER_PROFILE_PROVIDER=mock; luồng đầy đủ không dùng ảnh CCCD giả)' })
         investorEkyc = 'INVESTMENT_REQUIRE_EKYC=false chỉ trong stack E2E'
     }
@@ -972,7 +989,10 @@ function Sign-Contract {
         })
     Assert-E2EStatus -Response $borrowerSign -Expected 200 -Step 'Borrower ký hợp đồng'
     Add-E2ECheck -Name 'contract.effective' -Passed ((Field $borrowerSign.Json 'status') -eq 'EFFECTIVE') -Detail "status=$(Field $borrowerSign.Json 'status')"
+    # Một nhà đầu tư + người vay: hai chữ ký nhúng.
+    $pades = Invoke-PadesChecks -Borrower $Borrower -Investor $Investor -ContractNumber $contractNumber -SignablePdf $borrowerPdf.Bytes -ExpectedSignatures 2
     Set-E2EEvidence 'contract' ([ordered]@{
+        pades = $pades
         contractNumber = $contractNumber; documentHash = $signBody.documentHash; pdfHash = $borrowerPdfHash
         signatureMethod = $signBody.signatureMethod; lenderPartyStatus = (Field $lenderSign.Json 'partyStatus')
         borrowerSignatureEvidenceHash = (Field $borrowerSign.Json 'signatureEvidenceHash'); statusAfterBorrower = (Field $borrowerSign.Json 'status')
@@ -980,6 +1000,58 @@ function Sign-Contract {
         expectedDisbursementDate = [string](Field $borrowerView 'expectedDisbursementDate')
     })
     return $contractNumber
+}
+
+function Invoke-PadesChecks {
+    <#
+      R5/W3C (D45–D49): hợp đồng mới ký PAdES-B-B nối tiếp bằng chứng thư demo MOCK (không có giá trị pháp lý). Sau chữ ký
+      cuối, /document trả bản ký đủ, mỗi bên một chữ ký nhúng; bản SIGNABLE các bên đã đọc phải là tiền tố byte của bản ký
+      (incremental update không sửa bytes đã ký); biên nhận là PDF riêng ở /receipt, hai phía nhận cùng một bản.
+    #>
+    param($Borrower, $Investor, [string]$ContractNumber, [byte[]]$SignablePdf, [int]$ExpectedSignatures)
+    $detail = Wait-Step -Description 'Bản PAdES ký đủ và biên nhận' -TimeoutSeconds 60 -Probe {
+        $response = Invoke-E2EHttp -Method GET -Uri "$LoanUrl/api/v1/loan-contracts/$ContractNumber" -Token $Borrower.Token
+        $signatures = [int](Field $response.Json 'signedPdfDocument.signatureCount')
+        if ($signatures -ge $ExpectedSignatures -and (Field $response.Json 'receiptDocument.contentHash')) { return @{ Done = $true; Value = $response.Json } }
+        return @{ State = "profile=$(Field $response.Json 'signatureProfile') signatures=$signatures" }
+    }
+    $count = [int](Field $detail 'signedPdfDocument.signatureCount')
+    Add-E2ECheck -Name 'contract.pades-signature-count' `
+        -Passed ((Field $detail 'signatureProfile') -eq 'PADES_B_B' -and $count -eq $ExpectedSignatures) `
+        -Detail "profile=$(Field $detail 'signatureProfile') format=$(Field $detail 'signedPdfDocument.signatureFormat') signatures=$count"
+
+    $signed = Invoke-E2EHttp -Method GET -Uri "$LoanUrl/api/v1/loan-contracts/$ContractNumber/document" -Token $Borrower.Token -Binary
+    Assert-E2EStatus -Response $signed -Expected 200 -Step 'Borrower tải bản ký đủ'
+    $signedHash = Get-E2ESha256Hex -Bytes $signed.Bytes
+    # Mỗi chữ ký nhúng có một từ điển /ByteRange; đọc bytes theo Latin-1 để đếm không lệch vị trí.
+    $byteRanges = [regex]::Matches([System.Text.Encoding]::GetEncoding(28591).GetString($signed.Bytes), '/ByteRange\s*\[').Count
+    $prefix = $false
+    if ($signed.Bytes.Length -gt $SignablePdf.Length) {
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $prefixHash = [BitConverter]::ToString($sha.ComputeHash($signed.Bytes, 0, $SignablePdf.Length)).Replace('-', '')
+        } finally {
+            $sha.Dispose()
+        }
+        $prefix = ($prefixHash -eq (Get-E2ESha256Hex -Bytes $SignablePdf))
+    }
+    $signedOk = $signedHash -eq (Field $detail 'signedPdfDocument.contentHash') -and $byteRanges -eq $ExpectedSignatures -and $prefix
+    Add-E2ECheck -Name 'contract.signed-pdf-incremental' -Passed $signedOk `
+        -Detail "byteRanges=$byteRanges signablePrefix=$prefix bytes=$($SignablePdf.Length)->$($signed.Bytes.Length)"
+
+    $receipt = Invoke-E2EHttp -Method GET -Uri "$LoanUrl/api/v1/loan-contracts/$ContractNumber/receipt" -Token $Borrower.Token -Binary
+    $investorReceipt = Invoke-E2EHttp -Method GET -Uri "$LoanUrl/api/v1/investor/loan-contracts/$ContractNumber/receipt" -Token $Investor.Token -Binary
+    $investorView = Invoke-E2EHttp -Method GET -Uri "$LoanUrl/api/v1/investor/loan-contracts/$ContractNumber" -Token $Investor.Token
+    $receiptHash = if ($receipt.Status -eq 200) { Get-E2ESha256Hex -Bytes $receipt.Bytes } else { '' }
+    $investorReceiptHash = if ($investorReceipt.Status -eq 200) { Get-E2ESha256Hex -Bytes $investorReceipt.Bytes } else { '' }
+    $receiptOk = $receiptHash -and $receiptHash -eq (Field $detail 'receiptDocument.contentHash') -and $investorReceiptHash -eq $receiptHash
+    $investorOk = [int](Field $investorView.Json 'pdfSignatureCount') -eq $ExpectedSignatures -and (Field $investorView.Json 'signedPdfDocumentHash') -eq $signedHash -and (Field $investorView.Json 'receiptDocumentHash') -eq $receiptHash
+    Add-E2ECheck -Name 'contract.pades-receipt' -Passed ($receiptOk -and $investorOk) `
+        -Detail "borrower=HTTP $($receipt.Status) investor=HTTP $($investorReceipt.Status) investorSignatures=$(Field $investorView.Json 'pdfSignatureCount')"
+    return [ordered]@{
+        signatureProfile = (Field $detail 'signatureProfile'); signatureCount = $count; signedPdfHash = $signedHash
+        signablePdfHash = (Get-E2ESha256Hex -Bytes $SignablePdf); receiptHash = $receiptHash
+    }
 }
 
 function Wait-Disbursement {
@@ -1408,6 +1480,185 @@ function Invoke-WithdrawalChecks {
         completed = $withdrawalId; failed = [string](Field $failed.Json 'withdrawalId')
         availableBefore = $before.Available; availableAfter = $afterRefund.Available
     })
+}
+
+function Invoke-ProofChecks {
+    <#
+      R6/W3D (D50–D54): mỗi mốc của khoản vay có đúng một proof CONFIRMED, tra qua API quản trị theo loanApplicationId; hash
+      tính lại từ `data` của event Kafka nguồn khớp hash đã neo; artifact bị sửa thì MISMATCHED. Ledger MOCK có receipt
+      `MOCK_NOT_ON_CHAIN`; với -WithFabric phải là `FABRIC_ON_CHAIN`, transaction 64 hex và đối chiếu chain MATCHED.
+    #>
+    param($Admin, $Application, [string]$RepaymentId)
+    Write-E2EStep "Proof blockchain qua API quản trị (ledger $ProofLedger)"
+    $loanApplicationId = [string](Field $Application 'id')
+    $expected = @('CONTRACT_DOCUMENT', 'DISBURSEMENT', 'NOTE_OWNERSHIP')
+    if ($RepaymentId) { $expected += 'REPAYMENT' }
+    try {
+        $proofs = Wait-Step -Description 'Proof các mốc CONFIRMED' -TimeoutSeconds 120 -Probe {
+            $response = Invoke-E2EHttp -Method GET -Token $Admin.Token `
+                -Uri "$GatewayUrl/api/v1/blockchain/proofs?referenceType=LOAN_APPLICATION&referenceId=$loanApplicationId&size=50"
+            if ($response.Status -ne 200) { return @{ State = "HTTP $($response.Status) $(Get-E2EErrorCode $response)" } }
+            $items = @(Field $response.Json 'content')
+            $confirmed = @($items | Where-Object { (Field $_ 'status') -eq 'CONFIRMED' } | ForEach-Object { [string](Field $_ 'proofType') } | Select-Object -Unique)
+            $missing = @($expected | Where-Object { $confirmed -notcontains $_ })
+            if ($missing.Count -eq 0) { return @{ Done = $true; Value = $items } }
+            return @{ State = "confirmed=$($confirmed -join ',') missing=$($missing -join ',')" }
+        }
+    } catch {
+        Add-E2ECheck -Name 'proof.milestones-confirmed' -Passed $false -Detail $_.Exception.Message
+        return
+    }
+    $proofs = @($proofs)
+    # Một mốc (loại + aggregate) chỉ có một proof logic dù event giao trùng hay phát lại với eventId mới (B53).
+    $keys = @($proofs | ForEach-Object { "$(Field $_ 'proofType')/$(Field $_ 'aggregateType')/$(Field $_ 'aggregateId')" })
+    $duplicates = @($keys | Group-Object | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name })
+    $notConfirmed = @($proofs | Where-Object { (Field $_ 'status') -ne 'CONFIRMED' } | ForEach-Object { "$(Field $_ 'proofType'):$(Field $_ 'status')" })
+    Add-E2ECheck -Name 'proof.milestones-confirmed' -Passed ($duplicates.Count -eq 0 -and $notConfirmed.Count -eq 0) `
+        -Detail "proofs=$($proofs.Count) types=$((@($proofs | ForEach-Object { [string](Field $_ 'proofType') }) | Sort-Object) -join ',') duplicates=$($duplicates -join ',') pending=$($notConfirmed -join ',')"
+
+    $receiptProblems = @()
+    foreach ($proof in $proofs) {
+        $kind = [string](Field $proof 'receipt.kind')
+        $onChain = [bool](Field $proof 'receipt.onChain')
+        $transaction = [string](Field $proof 'receipt.transactionId')
+        $ok = if ($ProofLedger -eq 'fabric') { $kind -eq 'FABRIC_ON_CHAIN' -and $onChain -and $transaction -match '^[0-9a-f]{64}$' } else { $kind -eq 'MOCK_NOT_ON_CHAIN' -and -not $onChain }
+        if (-not $ok) { $receiptProblems += "$(Field $proof 'proofType'):$kind" }
+    }
+    Add-E2ECheck -Name 'proof.receipt-matches-ledger' -Passed ($receiptProblems.Count -eq 0) `
+        -Detail "ledger=$ProofLedger kinds=$((@($proofs | ForEach-Object { [string](Field $_ 'receipt.kind') }) | Select-Object -Unique) -join ',') problems=$($receiptProblems -join ',')"
+
+    $expectedChain = if ($ProofLedger -eq 'fabric') { 'MATCHED' } else { 'NOT_ON_CHAIN_MOCK' }
+    # Đọc mỗi topic nguồn một lần (consumer console đọc từ đầu topic, mỗi lần vài giây).
+    $recordsByEvent = @{}
+    foreach ($group in @($proofs | Group-Object { [string]$ProofSourceTopics[[string](Field $_ 'source.eventType')] })) {
+        if (-not $group.Name) { continue }
+        $ids = @($group.Group | ForEach-Object { [string](Field $_ 'source.eventId') } | Where-Object { $_ })
+        foreach ($record in @(Get-E2EKafkaRecords -Container $KafkaContainer -Topic $group.Name -Contains $ids)) {
+            $id = [string]$record.EventId
+            if ($id -and -not $recordsByEvent.ContainsKey($id)) { $recordsByEvent[$id] = $record }
+        }
+    }
+    $results = @()
+    $artifactOk = $true
+    $tamper = $null
+    $anchoredReceipt = ''
+    foreach ($proof in $proofs) {
+        $type = [string](Field $proof 'proofType')
+        $eventId = [string](Field $proof 'source.eventId')
+        $record = if ($eventId) { $recordsByEvent[$eventId] } else { $null }
+        $data = if ($null -ne $record) { Field $record.Json 'data' } else { $null }
+        if ($null -eq $data) { $results += "${type}:no-source-event"; $artifactOk = $false; continue }
+        $verify = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/blockchain/proofs/$(Field $proof 'proofId')/verify" -Token $Admin.Token -Body @{ artifact = $data }
+        $artifact = [string](Field $verify.Json 'artifact.result')
+        $chain = [string](Field $verify.Json 'chain.result')
+        $results += "${type}:$artifact/$chain"
+        if ($verify.Status -ne 200 -or $artifact -ne 'MATCHED' -or $chain -ne $expectedChain) { $artifactOk = $false }
+        if ($type -eq 'CONTRACT_DOCUMENT') {
+            # Event neo hash biên nhận; biên nhận PADES_RECEIPT_V1 ghi SHA-256 của bản ký đủ, nên chuỗi proof → biên nhận →
+            # PDF ký đủ kiểm được mà không cần thêm field vào LoanContractActivated.v1.
+            $anchoredReceipt = [string](Field $data 'pdfReceiptHash')
+        }
+        if ($null -eq $tamper -and $type -eq 'CONTRACT_DOCUMENT') {
+            # Bản sao có thêm một field: hash chuẩn hóa phải đổi, nếu không thì phép kiểm artifact không có tác dụng.
+            $forged = ConvertFrom-Json -InputObject (ConvertTo-Json -InputObject $data -Depth 20 -Compress)
+            $forged | Add-Member -NotePropertyName 'e2eTampered' -NotePropertyValue 1
+            $tamper = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/blockchain/proofs/$(Field $proof 'proofId')/verify" -Token $Admin.Token -Body @{ artifact = $forged }
+        }
+    }
+    Add-E2ECheck -Name 'proof.artifact-recomputed' -Passed $artifactOk -Detail "expectedChain=$expectedChain $($results -join ' ')"
+    $contractEvidence = (Get-E2EContext).Evidence['contract']
+    $servedReceipt = if ($null -ne $contractEvidence -and $null -ne $contractEvidence['pades']) { [string]$contractEvidence['pades']['receiptHash'] } else { '' }
+    Add-E2ECheck -Name 'proof.contract-anchors-signed-receipt' -Passed ($anchoredReceipt -and $anchoredReceipt -eq $servedReceipt) `
+        -Detail "event.pdfReceiptHash=$(if ($anchoredReceipt) { $anchoredReceipt.Substring(0, [Math]::Min(16, $anchoredReceipt.Length)) } else { 'none' }) served=$(if ($servedReceipt) { $servedReceipt.Substring(0, 16) } else { 'none' })"
+    $tamperResult = if ($null -ne $tamper) { [string](Field $tamper.Json 'artifact.result') } else { 'not-run' }
+    Add-E2ECheck -Name 'proof.artifact-tamper-detected' -Passed ($tamperResult -eq 'MISMATCHED') -Detail "result=$tamperResult"
+    Set-E2EEvidence 'proofs' ([ordered]@{
+        ledger = $ProofLedger
+        items = @($proofs | ForEach-Object {
+            [ordered]@{
+                proofId = (Field $_ 'proofId'); proofType = (Field $_ 'proofType'); aggregate = "$(Field $_ 'aggregateType')/$(Field $_ 'aggregateId')"
+                status = (Field $_ 'status'); hash = (Field $_ 'hash.value'); hashVersion = (Field $_ 'hash.version')
+                receiptKind = (Field $_ 'receipt.kind'); transactionId = (Field $_ 'receipt.transactionId'); block = (Field $_ 'receipt.blockReference')
+                sourceEventId = (Field $_ 'source.eventId')
+            }
+        })
+    })
+}
+
+function Register-E2EPushDevice {
+    <#
+      R7/W3F: thiết bị giả lập của người vay để kiểm đường push. Stack E2E dùng provider `log` (giả lập, không gửi tới
+      Expo); token đúng định dạng Expo nhưng không thuộc máy thật nào.
+    #>
+    param($Actor)
+    $suffix = ($RunId -replace '[^A-Za-z0-9_-]', '')
+    $body = [ordered]@{ token = "ExponentPushToken[e2e-$suffix-$($Actor.UserId)]"; platform = 'ANDROID'; appVersion = 'e2e' }
+    $response = Invoke-E2EHttp -Method POST -Uri "$NotificationUrl/api/v1/notifications/devices" -Token $Actor.Token -Body $body
+    Add-E2ECheck -Name 'notification.push-device-registered' -Passed ($response.Status -in @(200, 201)) `
+        -Detail "HTTP $($response.Status) $(Get-E2EErrorCode $response)"
+}
+
+function Invoke-NotificationChecks {
+    <#
+      R7/W3F (D60–D64): người vay và nhà đầu tư nhận thông báo in-app theo từng mốc dù event Loan chưa mang borrowerId
+      (bảng tra dựng từ event gọi vốn); mỗi mốc đúng một bản; thiết bị đã đăng ký có lần gửi push qua provider giả lập
+      `LOG_MOCK` (không phải push thật). Nhóm WALLET được gửi cả trong giờ nghỉ 22:00–07:00 nên luôn kiểm được.
+    #>
+    param($Borrower, $Investor, $Admin, [bool]$WithRepayment, [bool]$WithWithdrawal)
+    Write-E2EStep 'Thông báo theo domain event và push giả lập (W3F)'
+    $borrowerTypes = @('BORROWER_SIGNATURE_REQUESTED', 'CONTRACT_ACTIVATED', 'LOAN_DISBURSED')
+    $investorTypes = @('INVESTOR_SIGNATURE_REQUESTED', 'INVESTOR_CONTRACT_ACTIVATED', 'NOTES_ISSUED')
+    if ($WithRepayment) { $borrowerTypes += 'REPAYMENT_RECORDED'; $investorTypes += 'REPAYMENT_CREDITED' }
+    if ($WithWithdrawal) { $borrowerTypes += @('WITHDRAWAL_COMPLETED', 'WITHDRAWAL_FAILED') }
+    foreach ($spec in @(@{ Actor = $Borrower; Label = 'borrower'; Types = $borrowerTypes }, @{ Actor = $Investor; Label = 'investor'; Types = $investorTypes })) {
+        $actor = $spec.Actor
+        $types = $spec.Types
+        try {
+            $items = Wait-Step -Description "Thông báo $($spec.Label) theo mốc" -TimeoutSeconds 90 -Probe {
+                $response = Invoke-E2EHttp -Method GET -Uri "$NotificationUrl/api/v1/notifications?limit=100" -Token $actor.Token
+                $seen = @(@($response.Json) | ForEach-Object { [string](Field $_ 'type') })
+                $missing = @($types | Where-Object { $seen -notcontains $_ })
+                if ($missing.Count -eq 0) { return @{ Done = $true; Value = @($response.Json) } }
+                return @{ State = "missing=$($missing -join ',')" }
+            }
+            $keys = @(@($items) | ForEach-Object { "$(Field $_ 'type')/$(Field $_ 'businessReference')" })
+            $duplicates = @($keys | Group-Object | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name })
+            Add-E2ECheck -Name "notification.$($spec.Label)-lifecycle" -Passed ($duplicates.Count -eq 0) `
+                -Detail "types=$(($types | Sort-Object) -join ',') total=$(@($items).Count) duplicates=$($duplicates -join ',')"
+        } catch {
+            Add-E2ECheck -Name "notification.$($spec.Label)-lifecycle" -Passed $false -Detail $_.Exception.Message
+        }
+    }
+
+    # Lần gửi push của thiết bị người vay: admin đọc theo trạng thái. Nhóm WALLET (rút tiền) không bị giờ nghỉ giữ lại.
+    $collect = {
+        $found = @()
+        foreach ($status in @('CONFIRMED', 'SENT', 'PENDING', 'FAILED', 'DEAD')) {
+            $page = Invoke-E2EHttp -Method GET -Uri "$NotificationUrl/api/v1/notifications/admin/push-deliveries?status=$status&size=100" -Token $Admin.Token
+            if ($page.Status -ne 200) { throw "push-deliveries status=$status HTTP $($page.Status) $(Get-E2EErrorCode $page)" }
+            $found += @(@(Field $page.Json 'content') | Where-Object { [string](Field $_ 'recipientId') -eq [string]$Borrower.UserId })
+        }
+        return $found
+    }
+    try {
+        $deliveries = Wait-Step -Description 'Push giả lập của người vay đã gửi' -TimeoutSeconds 90 -Probe {
+            $found = & $collect
+            $sent = @($found | Where-Object { @('SENT', 'CONFIRMED') -contains [string](Field $_ 'status') })
+            $walletSent = @($sent | Where-Object { [string](Field $_ 'category') -eq 'WALLET' })
+            if (-not $WithWithdrawal -and $sent.Count -gt 0) { return @{ Done = $true; Value = $found } }
+            if ($walletSent.Count -gt 0) { return @{ Done = $true; Value = $found } }
+            return @{ State = "deliveries=$($found.Count) sent=$($sent.Count) wallet=$($walletSent.Count)" }
+        }
+        $deliveries = @($deliveries)
+        $sent = @($deliveries | Where-Object { @('SENT', 'CONFIRMED') -contains [string](Field $_ 'status') })
+        $notMock = @($sent | Where-Object { [string](Field $_ 'provider') -ne 'LOG_MOCK' })
+        $failed = @($deliveries | Where-Object { @('FAILED', 'DEAD') -contains [string](Field $_ 'status') })
+        $summary = ($deliveries | Group-Object { "$(Field $_ 'category'):$(Field $_ 'status')" } | ForEach-Object { "$($_.Name)x$($_.Count)" }) -join ','
+        Add-E2ECheck -Name 'notification.push-mock-delivery' -Passed ($sent.Count -gt 0 -and $notMock.Count -eq 0 -and $failed.Count -eq 0) `
+            -Detail "deliveries=$summary providers=$((@($sent | ForEach-Object { [string](Field $_ 'provider') }) | Select-Object -Unique) -join ',')"
+    } catch {
+        Add-E2ECheck -Name 'notification.push-mock-delivery' -Passed $false -Detail $_.Exception.Message
+    }
 }
 
 function Collect-KafkaEvidence {
@@ -2036,6 +2287,8 @@ try {
         investor = [ordered]@{ email = $investor.Email; userId = $investor.UserId; roles = $investor.Roles }
     })
 
+    # R7/W3F: thiết bị push giả lập của người vay đăng ký trước luồng để mọi mốc sau đều có lần gửi push.
+    Register-E2EPushDevice -Actor $borrower
     $product = Initialize-E2EProduct -Admin $admin
     if ($KycGate) {
         Invoke-KycGateCheck -Borrower $borrower -Product $product
@@ -2072,6 +2325,10 @@ try {
         Invoke-AccessControlChecks -Borrower $borrower -Investor $investor -Admin $admin -Application $application `
             -ContractNumber $contractNumber -Loan $loan -Order $order -RepaymentId $repaymentId
         $null = Collect-KafkaEvidence -Application $application -ContractNumber $contractNumber -RepaymentId $repaymentId
+        Invoke-ProofChecks -Admin $admin -Application $application -RepaymentId $repaymentId
+        $withWithdrawal = (-not $SkipRepayment) -and $Servicing -eq 'Installment' -and -not $FaultDrill
+        Invoke-NotificationChecks -Borrower $borrower -Investor $investor -Admin $admin `
+            -WithRepayment ([bool]$repaymentId) -WithWithdrawal $withWithdrawal
         if ($Drills -and $repaymentId) {
             Invoke-DuplicateDrills -Investor $investor -Application $application -ContractNumber $contractNumber -RepaymentId $repaymentId
         }

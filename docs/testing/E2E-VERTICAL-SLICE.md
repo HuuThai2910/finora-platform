@@ -194,6 +194,9 @@ không chứng minh hành vi của một provider thật.
 | `proof.artifact-recomputed` | Gửi `data` của event Kafka nguồn: hash tính lại `MATCHED`; chain `NOT_ON_CHAIN_MOCK` (MOCK) hoặc `MATCHED` (Fabric) |
 | `proof.artifact-tamper-detected` | Artifact thêm một field thì `MISMATCHED` |
 | `proof.contract-anchors-signed-receipt` | `pdfReceiptHash` trong event được neo bằng hash biên nhận đang phục vụ (D75) |
+| `notification.push-device-registered` | Người vay đăng ký một thiết bị Expo giả lập (token đúng định dạng, không thuộc máy thật) |
+| `notification.borrower-lifecycle`, `notification.investor-lifecycle` | Mỗi bên nhận thông báo in-app của từng mốc (ký, hiệu lực, giải ngân/Note, trả nợ, rút tiền thành công/thất bại), không mốc nào hai bản |
+| `notification.push-mock-delivery` | Thiết bị của người vay có lần gửi push `SENT`/`CONFIRMED` qua provider giả lập `LOG_MOCK`, không lần nào `FAILED`/`DEAD`; nhóm `WALLET` gửi cả trong giờ nghỉ nên luôn kiểm được |
 
 Chạy với Fabric thật (R6): thêm `-WithFabric` vào lệnh `Start` của launcher. Launcher kiểm RAM Docker (≥ 768 MiB trống),
 dựng mạng `docker/fabric-network` (idempotent), trỏ Blockchain sang `HYPERLEDGER_FABRIC` và nâng heap lên 256m; mạng tốn
