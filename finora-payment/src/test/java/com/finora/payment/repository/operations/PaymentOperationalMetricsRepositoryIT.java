@@ -6,6 +6,7 @@ import com.finora.common.observability.OperationalMetricsProperties;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
@@ -55,6 +56,8 @@ class PaymentOperationalMetricsRepositoryIT {
         jdbc.update("DELETE FROM payment_outbox_events");
         jdbc.update("DELETE FROM payment_disbursements");
         jdbc.update("DELETE FROM payment_repayments");
+        jdbc.update("DELETE FROM payment_withdrawals");
+        jdbc.update("DELETE FROM payment_wallets");
     }
 
     @Test
@@ -67,6 +70,12 @@ class PaymentOperationalMetricsRepositoryIT {
         disbursement("COMPLETED");
         repayment("RECONCILIATION_REQUIRED");
         repayment("COMPLETED");
+        // W3B: lệnh rút chờ đối soát đếm cả lệnh còn lượt tra cứu tự động lẫn lệnh đã hết lượt chờ vận hành.
+        UUID wallet = wallet();
+        withdrawal(wallet, "RECONCILIATION_REQUIRED", true);
+        withdrawal(wallet, "RECONCILIATION_REQUIRED", false);
+        withdrawal(wallet, "PROVIDER_PENDING", true);
+        withdrawal(wallet, "COMPLETED", false);
         PaymentOperationalMetricsRepository repository = repository(10_000);
 
         assertThat(repository.pendingOutboxEvents()).isEqualTo(1);
@@ -75,6 +84,8 @@ class PaymentOperationalMetricsRepositoryIT {
         assertThat(repository.disbursementsReconciliationRequired()).isEqualTo(1);
         assertThat(repository.repaymentsReconciliationRequired()).isEqualTo(1);
         assertThat(repository.topUpsReconciliationRequired()).isZero();
+        assertThat(repository.withdrawalsReconciliationRequired()).isEqualTo(2);
+        assertThat(repository(1).withdrawalsReconciliationRequired()).isEqualTo(1);
     }
 
     @Test
@@ -134,6 +145,28 @@ class PaymentOperationalMetricsRepositoryIT {
                     borrower_id, amount, currency, status, provider, attempt_count, created_at, updated_at)
                 VALUES (gen_random_uuid(), ?, ?, 1, 'borrower-1', 1000000, 'VND', ?, 'mock', 1, now(), now())
                 """, id, "LC-OPS-" + id, status);
+    }
+
+    private UUID wallet() {
+        UUID walletId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO payment_wallets (wallet_id, owner_type, owner_id, currency, status, created_at, updated_at)
+                VALUES (?, 'INVESTOR', ?, 'VND', 'ACTIVE', now(), now())
+                """, walletId, "investor-ops-" + SEQUENCE.getAndIncrement());
+        return walletId;
+    }
+
+    private void withdrawal(UUID walletId, String status, boolean automaticRetryPending) {
+        long id = SEQUENCE.getAndIncrement();
+        jdbc.update("""
+                INSERT INTO payment_withdrawals (withdrawal_id, wallet_id, owner_type, owner_id, amount, fee_amount,
+                    currency, business_date, status, bank_code, account_number_encrypted, account_number_masked,
+                    account_holder_name, idempotency_key, request_hash, provider, reserve_ledger_transaction_id,
+                    next_attempt_at, completed_at, created_at, updated_at)
+                VALUES (gen_random_uuid(), ?, 'INVESTOR', 'investor-ops', 500000, 0, 'VND', current_date, ?, 'VCB',
+                    'v1:test', '******6789', 'NGUOI NHAN', ?, ?, 'mock', gen_random_uuid(),
+                    CASE WHEN ? THEN now() END, CASE WHEN ?::varchar = 'COMPLETED' THEN now() END, now(), now())
+                """, walletId, status, "withdraw-ops-" + id, "e".repeat(64), automaticRetryPending, status);
     }
 
     private void repayment(String status) {

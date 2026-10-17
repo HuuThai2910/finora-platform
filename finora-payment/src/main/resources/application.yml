@@ -138,6 +138,12 @@ finora:
     repayment-collected-topic: ${PAYMENT_REPAYMENT_COLLECTED_TOPIC:finora.payment.repayment-collected}
     repayment-cancelled-topic: ${PAYMENT_REPAYMENT_CANCELLED_TOPIC:finora.payment.repayment-cancelled}
     servicing-group: ${PAYMENT_SERVICING_GROUP:payment-servicing}
+    kafka:
+      # B58 (D79): consumer lỗi hạ tầng thử lại lùi dần rồi vào <topic>.payment.DLT; contract sai vào DLT ngay.
+      dead-letter-suffix: ${PAYMENT_KAFKA_DLT_SUFFIX:.payment.DLT}
+      retry-initial-interval: ${PAYMENT_KAFKA_RETRY_INITIAL_INTERVAL:1s}
+      retry-max-interval: ${PAYMENT_KAFKA_RETRY_MAX_INTERVAL:30s}
+      retry-max-elapsed: ${PAYMENT_KAFKA_RETRY_MAX_ELAPSED:3m}
     repayment-worker-delay: ${PAYMENT_REPAYMENT_WORKER_DELAY:3000}
     reconciliation-worker-delay: ${PAYMENT_RECONCILIATION_WORKER_DELAY:30000}
     core-posting-stale-after: ${PAYMENT_CORE_POSTING_STALE_AFTER:1m}
