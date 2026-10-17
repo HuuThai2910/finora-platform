@@ -82,6 +82,18 @@ transaction, docId và giá trị chữ ký đã nhận.
 - Contract chỉ `SIGNED` sau khi VNPT trả chữ ký cho đúng tài liệu.
 - Maven verify, migration PostgreSQL và TypeScript type-check đạt; live UAT được ghi riêng, không trộn với test tự động.
 
+## 6a. Cập nhật 2026-10-17 — PAdES-B-B (R5, W3C)
+
+Thay thế giới hạn "chỉ lưu detached evidence" ở mục 1–3 cho hợp đồng nhiều bên mới
+([W3C](../../.agents/plans/W3C-pades-contract-signing.md), D13, D45–D49):
+
+- Đặc tả VNPT (SP 769 bản 2.0, tài liệu tích hợp 4.1) xác nhận `get_certificate` trả `cert_data` là chứng thư DER
+  base64 và `chain_data`; adapter nay đọc, kiểm serial/thời hạn/khóa RSA/`cert_status` (B46).
+- Provider ký hex SHA-256 của DER signed attributes (`sign_type = hash`), không còn ký hash của cả tệp (B45). Loan
+  dựng CMS SignedData bằng BouncyCastle, kiểm chữ ký bằng khóa công khai trước khi nhúng vào PDF; không cần SDK HashSigner.
+- Worker phía server hỏi status và đóng phiên quá 10 phút (B47); transaction ID có số lần thử nên luôn duy nhất.
+- Hợp đồng lập trước V32 vẫn dùng luồng ký hash PDF và evidence tách rời mô tả ở trên.
+
 ## 7. Kết quả kiểm tra 2026-09-21
 
 - `mvn -pl finora-loan -am test`: 83 test đạt.
