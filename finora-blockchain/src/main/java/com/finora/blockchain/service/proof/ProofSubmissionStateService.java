@@ -1,6 +1,8 @@
 package com.finora.blockchain.service.proof;
 
 import com.finora.blockchain.config.ProofSubmissionProperties;
+import com.finora.blockchain.domain.proof.ProofChainCheckStatus;
+import com.finora.blockchain.domain.proof.ProofProviderType;
 import com.finora.blockchain.domain.proof.ProofSubmission;
 import com.finora.blockchain.domain.proof.ProofSubmissionStatus;
 import com.finora.blockchain.integration.proof.ProofLedgerCommand;
@@ -25,10 +27,12 @@ public class ProofSubmissionStateService {
     private final ProofSubmissionProperties properties;
     private final Clock clock;
 
+    /** Chỉ proof đã đăng ký cho provider đang chạy; proof của provider khác chờ tới khi provider đó được bật (B50). */
     @Transactional(readOnly = true)
     public List<Long> dueIds() {
         Instant now = clock.instant();
         return repository.findDueIds(
+                properties.provider(),
                 ProofSubmissionStatus.PENDING,
                 ProofSubmissionStatus.PROCESSING,
                 now,
@@ -40,7 +44,7 @@ public class ProofSubmissionStateService {
     @Transactional
     public ClaimedProofSubmission claim(Long id) {
         ProofSubmission proof = repository.findByIdForUpdate(id).orElse(null);
-        if (proof == null) {
+        if (proof == null || proof.getProvider() != properties.provider()) {
             return null;
         }
         Instant now = clock.instant();
@@ -70,9 +74,10 @@ public class ProofSubmissionStateService {
         return new ClaimedProofSubmission(
                 proof.getId(),
                 token,
+                proof.getProvider(),
                 new ProofLedgerCommand(
                         proof.getProofId(), proof.getAggregateType(), proof.getAggregateId(), proof.getProofType(),
-                        proof.getPayloadHash(), proof.getPayloadVersion())
+                        proof.getPayloadHash(), proof.getPayloadVersion(), proof.getSourceService())
         );
     }
 
@@ -97,6 +102,22 @@ public class ProofSubmissionStateService {
                 claimToken, code, detail, retryable, properties.maxAttempts(),
                 now.plus(backoff(proof.getAttemptCount())), now);
         repository.saveAndFlush(proof);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Long> chainCheckDueIds() {
+        return repository.findChainCheckDueIds(
+                ProofSubmissionStatus.CONFIRMED,
+                ProofProviderType.HYPERLEDGER_FABRIC,
+                clock.instant().minus(properties.chainCheckInterval()),
+                PageRequest.of(0, properties.batchSize()));
+    }
+
+    /** Lưu kết quả đối chiếu gần nhất; trả false nếu proof không còn ở trạng thái đối chiếu được. */
+    @Transactional
+    public boolean recordChainCheck(Long id, ProofChainCheckStatus result) {
+        return repository.recordChainCheck(id, result, clock.instant(),
+                ProofSubmissionStatus.CONFIRMED, ProofProviderType.HYPERLEDGER_FABRIC) == 1;
     }
 
     private Duration backoff(int attemptCount) {

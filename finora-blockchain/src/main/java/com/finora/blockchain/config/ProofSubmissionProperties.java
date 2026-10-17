@@ -4,7 +4,11 @@ import com.finora.blockchain.domain.proof.ProofProviderType;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-/** Chính sách ghi proof; mặc định dùng mock và không tự chạy worker. */
+/**
+ * Chính sách ghi proof; mặc định dùng mock và không tự chạy worker.
+ *
+ * @param chainCheckInterval proof Fabric đã đối chiếu gần hơn khoảng này thì worker đối chiếu bỏ qua
+ */
 @ConfigurationProperties(prefix = "finora.blockchain.proof")
 public record ProofSubmissionProperties(
         ProofProviderType provider,
@@ -12,7 +16,8 @@ public record ProofSubmissionProperties(
         int maxAttempts,
         Duration retryBackoff,
         Duration maximumBackoff,
-        Duration processingLease
+        Duration processingLease,
+        Duration chainCheckInterval
 ) {
     public ProofSubmissionProperties {
         provider = provider == null ? ProofProviderType.MOCK : provider;
@@ -21,6 +26,7 @@ public record ProofSubmissionProperties(
         retryBackoff = retryBackoff == null ? Duration.ofSeconds(5) : retryBackoff;
         maximumBackoff = maximumBackoff == null ? Duration.ofMinutes(5) : maximumBackoff;
         processingLease = processingLease == null ? Duration.ofMinutes(2) : processingLease;
+        chainCheckInterval = chainCheckInterval == null ? Duration.ofHours(24) : chainCheckInterval;
         if (batchSize < 1 || batchSize > 1000) {
             throw new IllegalArgumentException("proof.batchSize phải từ 1 đến 1000");
         }
@@ -35,6 +41,9 @@ public record ProofSubmissionProperties(
         }
         if (processingLease.isZero() || processingLease.isNegative()) {
             throw new IllegalArgumentException("proof.processingLease phải dương");
+        }
+        if (chainCheckInterval.isZero() || chainCheckInterval.isNegative()) {
+            throw new IllegalArgumentException("proof.chainCheckInterval phải dương");
         }
     }
 }

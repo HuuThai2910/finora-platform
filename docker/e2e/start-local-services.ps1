@@ -29,6 +29,9 @@ param(
     # Đưa lưu lượng Payment → Fineract qua Toxiproxy (container finora-toxiproxy, profile e2e-faults) để harness tiêm lỗi
     # mạng (Q13). Lưu vào state: các lần chạy lại Payment sau đó tự giữ đường đi này.
     [switch]$WithToxiproxy,
+    # R6/W3D (D14, Q10): Blockchain ghi proof lên mạng Hyperledger Fabric local (docker/fabric-network, profile fabric)
+    # thay vì ledger MOCK. Kiểm RAM Docker trước khi bật; lưu vào state để các lần Restart blockchain giữ ledger Fabric.
+    [switch]$WithFabric,
     # Bỏ qua kiểm tra jar cũ hơn mã nguồn (B65). Chỉ dùng khi cố ý chạy lại bản build trước để so sánh hành vi.
     [switch]$AllowStaleJar,
     [int]$StartTimeoutSeconds = 300
@@ -319,6 +322,7 @@ function Assert-Infrastructure {
         }
     }
     if ($useToxiproxy) { Start-Toxiproxy }
+    if ($useFabric -and $Services -contains 'blockchain') { Start-FabricLedger }
     Write-Host "[OK] Hạ tầng Docker sẵn sàng (DB $Database)"
 }
 
@@ -402,6 +406,31 @@ function Start-Toxiproxy {
     Write-Host "[OK] Toxiproxy: Payment gọi Fineract qua cổng $toxiproxyFineractPort"
 }
 
+# Fabric (W3D): -WithFabric hoặc state cũ của blockchain ghi ledger=fabric khi Restart.
+$useFabric = [bool]$WithFabric
+if (-not $useFabric -and $Action -eq 'Restart') {
+    $recordedBlockchain = @((Read-State).processes | Where-Object { $_.name -eq 'blockchain' }) | Select-Object -First 1
+    if ($recordedBlockchain -and [string](Get-E2EField $recordedBlockchain 'ledger') -eq 'fabric') { $useFabric = $true }
+}
+
+function Start-FabricLedger {
+    <# Dựng mạng Fabric (idempotent, kiểm RAM) rồi trỏ Blockchain tới gateway peer0.org1; chỉ đọc đường dẫn file danh tính. #>
+    & (Join-Path $platformRoot 'docker\fabric-network\fabric-network.ps1') -Action Up -EnvFile $EnvFile
+    $client = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $platformRoot 'docker\fabric-network\build\client.json') | ConvertFrom-Json
+    $blockchainEnv = $catalog['blockchain'].Env
+    $blockchainEnv['BLOCKCHAIN_PROOF_PROVIDER'] = 'HYPERLEDGER_FABRIC'
+    $blockchainEnv['BLOCKCHAIN_PROOF_RECONCILIATION_ENABLED'] = 'true'
+    $blockchainEnv['FABRIC_PEER_ENDPOINT'] = $client.peerEndpoint
+    $blockchainEnv['FABRIC_MSP_ID'] = $client.mspId
+    $blockchainEnv['FABRIC_CHANNEL_NAME'] = $client.channelName
+    $blockchainEnv['FABRIC_CHAINCODE_NAME'] = $client.chaincodeName
+    $blockchainEnv['FABRIC_CERT_PATH'] = $client.certPath
+    $blockchainEnv['FABRIC_KEY_PATH'] = $client.keyPath
+    $blockchainEnv['FABRIC_TLS_CERT_PATH'] = $client.tlsCertPath
+    # gRPC/Netty của Fabric Gateway cần thêm bộ nhớ so với ledger MOCK.
+    $catalog['blockchain'].Heap = '256m'
+}
+
 function Resolve-RescheduleReasonId {
     <#
       Worker cơ cấu của Loan fail-closed khi thiếu reason code (`FINERACT_RESCHEDULE_REASON_ID`). Launcher tìm giá trị đang
@@ -476,6 +505,7 @@ function Start-FinoraService {
         clockOffset = (Get-ClockOffsetFor -Name $Name)
         database = $(if ($localDatabases.Contains($Name)) { $Database } else { '' })
         fineractVia = $(if ($Name -eq 'payment' -and $useToxiproxy) { 'toxiproxy' } else { '' })
+        ledger = $(if ($Name -eq 'blockchain') { if ($useFabric) { 'fabric' } else { 'mock' } } else { '' })
         startedAt = (Get-Date).ToUniversalTime().ToString('o')
     }
     Write-State -State $State

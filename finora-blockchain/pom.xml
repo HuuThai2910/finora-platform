@@ -52,20 +52,26 @@
             <artifactId>postgresql</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Test quyền explorer proof (B54): jwt() thay cho Keycloak thật. -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
 
-        <!-- Kafka contract sẽ được bổ sung sau; listener hiện mặc định tắt. -->
+        <!-- Consumer bốn mốc proof (W3D); listener mặc định tắt, launcher E2E bật. -->
         <dependency>
             <groupId>org.springframework.kafka</groupId>
             <artifactId>spring-kafka</artifactId>
         </dependency>
 
-        <!-- Hyperledger Fabric Gateway SDK -->
+        <!-- Hyperledger Fabric Gateway SDK: adapter HYPERLEDGER_FABRIC gọi chaincode finora-ledger (W3D, D53). -->
         <dependency>
             <groupId>org.hyperledger.fabric</groupId>
             <artifactId>fabric-gateway</artifactId>
         </dependency>
 
-        <!-- gRPC (Required by Fabric Gateway) -->
+        <!-- gRPC transport cho Fabric Gateway (cùng version grpc 1.59.0 mà fabric-gateway 1.4.0 dùng) -->
         <dependency>
             <groupId>io.grpc</groupId>
             <artifactId>grpc-netty-shaded</artifactId>

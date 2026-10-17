@@ -21,6 +21,7 @@ Docker Compose giữ PostgreSQL riêng từng service để làm việc khi mấ
 | `payment` | `finora-payment-postgres` | `15434` | `payment-postgres-data` |
 | `payment` | `finora-payment-redis` | `6380` | `payment-redis-data` |
 | `blockchain` | `finora-blockchain-postgres` | `15435` | `blockchain-postgres-data` |
+| `fabric` | `finora-fabric-orderer`, `finora-fabric-peer0-org1/org2`, `finora-fabric-ccaas-org1/org2` | `7051` (gateway peer0.org1) | `fabric-orderer-data`, `fabric-peer0-org1-data`, `fabric-peer0-org2-data`; dựng bằng [`fabric-network/`](fabric-network/README.md) |
 | `user` | `finora-user-redis` | `6381` | `user-redis-data` |
 | `investment` | `finora-investment-postgres` | `15437` | `investment-postgres-data` |
 | `core` | `finora-keycloak` | `8180` | `keycloak-import` (file realm đã render) |

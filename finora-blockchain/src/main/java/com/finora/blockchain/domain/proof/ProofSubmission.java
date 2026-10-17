@@ -25,6 +25,10 @@ public class ProofSubmission {
 
     private static final Pattern SHA_256 = Pattern.compile("^[0-9a-f]{64}$");
     private static final Pattern SOURCE_SERVICE = Pattern.compile("^finora-[a-z0-9-]+$");
+    // Cùng quy tắc với chaincode finora-ledger: aggregate chỉ là mã nghiệp vụ, không chứa khoảng trắng/chữ có dấu.
+    private static final Pattern AGGREGATE_TYPE = Pattern.compile("^[A-Z][A-Za-z0-9]{1,49}$");
+    private static final Pattern AGGREGATE_ID = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$");
+    private static final Pattern EVENT_TYPE = Pattern.compile("^[A-Z][A-Za-z0-9]{1,79}$");
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -39,11 +43,23 @@ public class ProofSubmission {
     @Column(name = "source_event_id", nullable = false, updatable = false)
     private UUID sourceEventId;
 
+    @Column(name = "source_event_type", length = 80, updatable = false)
+    private String sourceEventType;
+
+    @Column(name = "source_event_version", updatable = false)
+    private Integer sourceEventVersion;
+
+    @Column(name = "source_occurred_at", updatable = false)
+    private Instant sourceOccurredAt;
+
     @Column(name = "aggregate_type", nullable = false, length = 50, updatable = false)
     private String aggregateType;
 
     @Column(name = "aggregate_id", nullable = false, length = 100, updatable = false)
     private String aggregateId;
+
+    @Column(name = "loan_application_id", updatable = false)
+    private Long loanApplicationId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "proof_type", nullable = false, length = 50, updatable = false)
@@ -90,6 +106,13 @@ public class ProofSubmission {
     @Column(name = "last_error_detail", length = 500)
     private String lastErrorDetail;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "chain_check_status", length = 30)
+    private ProofChainCheckStatus chainCheckStatus;
+
+    @Column(name = "chain_checked_at")
+    private Instant chainCheckedAt;
+
     @Version
     @Column(nullable = false)
     private Long version;
@@ -102,20 +125,17 @@ public class ProofSubmission {
 
     public static ProofSubmission register(
             UUID proofId,
-            String sourceService,
-            UUID sourceEventId,
-            String aggregateType,
-            String aggregateId,
-            ProofType proofType,
+            ProofSource source,
+            ProofSubject subject,
             String payloadHash,
             int payloadVersion,
             ProofProviderType provider,
             Instant now
     ) {
-        if (payloadVersion < 1) {
-            throw new IllegalArgumentException("payloadVersion phải dương");
-        }
-        String normalizedService = requireText(sourceService, "sourceService", 50);
+        Objects.requireNonNull(source, "source");
+        Objects.requireNonNull(subject, "subject");
+        ProofHashScheme.fromVersion(payloadVersion);
+        String normalizedService = requireText(source.service(), "sourceService", 50);
         if (!SOURCE_SERVICE.matcher(normalizedService).matches()) {
             throw new IllegalArgumentException("sourceService phải theo mẫu finora-<service>");
         }
@@ -123,13 +143,35 @@ public class ProofSubmission {
         if (!SHA_256.matcher(normalizedHash).matches()) {
             throw new IllegalArgumentException("payloadHash phải là SHA-256 lowercase gồm 64 ký tự hex");
         }
+        String aggregateType = requireText(subject.aggregateType(), "aggregateType", 50);
+        if (!AGGREGATE_TYPE.matcher(aggregateType).matches()) {
+            throw new IllegalArgumentException("aggregateType phải là tên aggregate dạng PascalCase");
+        }
+        String aggregateId = requireText(subject.aggregateId(), "aggregateId", 100);
+        if (!AGGREGATE_ID.matcher(aggregateId).matches()) {
+            throw new IllegalArgumentException("aggregateId chỉ nhận mã nghiệp vụ (chữ, số, . _ : -)");
+        }
+        String eventType = optionalText(source.eventType(), 80);
+        if (eventType != null && !EVENT_TYPE.matcher(eventType).matches()) {
+            throw new IllegalArgumentException("sourceEventType không hợp lệ");
+        }
+        if (source.eventVersion() != null && source.eventVersion() < 1) {
+            throw new IllegalArgumentException("sourceEventVersion phải dương");
+        }
+        if (subject.loanApplicationId() != null && subject.loanApplicationId() < 1) {
+            throw new IllegalArgumentException("loanApplicationId phải dương");
+        }
         ProofSubmission submission = new ProofSubmission();
         submission.proofId = Objects.requireNonNull(proofId, "proofId");
         submission.sourceService = normalizedService;
-        submission.sourceEventId = Objects.requireNonNull(sourceEventId, "sourceEventId");
-        submission.aggregateType = requireText(aggregateType, "aggregateType", 50);
-        submission.aggregateId = requireText(aggregateId, "aggregateId", 100);
-        submission.proofType = Objects.requireNonNull(proofType, "proofType");
+        submission.sourceEventId = Objects.requireNonNull(source.eventId(), "sourceEventId");
+        submission.sourceEventType = eventType;
+        submission.sourceEventVersion = source.eventVersion();
+        submission.sourceOccurredAt = source.occurredAt();
+        submission.aggregateType = aggregateType;
+        submission.aggregateId = aggregateId;
+        submission.loanApplicationId = subject.loanApplicationId();
+        submission.proofType = Objects.requireNonNull(subject.proofType(), "proofType");
         submission.payloadHash = normalizedHash;
         submission.payloadVersion = payloadVersion;
         submission.provider = Objects.requireNonNull(provider, "provider");
@@ -141,18 +183,27 @@ public class ProofSubmission {
         return submission;
     }
 
-    public boolean matches(
-            String expectedAggregateType,
-            String expectedAggregateId,
-            ProofType expectedProofType,
-            String expectedPayloadHash,
-            int expectedPayloadVersion
-    ) {
-        return aggregateType.equals(expectedAggregateType)
-                && aggregateId.equals(expectedAggregateId)
-                && proofType == expectedProofType
-                && payloadHash.equals(expectedPayloadHash)
-                && payloadVersion.equals(expectedPayloadVersion);
+    /** Cùng mốc nghiệp vụ (bất kể hash/version). */
+    public boolean sameMilestone(ProofType expectedProofType, String expectedAggregateType, String expectedAggregateId) {
+        return proofType == expectedProofType
+                && aggregateType.equals(expectedAggregateType)
+                && aggregateId.equals(expectedAggregateId);
+    }
+
+    /** Cùng mốc và cùng nội dung đã hash theo cùng scheme. */
+    public boolean sameContent(ProofSubmission other) {
+        return sameMilestone(other.proofType, other.aggregateType, other.aggregateId)
+                && payloadHash.equals(other.payloadHash)
+                && payloadVersion.equals(other.payloadVersion);
+    }
+
+    public ProofHashScheme hashScheme() {
+        return ProofHashScheme.fromVersion(payloadVersion);
+    }
+
+    /** Receipt thật nằm trên Fabric; receipt MOCK không bao giờ được trình bày như vậy (LEGAL-DATA-01). */
+    public boolean isOnChain() {
+        return provider == ProofProviderType.HYPERLEDGER_FABRIC && status == ProofSubmissionStatus.CONFIRMED;
     }
 
     /** Claim có thời hạn để node khác tiếp quản khi process dừng giữa lúc gọi provider. */
@@ -174,8 +225,13 @@ public class ProofSubmission {
 
     public void confirm(UUID claimToken, String transactionId, String blockReference, Instant now) {
         requireClaim(claimToken);
-        providerTransactionId = requireText(transactionId, "transactionId", 200);
-        providerBlockReference = optionalText(blockReference, 200);
+        String normalizedTransaction = requireText(transactionId, "transactionId", 200);
+        String normalizedBlock = optionalText(blockReference, 200);
+        if (!ProofReceiptFormat.matches(provider, normalizedTransaction, normalizedBlock)) {
+            throw new IllegalStateException("Receipt không đúng định dạng của provider " + provider);
+        }
+        providerTransactionId = normalizedTransaction;
+        providerBlockReference = normalizedBlock;
         status = ProofSubmissionStatus.CONFIRMED;
         processingStartedAt = null;
         processingToken = null;
@@ -206,6 +262,20 @@ public class ProofSubmission {
             availableAt = Objects.requireNonNull(nextAttemptAt, "nextAttemptAt");
             processingStartedAt = null;
         }
+        updatedAt = now;
+    }
+
+    /**
+     * Vận hành đưa proof đã vào DEAD_LETTER về hàng đợi sau khi sửa nguyên nhân (Fabric/identity). Lỗi cuối được giữ
+     * để còn dấu vết; số lần thử đếm lại từ đầu.
+     */
+    public void requeue(Instant now) {
+        if (status != ProofSubmissionStatus.DEAD_LETTER) {
+            throw new IllegalStateException("Chỉ proof DEAD_LETTER mới được đưa lại hàng đợi");
+        }
+        status = ProofSubmissionStatus.PENDING;
+        attemptCount = 0;
+        availableAt = Objects.requireNonNull(now, "now");
         updatedAt = now;
     }
 
