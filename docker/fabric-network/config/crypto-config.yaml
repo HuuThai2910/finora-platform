@@ -1,0 +1,37 @@
+# Cấu hình cryptogen cho mạng Fabric local của FINORA (W3D, D50).
+# Chỉ dùng cho local/demo: cryptogen tạo khóa offline, production phải dùng Fabric CA/HSM.
+# Kết quả nằm trong docker/fabric-network/crypto-config/ (git-ignore), không bao giờ commit.
+OrdererOrgs:
+  - Name: Orderer
+    Domain: finora.local
+    EnableNodeOUs: true
+    Specs:
+      - Hostname: orderer
+        SANS:
+          - localhost
+          - 127.0.0.1
+
+PeerOrgs:
+  # Org1 = FINORA (bên vận hành nền tảng, ghi bằng chứng).
+  - Name: Org1
+    Domain: org1.finora.local
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      # Java service chạy trên host gọi peer qua 127.0.0.1:7051 nên chứng thư TLS phải có localhost.
+      SANS:
+        - localhost
+        - 127.0.0.1
+    Users:
+      Count: 1
+  # Org2 = đơn vị kiểm toán/đối tác độc lập: chỉ đọc, nhưng phải endorse mọi giao dịch ghi.
+  - Name: Org2
+    Domain: org2.finora.local
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS:
+        - localhost
+        - 127.0.0.1
+    Users:
+      Count: 1
