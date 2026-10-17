@@ -11,7 +11,7 @@ import org.springframework.web.client.RestClient;
         PaymentDisbursementProperties.class})
 public class PaymentFineractConfiguration {
     @Bean("paymentFineractRestClient")
-    RestClient paymentFineractRestClient(PaymentFineractProperties properties, RestClient.Builder builder) {
+    public RestClient paymentFineractRestClient(PaymentFineractProperties properties, RestClient.Builder builder) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(properties.connectTimeout());
         factory.setReadTimeout(properties.readTimeout());

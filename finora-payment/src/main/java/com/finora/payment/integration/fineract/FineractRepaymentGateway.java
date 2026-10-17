@@ -1,8 +1,10 @@
 package com.finora.payment.integration.fineract;
 
+import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.finora.payment.config.PaymentFineractProperties;
 import com.finora.payment.domain.repayment.PaymentRepayment;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -175,6 +177,14 @@ public class FineractRepaymentGateway implements RepaymentCoreGateway {
             throw new FineractRepaymentException("FINERACT_REPAYMENT_OUTCOME_UNKNOWN",
                     "Mất kết nối khi ghi repayment; phải đối soát trước khi thử lại", true, exception);
         } catch (RuntimeException exception) {
+            // RestClient chỉ bọc lỗi I/O lúc gửi request thành ResourceAccessException. Mất phản hồi hoặc bị reset sau
+            // khi POST đã gửi đi đến dưới dạng RestClientException (drill Q13 qua Toxiproxy, B42): kết quả chưa biết như
+            // timeout, ghi đúng mã để vận hành đối soát theo externalId.
+            if (connectionLost(exception)) {
+                throw new FineractRepaymentException("FINERACT_REPAYMENT_OUTCOME_UNKNOWN",
+                        "Mất kết nối khi chờ Fineract trả lời repayment; phải đối soát trước khi thử lại", true,
+                        exception);
+            }
             throw new FineractRepaymentException("FINERACT_REPAYMENT_UNEXPECTED",
                     "Không hoàn tất được repayment trên Fineract", true, exception);
         }
@@ -223,6 +233,16 @@ public class FineractRepaymentGateway implements RepaymentCoreGateway {
             throw new FineractRepaymentException("FINERACT_RECONCILIATION_UNEXPECTED",
                     "Không hoàn tất được đối soát repayment", true, exception);
         }
+    }
+
+    /** Lỗi tầng kết nối trong cause chain (timeout, reset, đóng giữa chừng); lỗi đọc JSON không tính. */
+    private static boolean connectionLost(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof IOException && !(current instanceof JacksonException)) return true;
+            current = current.getCause() == current ? null : current.getCause();
+        }
+        return false;
     }
 
     private JsonNode get(String uri) {

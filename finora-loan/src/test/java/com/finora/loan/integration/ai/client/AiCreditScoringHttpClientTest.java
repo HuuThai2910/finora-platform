@@ -1,8 +1,12 @@
 package com.finora.loan.integration.ai.client;
 
+import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.core.JsonParser;
+import java.net.SocketException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.client.RestClientException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -26,6 +30,25 @@ class AiCreditScoringHttpClientTest {
         );
 
         assertTimeoutIsRetryable(result);
+    }
+
+    @Test
+    void shouldMapConnectionResetWhileReadingScoreAsRetryable() {
+        // RestClient bọc lỗi đọc phản hồi của POST thành RestClientException, không phải ResourceAccessException (B42).
+        AiCreditIntegrationException result = client.mapException(new CompletionException(
+                new RestClientException("Error while extracting response", new SocketException("Connection reset"))));
+
+        assertThat(result.getCode()).isEqualTo("AI_UNAVAILABLE");
+        assertThat(result.isRetryable()).isTrue();
+    }
+
+    @Test
+    void shouldKeepMalformedScoreJsonNonRetryable() {
+        AiCreditIntegrationException result = client.mapException(new RestClientException(
+                "Error while extracting response", new JsonParseException((JsonParser) null, "Unexpected character")));
+
+        assertThat(result.getCode()).isEqualTo("AI_UNEXPECTED_ERROR");
+        assertThat(result.isRetryable()).isFalse();
     }
 
     private void assertTimeoutIsRetryable(AiCreditIntegrationException result) {
