@@ -36,6 +36,11 @@
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
         </dependency>
+        <!-- Liveness/readiness cho hạ tầng (W3E): readiness kiểm PostgreSQL và Redis User. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
 
         <!-- Spring Security + OAuth2 Resource Server (JWT từ Keycloak) -->
         <dependency>

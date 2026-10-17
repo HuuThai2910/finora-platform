@@ -52,3 +52,17 @@ spring:
 
 server:
   port: 8080
+
+management:
+  endpoint:
+    health:
+      show-components: always
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        # Không gộp health của service phía sau: một service tắt không được rút cả Gateway (và mọi service khác) khỏi
+        # traffic; mỗi service tự có readiness riêng (W3E, D56).
+        readiness:
+          include: readinessState
