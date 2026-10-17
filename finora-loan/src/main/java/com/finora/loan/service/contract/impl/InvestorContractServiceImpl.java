@@ -4,6 +4,7 @@ import com.finora.common.exception.ResourceNotFoundException;
 import com.finora.common.logging.TraceContext;
 import com.finora.common.security.SecurityUtils;
 import com.finora.loan.domain.application.ActorType;
+import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.contract.ContractParty;
 import com.finora.loan.domain.contract.ContractPartyStatus;
 import com.finora.loan.domain.contract.ContractPartyType;
@@ -626,18 +627,18 @@ public class InvestorContractServiceImpl implements InvestorContractService {
                     LoanContractStatus.PENDING_BORROWER_SIGNATURE, "ALL_LENDERS_SIGNED",
                     ActorType.SYSTEM, "SYSTEM-LENDER-SIGNATURES", now,
                     TraceContext.currentTraceIdOrCreate()));
-            String applicationNumber = applicationRepository.findById(contract.getApplicationId())
-                    .orElseThrow().getApplicationNumber();
+            LoanApplication application = applicationRepository.findById(contract.getApplicationId()).orElseThrow();
+            // P1 (W3F): người nhận nằm ngay trong event; borrowerId là ID logic đã lưu trên hồ sơ, không phải PII.
             outboxService.recordForPublication(
                     "LoanContract", contract.getContractNumber(), "BorrowerSignatureRequested", 1,
                     new BorrowerSignatureRequestedEventData(
-                            contract.getApplicationId(), applicationNumber, contract.getContractNumber(),
-                            contract.getDocumentHash(), document.getContentHash(),
+                            contract.getApplicationId(), application.getApplicationNumber(),
+                            contract.getContractNumber(), contract.getDocumentHash(), document.getContentHash(),
                             (int) partyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(
                                     contract.getId()).stream()
                                     .filter(party -> party.getPartyType() == ContractPartyType.LENDER)
                                     .map(ContractParty::getPartyId).distinct().count(),
-                            now, contract.getExpiresAt()));
+                            now, contract.getExpiresAt(), application.getBorrowerId()));
         }
     }
 

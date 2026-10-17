@@ -123,7 +123,7 @@ public class LoanRescheduleService {
                         request.getRequestId(), loan.getLoanApplicationId(), loan.getLoanNumber(),
                         request.getRequestType().name(), request.getRescheduleFromDate(),
                         request.getAdjustedDueDate(), request.getExtraTerms(),
-                        request.getOriginalMaturityDate(), now));
+                        request.getOriginalMaturityDate(), now, loan.getBorrowerId()));
         return response(request);
     }
 

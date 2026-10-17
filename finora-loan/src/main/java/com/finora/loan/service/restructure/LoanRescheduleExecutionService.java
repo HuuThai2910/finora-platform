@@ -127,11 +127,17 @@ public class LoanRescheduleExecutionService {
                             groups.previous(), groups.current(), projection.getOverdueAmount().toPlainString(),
                             projection.getOverdueSince(), projection.getTotalOutstanding().toPlainString(), now));
         }
+        // P3 (D76): kỳ tiếp theo theo lịch mới lấy từ cùng snapshot Fineract với ngày đáo hạn mới; không tự tính lịch.
         outbox.recordForPublication("FinoraLoan", loan.getId().toString(), "LoanRescheduled", 1,
                 new LoanRescheduledEventData(loan.getLoanApplicationId(), loan.getLoanNumber(), loan.getBorrowerId(),
                         loan.getFineractLoanId(), request.getRequestId(), request.getRequestType(), previousMaturity,
                         snapshot.maturityDate(), request.getRescheduleFromDate(), request.getAdjustedDueDate(),
-                        request.getExtraTerms(), now));
+                        request.getExtraTerms(), now, snapshot.nextDueDate(), decimal(snapshot.nextDueAmount())));
+    }
+
+    /** Chuỗi decimal hai chữ số thập phân như projection servicing; {@code null} khi snapshot không có. */
+    private static String decimal(java.math.BigDecimal value) {
+        return value == null ? null : value.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
     }
 
     private void fail(java.util.UUID requestId, String code, boolean retryable) {

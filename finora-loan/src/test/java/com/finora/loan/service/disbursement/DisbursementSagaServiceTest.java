@@ -156,19 +156,56 @@ class DisbursementSagaServiceTest {
                 .activate("LN-E2E-1", 10L, "LA-E2E-1", "LC-E2E-1", "borrower-1", 9001L,
                         new java.math.BigDecimal("10000000.00"), "VND", NOW));
 
-        serviceAt(NOW.plusSeconds(5)).complete(saga.getSagaId(), 1, 9001L, java.time.LocalDate.of(2027, 4, 17));
+        serviceAt(NOW.plusSeconds(5)).complete(saga.getSagaId(), 1, new CoreLoanBookingGateway.CoreLoanBookingResult(
+                9001L, java.time.LocalDate.of(2027, 4, 17), java.time.LocalDate.of(2026, 11, 17),
+                new BigDecimal("8701681")));
 
         // Payment tính phí trả trước theo biểu phí hợp đồng mang trong LoanDisbursed (G-POLICY-W2); Investment ghi ngày
-        // đáo hạn của vị thế ngay lúc giải ngân (B34).
-        org.mockito.ArgumentCaptor<Object> data = org.mockito.ArgumentCaptor.forClass(Object.class);
-        verify(outboxService).recordForPublication(org.mockito.ArgumentMatchers.eq("DisbursementSaga"), anyString(),
-                org.mockito.ArgumentMatchers.eq("LoanDisbursed"), org.mockito.ArgumentMatchers.eq(1), data.capture());
-        LoanDisbursedEventData event = (LoanDisbursedEventData) data.getValue();
+        // đáo hạn của vị thế ngay lúc giải ngân (B34); Notification báo người vay và nhắc lịch từ kỳ 1 (P2, P3).
+        LoanDisbursedEventData event = capturedLoanDisbursed();
         assertThat(event.fineractLoanId()).isEqualTo(9001L);
         assertThat(event.earlySettlementPolicyVersion()).isEqualTo("AGRIBANK_REFERENCE_FINORA_2026_V2");
         assertThat(event.loanNumber()).isEqualTo("LN-E2E-1");
         assertThat(event.maturityDate()).isEqualTo(java.time.LocalDate.of(2027, 4, 17));
+        assertThat(event.borrowerId()).isEqualTo("BORROWER-001");
+        assertThat(event.nextDueDate()).isEqualTo(java.time.LocalDate.of(2026, 11, 17));
+        assertThat(event.nextDueAmount()).isEqualTo("8701681.00");
         assertThat(saga.getStatus()).isEqualTo(DisbursementSagaStatus.COMPLETED);
+    }
+
+    @Test
+    void coreWithoutScheduleLeavesNextDueOutOfLoanDisbursed() {
+        DisbursementSaga saga = coreBookingSaga(NOW);
+        when(sagaRepository.findBySagaIdForUpdate(saga.getSagaId())).thenReturn(Optional.of(saga));
+        stubApplicationAndContract();
+        when(activationService.activate(any(), any(), anyLong(), any())).thenReturn(com.finora.loan.domain.servicing.FinoraLoan
+                .activate("LN-E2E-1", 10L, "LA-E2E-1", "LC-E2E-1", "borrower-1", 9001L,
+                        new java.math.BigDecimal("10000000.00"), "VND", NOW));
+
+        // Gateway giả lập (hoặc core không trả lịch): FINORA không tự tính kỳ, event bỏ hẳn hai field.
+        serviceAt(NOW.plusSeconds(5)).complete(saga.getSagaId(), 1, 9001L);
+
+        LoanDisbursedEventData event = capturedLoanDisbursed();
+        assertThat(event.borrowerId()).isEqualTo("BORROWER-001");
+        assertThat(event.nextDueDate()).isNull();
+        com.fasterxml.jackson.databind.JsonNode json = springObjectMapper().valueToTree(event);
+        assertThat(json.has("nextDueDate")).isFalse();
+        assertThat(json.has("nextDueAmount")).isFalse();
+        assertThat(json.path("borrowerId").asText()).isEqualTo("BORROWER-001");
+    }
+
+    private LoanDisbursedEventData capturedLoanDisbursed() {
+        org.mockito.ArgumentCaptor<Object> data = org.mockito.ArgumentCaptor.forClass(Object.class);
+        verify(outboxService).recordForPublication(org.mockito.ArgumentMatchers.eq("DisbursementSaga"), anyString(),
+                org.mockito.ArgumentMatchers.eq("LoanDisbursed"), org.mockito.ArgumentMatchers.eq(1), data.capture());
+        return (LoanDisbursedEventData) data.getValue();
+    }
+
+    /** Cùng mặc định Jackson mà Spring Boot dùng cho outbox của Loan (ngày ISO dạng chuỗi). */
+    private static com.fasterxml.jackson.databind.ObjectMapper springObjectMapper() {
+        return org.springframework.http.converter.json.Jackson2ObjectMapperBuilder.json()
+                .featuresToDisable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+                .build();
     }
 
     @Test

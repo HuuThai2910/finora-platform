@@ -571,7 +571,8 @@ public class LoanContractStateService {
                         contract.getApplicationId(), application.getApplicationNumber(),
                         contract.getContractNumber(), application.getInvestmentListingId(),
                         contract.getDocumentHash(), receipt.getContentHash(),
-                        application.getAllocationVersion(), application.getAllocationHash(), now));
+                        application.getAllocationVersion(), application.getAllocationHash(), now,
+                        application.getBorrowerId()));
         disbursementSagaService.start(contract, application,
                 partyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(contract.getId()), now);
     }
