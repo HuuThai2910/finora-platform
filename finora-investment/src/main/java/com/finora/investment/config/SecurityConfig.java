@@ -49,6 +49,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Probe của hạ tầng phải gọi được khi chưa có token.
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        // Metric vận hành (sự cố lệnh góp vốn, outbox) chỉ cho quản trị viên (W3E).
+                        .requestMatchers("/actuator/**").hasRole("ADMIN")
                         // Stream sổ lệnh (SSE) gửi dữ liệu qua async dispatch sau khi request gốc đã
                         // qua xác thực. Không mở thì Spring Security chặn lại lượt dispatch đó khi
                         // response đã commit và stream bị cắt.

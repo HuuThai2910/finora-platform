@@ -49,6 +49,29 @@ spring:
 server:
   port: 8084
 
+management:
+  endpoint:
+    health:
+      # Ai cũng thấy tên và trạng thái từng thành phần; chi tiết chỉ hiện với token ROLE_ADMIN (W3E, D56).
+      show-components: always
+      show-details: when-authorized
+      roles: ADMIN
+      probes:
+        enabled: true
+      group:
+        # Liveness chỉ hỏi JVM còn chạy; dependency lỗi không được làm orchestrator khởi động lại Investment.
+        liveness:
+          include: livenessState
+        # Sàn, lệnh và Note đều cần PostgreSQL. Kafka không vào đây: outbox giữ event trong DB khi broker tắt.
+        readiness:
+          include: readinessState,db
+        operations:
+          include: kafka
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
 logging:
   level:
     com.finora.investment: INFO

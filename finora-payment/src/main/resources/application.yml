@@ -40,16 +40,32 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
-  data:
-    redis:
-      host: ${PAYMENT_REDIS_HOST:localhost}
-      port: ${PAYMENT_REDIS_PORT:6380}
-      password: ${PAYMENT_REDIS_PASSWORD:}
-      repositories:
-        enabled: false
 
 server:
   port: 8082
+
+management:
+  endpoint:
+    health:
+      # Ai cũng thấy tên và trạng thái từng thành phần; chi tiết chỉ hiện với token ROLE_ADMIN (W3E, D56).
+      show-components: always
+      show-details: when-authorized
+      roles: ADMIN
+      probes:
+        enabled: true
+      group:
+        # Liveness chỉ hỏi JVM còn chạy; dependency lỗi không được làm orchestrator khởi động lại Payment.
+        liveness:
+          include: livenessState
+        # Mọi thao tác tiền cần PostgreSQL. Kafka không vào đây: outbox giữ event trong DB khi broker tắt.
+        readiness:
+          include: readinessState,db
+        operations:
+          include: kafka
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
 
 finora:
   # Múi giờ của ngày nghiệp vụ (ngày trả nợ, báo giá, mã đơn ZaloPay). Phải trùng múi giờ tenant Fineract.

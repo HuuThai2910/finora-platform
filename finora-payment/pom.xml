@@ -72,10 +72,8 @@
             <groupId>org.springframework.kafka</groupId>
             <artifactId>spring-kafka</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-redis</artifactId>
-        </dependency>
+        <!-- B23 (W3E): đã gỡ spring-boot-starter-data-redis. Payment không dùng Redis: idempotency, hold, hạn mức
+             và hàng đợi worker đều nằm trong PostgreSQL. Thêm lại chỉ khi có use case thật và health readiness tương ứng. -->
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>

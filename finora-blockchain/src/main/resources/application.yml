@@ -35,6 +35,25 @@ spring:
 server:
   port: 8083
 
+management:
+  # Health Kafka chỉ có nghĩa khi Blockchain tiêu thụ event; tắt cùng listener để broker tắt không làm health đỏ (W3E).
+  health:
+    kafka:
+      enabled: ${BLOCKCHAIN_KAFKA_LISTENER_ENABLED:false}
+  endpoint:
+    health:
+      # Chưa có xác thực JWT ở Blockchain nên không hiện chi tiết cho ai; tên và trạng thái thành phần vẫn hiện.
+      show-components: always
+      show-details: never
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        # Proof store là PostgreSQL; Fabric/Kafka lỗi chỉ làm proof chờ retry, không chặn traffic.
+        readiness:
+          include: readinessState,db
+
 finora:
   blockchain:
     repayment-distributed-topic: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:finora.payment.repayment-distributed}
