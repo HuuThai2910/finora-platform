@@ -97,7 +97,7 @@ SoR, ledger/event và khả năng retry.
 | R6 | P1 | Thai | Blockchain | `READY_FOR_REVIEW` | Fabric thật + proof/query/reconcile cho các mốc đã duyệt; W3D xong mạng Fabric local 2 tổ chức, chaincode `finora-ledger`, bốn mốc, API quản trị (D50–D54); mặc định vẫn MOCK, bật bằng `-WithFabric` |
 | R7 | P1 | Hai | Notification | `READY_FOR_REVIEW` | Template đầy đủ và push thật; lỗi provider không làm sai nghiệp vụ; W3F xong thông báo theo domain event, Expo Push (token, preference, che nội dung màn khóa, retry/DEAD), nhắc lịch tắt mặc định (D60–D64); push thật trên máy thật và producer bổ sung `borrowerId` (P1–P7) còn lại |
 | R8 | P1 | Both | Security | `IN_PROGRESS` | RBAC/resource auth, PII/secret/log và abuse controls được kiểm chứng; R8A xong ở W3A (D33–D40, E2E `w3a-installment-20261017-184734`), chặn tự đăng ký `ADMIN` hoãn (D20) |
-| R9 | P1 | Both | Ops | `IN_PROGRESS` | Health, metrics, alert, replay/DLT và deployment tái lập được; W3E xong CI GitHub Actions (chưa chạy trên GitHub vì chưa push), health liveness/readiness, gauge sự cố, health job cuối ngày Fineract, runbook và ma trận môi trường (D55–D59); còn Prometheus/dashboard, requeue outbox dead-letter (B57), backup/restore |
+| R9 | P1 | Both | Ops | `IN_PROGRESS` | Health, metrics, alert, replay/DLT và deployment tái lập được; W3E xong CI GitHub Actions (run 39037174792 trên `ba5507f` xanh 11/11 job: gitleaks, rule validator, AI, `verify` 8 module có Testcontainers; web và mobile xanh), health liveness/readiness, gauge sự cố, health job cuối ngày Fineract, runbook và ma trận môi trường (D55–D59); còn Prometheus/dashboard, requeue outbox dead-letter (B57), backup/restore |
 | R10 | P2 | Hai | AI | `BACKLOG` | Backtest/champion-challenger, fraud và early warning có metric |
 | R11 | P2 | Hai + Thai | Investment/Payment | `IN_PROGRESS` | Secondary market/auto-invest qua concurrency/reconciliation E2E |
 
@@ -245,7 +245,7 @@ Nguồn: rà soát code ngày 2026-10-16/17 và evidence R1A (`docker/e2e/out/r1
 | B52 | P1 | R6 | Consumer Blockchain không có error handler: DB lỗi khi consume làm mất yêu cầu proof sau 10 lần thử liền, không có DLT | Fixed W3D — `<topic>.DLT` |
 | B53 | P2 | R6 | Proof id ngẫu nhiên: cùng mốc phát lại với eventId mới tạo proof logic thứ hai | Fixed W3D — UUIDv5 theo mốc + unique index + index trong chaincode |
 | B54 | P2 | R6 | Blockchain không cấu hình JWT resource server: mọi endpoint, kể cả health, rơi về user Basic auth do Spring sinh | Fixed W3D — `BlockchainSecurityConfig` |
-| B55 | P1 | R9 | Testcontainers 1.19.7 gọi Docker API 1.32, Docker Engine 29 trên runner GitHub từ chối | Mitigated W3E trong CI (`api.version=1.44`, tắt Ryuk); sửa thật bằng nâng Testcontainers |
+| B55 | P1 | R9 | Testcontainers 1.19.7 gọi Docker API 1.32, Docker Engine 29 trên runner GitHub từ chối | Mitigated W3E trong CI (`api.version=1.44`, tắt Ryuk), đã chạy thật trên runner GitHub (run 39037174792 xanh); sửa thật bằng nâng Testcontainers |
 | B56 | P2 | R9 | `/actuator/metrics` của Loan mở cho mọi người đăng nhập | Fixed W3E — chỉ ADMIN ở Loan, Payment, Investment; test 401/403/200 |
 | B57 | P2 | R9 | Outbox `DEAD_LETTER` không có API đưa lại hàng đợi | Open — gauge và SQL có kiểm soát ở `docs/ops/RUNBOOKS.md` §3.2 |
 | B58 | P1 | R9/R4 | Consumer Kafka của Payment không có DLT: record lỗi bị bỏ qua sau 10 lần thử, chỉ ghi log | Đang sửa cùng nhánh producer W3F (P1–P7); trước khi xong dùng replay ở RUNBOOKS §3.4 |
