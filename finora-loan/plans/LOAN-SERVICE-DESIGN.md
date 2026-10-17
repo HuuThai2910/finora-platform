@@ -248,6 +248,9 @@ Borrower mở một tài liệu hợp đồng, không phải ba “hợp đồng
 - Không cho ký Contract đã hết hạn, đã thay đổi hoặc không thuộc borrower.
 - Application giữ quyết định `APPROVED` nếu Contract bị `DECLINED/EXPIRED`; Contract là nguồn trạng thái consent duy nhất.
 - `CLICK_WRAP_MVP` chỉ là consent MVP, không được mô tả như chữ ký số SmartCA.
+- Từ R5 ([W3C](../../.agents/plans/W3C-pades-contract-signing.md)), hợp đồng nhiều bên mới mang chữ ký PAdES-B-B ẩn
+  nhúng vào PDF: lender ký nối tiếp, borrower ký cuối, mỗi chữ ký là một incremental update; trang biên nhận chữ ký số
+  là tài liệu riêng. Chứng thư demo (MOCK) và chứng thư VNPT UAT không có giá trị pháp lý production.
 
 Chi tiết: [LN-008](LN-008-approval-loan-contract.md).
 

@@ -57,7 +57,26 @@ public class LoanContractController {
     public ResponseEntity<byte[]> document(
             @PathVariable @NotBlank @Size(max = 50) String contractNumber
     ) {
-        LoanContractPdfContent document = service.document(contractNumber);
+        return pdf(service.document(contractNumber));
+    }
+
+    /** Bản PDF mới nhất của chuỗi chữ ký PAdES; 404 khi chưa bên nào ký số. */
+    @GetMapping("/{contractNumber}/signed-document")
+    public ResponseEntity<byte[]> signedDocument(
+            @PathVariable @NotBlank @Size(max = 50) String contractNumber
+    ) {
+        return pdf(service.signedDocument(contractNumber));
+    }
+
+    /** Trang biên nhận chữ ký số; 404 khi hợp đồng chưa đủ chữ ký. */
+    @GetMapping("/{contractNumber}/receipt")
+    public ResponseEntity<byte[]> receipt(
+            @PathVariable @NotBlank @Size(max = 50) String contractNumber
+    ) {
+        return pdf(service.receipt(contractNumber));
+    }
+
+    private ResponseEntity<byte[]> pdf(LoanContractPdfContent document) {
         byte[] content = document.content();
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + document.fileName() + "\"")

@@ -41,6 +41,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -73,6 +74,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.kafka.listener.auto-startup=false",
         "finora.loan.outbox.publisher-delay=3600000",
         "finora.signature.provider=mock",
+        // Worker đối soát SmartCA được gọi tay trong test; không để lịch chạy chen giữa các bước.
+        "finora.signature.pades.worker-delay=3600000",
         // Hạn mức dư nợ là cấu hình; IT dùng 150 triệu vì các test N+1 nộp ba hồ sơ 50 triệu cho cùng người vay.
         "finora.loan.borrower-exposure.max-outstanding=150000000"
 })
@@ -104,6 +107,7 @@ class FinoraLoanApplicationIT {
     @Autowired com.finora.loan.service.contract.LoanContractStateService contractStateService;
     @Autowired PinTokenService pinTokenService;
     @Autowired HashingService hashingService;
+    @Autowired com.finora.loan.service.contract.pades.PadesSignatureVerifier padesVerifier;
     @Autowired AiCreditProperties aiCreditProperties;
     @Autowired CircuitBreakerFactory<?, ?> circuitBreakerFactory;
     @Autowired @Qualifier("aiCreditRestClient") RestClient aiCreditRestClient;
@@ -112,6 +116,9 @@ class FinoraLoanApplicationIT {
     @MockBean FineractScheduleGateway scheduleGateway;
     @MockBean BorrowerProfileProvider borrowerProfileProvider;
     @MockBean AiCreditScoringGateway aiCreditScoringGateway;
+    /** Mặc định là MockSignatureProvider thật; chỉ test ký bất đồng bộ mới stub để giả lập SmartCA. */
+    @SpyBean com.finora.loan.integration.signature.SignatureProvider signatureProvider;
+    @Autowired com.finora.loan.service.contract.ContractPdfSignatureWorker pdfSignatureWorker;
 
     private final AtomicLong fineractIds = new AtomicLong(1000);
 
@@ -119,10 +126,14 @@ class FinoraLoanApplicationIT {
     void configureDeterministicDependencies() {
         // Mỗi test phải có dữ liệu độc lập; Spring giữ nguyên context và PostgreSQL
         // giữa các method nên không thể dựa vào thứ tự chạy hoặc ID của test trước.
+        // loan_disbursement_sagas không có FK nên CASCADE không xóa; nhiều test đi tới EFFECTIVE (PAdES) cùng dùng
+        // application_id 1 sau RESTART IDENTITY, saga sót lại sẽ làm DisbursementRequested của test sau bị bỏ qua.
         jdbcTemplate.execute("""
-                TRUNCATE TABLE loan_repayment_event_quarantine, loan_collection_actions, loan_collection_cases,
+                TRUNCATE TABLE loan_disbursement_sagas, loan_processed_events,
+                    loan_repayment_event_quarantine, loan_collection_actions, loan_collection_cases,
                     loan_reschedule_requests, loan_servicing_projections, finora_loans,
-                    loan_outbox_events, loan_contract_documents, loan_contract_status_histories, loan_contracts,
+                    loan_outbox_events, loan_contract_signatures, loan_contract_documents,
+                    loan_contract_status_histories, loan_contracts,
                     credit_scoring_retry_requests, credit_scoring_assessments,
                     borrower_eligibility_checks, borrower_credit_profiles,
                     loan_application_status_histories, schedule_calculation_snapshots,
@@ -178,7 +189,8 @@ class FinoraLoanApplicationIT {
                 """, Long.class);
 
         assertThat(databaseVersion).startsWith("17.");
-        assertThat(businessTables).isEqualTo(24L);
+        // V32 thêm loan_contract_signatures (chuỗi chữ ký PAdES).
+        assertThat(businessTables).isEqualTo(25L);
         assertThat(flyway.info().pending()).isEmpty();
     }
 
@@ -534,18 +546,38 @@ class FinoraLoanApplicationIT {
                 .andReturn().getResponse().getContentAsString());
         assertThat(completedInvestorContract.path("pdfDocumentHash").asText())
                 .isNotEqualTo(signedInvestorContract.path("pdfDocumentHash").asText());
-        byte[] investorReceipt = mockMvc.perform(
+        // R5: sau khi đủ chữ ký, /document trả bản PAdES ký đủ (lender trước, borrower sau); biên nhận ở /receipt.
+        assertThat(completedInvestorContract.path("signatureProfile").asText()).isEqualTo("PADES_B_B");
+        assertThat(completedInvestorContract.path("pdfSignatureCount").asInt()).isEqualTo(2);
+        byte[] signedContract = mockMvc.perform(
                         get("/api/v1/investor/loan-contracts/{number}/document", contractNumber))
                 .andExpect(status().isOk())
                 .andExpect(result -> assertThat(result.getResponse().getContentType())
                         .startsWith(MediaType.APPLICATION_PDF_VALUE))
                 .andReturn().getResponse().getContentAsByteArray();
+        assertThat(hashingService.sha256Bytes(signedContract))
+                .isEqualTo(completedInvestorContract.path("pdfDocumentHash").asText())
+                .isEqualTo(completedInvestorContract.path("signedPdfDocumentHash").asText());
+        assertThat(padesVerifier.verify(signedContract))
+                .extracting(signature -> signature.subjectCommonName())
+                .containsExactly("FINORA DEMO - KHONG CO GIA TRI PHAP LY", "FINORA DEMO - KHONG CO GIA TRI PHAP LY");
+        byte[] investorReceipt = mockMvc.perform(
+                        get("/api/v1/investor/loan-contracts/{number}/receipt", contractNumber))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentType())
+                        .startsWith(MediaType.APPLICATION_PDF_VALUE))
+                .andReturn().getResponse().getContentAsByteArray();
+        assertThat(hashingService.sha256Bytes(investorReceipt))
+                .isEqualTo(completedInvestorContract.path("receiptDocumentHash").asText());
         try (org.apache.pdfbox.pdmodel.PDDocument pdf =
                      org.apache.pdfbox.pdmodel.PDDocument.load(investorReceipt)) {
             String receiptText = new org.apache.pdfbox.text.PDFTextStripper().getText(pdf);
             assertThat(receiptText)
+                    .contains("TRANG BIÊN NHẬN CHỮ KÝ SỐ")
                     .contains("ĐÃ KÝ")
                     .contains("INVESTOR-001")
+                    .contains("BORROWER-001")
+                    .contains("KHÔNG CÓ GIÁ TRỊ PHÁP LÝ")
                     .doesNotContain("CHƯA TÍCH HỢP");
         }
     }
@@ -604,6 +636,351 @@ class FinoraLoanApplicationIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.funding.status").value("CANCELLED"))
                 .andExpect(jsonPath("$.funding.cancelReason").value("CONTRACT_EXPIRED"));
+    }
+
+    /**
+     * R5 (D13, Q9) với provider MOCK như E2E: lender ký trước, borrower ký cuối, mỗi chữ ký là một incremental update,
+     * retry không tạo chữ ký thứ hai và mọi chữ ký trước vẫn hợp lệ trong tệp cuối.
+     */
+    @Test
+    void padesSignaturesAreSequentialIdempotentAndEveryEarlierSignatureStillVerifies() throws Exception {
+        String contractNumber = fundedContract(9101L, List.of(
+                new FundingAllocationEventData(101L, "INVESTOR-001", "20000000.00", "40.000000", "HOLD-PADES-101"),
+                new FundingAllocationEventData(102L, "INVESTOR-002", "20000000.00", "40.000000", "HOLD-PADES-102"),
+                new FundingAllocationEventData(103L, "INVESTOR-001", "10000000.00", "20.000000", "HOLD-PADES-103")));
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT signature_profile FROM loan_contracts WHERE contract_number = ?",
+                String.class, contractNumber)).isEqualTo("PADES_B_B");
+        String signableHash = signableHash(contractNumber);
+
+        // Người vay ký sau cùng: chưa đủ chữ ký bên cho vay thì bị chặn, chưa có bản ký số nào.
+        actAs("BORROWER-001", "ROLE_BORROWER");
+        JsonNode early = borrowerContract(contractNumber);
+        assertThat(early.path("status").asText()).isEqualTo("PENDING_LENDER_SIGNATURES");
+        signAsBorrower(contractNumber, "pades-borrower-early-" + UUID.randomUUID(), early, signableHash,
+                "CLICK_WRAP_MVP")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_CONTRACT_TRANSITION"));
+        mockMvc.perform(get("/api/v1/loan-contracts/{number}/signed-document", contractNumber))
+                .andExpect(status().isNotFound());
+
+        actAs("INVESTOR-001", "ROLE_INVESTOR");
+        JsonNode lenderOne = investorContract(contractNumber);
+        assertThat(lenderOne.path("pdfDocumentHash").asText()).isEqualTo(signableHash);
+        String lenderOneKey = "pades-lender-1-" + UUID.randomUUID();
+        signAsInvestor("INVESTOR-001", contractNumber, lenderOneKey, lenderOne, signableHash, "CLICK_WRAP_MVP")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.partyStatus").value("SIGNED"))
+                .andExpect(jsonPath("$.contractStatus").value("PENDING_LENDER_SIGNATURES"))
+                .andExpect(jsonPath("$.pdfSignatureCount").value(1))
+                .andExpect(jsonPath("$.pdfDocumentHash").value(signableHash));
+        // Gửi lại cùng Idempotency-Key: trả kết quả cũ, không nhúng chữ ký thứ hai.
+        signAsInvestor("INVESTOR-001", contractNumber, lenderOneKey, lenderOne, signableHash, "CLICK_WRAP_MVP")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.partyStatus").value("SIGNED"))
+                .andExpect(jsonPath("$.pdfSignatureCount").value(1));
+        signAsInvestor("INVESTOR-001", contractNumber, "pades-lender-1-other-" + UUID.randomUUID(), lenderOne,
+                signableHash, "CLICK_WRAP_MVP")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONTRACT_PARTY_ALREADY_SIGNED"));
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM loan_contract_signatures", Long.class))
+                .isEqualTo(1L);
+
+        actAs("INVESTOR-002", "ROLE_INVESTOR");
+        JsonNode lenderTwo = investorContract(contractNumber);
+        byte[] firstRevision = mockMvc.perform(
+                        get("/api/v1/investor/loan-contracts/{number}/signed-document", contractNumber))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsByteArray();
+        String firstRevisionHash = hashingService.sha256Bytes(firstRevision);
+        assertThat(firstRevisionHash).isEqualTo(lenderTwo.path("signedPdfDocumentHash").asText());
+        // D47: client có thể đồng ý trên đúng bản đang mang chữ ký của bên cho vay trước.
+        signAsInvestor("INVESTOR-002", contractNumber, "pades-lender-2-" + UUID.randomUUID(), lenderTwo,
+                firstRevisionHash, "CLICK_WRAP_MVP")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.partyStatus").value("SIGNED"))
+                .andExpect(jsonPath("$.contractStatus").value("PENDING_BORROWER_SIGNATURE"))
+                .andExpect(jsonPath("$.pdfSignatureCount").value(2));
+
+        actAs("BORROWER-001", "ROLE_BORROWER");
+        JsonNode borrower = borrowerContract(contractNumber);
+        // Trong lúc ký, /document vẫn là SIGNABLE để mọi bên đọc cùng một nội dung (tương thích E2E và mobile).
+        assertThat(borrower.path("pdfDocument").path("contentHash").asText()).isEqualTo(signableHash);
+        assertThat(borrower.path("signedPdfDocument").path("signatureCount").asInt()).isEqualTo(2);
+        String borrowerKey = "pades-borrower-" + UUID.randomUUID();
+        signAsBorrower(contractNumber, borrowerKey, borrower, signableHash, "CLICK_WRAP_MVP")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("EFFECTIVE"));
+        signAsBorrower(contractNumber, borrowerKey, borrower, signableHash, "CLICK_WRAP_MVP")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("EFFECTIVE"));
+
+        List<java.util.Map<String, Object>> chain = jdbcTemplate.queryForList("""
+                SELECT s.signer_type, s.signer_id, s.status, s.base_content_hash, s.content_hash, s.content
+                FROM loan_contract_signatures s JOIN loan_contracts c ON c.id = s.contract_id
+                WHERE c.contract_number = ? ORDER BY s.sequence_number
+                """, contractNumber);
+        assertThat(chain).extracting(row -> row.get("status")).containsExactly("SIGNED", "SIGNED", "SIGNED");
+        assertThat(chain).extracting(row -> row.get("signer_id"))
+                .containsExactly("INVESTOR-001", "INVESTOR-002", "BORROWER-001");
+        assertThat(chain).extracting(row -> row.get("signer_type")).containsExactly("LENDER", "LENDER", "BORROWER");
+        assertThat(chain.get(0).get("base_content_hash")).isEqualTo(signableHash);
+        assertThat(chain.get(1).get("base_content_hash")).isEqualTo(chain.get(0).get("content_hash"));
+        assertThat(chain.get(2).get("base_content_hash")).isEqualTo(chain.get(1).get("content_hash"));
+
+        JsonNode completed = borrowerContract(contractNumber);
+        byte[] finalPdf = mockMvc.perform(get("/api/v1/loan-contracts/{number}/document", contractNumber))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsByteArray();
+        assertThat(completed.path("pdfDocument").path("artifactType").asText()).isEqualTo("SIGNED_PDF");
+        assertThat(hashingService.sha256Bytes(finalPdf))
+                .isEqualTo(completed.path("pdfDocument").path("contentHash").asText())
+                .isEqualTo(chain.get(2).get("content_hash"));
+        // Bản xem trước để kiểm bằng trình đọc/validator ngoài (Acrobat, pyHanko, EU DSS); không commit.
+        java.nio.file.Path preview = java.nio.file.Path.of("target", "test-output", "finora-pades-signed-preview.pdf");
+        java.nio.file.Files.createDirectories(preview.getParent());
+        java.nio.file.Files.write(preview, finalPdf);
+        // Mỗi phiên bản trước là tiền tố nguyên vẹn của tệp cuối: chữ ký sau chỉ nối thêm bytes.
+        for (java.util.Map<String, Object> row : chain) {
+            byte[] revision = (byte[]) row.get("content");
+            assertThat(java.util.Arrays.equals(finalPdf, 0, revision.length, revision, 0, revision.length)).isTrue();
+        }
+        var verified = padesVerifier.verify(finalPdf);
+        assertThat(verified).extracting(signature -> signature.coveredLength()).containsExactly(
+                ((byte[]) chain.get(0).get("content")).length, ((byte[]) chain.get(1).get("content")).length,
+                finalPdf.length);
+        assertThat(verified).allSatisfy(signature -> assertThat(signature.subjectCommonName())
+                .isEqualTo("FINORA DEMO - KHONG CO GIA TRI PHAP LY"));
+        byte[] signable = jdbcTemplate.queryForObject("""
+                SELECT d.content FROM loan_contract_documents d JOIN loan_contracts c ON c.id = d.contract_id
+                WHERE c.contract_number = ? AND d.artifact_type = 'SIGNABLE'
+                """, byte[].class, contractNumber);
+        try (org.apache.pdfbox.pdmodel.PDDocument original = org.apache.pdfbox.pdmodel.PDDocument.load(signable);
+             org.apache.pdfbox.pdmodel.PDDocument signed = org.apache.pdfbox.pdmodel.PDDocument.load(finalPdf)) {
+            assertThat(signed.getSignatureDictionaries()).hasSize(3)
+                    .allSatisfy(dictionary -> assertThat(dictionary.getSubFilter()).isEqualTo("ETSI.CAdES.detached"));
+            String signedText = new org.apache.pdfbox.text.PDFTextStripper().getText(signed);
+            // Chữ ký ẩn: nội dung hiển thị của tệp đã ký trùng bản các bên đã đọc.
+            assertThat(signedText).isEqualTo(new org.apache.pdfbox.text.PDFTextStripper().getText(original));
+            assertThat(signedText).contains("PAdES-B-B").contains("_PADES");
+        }
+        byte[] receipt = mockMvc.perform(get("/api/v1/loan-contracts/{number}/receipt", contractNumber))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsByteArray();
+        assertThat(completed.path("receiptDocument").path("contentHash").asText())
+                .isEqualTo(hashingService.sha256Bytes(receipt));
+        try (org.apache.pdfbox.pdmodel.PDDocument pdf = org.apache.pdfbox.pdmodel.PDDocument.load(receipt)) {
+            assertThat(pdf.getSignatureDictionaries()).isEmpty();
+            String receiptText = new org.apache.pdfbox.text.PDFTextStripper().getText(pdf).replaceAll("\\s+", "");
+            assertThat(receiptText)
+                    .contains("TRANGBIÊNNHẬNCHỮKÝSỐ", "INVESTOR-001", "INVESTOR-002", "BORROWER-001")
+                    .contains(hashingService.sha256Bytes(finalPdf));
+        }
+        // LoanContractActivated.v1 giữ nghĩa cũ của pdfReceiptHash: hash trang biên nhận.
+        JsonNode activated = objectMapper.readTree(jdbcTemplate.queryForObject(
+                "SELECT payload_json::text FROM loan_outbox_events WHERE event_type = 'LoanContractActivated'",
+                String.class));
+        assertThat(activated.path("pdfReceiptHash").asText()).isEqualTo(hashingService.sha256Bytes(receipt));
+    }
+
+    /** Hợp đồng lập trước V32 (DETACHED_EVIDENCE) giữ nguyên luồng click-wrap và receipt tách rời cũ. */
+    @Test
+    void contractCreatedBeforePadesKeepsDetachedClickWrapEvidence() throws Exception {
+        String contractNumber = fundedContract(9201L, List.of(new FundingAllocationEventData(
+                101L, "INVESTOR-001", "50000000.00", "100.000000", "HOLD-LEGACY-101")));
+        jdbcTemplate.update("UPDATE loan_contracts SET signature_profile = 'DETACHED_EVIDENCE' WHERE contract_number = ?",
+                contractNumber);
+        String signableHash = signableHash(contractNumber);
+
+        actAs("INVESTOR-001", "ROLE_INVESTOR");
+        JsonNode lender = investorContract(contractNumber);
+        assertThat(lender.path("signatureProfile").asText()).isEqualTo("DETACHED_EVIDENCE");
+        signAsInvestor("INVESTOR-001", contractNumber, "legacy-lender-" + UUID.randomUUID(), lender, signableHash,
+                "CLICK_WRAP_MVP")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.partyStatus").value("SIGNED"))
+                .andExpect(jsonPath("$.pdfSignatureCount").value(0));
+
+        actAs("BORROWER-001", "ROLE_BORROWER");
+        JsonNode borrower = borrowerContract(contractNumber);
+        signAsBorrower(contractNumber, "legacy-borrower-" + UUID.randomUUID(), borrower, signableHash,
+                "CLICK_WRAP_MVP")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("EFFECTIVE"))
+                .andExpect(jsonPath("$.signatureProvider").value("MOCK"))
+                .andExpect(jsonPath("$.signatureMethod").value("CLICK_WRAP_MVP"));
+
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM loan_contract_signatures", Long.class))
+                .isZero();
+        JsonNode completed = borrowerContract(contractNumber);
+        assertThat(completed.path("pdfDocument").path("artifactType").asText()).isEqualTo("SIGNED_RECEIPT");
+        assertThat(completed.path("signedPdfDocument").isNull()).isTrue();
+        mockMvc.perform(get("/api/v1/loan-contracts/{number}/signed-document", contractNumber))
+                .andExpect(status().isNotFound());
+        byte[] receipt = mockMvc.perform(get("/api/v1/loan-contracts/{number}/document", contractNumber))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsByteArray();
+        try (org.apache.pdfbox.pdmodel.PDDocument pdf = org.apache.pdfbox.pdmodel.PDDocument.load(receipt)) {
+            assertThat(pdf.getSignatureDictionaries()).isEmpty();
+            assertThat(new org.apache.pdfbox.text.PDFTextStripper().getText(pdf))
+                    .contains("ĐÃ KÝ")
+                    .contains("INVESTOR-001");
+        }
+    }
+
+    /**
+     * Provider từ xa (giả lập SmartCA bằng spy, khóa test sinh trong test): một phiên chờ trên mỗi hợp đồng, worker thu
+     * chữ ký khi người dùng không quay lại app, phiên bị từ chối/quá hạn/chữ ký sai được đóng để ký lại.
+     */
+    @Test
+    void asyncProviderSignaturesAreSerializedPolledAndAbandonedSessionsReleaseTheTurn() throws Exception {
+        TestSigner smartCa = testSigner("SMARTCA UAT TEST SIGNER");
+        java.util.Map<String, String> statusByTransaction = new java.util.concurrent.ConcurrentHashMap<>();
+        java.util.Map<String, byte[]> signatureByTransaction = new java.util.concurrent.ConcurrentHashMap<>();
+        org.mockito.Mockito.doReturn(false).when(signatureProvider).completesSynchronously();
+        org.mockito.Mockito.doReturn(com.finora.loan.domain.contract.SignatureProviderType.VNPT_SMART_CA)
+                .when(signatureProvider).type();
+        org.mockito.Mockito.doReturn(com.finora.loan.domain.contract.SignatureMethod.VNPT_SMART_CA)
+                .when(signatureProvider).method();
+        org.mockito.Mockito.doReturn(new com.finora.loan.integration.signature.SigningCertificate(
+                        smartCa.certificate(), List.of()))
+                .when(signatureProvider).signingCertificate(anyString());
+        org.mockito.Mockito.doAnswer(invocation -> {
+            com.finora.loan.integration.signature.DigestSignatureCommand command = invocation.getArgument(0);
+            signatureByTransaction.put(command.providerTransactionId(),
+                    smartCa.signDigest(java.util.HexFormat.of().parseHex(command.digestHex())));
+            statusByTransaction.putIfAbsent(command.providerTransactionId(), "PENDING");
+            return com.finora.loan.integration.signature.SignatureSubmission.pending(
+                    command.providerTransactionId(), command.documentId(), "sig_wait_for_user_confirm");
+        }).when(signatureProvider).submitDigest(any());
+        org.mockito.Mockito.doAnswer(invocation -> {
+            String transactionId = invocation.getArgument(0);
+            String documentId = invocation.getArgument(1);
+            String mode = statusByTransaction.getOrDefault(transactionId, "NOT_FOUND");
+            var completedStatus = com.finora.loan.integration.signature.SignatureSubmissionStatus.COMPLETED;
+            return switch (mode) {
+                case "COMPLETED" -> new com.finora.loan.integration.signature.SignatureSubmission(
+                        completedStatus, transactionId, documentId,
+                        java.util.Base64.getEncoder().encodeToString(signatureByTransaction.get(transactionId)),
+                        null, "SUCCESS");
+                case "INVALID" -> new com.finora.loan.integration.signature.SignatureSubmission(
+                        completedStatus, transactionId, documentId,
+                        java.util.Base64.getEncoder().encodeToString(new byte[256]), null, "SUCCESS");
+                case "REJECTED" -> new com.finora.loan.integration.signature.SignatureSubmission(
+                        com.finora.loan.integration.signature.SignatureSubmissionStatus.REJECTED,
+                        transactionId, documentId, null, null, "sig_user_rejected");
+                case "PENDING" -> com.finora.loan.integration.signature.SignatureSubmission.pending(
+                        transactionId, documentId, "sig_wait_for_user_confirm");
+                default -> new com.finora.loan.integration.signature.SignatureSubmission(
+                        com.finora.loan.integration.signature.SignatureSubmissionStatus.NOT_FOUND,
+                        transactionId, documentId, null, null, "NOT_FOUND");
+            };
+        }).when(signatureProvider).status(anyString(), anyString());
+
+        String contractNumber = fundedContract(9301L, List.of(
+                new FundingAllocationEventData(101L, "INVESTOR-001", "25000000.00", "50.000000", "HOLD-ASYNC-101"),
+                new FundingAllocationEventData(102L, "INVESTOR-002", "25000000.00", "50.000000", "HOLD-ASYNC-102")));
+        String signableHash = signableHash(contractNumber);
+
+        actAs("INVESTOR-001", "ROLE_INVESTOR");
+        JsonNode lenderOne = investorContract(contractNumber);
+        signAsInvestor("INVESTOR-001", contractNumber, "async-1a-" + UUID.randomUUID(), lenderOne, signableHash,
+                "VNPT_SMART_CA")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.partyStatus").value("SIGNING"));
+        String firstTransaction = inFlightTransaction();
+
+        // Một phiên chờ trên mỗi hợp đồng: bên khác nhận 409 và thử lại sau, không tạo nhánh PDF thứ hai.
+        actAs("INVESTOR-002", "ROLE_INVESTOR");
+        JsonNode lenderTwo = investorContract(contractNumber);
+        signAsInvestor("INVESTOR-002", contractNumber, "async-2-blocked-" + UUID.randomUUID(), lenderTwo,
+                signableHash, "VNPT_SMART_CA")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONTRACT_SIGNATURE_IN_PROGRESS"));
+
+        // Người dùng từ chối trên app SmartCA: phiên đóng, ký lại bằng lần ký mới có transaction mới.
+        statusByTransaction.put(firstTransaction, "REJECTED");
+        actAs("INVESTOR-001", "ROLE_INVESTOR");
+        mockMvc.perform(post("/api/v1/investor/loan-contracts/{number}/signature/refresh", contractNumber))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.partyStatus").value("PENDING_SIGNATURE"));
+        signAsInvestor("INVESTOR-001", contractNumber, "async-1b-" + UUID.randomUUID(), lenderOne, signableHash,
+                "VNPT_SMART_CA")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.partyStatus").value("SIGNING"));
+        String secondTransaction = inFlightTransaction();
+        assertThat(secondTransaction).isNotEqualTo(firstTransaction);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT attempt_number FROM loan_contract_signatures WHERE status = 'PREPARED'", Integer.class))
+                .isEqualTo(2);
+
+        // Người dùng xác nhận trên app rồi không quay lại FINORA: worker phía server thu chữ ký về.
+        statusByTransaction.put(secondTransaction, "COMPLETED");
+        pdfSignatureWorker.reconcileInFlightSignatures();
+        JsonNode lenderOneSigned = investorContract(contractNumber);
+        assertThat(lenderOneSigned.path("partyStatus").asText()).isEqualTo("SIGNED");
+        assertThat(lenderOneSigned.path("pdfSignatureCount").asInt()).isEqualTo(1);
+
+        // Phiên bỏ dở quá hạn được giải phóng cho lượt ký sau.
+        actAs("INVESTOR-002", "ROLE_INVESTOR");
+        signAsInvestor("INVESTOR-002", contractNumber, "async-2a-" + UUID.randomUUID(), lenderTwo, signableHash,
+                "VNPT_SMART_CA")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.partyStatus").value("SIGNING"));
+        jdbcTemplate.update(
+                "UPDATE loan_contract_signatures SET prepared_at = prepared_at - interval '1 hour' WHERE status = 'PREPARED'");
+        pdfSignatureWorker.reconcileInFlightSignatures();
+        assertThat(investorContract(contractNumber).path("partyStatus").asText()).isEqualTo("PENDING_SIGNATURE");
+
+        // Chữ ký không khớp chứng thư không bao giờ được nhúng; client nhận lỗi sau khi phiên đã đóng.
+        signAsInvestor("INVESTOR-002", contractNumber, "async-2b-" + UUID.randomUUID(), lenderTwo, signableHash,
+                "VNPT_SMART_CA")
+                .andExpect(status().isOk());
+        statusByTransaction.put(inFlightTransaction(), "INVALID");
+        mockMvc.perform(post("/api/v1/investor/loan-contracts/{number}/signature/refresh", contractNumber))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("SIGNATURE_PROVIDER_INVALID_SIGNATURE"));
+        JsonNode afterInvalid = investorContract(contractNumber);
+        assertThat(afterInvalid.path("partyStatus").asText()).isEqualTo("PENDING_SIGNATURE");
+        assertThat(afterInvalid.path("pdfSignatureCount").asInt()).isEqualTo(1);
+
+        signAsInvestor("INVESTOR-002", contractNumber, "async-2c-" + UUID.randomUUID(), lenderTwo, signableHash,
+                "VNPT_SMART_CA")
+                .andExpect(status().isOk());
+        statusByTransaction.put(inFlightTransaction(), "COMPLETED");
+        mockMvc.perform(post("/api/v1/investor/loan-contracts/{number}/signature/refresh", contractNumber))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.partyStatus").value("SIGNED"))
+                .andExpect(jsonPath("$.contractStatus").value("PENDING_BORROWER_SIGNATURE"));
+
+        actAs("BORROWER-001", "ROLE_BORROWER");
+        JsonNode borrower = borrowerContract(contractNumber);
+        signAsBorrower(contractNumber, "async-borrower-" + UUID.randomUUID(), borrower, signableHash, "VNPT_SMART_CA")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SIGNING"));
+        statusByTransaction.put(inFlightTransaction(), "COMPLETED");
+        mockMvc.perform(post("/api/v1/loan-contracts/{number}/signature/refresh", contractNumber))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("EFFECTIVE"));
+
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT abandon_reason FROM loan_contract_signatures WHERE status = 'ABANDONED' ORDER BY id",
+                String.class))
+                .containsExactly("PROVIDER_REJECTED", "SIGNING_SESSION_EXPIRED", "PROVIDER_SIGNATURE_INVALID");
+        byte[] finalPdf = mockMvc.perform(get("/api/v1/loan-contracts/{number}/document", contractNumber))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsByteArray();
+        var verified = padesVerifier.verify(finalPdf);
+        assertThat(verified).hasSize(3);
+        assertThat(verified).allSatisfy(signature -> assertThat(signature.subjectCommonName())
+                .isEqualTo("SMARTCA UAT TEST SIGNER"));
+        byte[] receipt = mockMvc.perform(get("/api/v1/loan-contracts/{number}/receipt", contractNumber))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsByteArray();
+        try (org.apache.pdfbox.pdmodel.PDDocument pdf = org.apache.pdfbox.pdmodel.PDDocument.load(receipt)) {
+            assertThat(new org.apache.pdfbox.text.PDFTextStripper().getText(pdf))
+                    .contains("VNPT SMARTCA MÔI TRƯỜNG UAT");
+        }
     }
 
     @Test
@@ -1063,5 +1440,135 @@ class FinoraLoanApplicationIT {
                 request.amount(), new BigDecimal("3000000"), BigDecimal.ZERO, BigDecimal.ZERO,
                 new BigDecimal("53000000"), List.of(period), "{}", "[]",
                 "FINERACT_1_15_SCHEDULE_V1", "0".repeat(64));
+    }
+
+    /** Đi hết nộp hồ sơ → chấm điểm → admin duyệt → LoanFullyFunded với allocation cho trước; trả số hợp đồng. */
+    private String fundedContract(long listingId, List<FundingAllocationEventData> allocations) throws Exception {
+        actAs("BORROWER-001", "ROLE_BORROWER", "ROLE_ADMIN");
+        JsonNode submitted = submitAndScoreApplication();
+        String applicationNumber = submitted.path("applicationNumber").asText();
+        approvePendingReview(applicationNumber);
+        String allocationHash = hashingService.sha256Text(hashingService.toJson(allocations));
+        fullyFundedHandler.handle(UUID.randomUUID(), Instant.now(), new LoanFullyFundedEventData(
+                submitted.path("id").asLong(), applicationNumber, listingId, 1,
+                "50000000.00", "VND", 1L, allocationHash, Instant.now(), allocations));
+        return jdbcTemplate.queryForObject(
+                "SELECT contract_number FROM loan_contracts WHERE application_id = ?",
+                String.class, submitted.path("id").asLong());
+    }
+
+    private String signableHash(String contractNumber) {
+        return jdbcTemplate.queryForObject("""
+                SELECT d.content_hash FROM loan_contract_documents d JOIN loan_contracts c ON c.id = d.contract_id
+                WHERE c.contract_number = ? AND d.artifact_type = 'SIGNABLE'
+                """, String.class, contractNumber);
+    }
+
+    private String inFlightTransaction() {
+        return jdbcTemplate.queryForObject(
+                "SELECT provider_transaction_id FROM loan_contract_signatures WHERE status = 'PREPARED'",
+                String.class);
+    }
+
+    private void actAs(String userId, String... roles) {
+        org.springframework.security.oauth2.jwt.Jwt jwt =
+                org.springframework.security.oauth2.jwt.Jwt.withTokenValue(userId + "-token")
+                        .header("alg", "RS256")
+                        .subject(userId)
+                        .claim("user_id", userId)
+                        .issuedAt(Instant.now())
+                        .expiresAt(Instant.now().plusSeconds(3600))
+                        .build();
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken(
+                        jwt,
+                        java.util.Arrays.stream(roles)
+                                .map(org.springframework.security.core.authority.SimpleGrantedAuthority::new)
+                                .toList(),
+                        userId));
+    }
+
+    private JsonNode investorContract(String contractNumber) throws Exception {
+        return objectMapper.readTree(mockMvc.perform(
+                        get("/api/v1/investor/loan-contracts/{number}", contractNumber))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+    }
+
+    private JsonNode borrowerContract(String contractNumber) throws Exception {
+        return objectMapper.readTree(mockMvc.perform(get("/api/v1/loan-contracts/{number}", contractNumber))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+    }
+
+    private org.springframework.test.web.servlet.ResultActions signAsInvestor(
+            String investorId,
+            String contractNumber,
+            String idempotencyKey,
+            JsonNode view,
+            String pdfDocumentHash,
+            String signatureMethod
+    ) throws Exception {
+        return mockMvc.perform(post("/api/v1/investor/loan-contracts/{number}/sign", contractNumber)
+                .header(PinTokenService.HEADER_NAME,
+                        pinTokenService.issue(investorId, PinScope.SIGN_CONTRACT, idempotencyKey).token())
+                .header("Idempotency-Key", idempotencyKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"version":%d,"documentHash":"%s","pdfDocumentHash":"%s","signatureMethod":"%s"}
+                        """.formatted(view.path("contractVersion").asLong(), view.path("documentHash").asText(),
+                        pdfDocumentHash, signatureMethod)));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions signAsBorrower(
+            String contractNumber,
+            String idempotencyKey,
+            JsonNode view,
+            String pdfDocumentHash,
+            String signatureMethod
+    ) throws Exception {
+        return mockMvc.perform(post("/api/v1/loan-contracts/{number}/sign", contractNumber)
+                .header(PinTokenService.HEADER_NAME,
+                        pinTokenService.issue("BORROWER-001", PinScope.SIGN_CONTRACT, idempotencyKey).token())
+                .header("Idempotency-Key", idempotencyKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"version":%d,"documentHash":"%s","pdfDocumentHash":"%s","signatureMethod":"%s"}
+                        """.formatted(view.path("version").asLong(), view.path("documentHash").asText(),
+                        pdfDocumentHash, signatureMethod)));
+    }
+
+    /** Khóa RSA và chứng thư tự ký sinh trong test để giả lập thuê bao SmartCA; không có khóa nào được commit. */
+    private record TestSigner(java.security.PrivateKey privateKey, java.security.cert.X509Certificate certificate) {
+
+        /** Ký hash như dịch vụ "sign_type = hash": RSA PKCS#1 v1.5 trên DigestInfo(SHA-256, digest). */
+        byte[] signDigest(byte[] digest) throws Exception {
+            byte[] digestInfo = new org.bouncycastle.asn1.x509.DigestInfo(
+                    new org.bouncycastle.asn1.x509.AlgorithmIdentifier(
+                            org.bouncycastle.asn1.nist.NISTObjectIdentifiers.id_sha256,
+                            org.bouncycastle.asn1.DERNull.INSTANCE), digest).getEncoded("DER");
+            java.security.Signature signature = java.security.Signature.getInstance("NONEwithRSA");
+            signature.initSign(privateKey);
+            signature.update(digestInfo);
+            return signature.sign();
+        }
+    }
+
+    private static TestSigner testSigner(String commonName) throws Exception {
+        java.security.KeyPairGenerator generator = java.security.KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        java.security.KeyPair keyPair = generator.generateKeyPair();
+        org.bouncycastle.asn1.x500.X500Name subject =
+                new org.bouncycastle.asn1.x500.X500Name("CN=" + commonName + ", O=FINORA Test, C=VN");
+        Instant now = Instant.now();
+        org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder builder =
+                new org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder(
+                        subject, java.math.BigInteger.valueOf(now.toEpochMilli()),
+                        java.util.Date.from(now.minusSeconds(3600)), java.util.Date.from(now.plusSeconds(86400)),
+                        subject, keyPair.getPublic());
+        java.security.cert.X509Certificate certificate = new org.bouncycastle.cert.jcajce.JcaX509CertificateConverter()
+                .getCertificate(builder.build(new org.bouncycastle.operator.jcajce.JcaContentSignerBuilder(
+                        "SHA256withRSA").build(keyPair.getPrivate())));
+        return new TestSigner(keyPair.getPrivate(), certificate);
     }
 }

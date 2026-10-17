@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.application.LoanPurpose;
 import com.finora.loan.domain.contract.ContractParty;
+import com.finora.loan.domain.contract.ContractPartyType;
 import com.finora.loan.domain.contract.ContractPdfArtifactType;
+import com.finora.loan.domain.contract.SignatureProviderType;
 import com.finora.loan.domain.contract.LoanContract;
 import com.finora.loan.domain.contract.SignatureMethod;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
@@ -98,6 +100,84 @@ class ContractPdfRendererTest {
                     .contains("VNPT_SMART_CA")
                     .contains("BẰNG CHỨNG CHỮ KÝ CÁC BÊN CHO VAY")
                     .doesNotContain("CHƯA TÍCH HỢP");
+        }
+    }
+
+    @Test
+    void padesSignableDescribesHiddenSequentialSignaturesUnderItsOwnVersion() throws Exception {
+        HashingService hashing = new HashingService(new ObjectMapper().findAndRegisterModules());
+        ContractPdfRenderer renderer = new ContractPdfRenderer(new ObjectMapper().findAndRegisterModules(), hashing);
+        List<FundedContractAllocation> allocations = List.of(
+                new FundedContractAllocation(101L, "INVESTOR-001", new BigDecimal("6000000.00"),
+                        new BigDecimal("60.000000"), "HOLD-101"),
+                new FundedContractAllocation(102L, "INVESTOR-002", new BigDecimal("4000000.00"),
+                        new BigDecimal("40.000000"), "HOLD-102"));
+
+        ContractPdfArtifact legacy = renderer.renderFundedSignable(
+                "LC-PADES-001", application(), schedule(), "LOAN_TERMS_V2", Instant.parse("2026-10-08T10:00:00Z"),
+                allocations, 1L, "d".repeat(64));
+        ContractPdfArtifact pades = renderer.renderFundedSignable(
+                "LC-PADES-001", application(), schedule(), "LOAN_TERMS_V2", Instant.parse("2026-10-08T10:00:00Z"),
+                allocations, 1L, "d".repeat(64), true);
+
+        assertThat(legacy.documentVersion()).isEqualTo(ContractPdfRenderer.DOCUMENT_VERSION);
+        assertThat(pades.documentVersion()).isEqualTo(ContractPdfRenderer.DOCUMENT_VERSION + "_PADES");
+        Path output = Path.of("target", "test-output", "finora-pades-signable-preview.pdf");
+        Files.createDirectories(output.getParent());
+        Files.write(output, pades.content());
+        try (PDDocument pdf = PDDocument.load(pades.content())) {
+            // Gộp khoảng trắng: cụm từ có thể bị ngắt dòng trong PDF.
+            String text = new PDFTextStripper().getText(pdf).replaceAll("\\s+", " ");
+            assertThat(text)
+                    .contains("KÝ SỐ TRƯỚC")
+                    .contains("KÝ SỐ SAU CÙNG")
+                    .contains("PAdES-B-B")
+                    .contains("trang biên nhận")
+                    .contains("CONTRACT_PDF_V2_PADES")
+                    .doesNotContain("không tự chứng minh chữ ký PAdES")
+                    .doesNotContain("CHƯA TÍCH HỢP");
+        }
+        try (PDDocument pdf = PDDocument.load(legacy.content())) {
+            assertThat(new PDFTextStripper().getText(pdf).replaceAll("\\s+", " "))
+                    .contains("không tự chứng minh chữ ký PAdES");
+        }
+    }
+
+    @Test
+    void signatureReceiptListsEverySignatureWithoutSubjectIdentifiers() throws Exception {
+        HashingService hashing = new HashingService(new ObjectMapper().findAndRegisterModules());
+        ContractPdfRenderer renderer = new ContractPdfRenderer(new ObjectMapper().findAndRegisterModules(), hashing);
+        ContractSignatureReceipt receipt = new ContractSignatureReceipt(
+                "LC-PADES-001", "LA-7FA66C3814FE443887DB", "a".repeat(64), "CONTRACT_PDF_V3_PADES",
+                "b".repeat(64), 245_678, Instant.parse("2026-10-17T03:00:00Z"), List.of(
+                new ContractSignatureReceipt.Row(1, ContractPartyType.LENDER, "INVESTOR-001",
+                        Instant.parse("2026-10-17T02:00:00Z"), SignatureProviderType.MOCK,
+                        SignatureMethod.CLICK_WRAP_MVP, "FINORA DEMO - KHONG CO GIA TRI PHAP LY", "1a2b",
+                        "FINORA DEMO - KHONG CO GIA TRI PHAP LY", "c".repeat(64), "d".repeat(64), 120_000),
+                new ContractSignatureReceipt.Row(2, ContractPartyType.BORROWER, "BORROWER-001",
+                        Instant.parse("2026-10-17T02:30:00Z"), SignatureProviderType.MOCK,
+                        SignatureMethod.CLICK_WRAP_MVP, "FINORA DEMO - KHONG CO GIA TRI PHAP LY", "1a2b",
+                        "FINORA DEMO - KHONG CO GIA TRI PHAP LY", "c".repeat(64), "b".repeat(64), 245_678)));
+
+        ContractPdfArtifact artifact = renderer.renderSignatureReceipt(receipt);
+        Path output = Path.of("target", "test-output", "finora-pades-receipt-preview.pdf");
+        Files.createDirectories(output.getParent());
+        Files.write(output, artifact.content());
+
+        assertThat(artifact.artifactType()).isEqualTo(ContractPdfArtifactType.SIGNED_RECEIPT);
+        assertThat(artifact.documentVersion()).isEqualTo(ContractPdfRenderer.RECEIPT_DOCUMENT_VERSION);
+        try (PDDocument pdf = PDDocument.load(artifact.content())) {
+            String text = new PDFTextStripper().getText(pdf).replaceAll("\\s+", " ");
+            assertThat(text)
+                    .contains("TRANG BIÊN NHẬN CHỮ KÝ SỐ")
+                    .contains("LC-PADES-001")
+                    .contains("INVESTOR-001")
+                    .contains("BORROWER-001")
+                    .contains("ĐÃ KÝ")
+                    .contains("KHÔNG CÓ GIÁ TRỊ PHÁP LÝ")
+                    .contains("NẰM NGOÀI TỆP ĐÃ KÝ")
+                    .doesNotContain("UID=");
+            assertThat(text.replaceAll("\\s+", "")).contains("b".repeat(64));
         }
     }
 

@@ -2,6 +2,7 @@ package com.finora.loan.service.contract.impl;
 
 import com.finora.common.logging.TraceContext;
 import com.finora.loan.config.LoanContractProperties;
+import com.finora.loan.config.PadesSignatureProperties;
 import com.finora.loan.domain.application.ActorType;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.contract.LoanContract;
@@ -48,6 +49,7 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
     private final ContractPdfRenderer pdfRenderer;
     private final HashingService hashingService;
     private final LoanContractProperties properties;
+    private final PadesSignatureProperties padesProperties;
     private final OutboxService outboxService;
 
     /**
@@ -160,18 +162,23 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
         validateAllocations(application, allocations, allocationVersion, allocationHash);
         String contractNumber = numberGenerator.next();
         ContractTextVersion textVersion = ContractTextVersion.of(application, properties);
+        // R5/D13: cách ký chốt lúc lập Contract; tắt PAdES chỉ ảnh hưởng hợp đồng mới, không đổi hợp đồng đang ký.
+        boolean pades = padesProperties.isEnabled();
         String documentContent = documentRenderer.renderFunded(
                 contractNumber, application, finalSchedule, textVersion.termsVersion(),
                 textVersion.documentVersion(), expiresAt, allocations, allocationVersion, allocationHash);
         ContractPdfArtifact pdf = pdfRenderer.renderFundedSignable(
                 contractNumber, application, finalSchedule, textVersion.termsVersion(),
-                expiresAt, allocations, allocationVersion, allocationHash);
+                expiresAt, allocations, allocationVersion, allocationHash, pades);
         LoanContract contract = LoanContract.create(
                 contractNumber, application.getId(), application.getBorrowerId(),
                 terms(application, finalSchedule), textVersion.termsVersion(), textVersion.documentVersion(),
                 documentContent, hashingService.sha256Text(documentContent), expiresAt, actorId, now);
         contract.recordEarlySettlementPolicy(LoanServicingContractTerms.EARLY_SETTLEMENT_POLICY_VERSION);
         contract.initializeMultiParty();
+        if (pades) {
+            contract.usePadesSignatures();
+        }
         contractRepository.saveAndFlush(contract);
         partyRepository.save(ContractParty.borrower(contract.getId(), application.getBorrowerId(), now));
         partyRepository.saveAll(allocations.stream()

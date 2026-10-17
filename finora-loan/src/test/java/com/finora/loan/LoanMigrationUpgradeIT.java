@@ -23,7 +23,7 @@ class LoanMigrationUpgradeIT {
             .withPassword("finora_test");
 
     @Test
-    void existingV4DatabaseUpgradesThroughV31WithoutRecreatingOldTables() throws Exception {
+    void existingV4DatabaseUpgradesThroughV32WithoutRecreatingOldTables() throws Exception {
         Flyway.configure()
                 .dataSource(POSTGRESQL.getJdbcUrl(), POSTGRESQL.getUsername(), POSTGRESQL.getPassword())
                 .locations("classpath:db/migration")
@@ -37,7 +37,7 @@ class LoanMigrationUpgradeIT {
                 .load();
         upgraded.migrate();
 
-        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("31");
+        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("32");
         assertThat(upgraded.info().pending()).isEmpty();
         try (Connection connection = POSTGRESQL.createConnection("");
              Statement statement = connection.createStatement();
@@ -289,6 +289,37 @@ class LoanMigrationUpgradeIT {
             // V31 lưu lần vận hành đưa saga REPAIR_REQUIRED về ghi core lại (R2, Wave 2D).
             assertThat(result.next()).isTrue();
             assertThat(result.getInt(1)).isEqualTo(5);
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT column_default
+                     FROM information_schema.columns
+                     WHERE table_schema = 'public'
+                       AND table_name = 'loan_contracts'
+                       AND column_name = 'signature_profile'
+                     """)) {
+            // V32 (R5): hợp đồng cũ giữ bằng chứng tách rời; chỉ hợp đồng mới chọn PAdES khi lập.
+            assertThat(result.next()).isTrue();
+            assertThat(result.getString(1)).contains("DETACHED_EVIDENCE");
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT indexname
+                     FROM pg_indexes
+                     WHERE schemaname = 'public'
+                       AND tablename = 'loan_contract_signatures'
+                     ORDER BY indexname
+                     """)) {
+            // Một phiên chờ mỗi hợp đồng, một bản SIGNED mỗi vị trí và mỗi bên ký, worker quét phiên đang chờ.
+            java.util.List<String> indexes = new java.util.ArrayList<>();
+            while (result.next()) {
+                indexes.add(result.getString(1));
+            }
+            assertThat(indexes).contains(
+                    "uq_loan_contract_signatures_in_flight", "uq_loan_contract_signatures_sequence",
+                    "uq_loan_contract_signatures_signer", "idx_loan_contract_signatures_in_flight_due");
         }
     }
 }

@@ -37,3 +37,9 @@ Investment FULLY_FUNDED
 - [x] Investment Contract projection cho UI.
 - [x] SmartCA async cho từng lender, polling giới hạn và retry idempotent.
 - [ ] Hải review Investment và chạy E2E Kafka local trước merge.
+
+Cập nhật 2026-10-17 (R5, [W3C](../../.agents/plans/W3C-pades-contract-signing.md)): hợp đồng nhiều bên mới ký
+PAdES-B-B ẩn nhúng vào chính PDF. Lender ký nối tiếp theo thứ tự hoàn tất (mỗi lúc một phiên ký chờ trên một hợp
+đồng), borrower ký cuối; mỗi chữ ký là một incremental update và không làm hỏng chữ ký trước. `/document` vẫn trả
+SIGNABLE trong lúc ký; sau khi đủ chữ ký trả bản ký đủ (`SIGNED_PDF`) và trang biên nhận nằm ở `/receipt`. Hợp đồng
+lập trước V32 giữ luồng bằng chứng tách rời ở trên.

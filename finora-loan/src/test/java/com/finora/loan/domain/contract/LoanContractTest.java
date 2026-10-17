@@ -145,6 +145,42 @@ class LoanContractTest {
         assertThat(contract.getEffectiveAt()).isEqualTo(NOW.plusSeconds(30));
     }
 
+    @Test
+    void padesProfileIsChosenOnlyForNewMultiPartyContractsAndDefaultsToDetachedEvidence() {
+        LoanContract single = contract(NOW.plusSeconds(3600));
+        assertThat(single.getSignatureProfile()).isEqualTo(ContractSignatureProfile.DETACHED_EVIDENCE);
+        assertThat(single.isPadesSigned()).isFalse();
+        // Hợp đồng một bên kiểu LN-008 không ký PAdES.
+        assertThatThrownBy(single::usePadesSignatures)
+                .isInstanceOf(LoanDomainException.class)
+                .extracting("code").isEqualTo("SIGNATURE_PROFILE_LOCKED");
+
+        LoanContract multi = contract(NOW.plusSeconds(3600));
+        multi.initializeMultiParty();
+        multi.usePadesSignatures();
+
+        assertThat(multi.getSignatureProfile()).isEqualTo(ContractSignatureProfile.PADES_B_B);
+        assertThat(multi.isPadesSigned()).isTrue();
+    }
+
+    @Test
+    void systemExpiresOnlyAnOpenDigitalSignatureSessionAndReturnsToBorrowerTurn() {
+        LoanContract contract = contract(NOW.plusSeconds(3600));
+        contract.initializeMultiParty();
+        contract.markBorrowerSignatureReady("SYSTEM-LENDER-SIGNATURES", NOW.plusSeconds(5));
+        assertThat(contract.expireDigitalSignatureSession(NOW.plusSeconds(6))).isFalse();
+        contract.beginDigitalSignature(
+                0, "b".repeat(64), "FINORA-PADES-TX-001", "FINORA-DOC-001",
+                "sign-key", "c".repeat(64), "BORROWER-001", NOW.plusSeconds(10));
+
+        assertThat(contract.expireDigitalSignatureSession(NOW.plusSeconds(700))).isTrue();
+
+        assertThat(contract.getStatus()).isEqualTo(LoanContractStatus.PENDING_BORROWER_SIGNATURE);
+        assertThat(contract.getSignatureTransactionId()).isNull();
+        assertThat(contract.getConsentIdempotencyKey()).isNull();
+        assertThat(contract.getUpdatedBy()).isEqualTo("SYSTEM");
+    }
+
     private LoanContract contract(Instant expiresAt) {
         return LoanContract.create(
                 "LC-ABCDEF0123456789ABCD",
