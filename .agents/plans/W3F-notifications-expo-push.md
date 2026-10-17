@@ -109,27 +109,28 @@ Notification không gọi REST service khác, không đọc DB chéo (07-service
 ## 3. Ma trận actor × event
 
 `Đã làm` = chạy với event hiện hành; `Đã làm*` = chạy được nhờ bảng tra người nhận, sẽ chính xác hơn khi producer bổ sung
-field ở mục 13; `Cần producer` = consumer/mẫu chưa thể chạy vì event chưa tồn tại hoặc thiếu người nhận.
+field ở mục 13; `Cần producer` = consumer/mẫu chưa thể chạy vì event chưa tồn tại hoặc thiếu người nhận. Cập nhật
+2026-10-17: producer đã làm P1–P7 (mục 13), các ô ghi "(Px)" dưới đây không còn phụ thuộc bảng tra; P8, P9 còn thiết kế.
 
 | Mốc | Event (topic) | Người vay | Nhà đầu tư | Admin | Ghi chú |
 |---|---|---|---|---|---|
 | Lên sàn gọi vốn | `LoanFundingRequested.v1` | Đã làm (`LOAN_FUNDING_OPENED`) | — | — | Nguồn `borrowerId` cho bảng tra; producer cũ không có field → không báo |
 | Đủ vốn | `LoanFullyFunded.v2` | Đã làm* (`LOAN_FULLY_FUNDED`) | — (gộp vào mời ký) | — | Nguồn danh sách nhà đầu tư của allocation |
-| Hết hạn gọi vốn | `LoanFundingExpired.v1` | Đã làm* | Cần producer (P6: `investorIds`) | — | Mẫu `INVESTMENT_FUNDING_EXPIRED` sẵn sàng |
-| Hủy sau khi đủ vốn | `LoanFundingCancelled.v1` | Đã làm* | Đã làm* (`INVESTMENT_FUNDING_CANCELLED`) | — | Lý do: từ chối ký / hết hạn ký / giải ngân lỗi |
+| Hết hạn gọi vốn | `LoanFundingExpired.v1` | Đã làm* | Đã làm (P6: `investorIds`, `INVESTMENT_FUNDING_EXPIRED`) | — | Người vay vẫn qua bảng tra (event không mang `borrowerId`) |
+| Hủy sau khi đủ vốn | `LoanFundingCancelled.v1` | Đã làm (P2) | Đã làm* (`INVESTMENT_FUNDING_CANCELLED`) | — | Lý do: từ chối ký / hết hạn ký / giải ngân lỗi |
 | Mời nhà đầu tư ký | `InvestorSignatureRequested.v1` | — | Đã làm* (theo `allocationVersion`) | — | |
-| Đến lượt người vay ký | `BorrowerSignatureRequested.v1` | Đã làm* (sửa B24) | — | — | P1 thêm `borrowerId` |
-| Hợp đồng hiệu lực | `LoanContractActivated.v1` | Đã làm* | Đã làm* | — | |
-| Giải ngân / phát hành Note | `LoanDisbursed.v1` | Đã làm* (`LOAN_DISBURSED`) | Đã làm* (`NOTES_ISSUED`) | — | P3 thêm kỳ đầu để nhắc từ kỳ 1 |
-| Kỳ sắp đến hạn / đến hạn hôm nay | Worker + `RepaymentDistributed.v1` | Đã làm, **tắt mặc định** (D64) | — | — | Chặn nhắc người đã trả trước cần P5 |
-| Đã nhận tiền trả kỳ trước hạn / hủy | `RepaymentCollected.v1`, `RepaymentCancelled.v1` | Cần producer (P5); consumer sẵn | — | — | Listener chỉ chạy khi bật nhắc lịch |
-| Khoản trả đã ghi nhận | `RepaymentDistributed.v1` | Đã làm* (`REPAYMENT_RECORDED`) | Đã có (Investment `REPAYMENT_CREDITED`) | — | Trả hết nợ: trong app, không push (LoanSettled push) |
+| Đến lượt người vay ký | `BorrowerSignatureRequested.v1` | Đã làm (sửa B24, P1 `borrowerId`) | — | — | |
+| Hợp đồng hiệu lực | `LoanContractActivated.v1` | Đã làm (P2) | Đã làm* | — | |
+| Giải ngân / phát hành Note | `LoanDisbursed.v1` | Đã làm (`LOAN_DISBURSED`, P2) | Đã làm* (`NOTES_ISSUED`) | — | P3: kỳ đầu từ Fineract, nhắc được từ kỳ 1 |
+| Kỳ sắp đến hạn / đến hạn hôm nay | Worker + `RepaymentDistributed.v1` | Đã làm, **tắt mặc định** (D64) | — | — | P5 đã có; owner quyết định bật `NOTIFICATION_DUE_REMINDER_ENABLED` |
+| Đã nhận tiền trả kỳ trước hạn / hủy | `RepaymentCollected.v1`, `RepaymentCancelled.v1` | Đã làm (P5, Payment phát từ 2026-10-17); listener chỉ chạy khi bật nhắc lịch | — | — | `INSTALLMENT_PAYMENT_HELD`/`INSTALLMENT_PAYMENT_CANCELLED` |
+| Khoản trả đã ghi nhận | `RepaymentDistributed.v1` | Đã làm (`REPAYMENT_RECORDED`, P4) | Đã có (Investment `REPAYMENT_CREDITED`) | — | Trả hết nợ: trong app, không push (LoanSettled push) |
 | Quá hạn theo mốc | `LoanDelinquencyChanged.v1` | Đã làm (D61) | Đã có, lọc tin hằng ngày (B60) | — | |
 | Nợ xấu (default) / khắc phục (cure) | `LoanDelinquencyChanged.v1` | Đã làm (`LOAN_DEFAULTED`, `OVERDUE_CURED`) | Đã có (`BAD_DEBT_MILESTONE`, `DELINQUENCY_CURED`) | — | |
-| Cơ cấu: thẩm định đạt | `LoanRescheduleConsentRequested.v1` | Đã làm* | Cần producer (P7) | — | Mẫu `RESCHEDULE_CONSENT_REQUESTED` sẵn |
+| Cơ cấu: thẩm định đạt | `LoanRescheduleConsentRequested.v1` | Đã làm (P2) | Đã làm (P7: Investment phát `RESCHEDULE_CONSENT_REQUESTED`, có push) | — | Mỗi chủ phiếu một tin |
 | Cơ cấu: admin từ chối | (chưa có event) | Cần producer (P8) | — | — | |
 | Cơ cấu: kết quả biểu quyết | `LoanRescheduleConsentCompleted.v1` | Đã làm* | — | — | |
-| Cơ cấu: lịch mới | `LoanRescheduled.v1` | Đã làm | Đã có (`RESCHEDULED`) | — | P3 thêm kỳ tiếp theo |
+| Cơ cấu: lịch mới | `LoanRescheduled.v1` | Đã làm | Đã có (`RESCHEDULED`) | — | P3: kỳ tiếp theo của lịch mới |
 | Tất toán | `LoanSettled.v1` | Đã làm | Đã có (`SETTLED`/`EARLY_SETTLEMENT`) | — | Đóng lịch nhắc |
 | Rút tiền | `WithdrawalCompleted.v1`, `WithdrawalFailed.v1` | Đã làm | Đã làm | — | Producer Wave 3 của main agent |
 | Sự cố đối soát cần người | (chưa có event) | — | — | Cần producer (P9) | Thiết kế hộp thư admin |
@@ -332,18 +333,28 @@ R7 + D60–D64 + B60–B64 và B24 Fixed, `finora-mobile/PLAN.md` dòng MOBILE-N
 
 Tất cả là field **optional** (tương thích ngược, consumer cũ bỏ qua) hoặc event mới; Notification đã đọc sẵn (trừ P8, P9).
 
-| ID | Producer (class) | Event | Field/việc | Lý do |
-|---|---|---|---|---|
-| P1 | Loan `InvestorContractServiceImpl.advanceContractIfAllLendersSigned` (`BorrowerSignatureRequestedEventData`) | `BorrowerSignatureRequested.v1` | `borrowerId` = `application.getBorrowerId()` | Người nhận nằm trong event, không phụ thuộc bảng tra (B24, B64) |
-| P2 | Loan `LoanContractStateService.activateMultiParty`, `DisbursementSagaService.complete`, `LoanFundingCancellationService.cancel`, `LoanRescheduleService.approve` | `LoanContractActivated.v1`, `LoanDisbursed.v1`, `LoanFundingCancelled.v1`, `LoanRescheduleConsentRequested.v1` | `borrowerId` (application/loan) | Như P1 |
-| P3 | Loan `DisbursementSagaService.complete` (cùng snapshot core đọc `maturityDate`, `FineractCoreLoanBookingGateway`); `LoanRescheduleExecutionService` (snapshot sau cơ cấu) | `LoanDisbursed.v1`, `LoanRescheduled.v1` | `nextDueDate` (date), `nextDueAmount` (decimal string) từ Fineract | Nhắc từ kỳ 1 và đúng kỳ sau cơ cấu |
-| P4 | Payment `PaymentRepaymentService` (chỗ tạo `RepaymentDistributedEventData`, ~dòng 495) | `RepaymentDistributed.v1` | `borrowerId` = `repayment.getBorrowerId()` | Như P1 |
-| P5 | Payment `PaymentRepaymentService.collect` (khi `postOn != null`) và `cancelPending`; route trong `PaymentOutboxPublisher` + `finora.payment.repayment-collected-topic`/`-cancelled-topic` | Mới `RepaymentCollected.v1` (`finora.payment.repayment-collected`): `repaymentId, loanApplicationId, borrowerId, repaymentType, amount, currency, dueDate(=postOn), collectedAt`; `RepaymentCancelled.v1` (`finora.payment.repayment-cancelled`): `repaymentId, loanApplicationId, borrowerId, dueDate, cancelledAt` | Key = `loanApplicationId`, cùng outbox transaction | Không nhắc người đã trả trước (D16, D64); báo đã nhận/hủy khoản giữ |
-| P6 | Investment `MarketListingServiceImpl.closeExpiredListings` | `LoanFundingExpired.v1` | `investorIds` (danh sách distinct nhà đầu tư có commitment bị hủy) | Báo nhà đầu tư tiền giữ sẽ về ví |
-| P7 | Investment handler `LoanRescheduleConsentRequested` (lúc tạo phiếu) | `InvestorNoteServicingChanged.v1` | `changeType = RESCHEDULE_CONSENT_REQUESTED`, recipients = chủ phiếu, `externalPushRequired = true` | Mời biểu quyết; không cần topic mới |
-| P8 | Loan `LoanRescheduleService.reject` | Mới `LoanRescheduleRequestReviewed.v1` (`finora.loan.reschedule-request-reviewed`): `requestId, loanApplicationId, loanNumber, borrowerId, decision=REJECTED, reviewedAt` (không lý do tự do) | Outbox cùng TX | Báo người vay bị từ chối; cần consumer Notification (chưa làm) |
-| P9 | Payment (`RECONCILIATION_REQUIRED` repayment/disbursement), Loan (`REPAIR_REQUIRED` saga, servicing incident), Investment (`release_blocked_at`) | Mới `OperationsIncidentRaised.v1` (`finora.<service>.operations-incident-raised`): `incidentId, incidentType, severity, businessReference, sourceService, raisedAt` | Outbox khi vào trạng thái cần người | Hộp thư admin trong Notification (recipient `ROLE_ADMIN`, chỉ in-app); chưa làm |
-| P10 | Docs/registry (mục 12) | — | — | Đồng bộ hợp đồng chung |
+**Trạng thái 2026-10-17:** P1–P7 và P10 đã làm trên nhánh producer của main agent (commit `3d7bf82` Loan, `a0f3c0d` Payment,
+`1c03819` Investment, `90763d5` test Notification, tài liệu chung cùng nhánh); P8, P9 giữ ở mức thiết kế. Mọi field mới giữ
+version v1, ghi outbox cùng transaction với thay đổi nghiệp vụ, không PII. Quyết định D76–D78, defect B76 ở mục 14–15.
+
+| ID | Producer (class) | Event | Field/việc | Lý do | Trạng thái và bằng chứng |
+|---|---|---|---|---|---|
+| P1 | Loan `InvestorContractServiceImpl.advanceContractIfAllLendersSigned` (`BorrowerSignatureRequestedEventData`) | `BorrowerSignatureRequested.v1` | `borrowerId` = `application.getBorrowerId()` | Người nhận nằm trong event, không phụ thuộc bảng tra (B24, B64) | **Đã làm** — `borrowerId` (String). `FinoraLoanApplicationIT` (payload outbox thật), `ProducerFieldAdditionsContractTest` |
+| P2 | Loan `LoanContractStateService.activateMultiParty`, `DisbursementSagaService.complete`, `LoanFundingCancellationService.cancel`, `LoanRescheduleService.approve` | `LoanContractActivated.v1`, `LoanDisbursed.v1`, `LoanFundingCancelled.v1`, `LoanRescheduleConsentRequested.v1` | `borrowerId` (application/loan) | Như P1 | **Đã làm** — `borrowerId` (String) ở cả bốn event. `FinoraLoanApplicationIT` (activated, cancelled), `DisbursementSagaServiceTest`, `LoanRescheduleProducerFieldsTest` |
+| P3 | Loan `DisbursementSagaService.complete` (cùng snapshot core đọc `maturityDate`, `FineractCoreLoanBookingGateway`); `LoanRescheduleExecutionService` (snapshot sau cơ cấu) | `LoanDisbursed.v1`, `LoanRescheduled.v1` | `nextDueDate` (date), `nextDueAmount` (decimal string) từ Fineract | Nhắc từ kỳ 1 và đúng kỳ sau cơ cấu | **Đã làm** (D76) — `nextDueDate` (ngày ISO), `nextDueAmount` (chuỗi decimal hai số lẻ), vắng mặt khi core không trả lịch. Booking đọc `GET /loans/{id}?associations=repaymentSchedule`. `FineractCoreLoanBookingGatewayTest`, `DisbursementSagaServiceTest`, `LoanRescheduleProducerFieldsTest`, `ProducerFieldAdditionsContractTest` |
+| P4 | Payment `PaymentRepaymentService` (chỗ tạo `RepaymentDistributedEventData`, ~dòng 495) | `RepaymentDistributed.v1` | `borrowerId` = `repayment.getBorrowerId()` | Như P1 | **Đã làm** — `borrowerId` (String). `FinoraPaymentApplicationIT` |
+| P5 | Payment `PaymentRepaymentService.collect` (khi `postOn != null`) và `cancelPending`; route trong `PaymentOutboxPublisher` + `finora.payment.repayment-collected-topic`/`-cancelled-topic` | Mới `RepaymentCollected.v1` (`finora.payment.repayment-collected`): `repaymentId, loanApplicationId, borrowerId, repaymentType, amount, currency, dueDate(=postOn), collectedAt`; `RepaymentCancelled.v1` (`finora.payment.repayment-cancelled`): `repaymentId, loanApplicationId, borrowerId, dueDate, cancelledAt` | Key = `loanApplicationId`, cùng outbox transaction | Không nhắc người đã trả trước (D16, D64); báo đã nhận/hủy khoản giữ | **Đã làm** (D77) — đúng danh sách field; allowlist loại + v1 trong publisher. `FinoraPaymentApplicationIT` (một event mỗi chuyển trạng thái, không phát khi gửi lại/hủy lại/ghi ngay), `PaymentOutboxPublisherTest`. Nhắc lịch vẫn tắt mặc định (D64): bật là quyết định của owner |
+| P6 | Investment `MarketListingServiceImpl.closeExpiredListings` | `LoanFundingExpired.v1` | `investorIds` (danh sách distinct nhà đầu tư có commitment bị hủy) | Báo nhà đầu tư tiền giữ sẽ về ví | **Đã làm** — `investorIds` (List<String>, không trùng, sắp theo chữ, rỗng khi không ai góp). `FundingFlowIT` |
+| P7 | Investment handler `LoanRescheduleConsentRequested` (lúc tạo phiếu) | `InvestorNoteServicingChanged.v1` | `changeType = RESCHEDULE_CONSENT_REQUESTED`, recipients = chủ phiếu, `externalPushRequired = true` | Mời biểu quyết; không cần topic mới | **Đã làm** (D78) — một recipient mỗi chủ phiếu (`noteId`/`noteNumber`/`amount` null), chỉ khi phiếu tạo lần đầu. `LoanRescheduleConsentRequestedHandlerTest`, `FundingFlowIT` |
+| P8 | Loan `LoanRescheduleService.reject` | Mới `LoanRescheduleRequestReviewed.v1` (`finora.loan.reschedule-request-reviewed`): `requestId, loanApplicationId, loanNumber, borrowerId, decision=REJECTED, reviewedAt` (không lý do tự do) | Outbox cùng TX | Báo người vay bị từ chối; cần consumer Notification (chưa làm) | Thiết kế, chưa làm (theo phạm vi) |
+| P9 | Payment (`RECONCILIATION_REQUIRED` repayment/disbursement), Loan (`REPAIR_REQUIRED` saga, servicing incident), Investment (`release_blocked_at`) | Mới `OperationsIncidentRaised.v1` (`finora.<service>.operations-incident-raised`): `incidentId, incidentType, severity, businessReference, sourceService, raisedAt` | Outbox khi vào trạng thái cần người | Hộp thư admin trong Notification (recipient `ROLE_ADMIN`, chỉ in-app); chưa làm | Thiết kế, chưa làm (theo phạm vi) |
+| P10 | Docs/registry (mục 12) | — | — | Đồng bộ hợp đồng chung | **Đã làm** — `05-registry.md`, `LOAN-INVESTMENT-EVENTS.md`, `08-cross-service-flows.md` (F04–F07, F09) |
+
+Tương thích consumer (kiểm trước khi dựa vào "optional"): Loan, Investment, Payment, Notification đọc bằng ObjectMapper của
+Spring Boot (`FAIL_ON_UNKNOWN_PROPERTIES` tắt; không service nào tự dựng mapper khác), test `ProducerFieldAdditionsCompatibilityTest`
+(Loan, Investment) và assertion trên ObjectMapper thật trong IT của ba service; Blockchain (`MilestoneProofConsumer`, hash v2)
+chỉ từ chối số thực, field mới là chuỗi/ngày chuỗi/mảng chuỗi. Không consumer nào phải sửa. Ánh xạ field phía Notification:
+`NotificationFlowIT` hai test mới (khoản vay không có bảng tra vẫn báo đúng người vay; `investorIds`; lời mời P7).
 
 ## 14. Quyết định
 
@@ -354,6 +365,9 @@ Tất cả là field **optional** (tương thích ngược, consumer cũ bỏ qu
 | D62 | Expo Push: provider `log` (giả lập, mặc định, bị cổng D37 chặn ở staging/production) / `expo` / `disabled`; mỗi thông báo × thiết bị một dòng; claim SKIP LOCKED + lease 2 phút; 6 lần thử lùi dần 1 phút–1 giờ rồi DEAD; receipt sau 15 phút; DeviceNotRegistered thu hồi token; event cũ hơn 24 giờ không push; giờ nghỉ 22:00–07:00 (trừ rút tiền); tối đa 5 thiết bị; token chuyển chủ khi đăng nhập tài khoản khác cùng máy; at-least-once | Thực tiễn Expo (batch 100, receipt, DeviceNotRegistered); không có máy thật nên mặc định giả lập nhưng vẫn chạy đủ luồng |
 | D63 | Push chỉ câu chung theo mẫu (không chữ số, tên, mã); tin quá hạn/nợ xấu hoàn toàn chung chung; trong app đầy đủ, luôn bật; push bật mặc định sau khi hệ điều hành cho phép, tắt theo 8 nhóm; số tiền trong câu giữ dạng `<decimal> VND` để app định dạng | Tình trạng nợ là thông tin nhạy cảm trên màn hình khóa; mapper mobile đọc đúng dạng này |
 | D64 | Nhắc kỳ đến hạn 3 ngày trước và đúng ngày (08:05–20:05 giờ Việt Nam, idempotent) từ `nextDueDate` của `RepaymentDistributed` (+ P3); không nhắc kỳ Payment đang giữ (P5). **Tắt mặc định** tới khi P5 có | Thiếu P5, người trả trước kỳ (D16) bị nhắc nhầm — trái yêu cầu |
+| D76 | (Producer, main agent 2026-10-17) P3: kỳ tiếp theo lấy từ đúng lần đọc Fineract đã cho ngày đáo hạn — booking đọc `GET /loans/{id}?associations=repaymentSchedule` (lần đọc sau duyệt, hoặc lần đọc đầu nếu khoản vay đã active khi reconcile), chọn dòng có số kỳ, `totalOutstandingForPeriod > 0`, ngày đến hạn sớm nhất; cơ cấu dùng snapshot servicing đọc sau khi duyệt lịch. Thiếu lịch thì field vắng mặt (`@JsonInclude(NON_NULL)`); số tiền không đúng hai số lẻ thì bỏ, không làm tròn; lỗi đọc field phụ không làm hỏng lần ghi core | Không tự tính lịch (yêu cầu); cùng ngày giải ngân, lịch đã duyệt trùng lịch sau disburse; field chỉ phục vụ thông báo nên không được chặn tiền |
+| D77 | P5: `RepaymentCollected` chỉ phát khi khoản trả được hẹn ghi core (`postOn` khác null) — khoản ghi ngay đã có `RepaymentDistributed`; `RepaymentCancelled` chỉ phát khi chuyển thật `COLLECTED → CANCELLED` trong `cancelPending`; cùng transaction với bút toán ví; key `loanApplicationId`; topic cấu hình được; publisher Payment chặn mọi event/version ngoài allowlist v1 | Đúng mốc nghiệp vụ D16, không trùng với `RepaymentDistributed`; replay idempotent không sinh event thứ hai |
+| D78 | P7: lời mời biểu quyết đi trên đường servicing sẵn có (`InvestorNoteServicingChanged.v1`, không topic mới), một event cho cả lô, mỗi chủ phiếu một recipient không gắn Note và không mang số dư; phát cùng transaction tạo phiếu và chỉ khi phiếu tạo lần đầu cho `requestId`; `dpd 0`, nhóm 1, `amount "0.00"` như `RESCHEDULED`, `maturityDate` hiện tại | Giữ quy tắc chống trùng của đường servicing (processed event + unique `sourceEventId + recipientId + type` ở Notification); phiếu là theo nhà đầu tư chứ không theo Note |
 
 ## 15. Defect
 
@@ -363,7 +377,8 @@ Tất cả là field **optional** (tương thích ngược, consumer cũ bỏ qu
 | B61 | P2 | `changeType` lạ rơi vào nhánh mặc định "Khoản vay đang quá hạn 0 ngày" | Fixed W3F — mẫu trung tính `INVESTOR_LOAN_UPDATE`, giữ `type` |
 | B62 | P1 | Consumer không có error handler/DLT/processed-event: lỗi bị thử lại 10 lần liền rồi bỏ qua lặng lẽ | Fixed W3F — `NotificationKafkaConfig`, `notification_processed_events`; `NotificationKafkaIT` |
 | B63 | P3 | Mẫu có thể ghép `null`/ngày ISO vào câu; `.env.example` mobile để miền `notification` chạy dữ liệu giả dù backend đã thật | Fixed W3F — mẫu ném lỗi khi thiếu giá trị (test), ngày `dd/MM/yyyy`; mobile bỏ `notification` khỏi mock |
-| B64 | P2 | Event Loan/Payment phục vụ người vay không mang `borrowerId` (`BorrowerSignatureRequested`, `LoanContractActivated`, `LoanDisbursed`, `LoanFundingCancelled`, `RepaymentDistributed`); `LoanFundingExpired` không mang nhà đầu tư | Partly fixed — bảng tra người nhận (D60); P1–P4, P6 cho producer |
+| B64 | P2 | Event Loan/Payment phục vụ người vay không mang `borrowerId` (`BorrowerSignatureRequested`, `LoanContractActivated`, `LoanDisbursed`, `LoanFundingCancelled`, `RepaymentDistributed`); `LoanFundingExpired` không mang nhà đầu tư | Fixed 2026-10-17 — bảng tra người nhận (D60) cho event cũ; producer P1–P4, P6 (`3d7bf82`, `a0f3c0d`, `1c03819`) |
+| B76 | P3 | Khoản trả kỳ đang giữ (D16) mà Fineract từ chối lúc tới ngày ghi (`recordCoreFailure`: hoàn tiền, `FAILED`) không phát event nào: Notification vẫn giữ cờ `held` của kỳ đó nên không gửi tin "đến hạn hôm nay" (khi đã bật nhắc lịch). `RepaymentCancelled` theo yêu cầu chỉ phát từ `cancelPending` | Open — đề xuất Payment phát `RepaymentCancelled` (hoặc event `RepaymentFailed` riêng) khi khoản có `postOn` bị hoàn tiền; hiếm (cần Fineract 4xx đúng ngày đến hạn) |
 | B24 | P2 | `BorrowerSignatureRequested` chưa có consumer | Fixed W3F (`ContractEventsHandler`) |
 
 ## 16. Test và bằng chứng
@@ -415,10 +430,13 @@ Config: NotificationProperties, NotificationKafkaConfig (DLT), NotificationSched
 
 - Push thật chưa được gửi tới thiết bị nào: mặc định `log` là giả lập (provider `LOG_MOCK` trên từng dòng, ticket
   `mock-*`). `ExpoPushSender` chỉ được kiểm bằng mock HTTP server theo tài liệu Expo.
-- Nhắc kỳ đến hạn tắt mặc định (D64) cho tới khi Payment có P5; kỳ đầu sau giải ngân chỉ nhắc được khi có P3.
-- Tin cho nhà đầu tư khi hết hạn gọi vốn, mời biểu quyết cơ cấu, tin admin từ chối cơ cấu và hộp thư sự cố admin cần
-  P6–P9.
-- Bảng tra người nhận chỉ dựng lại được trong thời gian Kafka còn giữ event; khoản vay cũ hơn thế chờ P1–P4.
+- Nhắc kỳ đến hạn tắt mặc định (D64). Từ 2026-10-17 Payment đã phát P5 và Loan đã phát kỳ đầu/kỳ sau cơ cấu (P3); bật
+  `NOTIFICATION_DUE_REMINDER_ENABLED` (cũng là điều kiện để listener `RepaymentCollected`/`RepaymentCancelled` chạy và tin
+  `INSTALLMENT_PAYMENT_HELD`/`INSTALLMENT_PAYMENT_CANCELLED` xuất hiện) là quyết định của owner. Còn B76.
+- Tin cho nhà đầu tư khi hết hạn gọi vốn (P6) và mời biểu quyết cơ cấu (P7) đã có; tin admin từ chối cơ cấu (P8) và hộp thư
+  sự cố admin (P9) còn thiết kế.
+- Bảng tra người nhận chỉ dựng lại được trong thời gian Kafka còn giữ event; event phát sau P1–P4 mang người vay nên không
+  cần bảng tra, chỉ khoản vay có event cũ hơn thế còn phụ thuộc.
 - At-least-once: timeout sau khi Expo đã nhận có thể gây push trùng một lần (Expo không có idempotency key).
 - Mobile chưa dùng `read-all`; `PLAN.md` mobile chưa thêm dòng task (tránh xung đột nhánh rút tiền).
 
@@ -430,7 +448,8 @@ Config: NotificationProperties, NotificationKafkaConfig (DLT), NotificationSched
 - [x] Transaction không bao lời gọi Expo; kịch bản đồng thời có cơ chế và test.
 - [x] Retry có điểm dừng (DEAD/EXPIRED/DLT) và thao tác vận hành.
 - [x] `LEGAL-DATA-01` dẫn chiếu; không đưa policy demo thành luật.
-- [ ] Hải review module Notification; main agent làm P1–P10 và cập nhật tài liệu chung.
+- [x] Main agent làm P1–P7 và P10, cập nhật tài liệu chung (2026-10-17, mục 13); P8, P9 giữ thiết kế.
+- [ ] Hải review module Notification (gồm hai test mới `90763d5`) và phần Investment của P6/P7 (`1c03819`).
 
 Lần chạy cuối (2026-10-17, code commit `1897f4a` trên nhánh `feat/W3F-notifications-expo-push`):
 `mvn -B -ntp -pl finora-notification -am verify` → finora-common 52/52, finora-notification surefire 134/134, failsafe

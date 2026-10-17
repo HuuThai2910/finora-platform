@@ -23,11 +23,11 @@ Nguyên tắc chung cho mọi thao tác dưới đây:
 | `finora.outbox.events{status="pending"}` tăng, `finora.outbox.oldest.pending.age` vượt vài phút | Metric, health `kafka` | 3.1 |
 | `finora.outbox.events{status="dead_letter"}` > 0 | Metric, bảng outbox | 3.2 |
 | Bản ghi trong topic `<topic>.DLT` (Loan, Investment) | Kafka | 3.3 |
-| Consumer Payment log `Backoff ... exhausted`; bản ghi trong DLT của Blockchain/Notification | Log, Kafka | 3.4 |
+| Bản ghi trong `<topic>.payment.DLT` (Payment), DLT của Blockchain/Notification; log `Event Payment vào DLT` | Log, Kafka | 3.4 |
 | `finora.operations.incidents{type="repayment_reconciliation_required"}` | Payment | 4.1 |
 | `finora.operations.incidents{type="disbursement_reconciliation_required"}` | Payment | 4.2 |
 | `finora.operations.incidents{type="disbursement_saga_repair_required"}` | Loan | 4.3 |
-| Lệnh rút tiền `RECONCILIATION_REQUIRED` (W3B) | Payment | 4.4 |
+| `finora.operations.incidents{type="withdrawal_reconciliation_required"}` (W3B) | Payment | 4.4 |
 | `finora.operations.incidents{type=~"order_.*"}` | Investment | 4.5 |
 | `servicing_reconciliation_open`, `repayment_event_quarantined` | Loan | 4.6 |
 | Health `fineractEndOfDay` DOWN, DPD không đổi qua ngày | Loan, Fineract | 5 |
@@ -134,14 +134,26 @@ docker exec -i finora-kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap
 Header trace của record gốc không đi theo khi phát lại bằng console; tra theo `eventId` trong envelope. Không phát lại record
 mà consumer từ chối vì sai contract: báo producer.
 
-### 3.4 Consumer Payment (chưa có DLT) và DLT của Blockchain/Notification
+### 3.4 DLT của Payment, Blockchain và Notification
 
-Consumer của Payment (`DisbursementRequested`, `LoanDisbursed`, `NoteOwnershipChanged`) dùng error handler mặc định của
-Spring Kafka: record lỗi được thử 10 lần liên tiếp rồi bị bỏ qua, chỉ còn log (B58). Khôi phục bằng cách phát lại event từ
-outbox của service nguồn (dòng vẫn còn ở trạng thái `PUBLISHED`, đủ `event_id`, topic theo `event_type`/`event_version` và
-`payload_json`), dùng lệnh producer ở mục 3.3 với key là `aggregate_id`. Consumer chống trùng theo `eventId`, nên phát lại
-event đã xử lý thành công không gây tác dụng lần hai. Trước khi phát lại `DisbursementRequested`, kiểm
+Consumer của Payment (`DisbursementRequested`, `LoanDisbursed`, `NoteOwnershipChanged`) từ B58 (D79) đẩy record lỗi sang
+DLT riêng `<topic>.payment.DLT`, ví dụ `finora.loan.disbursed.payment.DLT` (không dùng `<topic>.DLT` vì Investment và
+Blockchain cũng đọc các topic đó):
+
+- Contract sai (JSON hỏng, envelope/header lệch, dữ liệu không khớp giao dịch của Payment: `IllegalArgumentException`) và từ
+  chối nghiệp vụ (`BusinessException`): vào DLT ngay, không thử lại; partition chạy tiếp. Không phát lại: báo producer.
+- Lỗi hạ tầng (PostgreSQL tạm mất, khóa xung đột, kết quả giải ngân chưa có): thử lại lùi dần từ 1 giây, mỗi lần tối đa 30
+  giây, trong 3 phút (`PAYMENT_KAFKA_RETRY_INITIAL_INTERVAL`, `_MAX_INTERVAL`, `_MAX_ELAPSED`), rồi mới vào DLT. Sửa nguyên
+  nhân rồi phát lại record từ DLT vào topic gốc như mục 3.3.
+
+Header `kafka_dlt-exception-cause-fqcn` của record cho biết loại lỗi; log `Event Payment vào DLT: topic=…, offset=…,
+exception=…` không chứa payload. Consumer ghi `payment_processed_events` cùng transaction với tác dụng nên phát lại event đã
+xử lý không gây tác dụng lần hai. Trước khi phát lại `DisbursementRequested`, kiểm
 `GET /api/v1/admin/disbursement-reconciliation/{sagaId}`: lệnh đã tồn tại thì không cần phát lại.
+
+Record bị bỏ qua trước bản sửa B58 (chỉ còn log `Backoff ... exhausted`) không có trong DLT: phát lại event từ outbox của
+service nguồn (dòng vẫn `PUBLISHED`, đủ `event_id`, topic theo `event_type`/`event_version` và `payload_json`) bằng lệnh
+producer ở mục 3.3 với key là `aggregate_id`.
 
 Từ W3D consumer Blockchain đẩy record lỗi sang `<topic>.DLT`, từ W3F consumer Notification sang
 `<topic>.notification.DLT`; đọc và phát lại như mục 3.3 (Notification chống trùng theo nguồn event, người nhận và kênh).
@@ -188,6 +200,9 @@ Không làm: không ghi repayment thẳng vào Fineract bằng tay, không cộn
 Không làm: không chuyển tiền lại, không đổi trạng thái saga bằng SQL.
 
 ### 4.4 Rút tiền chờ đối soát (Payment, W3B)
+
+Gauge `finora.operations.incidents{service="payment",type="withdrawal_reconciliation_required"}` đếm mọi lệnh
+`RECONCILIATION_REQUIRED` (cả lệnh còn lượt tra cứu tự động lẫn lệnh đã hết lượt); câu đếm quét tuần tự bảng rút tiền (nhỏ).
 
 1. `GET /api/v1/admin/withdrawals` — lệnh `RECONCILIATION_REQUIRED` đã hết lượt tự động (`nextAttemptAt` rỗng).
 2. `POST /api/v1/admin/withdrawals/{withdrawalId}/recheck` — tra cứu provider theo `withdrawalId` (D42); chỉ khi provider
