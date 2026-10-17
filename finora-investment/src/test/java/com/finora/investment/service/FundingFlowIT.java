@@ -17,6 +17,7 @@ import com.finora.investment.messaging.event.LoanContractActivatedEventData;
 import com.finora.investment.messaging.event.LoanDisbursedEventData;
 import com.finora.investment.messaging.event.LoanFundingCancelledEventData;
 import com.finora.investment.messaging.event.LoanFundingRequestedEventData;
+import com.finora.investment.messaging.event.LoanRescheduleConsentRequestedEventData;
 import com.finora.investment.service.messaging.LoanFundingCancelledHandler;
 import com.finora.common.enums.investment.OrderStatus;
 import com.finora.investment.client.PaymentClient;
@@ -134,6 +135,12 @@ class FundingFlowIT {
 
     @Autowired
     private com.finora.investment.service.impl.OrderIncidentService orderIncidentService;
+
+    @Autowired
+    private com.finora.investment.service.messaging.LoanRescheduleConsentRequestedHandler consentRequestedHandler;
+
+    @Autowired
+    private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     private static final AtomicInteger LOAN_SEQUENCE = new AtomicInteger(1000);
 
@@ -700,6 +707,102 @@ class FundingFlowIT {
         // Quét lại không nhả lần hai.
         assertThat(orderRepository.findReleasePending(org.springframework.data.domain.PageRequest.of(0, 100)))
                 .noneMatch(item -> item.getOrderReference().equals(order.orderReference()));
+    }
+
+    @Test
+    @DisplayName("Hết hạn gọi vốn: LoanFundingExpired nêu mỗi nhà đầu tư bị hủy phần vốn đúng một lần (P6)")
+    void expiredListingNamesEveryInvestorWhoseCommitmentWasCancelledOnce() throws Exception {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        actAs("INVESTOR-EXP-B");
+        fundingService.placeOrder(created.listingId(), "key-exp-b",
+                new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
+        // Một nhà đầu tư hai lệnh: vẫn chỉ là một người nhận thông báo.
+        actAs("INVESTOR-EXP-A");
+        fundingService.placeOrder(created.listingId(), "key-exp-a1",
+                new PlaceOrderRequest(new BigDecimal("1000000.00"), "INVESTOR_RISK_V1"));
+        fundingService.placeOrder(created.listingId(), "key-exp-a2",
+                new PlaceOrderRequest(new BigDecimal("3000000.00"), "INVESTOR_RISK_V1"));
+        jdbcTemplate.update("UPDATE market_listings SET funding_closes_at = now() - interval '1 minute' WHERE id = ?",
+                created.listingId());
+        SecurityContextHolder.clearContext();
+
+        assertThat(listingService.closeExpiredListings(100)).isGreaterThanOrEqualTo(1);
+
+        String applicationNumber = listingRepository.findById(created.listingId()).orElseThrow().getApplicationNumber();
+        var expired = outboxRepository.findAll().stream()
+                .filter(event -> "LoanFundingExpired".equals(event.getEventType())
+                        && applicationNumber.equals(event.getAggregateId()))
+                .toList();
+        assertThat(expired).hasSize(1);
+        assertThat(expired.getFirst().getEventVersion()).isEqualTo(1);
+        com.fasterxml.jackson.databind.JsonNode data = objectMapper.readTree(expired.getFirst().getPayloadJson());
+        List<String> investorIds = new ArrayList<>();
+        data.path("investorIds").forEach(node -> investorIds.add(node.asText()));
+        assertThat(investorIds).containsExactly("INVESTOR-EXP-A", "INVESTOR-EXP-B");
+        assertThat(data.path("committedAmount").asText()).isEqualTo("6000000.00");
+        assertThat(commitmentRepository.findByListingIdAndStatus(created.listingId(), CommitmentStatus.CANCELLED))
+                .hasSize(3);
+        // Consumer Investment đọc bằng chính ObjectMapper này: field Loan/Payment bổ sung (P2–P4) bị bỏ qua.
+        assertThat(objectMapper.isEnabled(
+                com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)).isFalse();
+    }
+
+    @Test
+    @DisplayName("Mở phiếu cơ cấu: mời mỗi chủ phiếu đúng một lần, có push, Loan phát lại không mời lần hai (P7)")
+    void rescheduleConsentInvitesEachBallotHolderOnceWithPush() throws Exception {
+        MarketListingResponse listingResponse = newListing("3000000.00", "1000000.00");
+        actAs("INVESTOR-BALLOT-A");
+        fundingService.placeOrder(listingResponse.listingId(), "key-ballot-a",
+                new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
+        actAs("INVESTOR-BALLOT-B");
+        fundingService.placeOrder(listingResponse.listingId(), "key-ballot-b",
+                new PlaceOrderRequest(new BigDecimal("1000000.00"), "INVESTOR_RISK_V1"));
+        SecurityContextHolder.clearContext();
+        var listing = listingRepository.findById(listingResponse.listingId()).orElseThrow();
+        Instant now = Instant.parse("2026-10-17T03:00:00Z");
+        loanDisbursedEventHandler.handle(UUID.randomUUID(), now, new LoanDisbursedEventData(
+                UUID.randomUUID(), listing.getLoanId(), listing.getApplicationNumber(), "LC-BALLOT-" + listing.getLoanId(),
+                listing.getId(), "3000000.00", "VND", "MOCK-PAYMENT-BALLOT", 9201L, "FINORA-FINERACT-V4", now));
+        // Nhà đầu tư A giữ hai Note, B một Note: phiếu theo nhà đầu tư, không theo Note.
+        assertThat(noteRepository.findByLoanIdAndStatus(listing.getLoanId(), NoteStatus.ACTIVE)).hasSize(3);
+
+        UUID requestId = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        var consentRequested = new LoanRescheduleConsentRequestedEventData(requestId, listing.getLoanId(),
+                "LN-BALLOT-" + listing.getLoanId(), "TERM_EXTENSION", java.time.LocalDate.of(2026, 11, 17), null, 2,
+                java.time.LocalDate.of(2027, 4, 17), now.plusSeconds(60));
+        consentRequestedHandler.handle(eventId, now.plusSeconds(60), consentRequested);
+        // Kafka giao trùng và Loan phát lại cùng đề nghị với eventId mới: không mời lần hai.
+        consentRequestedHandler.handle(eventId, now.plusSeconds(61), consentRequested);
+        consentRequestedHandler.handle(UUID.randomUUID(), now.plusSeconds(62), consentRequested);
+
+        var invitations = outboxRepository.findAll().stream()
+                .filter(event -> "InvestorNoteServicingChanged".equals(event.getEventType())
+                        && listing.getLoanId().toString().equals(event.getAggregateId()))
+                .map(event -> readJson(event.getPayloadJson()))
+                .filter(json -> "RESCHEDULE_CONSENT_REQUESTED".equals(json.path("changeType").asText()))
+                .toList();
+        assertThat(invitations).singleElement().satisfies(invitation -> {
+            assertThat(invitation.path("loanApplicationId").asLong()).isEqualTo(listing.getLoanId());
+            assertThat(invitation.path("loanNumber").asText()).isEqualTo("LN-BALLOT-" + listing.getLoanId());
+            assertThat(invitation.path("externalPushRequired").asBoolean()).isTrue();
+            List<String> recipients = new ArrayList<>();
+            invitation.path("recipients").forEach(node -> {
+                recipients.add(node.path("investorId").asText());
+                // Phiếu gộp mọi Note của một người: không gắn Note, không mang số dư.
+                assertThat(node.hasNonNull("noteId")).isFalse();
+                assertThat(node.hasNonNull("amount")).isFalse();
+            });
+            assertThat(recipients).containsExactlyInAnyOrder("INVESTOR-BALLOT-A", "INVESTOR-BALLOT-B");
+        });
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode readJson(String payload) {
+        try {
+            return objectMapper.readTree(payload);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     @Test

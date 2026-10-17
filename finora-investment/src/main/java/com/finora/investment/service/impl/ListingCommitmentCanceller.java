@@ -32,13 +32,23 @@ public class ListingCommitmentCanceller {
     private final InvestmentCommitmentRepository commitmentRepository;
     private final InvestmentOrderRepository orderRepository;
 
-    /** @return số phần vốn vừa hủy; tổng vốn đã cam kết của listing giảm tương ứng. */
+    /**
+     * Phần vốn vừa hủy.
+     *
+     * @param count       số phần vốn vừa hủy; tổng vốn đã cam kết của listing giảm tương ứng
+     * @param investorIds nhà đầu tư có phần vốn vừa hủy, không trùng, sắp theo thứ tự chữ (người nhận thông báo, P6)
+     */
+    public record CancelledCommitments(int count, List<String> investorIds) {
+        static final CancelledCommitments NONE = new CancelledCommitments(0, List.of());
+    }
+
     @Transactional(propagation = Propagation.MANDATORY)
-    public int cancelActive(MarketListing listing, String reasonCode, String reasonDetail, String actor, Instant now) {
+    public CancelledCommitments cancelActive(MarketListing listing, String reasonCode, String reasonDetail, String actor,
+            Instant now) {
         List<InvestmentCommitment> active =
                 commitmentRepository.findByListingIdAndStatus(listing.getId(), CommitmentStatus.ACTIVE);
         if (active.isEmpty()) {
-            return 0;
+            return CancelledCommitments.NONE;
         }
         // Đọc lệnh của cả lô trong một truy vấn thay vì mỗi phần vốn một lần.
         Map<Long, InvestmentOrder> orders = orderRepository
@@ -60,6 +70,7 @@ public class ListingCommitmentCanceller {
             order.setUpdatedAt(now);
         }
         listing.setCommittedAmount(listing.getCommittedAmount().subtract(released));
-        return active.size();
+        return new CancelledCommitments(active.size(), active.stream()
+                .map(InvestmentCommitment::getInvestorId).distinct().sorted().toList());
     }
 }
