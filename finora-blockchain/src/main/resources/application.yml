@@ -42,7 +42,8 @@ management:
       enabled: ${BLOCKCHAIN_KAFKA_LISTENER_ENABLED:false}
   endpoint:
     health:
-      # Chưa có xác thực JWT ở Blockchain nên không hiện chi tiết cho ai; tên và trạng thái thành phần vẫn hiện.
+      # Đường health bỏ qua chain bảo mật (BlockchainHealthEndpointSecurityConfig), không có người dùng nào được xác
+      # thực ở đó, nên không hiện chi tiết cho ai; tên và trạng thái thành phần vẫn hiện.
       show-components: always
       show-details: never
       probes:
