@@ -1,0 +1,64 @@
+# Danh mục văn bản pháp luật trợ lý được phép dẫn, chép từ bảng mục 1 "Nguồn chính thức đang áp dụng"
+# của docs/LEGAL-COMPLIANCE.md. Khi luật thay đổi: sửa sổ pháp lý trước, rồi sửa file này trong cùng
+# thay đổi; tests/assistant/test_knowledge_content.py chặn mọi lệch mã hoặc lệch link giữa hai nơi.
+#
+# url: bảng có "PDF chính thức" thì lấy PDF để nút "Căn cứ" mở thẳng văn bản đã ký; bảng chỉ có trang
+#      văn bản thì lấy trang đó. Không lấy link báo chí hay bài phân tích.
+# status: CURRENT = đang hiệu lực, đã đối chiếu; NEEDS_LEGAL_REVIEW = văn bản có thật nhưng phạm vi áp
+#         dụng cho FINORA còn chờ rà soát; NEEDS_PRIMARY_SOURCE = chưa có toàn văn gốc (hiện không có
+#         văn bản nào ở mức này trong bảng mục 1; hạn mức 100/400 triệu nằm ở đoạn PL-HAN-MUC-01).
+# checked_at: ngày đối chiếu ghi trong sổ (2026-10-03; Nghị định 94 đọc lại trên PDF ngày 2026-10-10).
+
+- id: LAW-CIVIL-2015
+  title: Bộ luật Dân sự 91/2015/QH13
+  url: "https://vanban.chinhphu.vn/default.aspx?docid=183188&pageid=27160"
+  status: CURRENT
+  checked_at: "2026-10-03"
+
+- id: LAW-CREDIT-2024
+  title: Luật Các tổ chức tín dụng 32/2024/QH15
+  url: "https://vanban.chinhphu.vn/?classid=1&docid=211190&pageid=27160&typegroupid=3"
+  status: CURRENT
+  checked_at: "2026-10-03"
+
+- id: LAW-P2P-2025
+  title: Nghị định 94/2025/NĐ-CP
+  url: "https://datafiles.chinhphu.vn/cpp/files/vbpq/2025/5/94-ndcp.signed.pdf"
+  status: CURRENT
+  checked_at: "2026-10-10"
+
+- id: CIRCULAR-P2P-2026
+  title: Thông tư 19/2026/TT-NHNN
+  url: "https://vanban.chinhphu.vn/?classid=1&docid=218234&pageid=27160"
+  status: CURRENT
+  checked_at: "2026-10-03"
+
+- id: LAW-CONSUMER-2023
+  title: Luật Bảo vệ quyền lợi người tiêu dùng 19/2023/QH15
+  url: "https://datafiles.chinhphu.vn/cpp/files/vbpq/2023/7/luat19_2023.pdf"
+  status: CURRENT
+  checked_at: "2026-10-03"
+
+- id: LAW-ELECTRONIC-2023
+  title: Luật Giao dịch điện tử 20/2023/QH15
+  url: "https://datafiles.chinhphu.vn/cpp/files/vbpq/2023/8/luat20-2023-qh15..pdf"
+  status: CURRENT
+  checked_at: "2026-10-03"
+
+- id: LAW-DATA-2025
+  title: Luật Bảo vệ dữ liệu cá nhân 91/2025/QH15
+  url: "https://datafiles.chinhphu.vn/cpp/files/vbpq/2025/7/91qh.signed.pdf"
+  status: CURRENT
+  checked_at: "2026-10-03"
+
+- id: DECREE-DATA-2025
+  title: Nghị định 356/2025/NĐ-CP
+  url: "https://vanban.chinhphu.vn/default.aspx?docid=216387&pageid=27160"
+  status: CURRENT
+  checked_at: "2026-10-03"
+
+- id: CIRCULAR-LENDING-CONSOLIDATED-2026
+  title: Văn bản hợp nhất 06/VBHN-NHNN về hoạt động cho vay
+  url: "https://datafiles.chinhphu.vn/cpp/files/vbpq/2026/01/06-vbhn-nhnn.pdf"
+  status: NEEDS_LEGAL_REVIEW
+  checked_at: "2026-10-03"

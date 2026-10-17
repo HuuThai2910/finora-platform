@@ -1,0 +1,175 @@
+# Đoạn kiến thức dùng chung cho mọi vai trò: giới thiệu, trợ lý, PIN, eKYC, ví, nhóm nợ.
+# Khuôn mỗi đoạn theo spec mục 9.1. Quy tắc: thân đoạn không ghi số hiệu văn bản (căn cứ chỉ đi qua
+# legal_refs của đoạn LUAT); số liệu phải khớp code/tài liệu ở trường source; sửa số thì sửa
+# cả version/checked_at. Kiểm bằng tests/assistant/test_knowledge_content.py.
+
+- id: CHUNG-GIOI-THIEU-01
+  title: FINORA là gì
+  roles: [ALL]
+  kind: HUONG_DAN
+  body: >-
+    FINORA là nền tảng cho vay ngang hàng (P2P): người cần vay nộp hồ sơ trên ứng dụng, nhà đầu tư
+    cá nhân góp vốn cho từng khoản vay, còn FINORA thẩm định hồ sơ, kết nối hai bên, lập hợp đồng và
+    theo dõi việc trả nợ. FINORA không dùng vốn của mình để cho vay và không hứa lợi nhuận cho nhà đầu
+    tư. Người vay dùng các mục Hồ sơ, Hợp đồng và Khoản vay; nhà đầu tư dùng Sàn, Chợ Notes,
+    Auto-Invest và Danh mục; quản trị viên dùng trang web quản trị. FINORA đang chạy thử nghiệm: tiền
+    trong ví là tiền mô phỏng, chưa phải tiền thật.
+  legal_refs: []
+  source: "docs/LEGAL-COMPLIANCE.md mục 2 (LEGAL-RATE-01, LEGAL-PAYMENT-01)"
+  version: FINORA_APP_2026_10
+  checked_at: "2026-10-15"
+  keywords: ["FINORA là gì", "cho vay ngang hàng", "P2P", "nền tảng", "giới thiệu", "thử nghiệm", "tiền thật"]
+
+- id: CHUNG-TRO-LY-01
+  title: Trợ lý FINORA làm được gì
+  roles: [ALL]
+  kind: HUONG_DAN
+  body: >-
+    Trợ lý FINORA chỉ đọc và giải thích: trạng thái hồ sơ, hợp đồng, khoản vay, lệnh và tiền đang giữ
+    của chính bạn, ý nghĩa các mã lỗi, chính sách phí và quy định liên quan. Trợ lý không tự trả nợ,
+    không đặt hay hủy lệnh, không ký hợp đồng, không đổi PIN và không duyệt hồ sơ thay ai; với các việc
+    đó trợ lý đưa nút mở đúng màn hình để bạn tự làm. Câu trả lời về pháp luật chỉ là thông tin tham
+    khảo, không phải ý kiến pháp lý. Trợ lý chỉ dẫn các văn bản có trong danh mục của FINORA; hỏi văn
+    bản khác thì trợ lý báo chưa có dữ liệu và gợi ý tra cứu tại vanban.chinhphu.vn. Với nhà đầu tư,
+    trợ lý không khuyên nên đầu tư khoản nào.
+  legal_refs: []
+  source: "docs/superpowers/specs/2026-10-15-tro-ly-finora-design.md mục 1, 8, 10"
+  version: AI_CHAT_001
+  checked_at: "2026-10-15"
+  keywords: ["trợ lý", "chatbot", "làm được gì", "trả nợ giúp", "làm thay", "ý kiến pháp lý", "văn bản khác"]
+
+- id: CHUNG-TRO-LY-DU-LIEU-01
+  title: Dữ liệu của bạn khi trò chuyện với trợ lý
+  roles: [ALL]
+  kind: CHINH_SACH
+  body: >-
+    Bạn đang trò chuyện với một hệ thống AI, không phải nhân viên. Để trả lời, FINORA gửi câu hỏi và
+    số liệu cần thiết của bạn, đã bỏ họ tên, số CCCD, số điện thoại, email, địa chỉ và số tài khoản,
+    tới nhà cung cấp mô hình AI có máy chủ ở nước ngoài; dữ liệu cá nhân chỉ đi qua nhà cung cấp cam
+    kết không dùng dữ liệu để huấn luyện. FINORA không lưu nội dung hội thoại, chỉ ghi số liệu kỹ thuật
+    như thời gian phản hồi. Đừng nhập CCCD, mật khẩu, mã PIN hay OTP vào khung chat; FINORA không bao
+    giờ hỏi các thông tin này. Hồ sơ đánh giá việc chuyển dữ liệu ra nước ngoài của FINORA vẫn đang chờ
+    rà soát pháp lý.
+  legal_refs: []
+  source: "docs/superpowers/specs/2026-10-15-tro-ly-finora-design.md mục 2, 7.2, 10 (LEGAL-CHAT-01)"
+  version: AI_CHAT_001
+  checked_at: "2026-10-15"
+  keywords: ["dữ liệu", "nước ngoài", "chuyển dữ liệu ra nước ngoài", "lưu hội thoại", "nhà cung cấp AI", "quyền riêng tư", "OTP"]
+
+- id: CHUNG-PIN-01
+  title: Mã PIN giao dịch và khi PIN bị khóa
+  roles: [ALL]
+  kind: HUONG_DAN
+  body: >-
+    Mã PIN giao dịch gồm đúng 6 chữ số, dùng để xác nhận trả nợ, trả trước, tất toán, ký hợp đồng, đặt
+    lệnh góp vốn, đặt lệnh trên chợ Notes và lưu cài đặt Auto-Invest. Chưa có PIN thì app yêu cầu tạo
+    trước; PIN không được là dãy số liên tiếp hoặc lặp lại. Nhập đúng PIN, bạn có khoảng 3 phút để hoàn
+    tất thao tác. Nhập sai 5 lần liên tiếp thì PIN bị khóa 15 phút và FINORA gửi email cảnh báo; hết
+    khóa bạn được thử lại đủ 5 lần. Quên PIN thì chọn "Quên mã PIN" và xác minh bằng mật khẩu đăng nhập
+    để đặt PIN mới, việc này cũng gỡ khóa. FINORA và trợ lý không bao giờ hỏi PIN của bạn.
+  legal_refs: []
+  source: "finora-user UserPin (MAX_FAILED_ATTEMPTS, LOCK_DURATION), TransactionPinService, SetPinRequest; @RequirePin ở Loan/Payment/Investment; FINORA_PIN_TOKEN_TTL"
+  version: TRANSACTION_PIN_V1
+  checked_at: "2026-10-15"
+  keywords: ["mã PIN", "PIN bị khóa", "khóa PIN", "nhập sai PIN", "quên mã PIN", "đổi PIN", "bao lâu", "PIN_LOCKED", "PIN_INCORRECT", "PIN_NOT_SET"]
+
+- id: CHUNG-EKYC-01
+  title: Xác minh danh tính eKYC
+  roles: [ALL]
+  kind: HUONG_DAN
+  body: >-
+    eKYC là bước xác minh danh tính bằng ảnh căn cước công dân (CCCD). Bạn chụp CCCD, hệ thống đọc
+    thông tin và hiện một bản nháp để bạn tự soát; chỉ khi bạn bấm xác nhận thì hồ sơ mới được lưu và
+    chuyển sang "đã xác minh". Bản nháp có hiệu lực 10 phút, quá hạn phải quét lại. Mỗi số CCCD chỉ gắn
+    với một tài khoản. Nhà đầu tư phải hoàn tất eKYC trước khi góp vốn, đặt lệnh trên chợ Notes hoặc
+    bật Auto-Invest. Nếu vừa xác minh xong mà app vẫn báo cần eKYC, hãy đăng xuất rồi đăng nhập lại để
+    phiên đăng nhập nhận trạng thái mới.
+  legal_refs: []
+  source: "finora-user EkycVerificationService, EkycDraftStore.DRAFT_TTL; finora-investment InvestorEligibility"
+  version: EKYC_V1
+  checked_at: "2026-10-15"
+  keywords: ["eKYC", "xác minh danh tính", "CCCD", "căn cước", "bản nháp", "đăng nhập lại", "EKYC_REQUIRED"]
+
+- id: CHUNG-EKYC-02
+  title: eKYC báo lỗi thì làm gì
+  roles: [ALL]
+  kind: HUONG_DAN
+  body: >-
+    Mỗi lần xác minh eKYC có thể dừng ở một bước và app báo lý do. Không đọc được ảnh: chụp lại mặt
+    trước CCCD rõ nét, đủ sáng, không lóa. Số CCCD trên ảnh không khớp thông tin đã khai: kiểm tra lại
+    đúng thẻ của mình. Số CCCD đã được đăng ký: thẻ đã gắn với tài khoản khác. Thao tác quá nhanh: mỗi
+    người chỉ gửi xác minh một lần trong 10 giây, đợi rồi thử lại. Phiên xác minh hết hạn: bản nháp quá
+    10 phút, quét lại từ đầu. Dịch vụ xác minh đang bận: thử lại sau ít phút, hồ sơ giữ nguyên trạng
+    thái.
+  legal_refs: []
+  source: "finora-common EkycResultCode; finora-user EkycVerificationService, EkycRateLimitService.VERIFY_MIN_INTERVAL"
+  version: EKYC_V1
+  checked_at: "2026-10-15"
+  keywords: ["lỗi eKYC", "không đọc được CCCD", "chụp lại", "CCCD không khớp", "CCCD đã đăng ký", "thao tác quá nhanh", "OCR_FAILED", "ID_MISMATCH", "ID_TAKEN", "RATE_LIMITED", "DRAFT_EXPIRED", "AI_UNAVAILABLE"]
+
+- id: CHUNG-VI-01
+  title: Số dư khả dụng và tiền đang giữ trong ví
+  roles: [ALL]
+  kind: HUONG_DAN
+  body: >-
+    Ví FINORA có hai con số. Số dư khả dụng là tiền dùng ngay được để trả nợ, góp vốn hoặc đặt lệnh
+    mua. Tiền đang giữ là tiền tạm khóa cho một việc chưa kết thúc, ví dụ lệnh góp vốn đang chờ khoản
+    vay đủ vốn và giải ngân, hoặc lệnh mua Note trên chợ chưa khớp hết. Tiền giữ chưa bị trừ: lệnh bị
+    hủy, hết hạn gọi vốn hoặc khớp ở giá thấp hơn thì phần không dùng trả về số dư khả dụng; khoản vay
+    giải ngân hoặc lệnh khớp thì phần giữ được chuyển đi. Ví là sổ ghi nhận trong hệ thống thanh toán
+    của FINORA; bản thử nghiệm dùng tiền mô phỏng.
+  legal_refs: []
+  source: "finora-payment WalletBalanceResponse (available, held); finora-mobile secondary-market/constant.ts BUY_NOTE"
+  version: FINORA_APP_2026_10
+  checked_at: "2026-10-15"
+  keywords: ["số dư khả dụng", "tiền đang giữ", "tiền bị giữ", "ví", "tạm khóa", "trả lại ví", "số dư"]
+
+- id: CHUNG-NAP-TIEN-01
+  title: Nạp tiền vào ví
+  roles: [ALL]
+  kind: HUONG_DAN
+  body: >-
+    Mỗi lần nạp từ 10.000 đ đến 100.000.000 đ. Bạn nhập số tiền, bấm "Tạo giao dịch nạp tiền", rồi
+    thanh toán bằng mã QR hoặc nút mở cổng thanh toán trước khi đồng hồ đếm lùi hết giờ. Tiền chỉ vào
+    ví khi cổng thanh toán báo về FINORA là đã thanh toán thành công; nếu đã trả mà số dư chưa đổi, bấm
+    "Kiểm tra trạng thái". Giao dịch quá hạn thì mã QR bị làm mờ, hãy tạo giao dịch mới. Bản thử nghiệm
+    dùng môi trường sandbox của ZaloPay hoặc chế độ giả lập có nút "Giả lập thanh toán thành công",
+    không phải tiền thật.
+  legal_refs: []
+  source: "finora-payment CreateTopUpRequest, application.yml (top-up.provider); finora-mobile wallet/component/TopUp*.tsx"
+  version: FINORA_APP_2026_10
+  checked_at: "2026-10-15"
+  keywords: ["nạp tiền", "nạp ví", "mã QR", "ZaloPay", "kiểm tra trạng thái", "nạp tối thiểu", "TOPUP_AMOUNT_OUT_OF_RANGE"]
+
+- id: CHUNG-RUT-TIEN-01
+  title: Rút tiền về tài khoản ngân hàng
+  roles: [ALL]
+  kind: HUONG_DAN
+  body: >-
+    Phiên bản hiện tại của FINORA chưa hỗ trợ rút tiền từ ví về tài khoản ngân hàng: màn "Rút tiền"
+    trong app mới là giao diện thử, chưa kết nối hệ thống thanh toán. Tiền trong ví vẫn dùng được để
+    trả nợ, góp vốn hoặc mua Note. Theo thiết kế, khi chức năng được mở, tiền chỉ rút về tài khoản ngân
+    hàng đứng tên chính chủ tài khoản FINORA và phải xác nhận bằng mã PIN. Trợ lý không thể rút tiền
+    thay bạn.
+  legal_refs: []
+  source: "finora-mobile src/features/wallet/api.ts (withdraw: NOT_IMPLEMENTED); finora-payment không có endpoint rút tiền"
+  version: FINORA_APP_2026_10
+  checked_at: "2026-10-15"
+  keywords: ["rút tiền", "rút về ngân hàng", "rút ví", "chuyển tiền ra", "tài khoản chính chủ", "NOT_IMPLEMENTED"]
+
+- id: CHUNG-NHOM-NO-01
+  title: Số ngày quá hạn (DPD) và nhóm nợ
+  roles: [ALL]
+  kind: CHINH_SACH
+  body: >-
+    DPD là số ngày quá hạn, tính từ kỳ cũ nhất đã đến hạn mà chưa trả đủ. FINORA xếp nhóm nợ nội bộ
+    theo DPD: 0 đến 9 ngày là nhóm 1, 10 đến 90 ngày là nhóm 2, 91 đến 180 ngày là nhóm 3, 181 đến 360
+    ngày là nhóm 4, trên 360 ngày là nhóm 5. Từ nhóm 3 là nợ xấu: khoản vay chuyển trạng thái nợ xấu và
+    giữ trạng thái đó cho tới khi trả hết phần quá hạn; trả một phần làm DPD giảm nhưng chưa xóa trạng
+    thái nợ xấu. Không có phí nợ xấu riêng. Đây là chuẩn nội bộ mô phỏng cách phân loại của ngân hàng,
+    không phải kết luận của Trung tâm Thông tin tín dụng (CIC) thật.
+  legal_refs: []
+  source: "docs/LOAN-SERVICING-POLICY.md §3.6, §4; finora-loan DebtGroup"
+  version: LOAN_SERVICING_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["DPD", "số ngày quá hạn", "nhóm nợ", "nhóm 2", "nhóm 3", "nợ xấu", "phân loại nợ"]

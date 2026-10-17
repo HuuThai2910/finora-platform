@@ -1,0 +1,209 @@
+# Đoạn kiến thức cho quản trị viên (chỉ ADMIN): điểm và ngưỡng, hạng, bộ quy tắc chấm điểm, SHAP,
+# các hàng đợi vận hành, đối soát, KPI. Số liệu đọc từ config/product_config.json và code
+# Loan/Investment; đổi cấu hình thì sửa đoạn tương ứng cùng version/checked_at.
+# Gọi Rule Engine là "bộ quy tắc", không viết "bộ luật": guard (Task 13) coi chữ "Bộ luật" là dẫn
+# văn bản pháp luật và sẽ thay câu trả lời đúng bằng câu mẫu.
+
+- id: QT-DIEM-01
+  title: Điểm PD, điểm luật và điểm tổng hợp
+  roles: [ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Mỗi hồ sơ có ba con số. PD là xác suất vỡ nợ do mô hình XGBoost dự đoán; điểm PD bằng (1 − PD) ×
+    100. Điểm luật (risk_score, 0 đến 100) do bộ quy tắc tường minh chấm rồi chuẩn hóa theo trọng số
+    các luật đang bật. Điểm tổng hợp (evaluation_score) bằng điểm PD × 0,85 cộng điểm luật × 0,15; hai trọng
+    số nằm trong cấu hình và phải cộng bằng 1. Trọng số luật cố ý thấp: đo trên dữ liệu thật, tăng lên
+    0,30 làm AUC điểm tổng hợp giảm từ 0,7011 xuống 0,6904. Hạng và quyết định tự động cùng đọc điểm
+    tổng hợp nhưng theo hai bảng ngưỡng khác nhau. Trợ lý chỉ đọc kết quả đã lưu, không chấm lại.
+  legal_refs: []
+  source: "finora-ai app/api/credit_router.py, app/services/credit/rule_engine.py (tinh_diem_tong_hop), config/product_config.json (model_weights)"
+  version: CREDIT_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["điểm PD", "xác suất vỡ nợ", "risk score", "điểm luật", "điểm tổng hợp", "evaluation score", "trọng số", "AUC"]
+
+- id: QT-NGUONG-DUYET-01
+  title: Ngưỡng tự duyệt 75 và tự từ chối 65
+  roles: [ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Quyết định tự động đi theo thứ tự. Một: vi phạm chốt chặn (nợ xấu CIC hiện tại, đang tạm khóa sau
+    nợ xấu, lãi hoặc kỳ hạn vượt trần, tổng dư nợ vượt mức kiểm soát) thì từ chối. Hai: có lý do bắt
+    buộc thẩm định (CIC thiếu nhóm nợ hiện tại, đang phục hồi sau nợ xấu) thì chờ thẩm định. Ba: dưới
+    60% số luật đang bật có dữ liệu thật thì chờ thẩm định. Bốn: so điểm tổng hợp, từ 75 tự duyệt, dưới
+    65 tự từ chối, từ 65 đến dưới 75 chờ thẩm định. Vì vậy hồ sơ 70 điểm hạng B vẫn phải duyệt tay.
+    Ngưỡng sửa ở trang Chính sách AI, ngưỡng từ chối phải nhỏ hơn ngưỡng duyệt. Đây là chính sách của
+    FINORA, không phải quy định pháp luật.
+  legal_refs: []
+  source: "finora-ai app/services/credit/rule_engine.py (quyet_dinh, TY_LE_LUAT_TOI_THIEU_CO_DU_LIEU), config/product_config.json (approval_thresholds), app/api/config_router.py"
+  version: CREDIT_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["ngưỡng duyệt", "tự duyệt", "tự từ chối", "duyệt tay", "chờ thẩm định", "75 điểm", "70 điểm", "vì sao phải duyệt", "auto approve"]
+
+- id: QT-HANG-01
+  title: Hạng tín dụng khác quyết định duyệt
+  roles: [ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Hạng đọc từ điểm tổng hợp: A từ 84, B từ 69 đến dưới 84, C từ 50 đến dưới 69, D từ 37 đến dưới 50,
+    E dưới 37. Hạng phục vụ hai việc: mức điều chỉnh lãi so với lãi cơ sở (A −0,5; B 0; C +0,5; D và E
+    +1,0 điểm phần trăm, kẹp trong khoảng của sản phẩm) và hạn mức gợi ý (A 100 triệu, B 80 triệu, C
+    40 triệu, D 20 triệu, E 0). Quyết định duyệt dùng ngưỡng 75/65 riêng, nên hồ sơ hạng B có thể tự
+    duyệt (từ 75 điểm) hoặc chờ thẩm định (69 đến dưới 75). Hạng và mức điều chỉnh là chính sách thử
+    nghiệm có phiên bản, cần người có thẩm quyền duyệt và kiểm tra phân biệt đối xử trước khi chạy thật.
+  legal_refs: []
+  source: "finora-ai config/product_config.json (grades); finora-loan application.yml (risk-pricing); docs/LEGAL-COMPLIANCE.md LEGAL-AI-01"
+  version: RISK_PRICING_V1
+  checked_at: "2026-10-15"
+  keywords: ["bảng hạng", "hạng B", "hạn mức gợi ý", "hạng và quyết định", "điều chỉnh lãi theo hạng", "khác nhau"]
+
+- id: QT-LUAT-CHAM-DIEM-01
+  title: Bộ quy tắc chấm điểm và dữ liệu thiếu
+  roles: [ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Bộ quy tắc chấm điểm (Rule Engine) là dữ liệu cấu hình: quản trị viên thêm, sửa, tắt từng luật và
+    đặt trọng số ở trang Chính sách AI, có hiệu lực ngay. Năm luật mặc định: tiền trả hằng tháng trên thu nhập,
+    tỷ lệ nợ trên thu nhập (DTI), số lần bị tra cứu CIC trong 6 tháng, điểm tín dụng CIC và tình trạng
+    nhà ở; mỗi luật tối đa 20 điểm. Thiếu dữ liệu thì luật cho điểm trung tính và gắn cờ để thẩm định
+    viên xem lại, không phạt người vay vì sự cố hạ tầng như CIC không trả lời. Không luật nào chấm theo
+    lãi suất, vì lãi suất được gán sau khi chấm rủi ro.
+  legal_refs: []
+  source: "finora-ai app/services/credit/rule_engine.py (docstring, cham_diem_chi_tiet), config/product_config.json (rules)"
+  version: CREDIT_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["bộ quy tắc", "rule engine", "luật chấm điểm", "DTI", "tra cứu CIC", "thiếu dữ liệu", "điểm trung tính", "thêm luật"]
+
+- id: QT-SHAP-01
+  title: Đọc giải thích SHAP của mô hình
+  roles: [ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Trang thẩm định giải thích mô hình bằng TreeSHAP. Mỗi đóng góp nằm trên thang log-odds, không phải
+    xác suất; tổng các đóng góp cộng giá trị gốc (bias) bằng log-odds đầu ra. Đóng góp dương đẩy hồ sơ
+    về phía rủi ro cao hơn, âm kéo về phía an toàn. Bản thô liệt kê từng đặc trưng; bản gộp cộng về
+    từng dữ kiện gốc, bỏ nhóm lãi suất, giữ ba nhóm mạnh nhất mỗi chiều và ghi mức mạnh, vừa, nhẹ so
+    với nhóm mạnh nhất của hồ sơ. int_rate là rò rỉ nhãn (target leakage) vì lãi được gán sau khi chấm
+    rủi ro, nên bị gắn cờ và không dùng để giải thích. SHAP chỉ dành cho thẩm định viên.
+  legal_refs: []
+  source: "finora-ai app/ml/credit/explainer.py (docstring, DAC_TRUNG_LEAKAGE); docs/LEGAL-COMPLIANCE.md LEGAL-DISCLOSURE-02"
+  version: CREDIT_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["SHAP", "log-odds", "giải thích mô hình", "đóng góp", "yếu tố bất lợi", "int_rate", "leakage", "bản gộp"]
+
+- id: QT-CHAM-LAI-01
+  title: Hồ sơ chờ chấm điểm lại
+  roles: [ADMIN]
+  kind: HUONG_DAN
+  body: >-
+    Trạng thái chờ chấm điểm lại xuất hiện khi gọi dịch vụ AI gặp lỗi tạm thời (mất kết nối, quá thời
+    gian). Hệ thống tự thử lại tối đa 3 lần, cách khoảng 30 giây; hết lượt thì hồ sơ chuyển chờ thẩm
+    định và không bao giờ được gán điểm mặc định. Hàng chờ này thường tự hết; hồ sơ nằm lâu thì kiểm
+    tra dịch vụ finora-ai và dịch vụ CIC. Quản trị viên có thể cho chấm lại một hồ sơ đang chờ thẩm
+    định, nhưng chỉ trên kết quả chấm mới nhất; thao tác trên kết quả cũ bị từ chối để tránh quyết định
+    bằng dữ liệu lỗi thời. Hồ sơ đã bị từ chối không chấm lại được.
+  legal_refs: []
+  source: "finora-loan application.yml (ai.credit.max-attempts, retry-backoff), CreditScoringStateService.fail, LoanApplication (CREDIT_ASSESSMENT_NOT_LATEST)"
+  version: CREDIT_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["chờ chấm điểm lại", "chấm lại", "lỗi AI", "thử lại", "kết quả mới nhất", "SCORING_RETRY_PENDING", "CREDIT_ASSESSMENT_NOT_LATEST"]
+
+- id: QT-VAN-HANH-01
+  title: Các hàng đợi vận hành cần xử lý
+  roles: [ADMIN]
+  kind: HUONG_DAN
+  body: >-
+    Việc của quản trị viên nằm ở các hàng đợi: hồ sơ chờ thẩm định và hồ sơ chờ chấm điểm lại (trang
+    Hồ sơ vay). Trang Vận hành có bốn nhóm: Quá hạn và thu hồi, Yêu cầu cơ cấu, Đối soát, Sự kiện trả nợ
+    chờ ghép. Trang Chợ Notes có giao dịch đã khớp nhưng thanh toán lỗi; hệ thống tự thử lại với thời
+    gian chờ tăng dần từ 5 giây tới 5 phút, giao dịch thất bại hẳn mới cần người xem. Câu "hôm nay cần
+    làm gì" của trợ lý chỉ đếm số việc trong từng hàng, không mở từng bản ghi.
+  legal_refs: []
+  source: "finora-web src/features/servicing/constant.ts (SERVICING_TABS); finora-investment application.yml (order-book.settlement); spec mục 8.3 (viec_can_lam)"
+  version: FINORA_APP_2026_10
+  checked_at: "2026-10-15"
+  keywords: ["hôm nay cần làm gì", "việc cần làm", "hàng đợi", "vận hành", "chờ thẩm định", "thanh toán lỗi", "cần xử lý"]
+
+- id: QT-THU-HOI-01
+  title: Hồ sơ thu hồi nợ
+  roles: [ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Hồ sơ thu hồi tự mở khi khoản vay có DPD lớn hơn 0; mỗi khoản vay chỉ có một hồ sơ đang mở. Mức thu
+    hồi theo DPD: nhắc sớm (1 đến 9 ngày), cần chú ý (10 đến 90), nợ xấu (91 đến 180), thu hồi tăng
+    cường (181 đến 360), có nguy cơ mất vốn (trên 360). Quản trị viên chỉ ghi nhật ký hành động (đã liên
+    hệ, người vay hẹn trả kèm ngày và số tiền, ghi chú), không sửa được DPD, số dư hay mức thu hồi vì
+    các số này đồng bộ từ hệ thống lõi. Hồ sơ đóng khi người vay trả hết phần quá hạn hoặc tất toán.
+    Thu hồi không đợi đủ 90 ngày mới bắt đầu, và mọi lần liên hệ đều lưu vết.
+  legal_refs: []
+  source: "docs/LOAN-SERVICING-POLICY.md §3.6, §5.3; finora-loan CollectionStage; finora-web servicing/constant.ts (COLLECTION_STAGES)"
+  version: LOAN_SERVICING_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["thu hồi nợ", "hồ sơ thu hồi", "nhắc nợ", "hẹn trả", "mức thu hồi", "liên hệ người vay", "collection"]
+
+- id: QT-CO-CAU-01
+  title: Duyệt yêu cầu cơ cấu
+  roles: [ADMIN]
+  kind: HUONG_DAN
+  body: >-
+    Yêu cầu cơ cấu vào hàng chờ với hình thức (dời ngày trả một kỳ hoặc gia hạn thêm kỳ), ngày bắt đầu
+    và lý do. Duyệt thì khoản vay chuyển "đang cơ cấu" và worker gửi yêu cầu đổi lịch sang hệ thống lõi;
+    worker này mặc định tắt và chỉ chạy khi đã cấu hình mã lý do bên lõi. Lịch mới chỉ hiệu lực khi lõi
+    xác nhận. Từ chối bắt buộc ghi lý do, lịch cũ giữ nguyên. Gửi sang lõi lỗi mà chưa rõ kết quả thì
+    yêu cầu chuyển cần đối soát hoặc cần xử lý tay, không tự gửi lại. Trong lúc chờ, lịch cũ vẫn chạy và
+    quá hạn vẫn tính. FINORA không thu phí cơ cấu.
+  legal_refs: []
+  source: "finora-loan LoanRescheduleService (approve, reject), LoanRescheduleStatus, application.yml (reschedule.worker-enabled, fineract-reason-id); docs/LOAN-SERVICING-POLICY.md §3.5"
+  version: LOAN_SERVICING_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["duyệt cơ cấu", "yêu cầu cơ cấu", "duyệt gia hạn", "từ chối cơ cấu", "đang cơ cấu", "lịch mới", "MANUAL_REVIEW"]
+
+- id: QT-DOI-SOAT-01
+  title: Đối soát trả nợ, số liệu chưa cập nhật và sự kiện chờ ghép
+  roles: [ADMIN]
+  kind: HUONG_DAN
+  body: >-
+    Giao dịch trả nợ cần đối soát là đã thu tiền ví nhưng chưa chắc hệ thống lõi đã ghi; nút đối soát
+    chỉ tra cứu lõi theo mã tham chiếu và hoàn tất nếu tìm thấy, không gửi lại hay thu tiền lần hai.
+    Khoản vay chưa cập nhật (stale) là lần đồng bộ với lõi gần nhất thất bại; làm mới chỉ đọc lại từ
+    lõi. Sự cố lệch dữ liệu (mã khoản vay ở lõi, mã tham chiếu, số giải ngân, cơ cấu dư nợ) không ghi
+    đè dữ liệu và tự đóng khi lần đọc sau hợp lệ. Sự kiện trả nợ chờ ghép là sự kiện phân bổ tiền đến
+    trước khi tìm thấy khoản vay FINORA tương ứng; hệ thống giữ lại và xử lý khi đã liên kết được.
+  legal_refs: []
+  source: "docs/LOAN-SERVICING-POLICY.md §7; finora-web servicing/constant.ts (INCIDENT_LABEL, quarantineReasonLabel)"
+  version: LOAN_SERVICING_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["đối soát", "cần đối soát", "stale", "chưa cập nhật", "sự cố lệch", "sự kiện chờ ghép", "cách ly", "RECONCILIATION_REQUIRED", "FINORA_LOAN_MAPPING_MISSING"]
+
+- id: QT-KPI-NPL-01
+  title: Tỷ lệ nợ xấu (NPL) và dư nợ
+  roles: [ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Tỷ lệ nợ xấu (NPL) bằng dư nợ gốc của khoản vay nhóm 3 đến 5 chia tổng dư nợ gốc đang theo dõi, nhân
+    100, làm tròn 2 chữ số. Tổng dư nợ gốc bằng 0 thì tỷ lệ để trống thay vì 0%, vì chia cho 0 không có
+    nghĩa. Dư nợ, tiền quá hạn và nhóm nợ lấy từ bản đồng bộ với hệ thống lõi, nên khoản vay chưa cập
+    nhật có thể làm số lệch; số khoản stale được hiện kèm. Nhóm nợ là chuẩn nội bộ của FINORA, không
+    phải phân loại CIC thật. Bảng theo hạng và theo sản phẩm cho thấy hạng hoặc sản phẩm nào đang có tỷ
+    lệ nợ xấu cao.
+  legal_refs: []
+  source: "finora-loan AdminLoanStatisticsService (nplRatioPercent), DebtGroup.isNonPerforming, LoanStatisticsSummaryResponse"
+  version: STATS_001
+  checked_at: "2026-10-15"
+  keywords: ["tỷ lệ nợ xấu", "NPL", "dư nợ", "dư nợ gốc", "nợ xấu bao nhiêu", "tính thế nào", "KPI"]
+
+- id: QT-KPI-PHEU-01
+  title: Đọc phễu hồ sơ và số liệu sàn
+  roles: [ADMIN]
+  kind: HUONG_DAN
+  body: >-
+    Trang tổng quan là ảnh chụp tại thời điểm "tính đến"; các truy vấn chạy nối tiếp nên giữa các ô có
+    thể lệch vài bản ghi vừa đổi trạng thái. Phễu hồ sơ đếm theo trạng thái (đã nộp, chấm điểm, chờ
+    duyệt, đã duyệt, từ chối, đã rút) và trạng thái gọi vốn (đang gọi, đủ vốn, hết hạn); tỷ lệ giữa các
+    bước cho thấy hồ sơ rơi ở đâu. Phía sàn: tỷ lệ lấp đầy bằng vốn đã gom chia mục tiêu của các khoản
+    đang mở, số Note theo trạng thái, dư nợ gốc Note đang hoạt động, số cấu hình Auto-Invest đang bật.
+    Thống kê người dùng đếm theo vai trò và trạng thái eKYC.
+  legal_refs: []
+  source: "finora-loan LoanStatisticsSummaryResponse; finora-investment InvestmentStatisticsSummaryResponse; finora-user UserStatsResponse"
+  version: STATS_001
+  checked_at: "2026-10-15"
+  keywords: ["phễu", "tổng quan", "dashboard", "tỷ lệ lấp đầy", "số liệu sàn", "tỷ lệ duyệt", "người dùng"]

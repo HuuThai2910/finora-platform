@@ -26,8 +26,9 @@ TODO: /backtest.
 """
 from functools import lru_cache
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.api.deps import require_internal_or_admin
 from app.ml.credit.dien_giai import sinh_dien_giai
 from app.ml.credit.explainer import giai_thich_mo_hinh
 from app.ml.credit.predictor import BoDuDoan
@@ -100,9 +101,17 @@ async def _tra_cic(ho_so: CreditScoreRequest) -> dict | None:
     return await lay_cic_client().tra_diem_cic(so_cccd)
 
 
-@router.post("/explain", response_model=CreditExplainResponse)
+@router.post(
+    "/explain",
+    response_model=CreditExplainResponse,
+    dependencies=[Depends(require_internal_or_admin)],
+)
 async def explain_credit(ho_so: CreditScoreRequest) -> CreditExplainResponse:
     """Giải thích quyết định chấm điểm của một hồ sơ vay (C1.2).
+
+    Chỉ Loan (header `X-Internal-Token`) và admin (trang chấm thử trên web) được gọi:
+    endpoint này tra CIC theo CCCD và trả SHAP đầy đủ, không được mở cho người dùng
+    thường qua gateway.
 
     Endpoint tự chấm điểm thay vì nhận `pd_probability` từ client: mô hình là tất
     định nên chấm lại rẻ, còn nhận điểm từ bên ngoài sẽ cho phép giải thích một

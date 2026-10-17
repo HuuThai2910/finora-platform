@@ -182,6 +182,22 @@ services:
       # Lần lấy token đầu tiên sau khi Keycloak khởi động mất ~3 giây (nạp dữ liệu từ
       # Neon); mặc định 3 giây sẽ làm hồ sơ đầu tiên bị chấm như không có CIC.
       USER_TIMEOUT_SECONDS: "10"
+      # Kiểm JWT người gọi như các service Java: khóa ký tải qua tên nội bộ, issuer là
+      # địa chỉ công khai cố định bởi KC_HOSTNAME_URL.
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/finora/protocol/openid-connect/certs
+      KEYCLOAK_ISSUERS: http://localhost:8180/realms/finora
+      # Trợ lý FINORA gọi thẳng service bằng token người hỏi (không qua gateway: profile docker
+      # của gateway thiếu route notifications). Base URL không có /api/v1 vì đường dẫn công cụ đã có.
+      LOAN_SERVICE_URL: http://loan:8081
+      PAYMENT_SERVICE_URL: http://payment:8082
+      INVESTMENT_SERVICE_URL: http://investment:8084
+      # Notification không nằm trong compose này; chạy riêng trên máy thì vẫn gọi được qua host.
+      NOTIFICATION_SERVICE_URL: http://host.docker.internal:8086
+      # Ollama chỉ dùng khi chạy uvicorn trên máy dev; trong container localhost:11434 không có gì,
+      # để trống thì build_providers bỏ hẳn ollama_local thay vì mỗi lượt chờ lỗi kết nối.
+      OLLAMA_BASE_URL: ""
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     healthcheck:

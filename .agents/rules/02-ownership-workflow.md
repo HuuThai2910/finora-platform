@@ -6,7 +6,7 @@
 |---|---|
 | Dev A — Thái | `finora-loan`, `finora-payment`, `finora-blockchain` |
 | Dev B — Hải | `finora-ai`, `finora-investment`, `finora-user`, `finora-notification` |
-| Dùng chung | `finora-common`, `.agents/`, `docs/`, contract dùng chung, cấu hình toàn cục |
+| Dùng chung | `finora-common`, `.agents/`, `docs/`, `docker/`, `deploy/`, contract dùng chung, cấu hình toàn cục |
 | Dùng chung có giới hạn | `finora-gateway`: mỗi owner chỉ sửa route của service mình |
 
 ## Luật chống chồng chéo

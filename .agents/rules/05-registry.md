@@ -11,7 +11,7 @@ Thay đổi giá trị trong bảng MUST cập nhật cấu hình, tài liệu l
 | `finora-investment`           |                                 8084 | PostgreSQL/Neon Project `finora-investment`, DB `neondb`, default role của project                                                                            |
 | `finora-user`                 |                                 8085 | PostgreSQL/Neon Project `finora-user`, DB `neondb`, default role của project                                                                                  |
 | `finora-notification`         |                                 8086 | PostgreSQL/Neon DB riêng; in-app delivery + REST/JWT + Kafka consumer; SMTP internal                                                                            |
-| `finora-ai`                   |                                 8000 | FastAPI; chưa có DB                                                                                                                                           |
+| `finora-ai`                   |                                 8000 | FastAPI; chưa có DB, kể cả trợ lý `AI-CHAT-001` (hạn mức, cache, chỉ mục kiến thức chỉ trong bộ nhớ; chạy một worker uvicorn)                              |
 | Keycloak                      |                                 8180 | OIDC; realm `finora`, client `finora-user-client`. DB `keycloak` trên PostgreSQL host (không còn container `keycloak-db`)                                     |
 | Kafka                         | 9092 host local; 29092 nội bộ Docker | Zookeeper 2181                                                                                                                                                |
 | Loan PostgreSQL offline       |        15433 host local; 5432 nội bộ | PostgreSQL 17, `loan-postgres`, volume/user riêng                                                                                                             |
@@ -60,6 +60,16 @@ Mapping `borrowerId ↔ CCCD` được đăng ký trực tiếp vào CIC qua API
 được giữ trong `cic_pending_delinquency_events` và replay sau khi mapping được tạo.
 User tự tạo `user_cic_mapping_tasks` cùng transaction xác nhận eKYC, dùng `keycloakUserId`
 làm `borrowerId` và retry có lease. Task chỉ giữ `user_profile_id`; không sao chép CCCD thô.
+
+Định danh nội bộ của `finora-ai` (từ `AI-CHAT-001`):
+
+| Định danh | Giá trị | Ghi chú |
+|---|---|---|
+| Header Loan → AI | `X-Internal-Token`, giá trị = biến `AI_INTERNAL_TOKEN` | Cùng giá trị trong `finora-loan/.env` và `finora-ai/.env`; chỉ dùng cho `POST /api/v1/ai/credit/explain`; Caddy trên Azure bỏ header này ở cổng Internet |
+| API trợ lý | `/api/v1/ai/assistant/chat`, `/suggestions`, `/feedback` | Đi qua route `ai-service` có sẵn của Gateway (`/api/v1/ai/**`) |
+| Header relay của trợ lý | `X-Client-Type: assistant` | Service đích nhận biết request do trợ lý gọi thay người dùng |
+| Kiểm JWT trong `finora-ai` | `KEYCLOAK_JWKS_URL`, `KEYCLOAK_ISSUERS` | Trong docker JWKS tải qua `keycloak:8080`, issuer giữ `http://localhost:8180/realms/finora` như các service Java |
+| Nhà cung cấp LLM | Id cấu hình `cloudflare_gemma26b`, `groq_gptoss120b`, `groq_qwen27b`, `groq_gptoss20b`, `openrouter_gemma31b`, `gemini_gemma31b`, `ollama_local` | Thứ tự trong `ASSISTANT_PROVIDERS`; khóa API chỉ ở `finora-ai/.env` của máy chạy, không đưa vào web/mobile; `ollama_local` chỉ trên máy dev |
 
 CURRENT STATE: Keycloak và `finora-user` dùng PostgreSQL cài trực tiếp trên máy host
 (`localhost:5432`, database `keycloak` và `finora_user`); Docker chỉ còn chạy Keycloak và

@@ -1,0 +1,292 @@
+# Đoạn kiến thức cho người vay: vòng đời hồ sơ, duyệt và giải ngân, lãi và điều khoản, hợp đồng,
+# trả nợ, trả trước, tất toán, quá hạn, cơ cấu. Đoạn có thêm ADMIN là chính sách quản trị viên cũng
+# cần trả lời được. Không viết gì về điểm SHAP hay yếu tố mô hình cho người vay (LEGAL-DISCLOSURE-02).
+
+- id: NV-VONG-DOI-01
+  title: Các bước của một hồ sơ vay
+  roles: [BORROWER, ADMIN]
+  kind: HUONG_DAN
+  body: >-
+    Một khoản vay đi qua các bước: Đã nộp, Đang kiểm tra điều kiện, Đang chấm điểm (thường vài phút),
+    Chờ duyệt nếu cần chuyên viên xem, rồi Đã duyệt hoặc Không được duyệt. Sau khi duyệt, điều khoản
+    cuối được chốt và nếu bất lợi hơn lúc nộp thì bạn phải xác nhận lại. Hồ sơ được đưa lên Sàn để nhà
+    đầu tư góp vốn; khi đủ vốn, các nhà đầu tư ký hợp đồng trước rồi tới lượt bạn. Hợp đồng có hiệu lực
+    thì khoản vay được giải ngân vào ví và lịch trả nợ bắt đầu. Mỗi trạng thái trên app đều có dòng
+    "nghĩa là gì" và "bước tiếp theo".
+  legal_refs: []
+  source: "finora-mobile src/features/applications/constant.ts (APPLICATION_STATUS, CONTRACT_STATUS)"
+  version: FINORA_APP_2026_10
+  checked_at: "2026-10-15"
+  keywords: ["các bước", "quy trình vay", "vòng đời hồ sơ", "trạng thái hồ sơ", "hồ sơ đang ở đâu", "bao lâu", "đã nộp"]
+
+- id: NV-CHO-DUYET-01
+  title: Chờ chấm điểm lại, chờ duyệt và rút hồ sơ
+  roles: [BORROWER]
+  kind: HUONG_DAN
+  body: >-
+    "Chờ chấm điểm lại" nghĩa là lần chấm trước chưa xong do sự cố tạm thời; hệ thống tự chạy lại tối
+    đa 3 lần, cách nhau khoảng 30 giây, vẫn lỗi thì chuyển chuyên viên xem chứ không tự cho điểm. "Chờ
+    duyệt" nghĩa là chuyên viên đang xem hồ sơ; đây là bước bình thường, không phải lỗi, thường gặp khi
+    điểm ở vùng giữa hoặc thiếu dữ liệu tín dụng. Bạn rút được hồ sơ khi còn ở Đã nộp, Đang kiểm tra
+    điều kiện, Đang chấm điểm, Chờ chấm điểm lại hoặc Chờ duyệt. Hồ sơ đã duyệt thì dừng bằng cách từ
+    chối điều khoản hoặc từ chối hợp đồng.
+  legal_refs: []
+  source: "finora-mobile applications/constant.ts (WITHDRAWABLE_STATUSES); finora-loan application.yml (ai.credit.max-attempts, retry-backoff)"
+  version: FINORA_APP_2026_10
+  checked_at: "2026-10-15"
+  keywords: ["chờ duyệt", "chờ chấm điểm lại", "rút hồ sơ", "hủy hồ sơ", "sao lâu vậy", "chuyên viên", "SCORING_RETRY_PENDING", "PENDING_REVIEW"]
+
+- id: NV-DIEU-KIEN-01
+  title: Điều kiện vay, số tiền và kỳ hạn
+  roles: [BORROWER, ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Người vay phải từ 18 đến 65 tuổi theo chính sách của FINORA. Số tiền và kỳ hạn phải nằm trong
+    khoảng ghi trên thẻ sản phẩm vay, và phải chọn mục đích vay. Các sản phẩm hiện tại đặt kỳ hạn ngắn
+    nhất 3 tháng; mốc 3 tháng là chính sách sản phẩm của FINORA, không phải quy định pháp luật, nên từng
+    sản phẩm có thể khác. Kỳ hạn dài nhất là 24 tháng vì giới hạn pháp lý của cơ chế thử nghiệm cho vay
+    ngang hàng. Số tiền và kỳ hạn bạn đã chọn không tự thay đổi trong lúc xét duyệt.
+  legal_refs: []
+  source: "finora-loan application.yml (borrower-eligibility); docs/LEGAL-COMPLIANCE.md LEGAL-TERM-01, LEGAL-AI-01"
+  version: BORROWER_ELIGIBILITY_V1
+  checked_at: "2026-10-15"
+  keywords: ["điều kiện vay", "độ tuổi", "bao nhiêu tuổi", "kỳ hạn tối thiểu", "3 tháng", "số tiền vay", "mục đích vay", "ai được vay"]
+
+- id: CS-THAM-DINH-01
+  title: Chính sách thẩm định và lý do hồ sơ không được duyệt
+  roles: [BORROWER, ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Hồ sơ không được duyệt vì một trong hai nhóm lý do. Nhóm chốt chặn từ chối ngay bất kể điểm: đang
+    có khoản nợ nhóm 3 trở lên tại CIC; vừa khắc phục nợ xấu và còn trong thời gian tạm khóa; lãi suất
+    hoặc kỳ hạn vượt giới hạn pháp lý; tổng dư nợ cộng khoản xin vay vượt mức kiểm soát của FINORA.
+    Nhóm thứ hai là điểm tín dụng tổng hợp thấp hơn ngưỡng tự từ chối. Hồ sơ thiếu dữ liệu, ví dụ không
+    tra cứu được CIC, không bị từ chối mà chuyển chuyên viên xem. Hồ sơ đã từ chối không mở lại được;
+    bạn có thể nộp hồ sơ mới khi tình hình thay đổi. Trợ lý chỉ nêu lý do đã ghi trong hồ sơ.
+  legal_refs: []
+  source: "finora-ai app/services/credit/rule_engine.py (kiem_tra_chot_chan_cung, quyet_dinh); docs/LEGAL-COMPLIANCE.md LEGAL-AI-01"
+  version: CREDIT_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["bị từ chối", "không được duyệt", "lý do từ chối", "vì sao từ chối", "nợ xấu CIC", "chốt chặn", "nộp lại", "CIC_CURRENT_BAD_DEBT", "TOTAL_DEBT_EXCEEDS_LEGAL_LIMIT"]
+
+- id: NV-NO-XAU-CIC-01
+  title: Từng có nợ xấu có vay được không
+  roles: [BORROWER, ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    FINORA tách nợ xấu hiện tại khỏi lịch sử. Đang có khoản nợ nhóm 3 trở lên tại CIC thì hồ sơ mới bị
+    từ chối. Nếu đã trả xong và nợ trở về nhóm 1 hoặc 2, FINORA tính từ ngày khắc phục: trong 12 tháng
+    đầu hồ sơ vẫn bị từ chối (thời gian tạm khóa); từ tháng 12 đến tháng 24, hồ sơ không bị từ chối
+    nhưng phải có chuyên viên thẩm định; sau đó chấm điểm bình thường. Lịch sử nợ xấu cũ vẫn ảnh hưởng
+    điểm. Mốc 12 và 24 tháng là chính sách rủi ro nội bộ của FINORA, không phải thời hạn cấm vay do
+    pháp luật quy định.
+  legal_refs: []
+  source: "docs/integrations/CIC-RISK-NOTIFICATION.md mục 1, 3; docs/LEGAL-COMPLIANCE.md LEGAL-SERVICING-01"
+  version: CREDIT_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["từng nợ xấu", "đã trả nợ xấu", "khắc phục nợ xấu", "tạm khóa vay", "12 tháng", "lịch sử CIC", "CIC_BAD_DEBT_COOLDOWN", "CIC_BAD_DEBT_RECOVERY_REVIEW"]
+
+- id: NV-DUYET-GIAI-NGAN-01
+  title: Hồ sơ đã duyệt nhưng chưa nhận được tiền
+  roles: [BORROWER]
+  kind: CHINH_SACH
+  body: >-
+    "Đã duyệt" nghĩa là điều khoản cuối được chấp thuận và hồ sơ được mời lên Sàn để gọi vốn, chưa
+    phải giải ngân. FINORA không chuyển tiền chỉ vì hồ sơ được duyệt, bạn chấp nhận điều khoản hay bạn
+    đã ký. Tiền chỉ vào ví khi đủ các bước: nhà đầu tư góp đủ 100% số tiền vay; tất cả nhà đầu tư ký
+    hợp đồng; bạn ký trước hạn; hợp đồng có hiệu lực; hệ thống thanh toán và hệ thống quản lý khoản
+    vay giải ngân thành công. Xem tiến độ gọi vốn (đã góp trên tổng số tiền) và trạng thái hợp đồng
+    trong màn hồ sơ để biết đang chờ bước nào.
+  legal_refs: []
+  source: "docs/LEGAL-COMPLIANCE.md LEGAL-DISCLOSURE-01; finora-mobile APPLICATION_STATUS.APPROVED; finora-loan LoanApplication.markFullyFunded"
+  version: LOAN_TERMS_V1
+  checked_at: "2026-10-15"
+  keywords: ["đã duyệt", "chưa nhận tiền", "chưa nhận được tiền", "khi nào giải ngân", "giải ngân", "nhận tiền vay", "bao giờ có tiền"]
+
+- id: NV-GOI-VON-01
+  title: Hồ sơ đang gọi vốn và khi gọi vốn hết hạn
+  roles: [BORROWER]
+  kind: HUONG_DAN
+  body: >-
+    Khi điều khoản đã được cho phép, khoản vay lên Sàn để nhà đầu tư góp vốn theo bội số mệnh giá Note
+    (mặc định 1.000.000 đ). Theo cài đặt mặc định của sàn, mỗi đợt gọi vốn mở 14 ngày. Khoản vay phải
+    được góp đủ 100% số tiền mới lập hợp đồng; FINORA không giải ngân một phần. Hết hạn mà chưa đủ vốn
+    thì đợt gọi vốn đóng, tiền của nhà đầu tư trả về ví của họ, không có hợp đồng và bạn không bị tính
+    phí. Hiện FINORA chưa tự mở đợt mới cho hồ sơ đó; nếu vẫn cần vay, bạn nộp hồ sơ mới.
+  legal_refs: []
+  source: "finora-investment V1__create_funding_and_notes.sql (funding_settings), MarketListingServiceImpl.closeExpiredListings; finora-loan LoanFundingStatus"
+  version: INVESTMENT_FUNDING_DEFAULTS_V1
+  checked_at: "2026-10-15"
+  keywords: ["gọi vốn", "đang gọi vốn", "tiến độ gọi vốn", "14 ngày", "hết hạn gọi vốn", "chưa đủ vốn", "lên sàn"]
+
+- id: NV-LAI-CUOI-01
+  title: Lãi suất cuối khác lãi cơ sở và việc xác nhận lại điều khoản
+  roles: [BORROWER, ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Lãi suất cơ sở dùng cho lịch trả ban đầu lúc bạn nộp hồ sơ; lãi suất cuối có thể tăng hoặc giảm
+    sau chấm điểm nhưng luôn nằm trong khoảng tối thiểu đến tối đa đã công bố. Khi nộp, bạn đã đồng ý
+    rằng nếu điều khoản cuối không bất lợi hơn thì hồ sơ tự tiếp tục. Nếu lãi suất, phí, phạt, tổng
+    phải trả, kỳ đầu hoặc kỳ cao nhất bất lợi hơn, FINORA phải hỏi lại: bạn chấp nhận hoặc từ chối
+    trong hạn, mặc định 7 ngày kể từ khi duyệt. Im lặng hay quá hạn không được coi là đồng ý; điều
+    khoản chuyển hết hạn và hồ sơ không lên Sàn. Chấp nhận thì hồ sơ được đưa lên Sàn gọi vốn.
+  legal_refs: []
+  source: "finora-loan CreditScoringStateService (now.plus(contractProperties.signatureWindow())), application.yml (contract.signature-window); docs/LEGAL-COMPLIANCE.md LEGAL-DISCLOSURE-01"
+  version: RATE_DISCLOSURE_V2
+  checked_at: "2026-10-15"
+  keywords: ["lãi suất cuối", "lãi suất cơ sở", "lãi thay đổi", "lãi khác lúc nộp", "xác nhận lại điều khoản", "chấp nhận điều khoản", "hạn xác nhận", "TERMS_CONFIRMATION_EXPIRED"]
+
+- id: NV-HANG-GIA-01
+  title: Hạng tín dụng A–E và mức điều chỉnh lãi
+  roles: [BORROWER, ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Sau chấm điểm, hồ sơ được xếp hạng từ A (tốt nhất) đến E. Hạng dùng để định giá: lãi suất cuối bằng
+    lãi cơ sở cộng mức điều chỉnh theo hạng, A giảm 0,5 điểm phần trăm, B giữ nguyên, C cộng 0,5, D và
+    E cộng 1,0. Kết quả luôn nằm trong khoảng lãi tối thiểu đến tối đa của sản phẩm và không vượt
+    20%/năm. Ví dụ lãi cơ sở 14%/năm, hạng C thì lãi cuối 14,5%/năm nếu vẫn trong khoảng. Hạng A–E là
+    chính sách giá của FINORA, không phải phân loại do pháp luật quy định, và tự nó không quyết định hồ
+    sơ được duyệt hay không. Số tiền và kỳ hạn không đổi theo hạng.
+  legal_refs: []
+  source: "finora-loan application.yml (risk-pricing.grade-adjustments); docs/LEGAL-COMPLIANCE.md LEGAL-AI-01"
+  version: RISK_PRICING_V1
+  checked_at: "2026-10-15"
+  keywords: ["hạng tín dụng", "hạng A", "hạng C", "hạng E", "điều chỉnh lãi", "định giá", "xếp hạng"]
+
+- id: NV-HOP-DONG-KY-01
+  title: Ký hợp đồng vay và hạn ký
+  roles: [BORROWER]
+  kind: HUONG_DAN
+  body: >-
+    Khi khoản vay đủ vốn, FINORA lập một hợp đồng nhiều bên trên cùng một bản PDF. "Chờ nhà đầu tư ký"
+    nghĩa là các nhà đầu tư đang ký trước; đủ chữ ký của họ thì chuyển "Chờ bạn ký". Hạn ký mặc định là
+    7 ngày kể từ lúc lập hợp đồng; quá hạn hợp đồng chuyển "Đã hết hạn" và không ký được nữa. Trước khi
+    ký, hãy mở và tải PDF để đọc lãi suất cuối, tổng gốc, lãi, phí và từng kỳ trả. Ký cần mã PIN; bạn
+    cũng có thể từ chối, khi đó khoản vay không được thiết lập. Bản thử nghiệm ghi nhận bằng thao tác
+    bấm đồng ý hoặc VNPT SmartCA môi trường thử, chưa phải chữ ký số chính thức.
+  legal_refs: []
+  source: "finora-mobile applications/constant.ts (CONTRACT_STATUS); finora-loan application.yml (contract.signature-window, signature.provider)"
+  version: LOAN_TERMS_V1
+  checked_at: "2026-10-15"
+  keywords: ["ký hợp đồng", "hạn ký", "chờ bạn ký", "chờ nhà đầu tư ký", "hợp đồng hết hạn", "từ chối hợp đồng", "SmartCA", "PDF hợp đồng"]
+
+- id: NV-LICH-TRA-01
+  title: Lịch trả nợ, kỳ tới và số liệu chưa cập nhật
+  roles: [BORROWER]
+  kind: HUONG_DAN
+  body: >-
+    Sau giải ngân, lịch trả chính thức do hệ thống quản lý khoản vay lõi (Apache Fineract) lập; FINORA
+    không tự tính lịch thứ hai. Màn khoản vay hiện ngày đến hạn và số tiền kỳ tới, số tiền quá hạn nếu
+    có, ngày đáo hạn và dòng "dữ liệu tính đến". App báo số liệu chưa cập nhật nghĩa là lần đồng bộ gần
+    nhất với hệ thống lõi chưa thành công, con số có thể cũ; thử lại sau ít phút trước khi trả. Có hai
+    cách trả: trả góp đều (các kỳ gần bằng nhau) và gốc đều, lãi giảm dần (kỳ đầu cao nhất). Lịch trong
+    màn hợp đồng là bản chụp lúc lập hợp đồng.
+  legal_refs: []
+  source: "docs/LOAN-SERVICING-POLICY.md §1, §5.2; finora-mobile applications/constant.ts (REPAYMENT_LABELS)"
+  version: LOAN_SERVICING_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["lịch trả nợ", "kỳ tới", "ngày đến hạn", "kỳ sau trả bao nhiêu", "đáo hạn", "trả góp đều", "gốc đều", "chưa cập nhật"]
+
+- id: NV-TRA-NO-KY-01
+  title: Trả nợ đúng kỳ
+  roles: [BORROWER]
+  kind: CHINH_SACH
+  body: >-
+    Bạn trả nợ từ số dư khả dụng trong ví và xác nhận bằng mã PIN. Số tiền phải đúng bằng nghĩa vụ hiện
+    tại mà hệ thống lõi báo, gồm gốc và lãi của kỳ cộng phí, tiền phạt nếu có; nút trả kỳ không nhận số
+    khác và ngày trả luôn là hôm nay. Ví dụ kỳ này 4.000.000 đ gốc và 500.000 đ lãi, không phí phạt,
+    thì ví bị trừ 4.500.000 đ. Đang có phần quá hạn thì số app báo đã gồm cả phần đó. Ví không đủ thì
+    nạp thêm trước. Gốc và lãi được chia cho nhà đầu tư theo tỷ lệ sở hữu; phí và phạt thuộc nền tảng.
+    Muốn trả thêm gốc thì dùng trả trước; muốn đóng khoản vay thì dùng tất toán.
+  legal_refs: []
+  source: "docs/LOAN-SERVICING-POLICY.md §3.1; finora-payment PaymentRepaymentService (REPAYMENT_AMOUNT_NOT_SCHEDULED_DUE)"
+  version: LOAN_SERVICING_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["trả nợ", "trả kỳ", "kỳ này trả bao nhiêu", "số tiền trả", "không đủ tiền", "REPAYMENT_AMOUNT_NOT_SCHEDULED_DUE", "PAYMENT_INSUFFICIENT_BALANCE"]
+
+- id: NV-TRA-TRUOC-01
+  title: Trả trước một phần gốc
+  roles: [BORROWER, ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Trả trước một phần là trả thêm tiền gốc ngoài kỳ đang đến hạn để giảm dư nợ và tiền lãi về sau.
+    Phần gốc trả thêm phải lớn hơn 0 và nhỏ hơn gốc còn lại; trả hết gốc thì dùng tất toán. Số tiền
+    trừ ví bằng khoản đang đến hạn cộng phần gốc trả thêm cộng phí trả trước. Phí bằng phần gốc trả thêm
+    nhân tỷ lệ của bảng phí tất toán (0%, 0,5% hoặc 1%), tối thiểu 100.000 đ khi tỷ lệ khác 0. Ví dụ đến
+    hạn 2.000.000 đ, trả thêm 5.000.000 đ, phí 1% là 50.000 đ nên áp mức tối thiểu 100.000 đ: ví bị trừ
+    7.100.000 đ. Sau đó hệ thống lõi tính lại các kỳ sau. Báo giá dùng một lần, có hạn ngắn.
+  legal_refs: []
+  source: "docs/LOAN-SERVICING-POLICY.md §3.2, §5.6"
+  version: LOAN_SERVICING_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["trả trước", "trả trước một phần", "trả thêm gốc", "giảm dư nợ", "phí trả trước", "tính lại lịch", "PARTIAL_PREPAYMENT_AMOUNT_TOO_HIGH"]
+
+- id: NV-TAT-TOAN-01
+  title: Tất toán trước hạn và phí tất toán
+  roles: [BORROWER, ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Tất toán trước hạn là trả hết nợ để đóng khoản vay trước ngày đáo hạn. Cần có: toàn bộ gốc còn nợ,
+    lãi phát sinh đến ngày tất toán, phí và phạt đã phát sinh nếu có, và phí tất toán. Phí tính trên
+    gốc còn nợ: khoản vay 12 tháng trở xuống tất toán trong nửa đầu thời hạn thì 0,5% (tối thiểu
+    100.000 đ), sau nửa thời hạn thì miễn phí; khoản vay 13 đến 24 tháng thì 1% (tối thiểu 100.000 đ).
+    Ví dụ vay 24 tháng, còn 20.000.000 đ gốc và 300.000 đ lãi: phí 200.000 đ, cần 20.500.000 đ. Báo giá
+    có hiệu lực 15 phút, dùng một lần. Mức phí là chính sách FINORA tham chiếu biểu phí của
+    Vietcombank, không phải tỷ lệ do pháp luật ấn định.
+  legal_refs: []
+  source: "docs/LOAN-SERVICING-POLICY.md §3.3; finora-payment application.yml (early-settlement, VCB_REFERENCE_2024_V1)"
+  version: LOAN_SERVICING_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["tất toán", "tất toán trước hạn", "tất toán sớm", "phí tất toán", "trả hết nợ sớm", "đóng khoản vay", "mất phí", "Vietcombank"]
+
+- id: NV-QUA-HAN-01
+  title: Quá hạn và cách khắc phục
+  roles: [BORROWER, ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Khoản vay quá hạn khi một kỳ đã đến hạn mà chưa trả đủ. Từ đó phát sinh lãi trên phần gốc quá hạn
+    và lãi chậm trả trên phần lãi chưa trả; số chính thức do hệ thống lõi tính, FINORA không cộng phí
+    riêng. Khắc phục là trả đủ toàn bộ phần quá hạn; trả một phần chỉ giảm số tiền quá hạn, chưa đưa số
+    ngày quá hạn (DPD) về 0. Ví dụ thiếu 3.000.000 đ gốc, 500.000 đ lãi, phát sinh 20.000 đ lãi trên gốc
+    quá hạn và 2.000 đ lãi chậm trả: cần 3.522.000 đ. Nút "Trả nợ" trong app thu đúng toàn bộ nghĩa vụ
+    hiện tại, gồm cả phần quá hạn. Quá hạn lâu làm khoản vay lên nhóm nợ cao hơn và ảnh hưởng hồ sơ tín
+    dụng.
+  legal_refs: []
+  source: "docs/LOAN-SERVICING-POLICY.md §3.4; finora-payment PaymentRepaymentService (OVERDUE_CURE)"
+  version: LOAN_SERVICING_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["quá hạn", "trễ hạn", "chậm trả", "lãi chậm trả", "lãi quá hạn", "khắc phục quá hạn", "bị phạt", "trả thiếu"]
+
+- id: NV-CO-CAU-01
+  title: Gia hạn và cơ cấu lại thời hạn trả nợ
+  roles: [BORROWER, ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Cơ cấu là yêu cầu riêng, không phải quyền tự động. Có hai hình thức: dời ngày trả một kỳ, hoặc gia
+    hạn thêm kỳ để kéo dài ngày đáo hạn. Bạn gửi yêu cầu kèm lý do, chọn ngày bắt đầu không ở quá khứ
+    và xác nhận lịch hiện tại vẫn có hiệu lực tới khi có lịch mới; gửi yêu cầu không mất phí. Mỗi khoản
+    vay chỉ có một yêu cầu đang xử lý, và chỉ khoản đang trả nợ hoặc đang nợ xấu mới gửi được. Trong lúc
+    chờ duyệt vẫn phải trả theo lịch cũ; bỏ kỳ vẫn bị tính quá hạn. Bị từ chối thì lịch cũ giữ nguyên;
+    được duyệt thì lịch mới chỉ hiện khi hệ thống lõi xác nhận.
+  legal_refs: []
+  source: "docs/LOAN-SERVICING-POLICY.md §3.5; finora-loan LoanRescheduleService, application.yml (reschedule.terms-text)"
+  version: LOAN_RESTRUCTURE_TERMS_V1
+  checked_at: "2026-10-15"
+  keywords: ["gia hạn", "cơ cấu", "cơ cấu nợ", "dời ngày trả", "kéo dài thời hạn", "xin gia hạn", "khó khăn tài chính", "ACTIVE_RESTRUCTURE_REQUEST_EXISTS"]
+
+- id: NV-SAN-PHAM-01
+  title: Đọc thẻ sản phẩm vay và mô phỏng lịch trả
+  roles: [BORROWER]
+  kind: HUONG_DAN
+  body: >-
+    Mỗi sản phẩm vay ghi khoảng số tiền, khoảng kỳ hạn, ba mức lãi (tối thiểu, cơ sở, tối đa) và cách
+    trả. Lãi cơ sở là mức dự kiến trước thẩm định; lãi cuối của bạn có thể khác nhưng không ra ngoài
+    khoảng tối thiểu đến tối đa. Mô phỏng lịch trả cho biết kỳ đầu, kỳ cao nhất, tổng lãi, tổng phí và
+    tổng phải trả theo lãi cơ sở; đây là ước tính để so sánh, chưa phải cam kết. Trả gốc đều thì kỳ đầu
+    thường cao nhất; trả góp đều thì các kỳ gần bằng nhau. Trước khi nộp, bạn xác nhận đã xem lãi cơ
+    sở, khung lãi, phí và lịch ban đầu.
+  legal_refs: []
+  source: "finora-mobile applications/constant.ts (PRICING_DISCLOSURE_TEXT); docs/LEGAL-COMPLIANCE.md LEGAL-DISCLOSURE-01"
+  version: RATE_DISCLOSURE_V2
+  checked_at: "2026-10-15"
+  keywords: ["sản phẩm vay", "mô phỏng", "mỗi tháng trả bao nhiêu", "vay bao nhiêu trả bao nhiêu", "khung lãi", "lãi tối đa", "kỳ đầu", "tổng phải trả"]

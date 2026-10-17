@@ -19,3 +19,9 @@ google-genai==2.19.0
 
 # HTTP client (gọi cic-service)
 httpx==0.28.1
+
+# Xác thực: kiểm access token Keycloak (RS256 + JWKS). [crypto] kéo theo cryptography cho khóa RSA.
+PyJWT[crypto]==2.10.1
+
+# Trợ lý FINORA: đọc kho kiến thức YAML (chỉ dùng yaml.safe_load)
+PyYAML==6.0.2

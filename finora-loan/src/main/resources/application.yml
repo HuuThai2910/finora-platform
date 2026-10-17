@@ -208,6 +208,9 @@ finora:
       worker-delay: ${AI_WORKER_DELAY:5000}
       worker-enabled: ${AI_WORKER_ENABLED:true}
       processing-lease: ${AI_PROCESSING_LEASE:2m}
+      # Mã gửi trong header X-Internal-Token; phải trùng AI_INTERNAL_TOKEN của finora-ai.
+      # Không có mặc định: một mã dev công khai sẽ mở /credit/explain trên môi trường quên đặt biến.
+      internal-token: ${AI_INTERNAL_TOKEN:}
   fineract:
     # mock cho demo local; đổi thành fineract khi đã chốt office/payment type và dữ liệu Client.
     booking-provider: ${FINERACT_BOOKING_PROVIDER:mock}

@@ -25,9 +25,10 @@ bất kỳ luật nào thì không luật nào được ghi.
 import re
 from itertools import pairwise
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
+from app.api.deps import require_admin
 from app.services.credit.product_config import get_legal_limits, reload, save
 from app.services.credit.rule_engine import DIEM_TOI_DA_MOI_LUAT
 from app.services.credit.truong_du_lieu import DANH_MUC_TRUONG, mo_ta_danh_muc
@@ -213,9 +214,17 @@ def _kiem_tra_nguong_quyet_dinh(
         )
 
 
-@router.put("/product", response_model=ProductConfigResponse)
+@router.put(
+    "/product",
+    response_model=ProductConfigResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def update_product_config(body: ProductConfigUpdate):
-    """Cập nhật khoảng điểm AI, ngưỡng duyệt và trọng số. Legal limits không đổi."""
+    """Cập nhật khoảng điểm AI, ngưỡng duyệt và trọng số. Legal limits không đổi.
+
+    Chỉ admin: cấu hình này quyết định hồ sơ nào được tự duyệt. GET vẫn mở vì Loan và
+    web đọc nó để hiển thị và định giá.
+    """
     _kiem_tra_bang_hang(body.grades)
     _kiem_tra_nguong_quyet_dinh(body.grades, body.approval_thresholds)
 
@@ -453,9 +462,13 @@ async def get_rules_config():
     return _dung_rules_response()
 
 
-@router.put("/rules", response_model=RulesResponse)
+@router.put(
+    "/rules",
+    response_model=RulesResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def update_rules_config(body: RulesUpdate):
-    """Thay toàn bộ bộ luật: thêm, sửa, xoá, sắp xếp, bật/tắt trong một lần lưu."""
+    """Thay toàn bộ bộ luật: thêm, sửa, xoá, sắp xếp, bật/tắt trong một lần lưu (chỉ admin)."""
     _kiem_tra_bo_luat(body.rules)
 
     current = reload()

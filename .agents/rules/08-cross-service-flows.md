@@ -278,6 +278,42 @@ và business reference, idempotent theo source event, claim lease, bounded retry
 
 **Failure:** gửi lỗi không rollback nghiệp vụ nguồn; MUST NOT log payload chứa PII hoặc secret.
 
+## F10 — Trợ lý FINORA đọc dữ liệu bằng token người hỏi
+
+**Trigger:** người vay/nhà đầu tư (mobile) hoặc admin (web) gửi câu hỏi hoặc bấm nút gợi ý. **Orchestrator:** `finora-ai`
+(`AssistantOrchestrator`), chỉ điều phối việc đọc. **Legal gates:**
+[`LEGAL-CHAT-01`, `LEGAL-DATA-01`, `LEGAL-DISCLOSURE-02`](../../docs/LEGAL-COMPLIANCE.md). **Spec:**
+[`AI-CHAT-001`](../../docs/superpowers/specs/2026-10-15-tro-ly-finora-design.md).
+
+1. Client gọi `POST /api/v1/ai/assistant/chat` qua Gateway (web gửi cookie `access_token`, mobile gửi Bearer); body gồm câu
+   hỏi, tối đa 6 lượt gần nhất, `surface` và màn đang mở.
+2. `finora-ai` kiểm JWT bằng JWKS Keycloak (RS256, `exp`, `iss`), chọn bộ công cụ theo vai trò và nơi gửi, áp hạn mức theo
+   người dùng.
+3. Công cụ gọi **thẳng** service sở hữu trong mạng nội bộ (`loan:8081`, `payment:8082`, `investment:8084`, `user:8085`,
+   `notification:8086`), không qua Gateway, với header `Authorization: Bearer <token của người hỏi>` và
+   `X-Client-Type: assistant`. Service đích kiểm JWT, vai trò và chủ sở hữu như mọi request của app.
+4. Kết quả được lọc theo danh sách trường cho phép; số liệu định dạng thành thẻ bằng code.
+5. Nếu cần câu văn, `finora-ai` gửi dữ kiện đã lọc tới nhà cung cấp LLM theo làn dữ liệu; kiểm đầu ra; dựng phản hồi gồm
+   câu trả lời, thẻ, nút điều hướng, căn cứ, gợi ý tiếp theo và `mode`.
+6. Ghi log siêu dữ liệu của lượt.
+
+**State authority:** không đổi state nào. Trợ lý không có database; bộ đếm hạn mức, cache chống bấm hai lần và chỉ mục
+kiến thức chỉ nằm trong bộ nhớ của một worker uvicorn.
+
+**Idempotency:** không có side effect nên không cần khóa idempotency; cache 60 giây theo (mã băm người dùng, mã băm câu
+hỏi, màn, `suggestionId`) để lần bấm thứ hai nhận lại phản hồi cũ và không tốn thêm hạn mức LLM.
+
+**Timeout:** mỗi công cụ 8 giây (công cụ đọc Fineract 30 giây), mỗi request LLM 20 giây, cả lượt 40 giây (đo lại qua
+Vercel, Caddy, Gateway ở bước triển khai). Không retry trong lượt.
+
+**Failure:** token hết hạn ở service đích → 401 về client để app làm mới token; 403/404 → "không tìm thấy" (không lộ có tồn
+tại hay không); 5xx/timeout → "chưa lấy được dữ liệu" kèm nút mở màn liên quan; mọi nhà cung cấp LLM lỗi hoặc hết hạn mức →
+HTTP 200 với `mode=fallback` và câu mẫu dựng từ dữ kiện; `ASSISTANT_ENABLED=false` → 503 `ASSISTANT_DISABLED`, client ẩn nút
+chat. Không có compensation vì không có thay đổi nào cần đảo.
+
+**Bảo mật:** mô hình không được chọn user id hay mã nghiệp vụ ngoài dữ kiện đã lấy trong lượt hoặc `context.params`; trường
+tự do không gửi mô hình; câu hỏi được che CCCD/SĐT/email/số tài khoản; payload gửi ra ngoài được quét lại trước khi gửi.
+
 ## Checklist khi thêm flow
 
 - SoR và state authority đã khớp `07-service-boundaries.md`.

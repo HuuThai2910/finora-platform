@@ -12,7 +12,12 @@ public record AiCreditProperties(
         int maxAttempts,
         Duration retryBackoff,
         int workerBatchSize,
-        Duration processingLease
+        Duration processingLease,
+        /**
+         * Mã nội bộ gửi trong header X-Internal-Token khi gọi POST /api/v1/ai/credit/explain.
+         * Phải trùng AI_INTERNAL_TOKEN của finora-ai; rỗng thì không gửi và AI trả 401.
+         */
+        String internalToken
 ) {
     public AiCreditProperties {
         baseUrl = requireText(baseUrl, "base-url");
@@ -23,6 +28,7 @@ public record AiCreditProperties(
         retryBackoff = retryBackoff == null ? Duration.ofSeconds(30) : retryBackoff;
         workerBatchSize = workerBatchSize <= 0 ? 10 : Math.min(workerBatchSize, 50);
         processingLease = processingLease == null ? Duration.ofMinutes(2) : processingLease;
+        internalToken = internalToken == null ? "" : internalToken.trim();
     }
 
     private static String requireText(String value, String field) {

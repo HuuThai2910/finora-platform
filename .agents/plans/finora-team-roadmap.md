@@ -277,6 +277,7 @@ Các task có thể chạy song song theo ownership, nhưng mỗi task vẫn ph�
 | P7-B08 | User/AI | NFC CCCD PoC | — | `DROPPED` — bỏ khỏi phạm vi 2026-08-21: Passive Authentication cần chứng thư CSCA của Bộ Công an (không công bố), nên đọc chip không chứng minh được thẻ thật; giá trị còn lại không bù được chi phí native module NFC cho cả Android/iOS. Thay bằng OCR ảnh hai mặt CCCD. |
 | P7-B09 | Notification | Đa kênh email/SMS/push | Provider adapter | `BACKLOG` |
 | P7-B10 | User | Admin user/RBAC nâng cao | P0 security | `BACKLOG` |
+| P7-B11 | AI + Web/Mobile | [AI-CHAT-001: Trợ lý FINORA](../../docs/superpowers/specs/2026-10-15-tro-ly-finora-design.md) — chatbot chỉ đọc cho người vay, nhà đầu tư (mobile) và quản trị (web); gọi service bằng token người hỏi, kho kiến thức có phiên bản, ghép nhà cung cấp LLM miễn phí, câu mẫu khi LLM lỗi ([plan](../../docs/superpowers/plans/2026-10-15-tro-ly-finora.md)) | STATS-001 + P7-B03; kèm xác thực JWT cho `finora-ai`, sửa số liệu danh mục Investment | `IN_PROGRESS` — code xong Task 1–19; còn chạy thật local/Azure (Task 21). Hồ sơ chuyển dữ liệu ra nước ngoài `LEGAL-OPEN-06` chờ legal review |
 
 ## 13. Nhịp phối hợp đề xuất
 
@@ -335,6 +336,7 @@ Thêm dòng mới, không sửa mất lịch sử đã dùng để triển khai.
 | 2026-09-27 | P2-A02/P2-A03/F03–F04 | Bỏ nhánh Contract demo và cờ rollout: Loan luôn ghi `LoanFundingRequested`, Investment luôn consume/publish qua Kafka; Contract chỉ sinh sau `LoanFullyFunded`. Investment tách V4 legacy và nâng schema tương thích qua V5–V6 | Thái triển khai; Hải review migration Investment và tài liệu chung trước merge | Không đổi payload/topic; xóa toggle runtime, messaging trở thành luồng bắt buộc | Review |
 | 2026-09-28 | P3/P4/F04–F05 | Nối Payment thật cho Investment, thêm top-up mock/ZaloPay sandbox, truyền `paymentHoldReference` xuyên allocation/Contract/Saga, capture ledger rồi giải ngân; mobile dùng ví thật và hiển thị trạng thái giải ngân | Thái triển khai; Hải đã cho phép cập nhật Investment, vẫn cần review trước merge | Có — nâng `LoanFullyFunded` và `DisbursementRequested` lên v2 vì thêm trường bắt buộc | Review |
 | 2026-09-28 | P3/F05 | Sửa bút toán giải ngân ví: sau capture phải ghi có `borrower AVAILABLE`; worker bù idempotent các giao dịch `COMPLETED` legacy còn nằm ở clearing, không sửa ledger cũ | Thái triển khai; Hải review luồng Investment–Payment trước merge | Không đổi event version/payload | Review |
+| 2026-10-15 | P7-B11/F10 | Hải chốt Trợ lý FINORA: chỉ đọc, không trả tiền LLM (ghép Cloudflare/Groq/OpenRouter miễn phí, Gemini miễn phí chỉ làn dữ liệu công khai), cả ba vai trò, dẫn luật bằng tóm tắt + số điều + link, không đưa SHAP cho người vay, không streaming. Kèm: `finora-ai` có xác thực JWT, `PUT /config/*` chỉ admin, `/credit/explain` nhận `X-Internal-Token` của Loan; Gateway ép HTTP/1.1 khi chuyển tiếp | Hải | Có — API mới `/api/v1/ai/assistant/*`; `/credit/explain` và `PUT /config/*` đòi xác thực; Loan gửi header nội bộ | In progress |
 
 ## 15. Quy tắc cập nhật roadmap
 

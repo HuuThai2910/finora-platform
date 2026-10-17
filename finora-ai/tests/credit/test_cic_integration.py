@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.ml.credit.predictor import PHIEN_BAN_MAC_DINH, BoDuDoan
+from auth.jwt_factory import internal_headers
 
 
 class TestChuanBiDacTrungV14:
@@ -168,7 +169,8 @@ class TestRouterV14:
         bo_gia = BoDuDoanGia()
         monkeypatch.setattr(credit_router, "lay_bo_du_doan", lambda: bo_gia)
 
-        client = TestClient(main.app)
+        # /explain chỉ nhận Loan hoặc admin: gửi mã nội bộ như Loan.
+        client = TestClient(main.app, headers=internal_headers(monkeypatch))
         yield client, bo_gia
         credit_router.lay_cic_client.cache_clear()
 

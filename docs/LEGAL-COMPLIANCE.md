@@ -123,6 +123,53 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
   diễn giải thành cấm cấp tín dụng trong toàn bộ thời gian lưu. Quyết định cấp tín dụng còn phụ thuộc
   chính sách và đánh giá của bên cho vay; cần legal/policy sign-off trước production.
 
+### `LEGAL-CHAT-01` — Trợ lý FINORA (chatbot chỉ đọc)
+
+Phạm vi: `POST /api/v1/ai/assistant/chat`, `GET /suggestions`, `POST /feedback` của `finora-ai` (task `AI-CHAT-001`,
+[spec](superpowers/specs/2026-10-15-tro-ly-finora-design.md)), màn chat trên mobile cho người vay/nhà đầu tư và ngăn chat
+trên web quản trị. Trợ lý chỉ giải thích và chỉ đường; mọi thao tác có tiền, mã PIN, đồng ý điều khoản hoặc quyết định
+của admin chỉ là nút mở màn hình có sẵn, nơi các control khác (`LEGAL-DISCLOSURE-01`, `LEGAL-CONTRACT-01`,
+`LEGAL-PAYMENT-01`) vẫn áp dụng như cũ.
+
+- **Thông tin đầy đủ, chính xác** (`LAW-P2P-2025` Điều 22 khoản 3; khoản 8 điểm c). Mọi số liệu trong câu trả lời và thẻ
+  số liệu đọc từ API của service sở hữu bằng chính token người hỏi, ngay trong lượt đó; thẻ do code định dạng, không do mô
+  hình AI viết. Bộ kiểm đầu ra so từng con số trong câu trả lời với dữ kiện của lượt; lệch thì thay bằng câu mẫu dựng từ
+  dữ kiện. Không lấy được dữ liệu thì nói rõ là không lấy được, không ước đoán.
+- **Không gây nhầm lẫn** (`LAW-CONSUMER-2023` Điều 10). Nội dung được gắn một trong bốn nhãn: `LUAT` (văn bản trong bảng
+  nguồn ở mục 1, có link chính thức), `CHINH_SACH` (chính sách FINORA: phí tham chiếu Vietcombank, hạng A–E, ngưỡng tự
+  duyệt, kỳ hạn tối thiểu 3 tháng), `CHUA_XAC_MINH` (ví dụ hạn mức 100/400 triệu của `LEGAL-OPEN-02`), `HUONG_DAN`. Căn cứ
+  do code gắn từ đoạn kiến thức đã dùng; mô hình không được tự viết số điều/văn bản, câu có "Điều …", "Nghị định …" không
+  nằm trong căn cứ của lượt bị thay. Trợ lý không khuyến nghị đầu tư (không xếp hạng "tốt nhất", "an toàn nhất"), mọi câu
+  trả lời cho nhà đầu tư và mọi câu có căn cứ `LUAT` kèm câu miễn trừ.
+- **Dữ liệu cá nhân** (`LAW-DATA-2025`, `DECREE-DATA-2025`; tối thiểu hóa theo `LEGAL-DATA-01`). Chỉ trường trong danh sách
+  cho phép của từng công cụ được gửi tới mô hình; trường tự do (`purposeDetail`, ghi chú) chỉ hiện trên thẻ. Câu hỏi được
+  che CCCD, số điện thoại, email, số tài khoản trước khi gửi; payload gửi ra ngoài được quét lại, còn sót thì không gửi.
+  Hai làn: dữ liệu người dùng chỉ đi qua nhà cung cấp cam kết không huấn luyện trên dữ liệu (Cloudflare Workers AI, Groq,
+  OpenRouter tới Google AI Studio), Gemini API gói miễn phí chỉ nhận kiến thức chung và số liệu tổng hợp. Không lưu nội dung
+  hội thoại; log chỉ có mã lượt, mã băm người dùng (SHA-256 có salt), vai trò, màn, chế độ, công cụ, nhà cung cấp, model,
+  số token, độ trễ, mã lỗi. Lần đầu mở chat, người dùng được báo dữ liệu đã lược định danh sẽ tới nhà cung cấp ở nước ngoài
+  (có tên từng nhà) và không nhập CCCD, mật khẩu, PIN, OTP. Hồ sơ đánh giá tác động chuyển dữ liệu cá nhân ra nước ngoài
+  chưa lập: `LEGAL-OPEN-06` (`NEEDS_LEGAL_REVIEW`).
+- **Công bố đang trò chuyện với AI.** Thông báo lần đầu và tiêu đề màn chat ghi rõ đây là trợ lý AI, không phải nhân viên.
+  Nghĩa vụ công bố theo văn bản pháp luật về trí tuệ nhân tạo chưa được đối chiếu với toàn văn chính thức:
+  `LEGAL-OPEN-07` (`NEEDS_PRIMARY_SOURCE`). FINORA công bố như một biện pháp tự nguyện, không mô tả là "đã tuân thủ luật AI".
+- **Giữ nguyên `LEGAL-DISCLOSURE-02` và `LEGAL-AI-01`.** Trợ lý không đưa giải thích SHAP/`dien_giai` cho người vay hay
+  nhà đầu tư, không chấm lại hồ sơ từ khung chat; bản tóm tắt hồ sơ cho admin đọc snapshot chấm điểm đã lưu, đổi thu nhập
+  và nợ thành khoảng, bỏ mọi định danh.
+
+Tác động hệ thống:
+
+| Lớp | Kiểm soát |
+|---|---|
+| UI | Thông báo lần đầu (AI + tên nhà cung cấp + không nhập CCCD/PIN/OTP); dòng "Căn cứ" theo nhãn; dòng "Trợ lý đang ở chế độ rút gọn" khi `mode=fallback`; câu miễn trừ; nút chat ẩn khi `GET /suggestions` không trả 200 |
+| API | JWT bắt buộc; `surface=web` chỉ cho `ROLE_ADMIN`, `surface=mobile` chỉ cho `ROLE_BORROWER`/`ROLE_INVESTOR` (403 `ASSISTANT_ROLE_NOT_SUPPORTED`); `citations[].url` bắt buộc với `LUAT`; client relay chỉ gọi cặp method + đường dẫn đã khai báo |
+| Log | Chỉ siêu dữ liệu nêu trên; không log câu hỏi, câu trả lời, token |
+| Test | `finora-ai/tests/assistant/test_knowledge_content.py` (mọi `legal_refs` có trong bảng nguồn ở mục 1), `test_legal.py`, test của bộ lọc/bộ kiểm đầu ra, bộ đánh giá `finora-ai/tests/assistant_eval/`; nhóm ca `AI_Assistant` trong `FINORA_Test_Cases_v1.1.xlsx` |
+
+Còn thiếu trước production: hồ sơ chuyển dữ liệu ra nước ngoài (`LEGAL-OPEN-06`); đối chiếu nghĩa vụ công bố AI
+(`LEGAL-OPEN-07`); hợp đồng/điều khoản xử lý dữ liệu với nhà cung cấp trả phí thay cho gói miễn phí; quy trình rà soát nội
+dung kho kiến thức mỗi khi văn bản trong mục 1 thay đổi.
+
 ## 3. Ma trận service và điểm kiểm soát
 
 | Chức năng | Service sở hữu | Mã pháp lý | Kiểm soát đang có | Còn thiếu trước production |
@@ -135,6 +182,7 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 | Duyệt, xác nhận điều khoản và ký | Loan + Web/Mobile | `LEGAL-DISCLOSURE-01`, `LEGAL-CONTRACT-01` | Outcome-based non-worsening gate; evidence version/hash/expiry; PDF bất biến; mock/provider evidence được phân biệt; Contract event ghi local outbox | Investment/lender identity; legal review hình thức ký; chữ ký hai bên; API/callback/chứng thư SmartCA production; Kafka transport |
 | Bằng chứng toàn vẹn | Blockchain + service nguồn | `LEGAL-CONTRACT-01`, `LEGAL-DATA-01` | Durable hash-only proof, idempotency/retry/DLT local; mock được phân biệt; Fabric fail-closed | Event contract đã duyệt, Fabric network/chaincode, access/retention và legal review cách trình bày bằng chứng |
 | Giải ngân/trả nợ | Loan + Payment + Fineract | `LEGAL-PAYMENT-01`, `LEGAL-SERVICING-01` | Wallet/top-up/hold/capture API, immutable balanced ledger, idempotency, ZaloPay top-up sandbox và disbursement mock; policy servicing V1 đã tách luật với biểu phí tham chiếu | Repayment/reconciliation thật, đối tác tài khoản/ví được phép, legal review phạm vi áp dụng và disclosure/quote |
+| Trợ lý FINORA (chatbot chỉ đọc) | AI (đọc Loan/Investment/Payment/User/Notification bằng token người hỏi) + Web/Mobile | `LEGAL-CHAT-01`, `LEGAL-DATA-01`, `LEGAL-DISCLOSURE-02`, `LEGAL-AI-01` | JWT + vai trò theo nơi gửi; công cụ chỉ đọc theo allowlist; lọc trường và che PII trước khi gửi; hai làn dữ liệu; căn cứ do code gắn; kiểm số liệu/trích dẫn/khuyến nghị ở đầu ra; log chỉ siêu dữ liệu; câu mẫu khi mọi nhà cung cấp lỗi | Hồ sơ chuyển dữ liệu ra nước ngoài; đối chiếu nghĩa vụ công bố AI; điều khoản xử lý dữ liệu với nhà cung cấp trả phí |
 
 ## 4. Quy tắc cập nhật nguồn pháp lý
 
@@ -153,3 +201,5 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 | `LEGAL-OPEN-03` | Click-wrap có đủ cho loại hợp đồng cụ thể hay bắt buộc tích hợp chữ ký điện tử/chữ ký số? | `NEEDS_LEGAL_REVIEW` |
 | `LEGAL-OPEN-04` | Bộ reason/feature AI có tạo phân biệt đối xử hoặc dùng dữ liệu vượt mục đích đã thông báo không? | `NEEDS_POLICY_AND_PRIVACY_REVIEW` |
 | `LEGAL-OPEN-05` | Phạm vi áp dụng trực tiếp quy định phân loại nợ/cơ cấu của tổ chức tín dụng cho FINORA P2P và cách báo cáo CIC production | `NEEDS_LEGAL_REVIEW` |
+| `LEGAL-OPEN-06` | Hồ sơ đánh giá tác động chuyển dữ liệu cá nhân ra nước ngoài khi trợ lý gửi dữ kiện đã lược định danh tới nhà cung cấp mô hình AI (Cloudflare, Groq, OpenRouter/Google) theo `LAW-DATA-2025`, `DECREE-DATA-2025` | `NEEDS_LEGAL_REVIEW` |
+| `LEGAL-OPEN-07` | Nghĩa vụ công bố cho người dùng biết đang tương tác với hệ thống AI theo văn bản pháp luật về trí tuệ nhân tạo; chưa lưu được toàn văn chính thức để đối chiếu | `NEEDS_PRIMARY_SOURCE` |

@@ -126,6 +126,11 @@ finora-ai/
 
 Mỗi bounded context có router riêng. Logic ML không đặt trong router; predictor và preprocessing phải dùng cùng model package/feature contract.
 
+## Thư mục hạ tầng
+
+- `docker/`: compose và Dockerfile để chạy local. Dockerfile ở đây cũng được bản triển khai dùng.
+- `deploy/`: triển khai lên Azure: `docker-compose.azure.yml`, `Caddyfile`, script trên VM (`host/`), `finora-azure.ps1`. Secret chỉ nằm trên VM, không commit.
+
 ## Database và integration patterns
 
 - Schema mới/chỉnh schema dùng migration `V<n>__<mo_ta>.sql`; MUST NOT sửa migration đã merge.

@@ -18,3 +18,7 @@ data/
 # LƯU Ý: models/ KHÔNG bị bỏ qua. Vì data/ không commit nên không ai clone về mà
 # huấn luyện lại được — gói model (.pkl + .json) phải nằm trong repo thì service
 # mới chạy được. File .json còn là tài liệu về mô hình: đọc và diff được qua git.
+
+# === Kết quả spike nhà cung cấp LLM (Trợ lý FINORA, AI-CHAT-001 Task 1) ===
+# Chứa câu trả lời của model cho bộ câu hỏi giả, chỉ dùng để chọn thứ tự nhà cung cấp.
+scripts/out/

@@ -86,11 +86,11 @@ File này là nguồn chuẩn để quyết định một chức năng, entity, 
 
 ## `finora-ai`
 
-**Sở hữu:** model package/version, feature preprocessing, prediction, explanation/reason codes, OCR (eKYC) và fraud technical result, model evaluation. Face/liveness đã bỏ khỏi eKYC 2026-08-22.
+**Sở hữu:** model package/version, feature preprocessing, prediction, explanation/reason codes, OCR (eKYC) và fraud technical result, model evaluation. Face/liveness đã bỏ khỏi eKYC 2026-08-22. Từ `AI-CHAT-001`: trợ lý hội thoại **chỉ đọc** "Trợ lý FINORA" (`app/services/assistant/**`, `app/api/assistant_router.py`) gồm điều phối câu hỏi, kho kiến thức chính sách/pháp lý có phiên bản (file YAML trong repo), từ điển mã trạng thái/lỗi, chọn nhà cung cấp LLM và bộ đếm hạn mức trong bộ nhớ; xác thực JWT dùng chung của `finora-ai` (`app/services/auth/`, `app/api/deps.py`).
 
-**Không sở hữu:** KYC status cuối cùng, loan approval/state, wallet/transaction hoặc hành động khóa tài khoản.
+**Không sở hữu:** KYC status cuối cùng, loan approval/state, wallet/transaction hoặc hành động khóa tài khoản. Trợ lý không sở hữu dữ liệu nghiệp vụ nào nó đọc (hồ sơ, hợp đồng, khoản vay, ví, lệnh, commitment, Note, thông báo) và không có database.
 
-**Invariant:** predictor dùng đúng feature order và median trong model package; response phải có model version. AI đưa ra score/evidence; User, Loan hoặc Payment áp policy và quyết định nghiệp vụ.
+**Invariant:** predictor dùng đúng feature order và median trong model package; response phải có model version. AI đưa ra score/evidence; User, Loan hoặc Payment áp policy và quyết định nghiệp vụ. Trợ lý chỉ gọi REST của service sở hữu bằng **chính access token của người hỏi** (không service account, không đọc DB service khác), chỉ theo allowlist method + đường dẫn của từng công cụ, chỉ GET (riêng `POST /api/v1/loan-products/{id}/repayment-previews` là tính toán, không ghi); service đích tự kiểm chủ sở hữu và vai trò. Mọi thao tác ghi chỉ là nút mở màn hình có sẵn ([`F10`](08-cross-service-flows.md), [`LEGAL-CHAT-01`](../../docs/LEGAL-COMPLIANCE.md)).
 
 ## `finora-common`
 
@@ -113,6 +113,7 @@ File này là nguồn chuẩn để quyết định một chức năng, entity, 
 | Wallet, balance, ledger | Payment | Service khác chỉ giữ payment transaction ID và result |
 | Hash/proof/Fabric transaction | Blockchain | Service nguồn giữ Fabric transaction reference |
 | Delivery status/history | Notification | Service nguồn giữ notification request/reference nếu cần |
+| Nội dung hội thoại trợ lý | Không có SoR: không lưu; client giữ tối đa 6 lượt gần nhất | `finora-ai` chỉ log siêu dữ liệu (mã băm người dùng, vai trò, chế độ, công cụ, nhà cung cấp, độ trễ) |
 
 ## Ma trận quyền đổi trạng thái
 

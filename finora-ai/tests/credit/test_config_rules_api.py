@@ -11,6 +11,8 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.deps import require_admin
+from app.services.auth.keycloak_jwt import Principal
 from app.services.credit import product_config
 from main import app
 
@@ -51,6 +53,17 @@ LUAT_MUC_DICH = {
 }
 
 
+# File này kiểm ràng buộc nghiệp vụ của bộ luật, không kiểm quyền (quyền ở test_api_auth.py),
+# nên mọi PUT chạy với tư cách admin qua dependency_overrides.
+ADMIN = Principal(
+    user_id="1",
+    subject="kc-admin",
+    roles=frozenset({"ROLE_ADMIN"}),
+    token="test",
+    expires_at=4_102_444_800,
+)
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     """Client dùng file config tạm — test ghi thoải mái không hỏng config thật."""
@@ -59,7 +72,9 @@ def client(tmp_path, monkeypatch):
     file_tam.write_text(duong_dan_goc.read_text(encoding="utf-8"), encoding="utf-8")
     monkeypatch.setattr(product_config, "_CONFIG_PATH", file_tam)
     product_config.reload()
+    app.dependency_overrides[require_admin] = lambda: ADMIN
     yield TestClient(app)
+    app.dependency_overrides.pop(require_admin, None)
     monkeypatch.setattr(product_config, "_CONFIG_PATH", duong_dan_goc)
     product_config.reload()
 

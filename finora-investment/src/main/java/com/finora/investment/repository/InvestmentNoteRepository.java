@@ -26,6 +26,21 @@ public interface InvestmentNoteRepository extends JpaRepository<InvestmentNote, 
 
     List<InvestmentNote> findByInvestorIdAndStatus(String investorId, NoteStatus status);
 
+    /** Note nhà đầu tư đang nắm theo nhiều trạng thái; dùng index {@code ix_note_investor_status}. */
+    List<InvestmentNote> findByInvestorIdAndStatusIn(String investorId, List<NoteStatus> statuses);
+
+    /**
+     * Trong các commitment cho trước, những commitment đã được phát hành ít nhất một Note.
+     *
+     * <p>Không lọc theo chủ hay trạng thái Note: Note bán trên chợ đổi {@code investorId} sang người
+     * mua, Note thu hồi đủ gốc thành CLOSED, Note nợ xấu thành DEFAULTED, nhưng trong cả ba trường hợp
+     * commitment đó đều đã giải ngân. Danh mục gọi một lần cho cả danh sách thay vì
+     * {@link #existsByCommitmentId} từng commitment (tránh N+1). Đi theo index {@code ix_note_commitment}.
+     * Người gọi không được truyền danh sách rỗng.</p>
+     */
+    @Query("SELECT DISTINCT n.commitmentId FROM InvestmentNote n WHERE n.commitmentId IN :commitmentIds")
+    List<Long> findCommitmentIdsWithNotes(@Param("commitmentIds") List<Long> commitmentIds);
+
     List<InvestmentNote> findByLoanIdAndStatus(Long loanId, NoteStatus status);
 
     List<InvestmentNote> findByLoanIdAndStatusIn(Long loanId, List<NoteStatus> statuses);

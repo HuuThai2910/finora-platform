@@ -260,6 +260,10 @@ services:
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-finora-user-client}
       KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_CLIENT_SECRET}"
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      # Kiểm JWT người gọi: issuer theo KEYCLOAK_PUBLIC_URL giống KC_HOSTNAME_URL của Keycloak.
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/finora/protocol/openid-connect/certs
+      KEYCLOAK_ISSUERS: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8180}/realms/finora
+      AI_INTERNAL_TOKEN: "${AI_INTERNAL_TOKEN:-}"
     ports:
       - "127.0.0.1:${AI_HOST_PORT:-8000}:8000"
     depends_on:
@@ -548,6 +552,7 @@ services:
       FINERACT_DISBURSEMENT_PAYMENT_TYPE_ID: ${FINERACT_DISBURSEMENT_PAYMENT_TYPE_ID:-1}
       FINERACT_CLIENT_LEGAL_FORM_ID: ${FINERACT_CLIENT_LEGAL_FORM_ID:-1}
       AI_SERVICE_URL: http://ai:8000
+      AI_INTERNAL_TOKEN: "${AI_INTERNAL_TOKEN:-}"
       SPRING_PROFILES_ACTIVE: local
     ports:
       - "127.0.0.1:${LOAN_HOST_PORT:-8081}:8081"

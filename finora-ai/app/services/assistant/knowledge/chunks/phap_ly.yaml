@@ -1,0 +1,238 @@
+# Đoạn pháp lý. Đoạn LUAT chỉ tóm tắt nội dung (cách dẫn A, spec quyết định 4); số điều nằm ở
+# legal_refs dạng "MÃ:Điều X khoản Y điểm z", mã phải có trong legal_sources.yaml và số điều phải có
+# trong dòng bảng của docs/LEGAL-COMPLIANCE.md. Đoạn CHUA_XAC_MINH không mang legal_refs.
+# Mọi câu ở đây là thông tin tham khảo, không phải ý kiến pháp lý.
+
+- id: PL-SANDBOX-01
+  title: FINORA trong cơ chế thử nghiệm cho vay ngang hàng
+  roles: [ALL]
+  kind: LUAT
+  body: >-
+    Cho vay ngang hàng (P2P) là việc người cho vay và người vay được kết nối qua nền tảng công nghệ để
+    giao kết khoản vay với nhau. Ở Việt Nam, hoạt động này đang được thí điểm trong cơ chế thử nghiệm có
+    kiểm soát trong lĩnh vực ngân hàng; văn bản quy định phạm vi thử nghiệm và giải thích các khái niệm
+    liên quan. FINORA được thiết kế theo mô hình này và không tự nhận là tổ chức tín dụng. Pháp nhân vận
+    hành FINORA là công ty P2P tham gia thử nghiệm, tổ chức tín dụng hay đối tác của tổ chức tín dụng
+    vẫn chờ người có thẩm quyền xác nhận.
+  legal_refs: ["LAW-P2P-2025:Điều 1", "LAW-P2P-2025:Điều 3"]
+  source: "docs/LEGAL-COMPLIANCE.md mục 1 (LAW-P2P-2025), mục 5 (LEGAL-OPEN-01)"
+  version: LEGAL_COMPLIANCE_2026_10_10
+  checked_at: "2026-10-15"
+  keywords: ["cho vay ngang hàng", "P2P", "sandbox", "thử nghiệm", "có hợp pháp không", "tổ chức tín dụng", "pháp lý"]
+
+- id: PL-THOI-HAN-01
+  title: Kỳ hạn hợp đồng vay tối đa 24 tháng
+  roles: [ALL]
+  kind: LUAT
+  body: >-
+    Hợp đồng giữa người vay và người cho vay trong giải pháp cho vay ngang hàng thử nghiệm không được
+    dài quá 02 năm. Vì vậy mọi sản phẩm vay của FINORA có kỳ hạn tối đa 24 tháng, được chặn cả khi tạo
+    sản phẩm lẫn khi chấm điểm hồ sơ; hồ sơ vượt mốc này bị từ chối. Ngược lại, kỳ hạn tối thiểu 3
+    tháng của các sản phẩm hiện tại là chính sách của FINORA, không phải yêu cầu của văn bản.
+  legal_refs: ["LAW-P2P-2025:Điều 11 khoản 1 điểm c"]
+  source: "docs/LEGAL-COMPLIANCE.md LEGAL-TERM-01; finora-loan LoanProduct (INVALID_LOAN_PRODUCT_TERM_RANGE); finora-ai rule_engine.py (TERM_EXCEEDS_LEGAL_LIMIT)"
+  version: LEGAL_COMPLIANCE_2026_10_10
+  checked_at: "2026-10-15"
+  keywords: ["24 tháng", "2 năm", "kỳ hạn tối đa", "vay tối đa bao lâu", "sao chỉ 24 tháng", "thời hạn hợp đồng", "TERM_EXCEEDS_LEGAL_LIMIT"]
+
+- id: PL-TRAN-LAI-01
+  title: Trần lãi suất 20%/năm
+  roles: [ALL]
+  kind: LUAT
+  body: >-
+    Lãi suất vay do các bên thỏa thuận trong quan hệ dân sự không được vượt 20%/năm, trừ khi luật khác
+    có quy định riêng. FINORA vận hành như nền tảng P2P, không phải tổ chức tín dụng, nên áp trần bảo
+    thủ này cho mọi sản phẩm: lãi tối thiểu lớn hơn 0 và không vượt lãi cơ sở, lãi cơ sở không vượt lãi
+    tối đa, lãi tối đa không quá 20%/năm. Lãi cuối sau điều chỉnh theo hạng luôn nằm trong khoảng của
+    sản phẩm và dưới trần. Nếu sau này pháp nhân vận hành là tổ chức tín dụng, mức trần phải rà soát lại.
+    Mức lãi tối thiểu của từng sản phẩm là chính sách kinh doanh, không do pháp luật ấn định.
+  legal_refs: ["LAW-CIVIL-2015:Điều 468"]
+  source: "docs/LEGAL-COMPLIANCE.md LEGAL-RATE-01; finora-loan LoanProduct (INVALID_LOAN_PRODUCT_RATE_RANGE), application.yml (legal-maximum-annual-rate)"
+  version: LEGAL_COMPLIANCE_2026_10_10
+  checked_at: "2026-10-15"
+  keywords: ["lãi suất tối đa", "trần lãi suất", "20%/năm", "lãi cao nhất", "nặng lãi", "lãi suất bao nhiêu", "INTEREST_RATE_EXCEEDS_LEGAL_LIMIT"]
+
+- id: PL-THANH-TOAN-01
+  title: Tiền giải ngân và trả nợ đi qua kênh thanh toán được phép
+  roles: [ALL]
+  kind: LUAT
+  body: >-
+    Giải ngân và thanh toán gốc, lãi, phí của khoản vay phải đi qua tài khoản thanh toán mở tại ngân
+    hàng hoặc ví điện tử của tổ chức trung gian thanh toán được cấp phép. Vì vậy FINORA không tự giữ
+    tiền như một tài khoản pháp lý riêng: hệ thống thanh toán của FINORA chỉ ghi sổ, điều phối và đối
+    soát với đối tác thanh toán. Bản thử nghiệm dùng môi trường sandbox của ZaloPay hoặc chế độ giả
+    lập, chưa phải tiền thật; trước khi chạy thật cần hợp đồng với tổ chức cung ứng dịch vụ thanh toán
+    và quy trình đối soát được duyệt.
+  legal_refs: ["LAW-P2P-2025:Điều 11 khoản 1 điểm b"]
+  source: "docs/LEGAL-COMPLIANCE.md LEGAL-PAYMENT-01"
+  version: LEGAL_COMPLIANCE_2026_10_10
+  checked_at: "2026-10-15"
+  keywords: ["ví có an toàn không", "tiền gửi ở đâu", "tài khoản thanh toán", "ví điện tử", "trung gian thanh toán", "giải ngân qua đâu"]
+
+- id: PL-CIC-DU-NO-01
+  title: Vì sao FINORA tra cứu thông tin tín dụng CIC
+  roles: [ALL]
+  kind: LUAT
+  body: >-
+    Nền tảng cho vay ngang hàng phải có biện pháp xác định và quản lý dư nợ tối đa của người vay, báo
+    cáo và khai thác dữ liệu của Trung tâm Thông tin tín dụng (CIC). Vì vậy khi chấm điểm, FINORA tra cứu
+    điểm tín dụng, nhóm nợ và tổng dư nợ của người vay. Bản thử nghiệm dùng dịch vụ CIC mô phỏng, không
+    phải dữ liệu CIC thật. Không tra cứu được CIC thì hồ sơ không bị từ chối vì lý do đó mà chuyển
+    chuyên viên thẩm định. Trước khi chạy thật, FINORA còn phải kiểm tra dư nợ thực tế của người vay chứ
+    không chỉ số tiền của hồ sơ mới.
+  legal_refs: ["LAW-P2P-2025:Điều 11"]
+  source: "docs/LEGAL-COMPLIANCE.md LEGAL-LIMIT-01; finora-ai rule_engine.py (thiếu dữ liệu -> PENDING_REVIEW)"
+  version: LEGAL_COMPLIANCE_2026_10_10
+  checked_at: "2026-10-15"
+  keywords: ["CIC", "tra cứu CIC", "thông tin tín dụng", "vì sao tra CIC", "dư nợ tối đa", "điểm CIC", "lịch sử tín dụng"]
+
+- id: PL-CUNG-CAP-THONG-TIN-01
+  title: Nhà đầu tư được xem hồ sơ người vay trước khi đặt lệnh
+  roles: [BORROWER, INVESTOR, ADMIN]
+  kind: LUAT
+  body: >-
+    Công ty cho vay ngang hàng phải cung cấp thông tin đầy đủ, minh bạch, chính xác cho khách hàng, và
+    phải cung cấp đầy đủ thông tin khoản vay trước khi khách hàng giao kết thỏa thuận cho vay. Vì vậy
+    nhà đầu tư xem được hồ sơ người vay của khoản đang gọi vốn: khả năng trả nợ tự khai, tuổi, eKYC,
+    nhà ở, học vấn, lịch sử vay tại FINORA, điểm CIC, điểm, hạng, xác suất vỡ nợ, bảng luật đã chấm và
+    khoản vay đề nghị. Số liệu trợ lý nêu đều lấy trực tiếp từ hệ thống. Bước ghi nhận nhà đầu tư xác
+    nhận đã được cung cấp đủ thông tin vẫn đang được bổ sung.
+  legal_refs: ["LAW-P2P-2025:Điều 22 khoản 3", "LAW-P2P-2025:Điều 22 khoản 8 điểm c"]
+  source: "docs/LEGAL-COMPLIANCE.md LEGAL-DISCLOSURE-02"
+  version: LEGAL_COMPLIANCE_2026_10_10
+  checked_at: "2026-10-15"
+  keywords: ["xem hồ sơ người vay", "sao được xem hồ sơ", "thông tin khoản vay", "minh bạch", "trước khi đầu tư", "cung cấp thông tin"]
+
+- id: PL-CHIA-SE-DU-LIEU-01
+  title: Dữ liệu người vay chỉ chia sẻ với các bên tham gia
+  roles: [BORROWER, INVESTOR, ADMIN]
+  kind: LUAT
+  body: >-
+    Dữ liệu khách hàng được chia sẻ minh bạch giữa các bên tham gia khoản vay nhưng phải bảo mật với bên
+    không liên quan. Vì vậy hồ sơ người vay chỉ mở cho tài khoản nhà đầu tư và chỉ với khoản vay đã lên
+    Sàn; hồ sơ khác trả về "không tìm thấy" như không tồn tại. Nhà đầu tư không nhận họ tên, số CCCD, số
+    điện thoại, email, địa chỉ hay ghi chú xử lý nội bộ của người vay. Trợ lý cũng chỉ đọc dữ liệu tài
+    khoản của bạn có quyền xem; hỏi hồ sơ của người khác sẽ nhận câu trả lời "không tìm thấy".
+  legal_refs: ["LAW-P2P-2025:Điều 11 khoản 2 điểm d"]
+  source: "docs/LEGAL-COMPLIANCE.md LEGAL-DISCLOSURE-02; spec mục 10 (phân quyền)"
+  version: LEGAL_COMPLIANCE_2026_10_10
+  checked_at: "2026-10-15"
+  keywords: ["bảo mật", "ai xem được hồ sơ", "chia sẻ dữ liệu", "họ tên người vay", "hồ sơ người khác", "không tìm thấy"]
+
+- id: PL-KHONG-NHAM-LAN-01
+  title: Không gây nhầm lẫn giữa luật, chính sách và thông tin chưa xác minh
+  roles: [ALL]
+  kind: LUAT
+  body: >-
+    Doanh nghiệp không được cung cấp thông tin không đầy đủ, sai lệch hoặc gây nhầm lẫn cho người tiêu
+    dùng. Vì vậy trợ lý tách ba loại nội dung. Quy định pháp luật: có văn bản chính thức, kèm số điều và
+    đường dẫn. Chính sách FINORA: do FINORA tự chọn và có thể đổi, ví dụ biểu phí tất toán tham chiếu
+    Vietcombank, hạng A–E, ngưỡng duyệt 75/65, kỳ hạn tối thiểu 3 tháng, phí chợ Notes 5%. Chưa xác minh
+    nguồn: mới thấy qua nguồn thứ cấp, ví dụ hạn mức dư nợ cho vay ngang hàng. Mọi câu trả lời pháp lý
+    là thông tin tham khảo, không phải ý kiến pháp lý.
+  legal_refs: ["LAW-CONSUMER-2023:Điều 10"]
+  source: "docs/LEGAL-COMPLIANCE.md mục 1 (LAW-CONSUMER-2023); spec mục 2, 9"
+  version: LEGAL_COMPLIANCE_2026_10_10
+  checked_at: "2026-10-15"
+  keywords: ["luật hay chính sách", "có phải luật không", "quy định hay chính sách", "chưa xác minh", "nhầm lẫn", "căn cứ"]
+
+- id: PL-HOP-DONG-01
+  title: Hợp đồng điện tử phải rõ ràng, xem và tải được
+  roles: [BORROWER, INVESTOR, ADMIN]
+  kind: LUAT
+  body: >-
+    Hợp đồng với người tiêu dùng phải rõ ràng, dễ hiểu, bằng tiếng Việt; khi giao kết từ xa, người dùng
+    phải xem lại và tải được hợp đồng. FINORA lập hợp đồng PDF tiếng Việt chứa điều khoản cuối, lưu
+    nguyên bản đã cho bạn đọc và chỉ trả lại đúng bản đó khi tải; mã băm của PDF được đối chiếu lúc xác
+    nhận. Sau khi ký, FINORA tạo thêm biên nhận ghi người ký, thời điểm và cách ký, không ghi đè PDF
+    gốc. Ở bản thử nghiệm, thao tác bấm đồng ý (click-wrap) chưa phải chữ ký số; hình thức ký phù hợp
+    cho từng loại hợp đồng vẫn chờ rà soát pháp lý.
+  legal_refs: ["LAW-CONSUMER-2023:Điều 23", "LAW-CONSUMER-2023:Điều 38"]
+  source: "docs/LEGAL-COMPLIANCE.md LEGAL-CONTRACT-01, LEGAL-OPEN-03"
+  version: LEGAL_COMPLIANCE_2026_10_10
+  checked_at: "2026-10-15"
+  keywords: ["hợp đồng điện tử", "tải hợp đồng", "xem hợp đồng", "chữ ký số", "click-wrap", "ký điện tử", "hợp đồng có giá trị không"]
+
+- id: PL-LAI-QUA-HAN-01
+  title: Mức trần lãi quá hạn, lãi chậm trả và thứ tự thu nợ
+  roles: [BORROWER, ADMIN]
+  kind: LUAT
+  body: >-
+    Văn bản về hoạt động cho vay đặt hai mức trần: lãi trên dư nợ gốc quá hạn không vượt 150% lãi suất
+    trong hạn, và lãi chậm trả trên tiền lãi chưa trả không vượt 10%/năm; hai loại không cộng trùng trên
+    cùng một khoản tiền. Ví dụ lãi trong hạn 12%/năm thì lãi trên gốc quá hạn tối đa 18%/năm. Thứ tự thu
+    khi bạn trả: gốc quá hạn, lãi trên gốc quá hạn, gốc đến hạn, lãi trên gốc đến hạn, sau cùng là lãi
+    chậm trả và phí khác theo hợp đồng. FINORA dùng các mốc này làm chuẩn tham chiếu; việc áp dụng trực
+    tiếp cho nền tảng P2P còn chờ rà soát pháp lý. Số tiền chính thức do hệ thống lõi tính.
+  legal_refs: ["CIRCULAR-LENDING-CONSOLIDATED-2026:Điều 13", "CIRCULAR-LENDING-CONSOLIDATED-2026:Điều 18"]
+  source: "docs/LEGAL-COMPLIANCE.md LEGAL-SERVICING-01; docs/LOAN-SERVICING-POLICY.md §3.4"
+  version: LEGAL_COMPLIANCE_2026_10_10
+  checked_at: "2026-10-15"
+  keywords: ["lãi quá hạn tối đa", "lãi chậm trả tối đa", "150%", "10%/năm", "trần lãi phạt", "thứ tự thu nợ", "trả vào đâu trước"]
+
+- id: PL-PHI-TRA-TRUOC-01
+  title: Phí trả nợ trước hạn do các bên thỏa thuận
+  roles: [BORROWER, ADMIN]
+  kind: LUAT
+  body: >-
+    Văn bản về hoạt động cho vay cho phép các bên thỏa thuận phí trả nợ trước hạn và yêu cầu ghi rõ loại
+    phí, mức phí trong hợp đồng; văn bản không ấn định một tỷ lệ chung. Vì vậy mức 0,5% hoặc 1% của
+    FINORA không phải do luật quy định: đó là chính sách của FINORA tham chiếu biểu phí trả nợ trước hạn
+    của Vietcombank, được chụp lại vào báo giá bạn đồng ý trước khi trả. FINORA dùng văn bản này làm
+    chuẩn tham chiếu; việc áp dụng trực tiếp cho nền tảng P2P còn chờ rà soát pháp lý.
+  legal_refs: ["CIRCULAR-LENDING-CONSOLIDATED-2026:Điều 14", "CIRCULAR-LENDING-CONSOLIDATED-2026:Điều 23"]
+  source: "docs/LEGAL-COMPLIANCE.md LEGAL-SERVICING-01"
+  version: LEGAL_COMPLIANCE_2026_10_10
+  checked_at: "2026-10-15"
+  keywords: ["phí tất toán có phải luật", "phí trả trước có phải luật", "luật quy định phí", "phí trả nợ trước hạn", "thỏa thuận phí"]
+
+- id: PL-HAN-MUC-01
+  title: Hạn mức dư nợ 100 triệu và 400 triệu
+  roles: [ALL]
+  kind: CHUA_XAC_MINH
+  body: >-
+    Tạp chí Ngân hàng và một số bài viết trong ngành dẫn lại rằng Quyết định 2866/QĐ-NHNN ngày
+    22-07-2025 đặt hai mức dư nợ cho cho vay ngang hàng thử nghiệm: 100 triệu đồng cho một khách hàng
+    trên một nền tảng và 400 triệu đồng trên toàn bộ các nền tảng. FINORA chưa có bản toàn văn của quyết
+    định này để đối chiếu, nên hai con số chưa được coi là quy định đã xác minh. Hiện FINORA dùng chúng
+    như giới hạn sản phẩm: hạn mức gợi ý cao nhất là 100 triệu đồng, và hồ sơ có tổng dư nợ CIC cộng
+    khoản xin vay trên 400 triệu đồng bị chặn. Khi có bản gốc, FINORA sẽ cập nhật lại.
+  legal_refs: []
+  source: "docs/LEGAL-COMPLIANCE.md LEGAL-LIMIT-01, LEGAL-OPEN-02 (NEEDS_PRIMARY_SOURCE); finora-ai config/product_config.json (legal_limits)"
+  version: LEGAL_COMPLIANCE_2026_10_10
+  checked_at: "2026-10-15"
+  keywords: ["hạn mức", "100 triệu", "400 triệu", "hạn mức 100 triệu", "là luật", "vay tối đa bao nhiêu tiền", "dư nợ tối đa", "Quyết định 2866"]
+
+- id: PL-DU-LIEU-CA-NHAN-01
+  title: FINORA xử lý dữ liệu cá nhân của bạn thế nào
+  roles: [ALL]
+  kind: CHINH_SACH
+  body: >-
+    FINORA chỉ thu thập dữ liệu cần cho xác minh danh tính, thẩm định, hợp đồng và trả nợ, theo nguyên
+    tắc tối thiểu hóa của pháp luật về bảo vệ dữ liệu cá nhân. Dịch vụ quản lý khoản vay không lưu ảnh
+    hay số CCCD thô; nhật ký hệ thống không ghi thông tin định danh; sự kiện gửi giữa các dịch vụ chỉ
+    mang mã nghiệp vụ, không mang CCCD hay thu nhập. Nhà đầu tư chỉ thấy hồ sơ người vay đã ẩn danh.
+    Thời hạn lưu, mã hóa khi lưu và quy trình đáp ứng quyền của chủ thể dữ liệu vẫn đang được hoàn
+    thiện trước khi vận hành thật.
+  legal_refs: []
+  source: "docs/LEGAL-COMPLIANCE.md LEGAL-DATA-01 (đối chiếu LAW-DATA-2025, DECREE-DATA-2025)"
+  version: LEGAL_COMPLIANCE_2026_10_10
+  checked_at: "2026-10-15"
+  keywords: ["dữ liệu cá nhân", "bảo vệ dữ liệu", "CCCD lưu ở đâu", "quyền riêng tư", "xóa dữ liệu", "tối thiểu hóa"]
+
+- id: PL-TRO-LY-AI-01
+  title: Nghĩa vụ thông báo người dùng đang trò chuyện với AI
+  roles: [ALL]
+  kind: CHUA_XAC_MINH
+  body: >-
+    Quy định mới về trí tuệ nhân tạo được cho là yêu cầu thông báo khi người dùng đang tương tác với hệ
+    thống AI, nhưng FINORA chưa đối chiếu văn bản gốc nên nội dung nghĩa vụ và thời điểm hiệu lực chưa
+    được xác minh. Dù vậy, FINORA chủ động thông báo ngay lần đầu bạn mở trợ lý: bạn đang trò chuyện
+    với AI, dữ liệu đã lược bỏ định danh được gửi tới nhà cung cấp AI ở nước ngoài, và không được nhập
+    CCCD, mật khẩu, PIN hay OTP. Câu trả lời của trợ lý có thể sai; số liệu trên thẻ lấy trực tiếp từ
+    hệ thống mới là căn cứ chính.
+  legal_refs: []
+  source: "docs/superpowers/specs/2026-10-15-tro-ly-finora-design.md mục 2 (LEGAL-CHAT-01: NEEDS_PRIMARY_SOURCE)"
+  version: AI_CHAT_001
+  checked_at: "2026-10-15"
+  keywords: ["AI", "trí tuệ nhân tạo", "có phải người thật", "bot", "thông báo AI", "trợ lý có thể sai", "luật AI"]

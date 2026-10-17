@@ -1,0 +1,289 @@
+# Đoạn kiến thức cho nhà đầu tư: từ listing tới Note, quy tắc góp vốn, chợ Notes, Auto-Invest, rủi ro.
+# Không có câu nào xếp hạng hay khuyên chọn khoản vay (spec mục 10). Phí 5%, mệnh giá, 14 ngày là chính
+# sách/tham số của FINORA, không phải quy định pháp luật.
+
+- id: NDT-LUONG-01
+  title: Từ khoản vay trên Sàn đến Note
+  roles: [INVESTOR, ADMIN]
+  kind: HUONG_DAN
+  body: >-
+    Hành trình góp vốn có năm chặng. Một: khoản vay đang gọi vốn hiện trên Sàn. Hai: bạn đặt lệnh góp
+    vốn và hệ thống giữ tiền trong ví. Ba: giữ tiền thành công thì lệnh thành phần vốn cam kết
+    (commitment), được tính vào tiến độ gọi vốn. Bốn: khoản vay đủ vốn, danh sách nhà đầu tư bị khóa,
+    hợp đồng được lập và nhà đầu tư ký trước người vay. Năm: đủ chữ ký và giải ngân xong thì FINORA phát
+    hành Note cho bạn; từ đó Note mới sinh lãi và nhận gốc lãi mỗi kỳ người vay trả. Hết hạn gọi vốn mà
+    chưa đủ vốn thì phần vốn cam kết bị hủy và tiền giữ trả lại ví.
+  legal_refs: []
+  source: "finora-common CommitmentStatus, NoteStatus; finora-mobile investment/constant.ts (PENDING_NOTE, CONTRACT_NOTE)"
+  version: FINORA_APP_2026_10
+  checked_at: "2026-10-15"
+  keywords: ["góp vốn", "quy trình đầu tư", "các bước đầu tư", "lệnh góp vốn", "phát hành Note", "khi nào có Note", "commitment"]
+
+- id: NDT-COMMITMENT-NOTE-01
+  title: Commitment, Note và danh mục của bạn
+  roles: [INVESTOR]
+  kind: HUONG_DAN
+  body: >-
+    Commitment là phần vốn bạn đã cam kết cho một khoản vay đang gọi vốn: tiền đang bị giữ trong ví,
+    chưa chuyển cho người vay và chưa sinh lãi. Note là chứng nhận phần quyền lợi của bạn trong khoản
+    vay sau khi giải ngân; mỗi Note có mệnh giá, dư nợ gốc còn lại và nhận gốc lãi theo tỷ lệ mỗi khi
+    người vay trả kỳ. Note có ba trạng thái: đang hoạt động, đã đóng (thu hết gốc hoặc khoản vay tất
+    toán) và nợ xấu. Màn Danh mục tách tiền đang chờ giải ngân, dư nợ gốc của Note đang hoạt động, lãi
+    đã nhận và Note nợ xấu được đánh dấu riêng.
+  legal_refs: []
+  source: "finora-common CommitmentStatus, NoteStatus; docs/superpowers/specs/2026-10-15-tro-ly-finora-design.md mục 14.2"
+  version: FINORA_APP_2026_10
+  checked_at: "2026-10-15"
+  keywords: ["commitment", "Note là gì", "khác Note", "khác nhau thế nào", "danh mục", "chờ giải ngân", "phần vốn cam kết", "lãi đã nhận"]
+
+- id: NDT-MENH-GIA-01
+  title: Mệnh giá Note, mức góp tối thiểu và bội số
+  roles: [INVESTOR, ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Cài đặt mặc định của sàn: mệnh giá mỗi Note 1.000.000 đ, số tiền góp tối thiểu 1.000.000 đ (một
+    Note). Số tiền góp phải chia hết cho mệnh giá và không vượt phần khoản vay còn thiếu; số Note nhận
+    được bằng số tiền chia mệnh giá. Ngoại lệ: khi phần còn thiếu nhỏ hơn mức tối thiểu, bạn được góp
+    đúng bằng phần còn thiếu để khoản vay không kẹt một phần lẻ. Quản trị viên đổi được mệnh giá và mức
+    tối thiểu (từ 1.000 đ) và số ngày gọi vốn (1 đến 90); mỗi khoản vay giữ tham số lúc lên Sàn nên thay
+    đổi chỉ áp cho khoản lên sau.
+  legal_refs: []
+  source: "finora-investment V1__create_funding_and_notes.sql (funding_settings), OrderTransactionServiceImpl.requirePlaceable; finora-mobile market/investRules.ts"
+  version: INVESTMENT_FUNDING_DEFAULTS_V1
+  checked_at: "2026-10-15"
+  keywords: ["mệnh giá", "mức tối thiểu", "góp tối thiểu", "bội số", "chia hết", "số Note", "tham số sàn", "ORDER_BELOW_MINIMUM", "ORDER_NOT_DIVISIBLE"]
+
+- id: NDT-CUA-SO-01
+  title: Thời hạn gọi vốn 14 ngày và hoàn tiền khi hết hạn
+  roles: [INVESTOR, ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Theo cài đặt mặc định, mỗi khoản vay mở gọi vốn trong 14 ngày; hạn đóng hiện trên thẻ khoản vay. Qua
+    hạn thì không nhận lệnh mới; app tự coi đợt đã quá hạn là hết hạn, dù máy chủ đóng các đợt hết hạn
+    theo lô khoảng 30 giây một lần. Hết hạn mà chưa đủ vốn thì mọi phần vốn cam kết bị hủy, lệnh chuyển
+    "đã hủy" với lý do hết hạn gọi vốn và tiền giữ được trả lại số dư khả dụng.
+    Việc trả tiền chạy nền và tự thử lại tới khi hệ thống thanh toán xác nhận, thường xong trong vài
+    phút. Bạn không mất phí khi khoản vay không gọi đủ vốn.
+  legal_refs: []
+  source: "finora-investment MarketListingServiceImpl.closeExpiredListings, FundingMaintenanceService.releasePendingHolds, application.yml (maintenance); finora-mobile market/investRules.ts (fundingState)"
+  version: INVESTMENT_FUNDING_DEFAULTS_V1
+  checked_at: "2026-10-15"
+  keywords: ["hết hạn gọi vốn", "14 ngày", "hạn đóng", "hoàn tiền", "trả lại tiền", "chưa đủ vốn", "LISTING_EXPIRED", "LISTING_WINDOW_CLOSED"]
+
+- id: NDT-LENH-GOP-VON-01
+  title: Lệnh góp vốn bị từ chối hoặc muốn hủy
+  roles: [INVESTOR]
+  kind: HUONG_DAN
+  body: >-
+    Lệnh góp vốn bị từ chối khi số tiền dưới mức tối thiểu, không chia hết mệnh giá Note, vượt phần còn
+    thiếu, khoản vay không còn nhận vốn hoặc đã hết hạn, ví không đủ tiền để giữ, bạn chưa xong eKYC,
+    hoặc đó là khoản vay của chính bạn. Lệnh "đang giữ tiền" là đang chờ hệ thống thanh toán xác nhận;
+    nếu kẹt, hệ thống tự làm tiếp sau khoảng 2 phút. Bạn hủy được phần vốn cam kết khi khoản vay còn
+    đang gọi vốn; khi đã đủ vốn (danh sách nhà đầu tư khóa để lập hợp đồng) hoặc đang giải ngân thì
+    không hủy được. Hủy xong, tiền giữ trả lại ví.
+  legal_refs: []
+  source: "finora-investment OrderTransactionServiceImpl (requirePlaceable, cancelOrder), InvestorEligibility, application.yml (pending-funds-timeout)"
+  version: FINORA_APP_2026_10
+  checked_at: "2026-10-15"
+  keywords: ["lệnh bị từ chối", "không đặt được lệnh", "hủy lệnh góp vốn", "đang giữ tiền", "không hủy được", "SELF_FUNDING_FORBIDDEN", "LISTING_INSUFFICIENT_REMAINING", "FUNDED_ALLOCATION_LOCKED", "COMMITMENT_ALREADY_FINALIZED"]
+
+- id: NDT-KY-HD-01
+  title: Nhà đầu tư ký hợp đồng
+  roles: [INVESTOR]
+  kind: HUONG_DAN
+  body: >-
+    Khi khoản vay đủ vốn, mọi nhà đầu tư và người vay ký trên cùng một bản PDF hợp đồng. Nhà đầu tư ký
+    trước; đủ chữ ký của tất cả nhà đầu tư thì người vay mới được ký. Hạn ký mặc định là 7 ngày kể từ
+    lúc lập hợp đồng. Ký cần mã PIN, nên hãy đọc PDF trước. Khoản vay chỉ giải ngân khi đủ chữ ký của
+    tất cả các bên; một bên chậm ký thì cả khoản vay phải chờ. Lệnh do Auto-Invest đặt cũng cần bạn tự
+    ký. Bản thử nghiệm ghi nhận bằng thao tác bấm đồng ý hoặc VNPT SmartCA môi trường thử, chưa phải
+    chữ ký số chính thức.
+  legal_refs: []
+  source: "finora-mobile investment/constant.ts (CONTRACT_NOTE, AUTO_INVEST_FOOTNOTE); finora-loan InvestorLoanContractController (@RequirePin), application.yml (contract.signature-window)"
+  version: LOAN_TERMS_V1
+  checked_at: "2026-10-15"
+  keywords: ["ký hợp đồng", "hợp đồng đầu tư", "hạn ký", "chờ ký", "nhà đầu tư ký", "Auto-Invest ký", "khi nào giải ngân"]
+
+- id: NDT-SO-LENH-01
+  title: Chợ Notes và giá tính theo phần trăm
+  roles: [INVESTOR, ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Chợ Notes là nơi bán lại Note đang giữ để lấy tiền trước hạn, hoặc mua Note của nhà đầu tư khác.
+    Giá đặt tính theo phần trăm dư nợ gốc còn lại của mỗi Note, từ 0,1% đến 100%, bước 0,1%; mỗi lệnh
+    tối đa 10.000 Note. Tiền của một Note bằng dư nợ gốc còn lại nhân giá, làm tròn tới đồng. Ví dụ Note
+    còn 800.000 đ dư nợ, khớp ở giá 96% thì giá trị 768.000 đ. Giá dưới 100% nghĩa là người bán chấp
+    nhận nhận ít hơn dư nợ để có tiền ngay; người mua bỏ ra ít hơn và nhận đủ gốc lãi về sau nếu người
+    vay trả đúng hạn.
+  legal_refs: []
+  source: "finora-investment OrderBookPricing (toPermille, amountForNote), PlaceBookOrderRequest; finora-mobile secondary-market/constant.ts"
+  version: ORDER_BOOK_POLICY_INV_E1
+  checked_at: "2026-10-15"
+  keywords: ["chợ Notes", "sổ lệnh", "giá phần trăm", "bán Note", "mua Note", "bước giá", "dư nợ gốc", "ORDER_PRICE_TICK", "ORDER_PRICE_OUT_OF_RANGE"]
+
+- id: NDT-KHOP-LENH-01
+  title: Lệnh trên chợ Notes khớp như thế nào
+  roles: [INVESTOR, ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Lệnh khớp ngay khi giá mua cao nhất bằng hoặc cao hơn giá bán thấp nhất. Thứ tự ưu tiên: giá tốt
+    hơn đi trước, cùng giá thì lệnh đặt trước đi trước. Giá khớp là giá của lệnh đang nằm chờ trong sổ,
+    nên người đặt sau có thể được giá tốt hơn giá mình đặt. Lệnh khớp được bao nhiêu thì khớp bấy
+    nhiêu; phần còn lại nằm chờ đến khi khớp, bị hủy hoặc khoản vay đóng sổ. Lệnh mua chưa khớp thường
+    vì giá mua thấp hơn giá bán thấp nhất đang có, hoặc cùng giá nhưng có lệnh khác đặt trước bạn; xem
+    sổ lệnh để so giá.
+  legal_refs: []
+  source: "finora-investment OrderMatcher (ưu tiên giá rồi thời gian, giá của lệnh nằm chờ, khớp từng phần)"
+  version: ORDER_BOOK_POLICY_INV_E1
+  checked_at: "2026-10-15"
+  keywords: ["khớp lệnh", "chưa khớp", "vì sao chưa khớp", "ưu tiên giá", "ưu tiên thời gian", "khớp một phần", "giá khớp"]
+
+- id: NDT-TU-KHOP-01
+  title: Lệnh bị hủy vì chạm lệnh của chính bạn và các lý do hủy khác
+  roles: [INVESTOR]
+  kind: CHINH_SACH
+  body: >-
+    FINORA chặn tự khớp: lệnh mới của bạn gặp lệnh của chính bạn ở phía bên kia sổ thì dừng, phần còn
+    lại của lệnh mới bị hủy, lệnh cũ giữ nguyên. Hệ thống không bỏ qua lệnh của bạn để khớp tiếp vì như
+    vậy phá thứ tự ưu tiên của người khác. Các lý do hủy khác: bạn tự hủy phần chưa khớp; Note trong
+    lệnh bán không còn giao được; khoản vay chuyển nợ xấu sau khi bạn đặt lệnh mua mà bạn chưa xác nhận
+    cảnh báo; khoản vay đã tất toán nên không còn Note để giao dịch. Tiền giữ của lệnh mua bị hủy được
+    trả lại ví.
+  legal_refs: []
+  source: "finora-investment OrderMatcher, MatchingEngine, CancelReason; finora-mobile secondary-market/constant.ts (CANCEL_REASON_LABEL)"
+  version: ORDER_BOOK_POLICY_INV_E1
+  checked_at: "2026-10-15"
+  keywords: ["tự khớp", "lệnh của chính mình", "lệnh bị hủy", "lệnh mua bị hủy", "lý do hủy", "SELF_TRADE_PREVENTED", "NOTE_UNAVAILABLE", "DEFAULT_NOT_ACKNOWLEDGED", "BOOK_CLOSED"]
+
+- id: NDT-PHI-CHO-01
+  title: Phí chuyển nhượng 5% trên chợ Notes
+  roles: [INVESTOR, ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Khi lệnh khớp, FINORA thu phí 5% trên tiền bán, trừ vào số tiền người bán nhận; người mua trả đúng
+    giá khớp, không chịu thêm phí. Phí làm tròn xuống tới đồng để người bán không bị trừ thừa. Ví dụ bán
+    một Note giá 768.000 đ thì phí 38.400 đ và người bán nhận 729.600 đ. Mức 5% là chính sách thử
+    nghiệm của FINORA, không phải mức do pháp luật quy định; con số chính thức được chốt lúc khớp. Góp
+    vốn vào khoản vay đang gọi vốn trên Sàn không có phí này.
+  legal_refs: []
+  source: "finora-investment OrderBookPricing.FEE_RATE, platformFee; finora-mobile secondary-market/constant.ts (FEE_RATE_PERCENT)"
+  version: ORDER_BOOK_POLICY_INV_E1
+  checked_at: "2026-10-15"
+  keywords: ["phí chợ Notes", "phí bán Note", "phí chuyển nhượng", "5%", "tiền nhận khi bán", "phí giao dịch", "bao nhiêu phí"]
+
+- id: NDT-GIU-TIEN-01
+  title: Vì sao tiền của tôi đang bị giữ
+  roles: [INVESTOR]
+  kind: CHINH_SACH
+  body: >-
+    Tiền của nhà đầu tư bị giữ trong hai trường hợp. Một là phần vốn cam kết cho khoản vay đang gọi
+    vốn: giữ tới khi giải ngân (tiền chuyển cho người vay) hoặc khi lệnh bị hủy, hết hạn (tiền trả lại).
+    Hai là lệnh mua trên chợ Notes: khi đặt, hệ thống giữ ngay số tiền bằng dư nợ gốc lớn nhất của các
+    Note trong khoản vay nhân giá đặt nhân số lượng, vì lúc đó chưa biết sẽ khớp vào Note nào. Khớp ở
+    giá thấp hơn hoặc vào Note dư nợ nhỏ hơn thì phần giữ thừa trả lại ví khi lệnh kết thúc. Note trong
+    lệnh bán vẫn của bạn và vẫn nhận gốc lãi tới khi khớp.
+  legal_refs: []
+  source: "finora-investment OrderBookPricing.holdAmount; finora-mobile secondary-market/constant.ts (BUY_NOTE, SELL_NOTE)"
+  version: ORDER_BOOK_POLICY_INV_E1
+  checked_at: "2026-10-15"
+  keywords: ["tiền bị giữ", "tiền đang giữ", "giữ tiền", "lệnh mua giữ tiền", "phần giữ thừa", "trả lại ví", "tiền ở đâu"]
+
+- id: NDT-NO-XAU-01
+  title: Note của khoản vay nợ xấu
+  roles: [INVESTOR, ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Khi khoản vay quá hạn từ 91 ngày, khoản vay và các Note của nó chuyển trạng thái nợ xấu; dòng tiền
+    dự kiến dừng lại nhưng bạn vẫn nhận phần người vay trả về sau theo tỷ lệ sở hữu. FINORA không cam
+    kết bù lỗ hay bảo đảm hoàn vốn. Nhà đầu tư thấy số ngày quá hạn, nhóm nợ và số tiền quá hạn trên
+    đúng Note mình đang giữ. Trên chợ Notes, mua Note của khoản vay nợ xấu phải xác nhận đã đọc cảnh
+    báo; lệnh mua đặt trước khi khoản vay chuyển nợ xấu mà chưa xác nhận sẽ bị hủy, bạn đặt lại được
+    nếu vẫn muốn mua.
+  legal_refs: []
+  source: "finora-common NoteStatus.DEFAULTED; finora-investment OrderBookTransactionService.requireDefaultAcknowledged, MatchingEngine; docs/integrations/CIC-RISK-NOTIFICATION.md mục 1"
+  version: LOAN_SERVICING_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["Note nợ xấu", "khoản vay nợ xấu", "vỡ nợ", "mất vốn", "bù lỗ", "bảo đảm vốn", "xác nhận cảnh báo"]
+
+- id: NDT-AUTO-01
+  title: Auto-Invest hoạt động thế nào
+  roles: [INVESTOR, ADMIN]
+  kind: CHINH_SACH
+  body: >-
+    Auto-Invest tự đặt lệnh góp vốn khi có khoản vay mới khớp tiêu chí bạn chọn: các hạng chấp nhận,
+    lãi suất tối thiểu, kỳ hạn tối đa và số tiền mỗi khoản. Chỉ xét khoản vay mở gọi vốn sau lúc bạn
+    bật, không quét lại khoản mở từ trước. Nhiều người cùng khớp thì ai bật trước xét trước; tắt rồi bật
+    lại thì xuống cuối hàng, sửa tiêu chí khi đang bật vẫn giữ chỗ. Số tiền mỗi lệnh bằng mức bạn đặt
+    hoặc phần còn thiếu nếu ít hơn, làm tròn xuống bội số mệnh giá. Lệnh tự động giữ tiền như lệnh tự
+    đặt. Bật cần eKYC, lưu cài đặt cần PIN, và bạn vẫn phải tự ký hợp đồng.
+  legal_refs: []
+  source: "finora-investment AutoInvestConfig (accepts, orderAmount, update), AutoInvestMatcher; finora-mobile investment/constant.ts (AUTO_INVEST_FOOTNOTE)"
+  version: AUTO_INVEST_V1
+  checked_at: "2026-10-15"
+  keywords: ["Auto-Invest", "tự động đầu tư", "tự góp vốn", "tiêu chí", "hàng chờ", "ai bật trước", "bật Auto-Invest"]
+
+- id: NDT-AUTO-BO-QUA-01
+  title: Vì sao Auto-Invest bỏ qua một khoản vay
+  roles: [INVESTOR]
+  kind: HUONG_DAN
+  body: >-
+    Nhật ký Auto-Invest ghi lý do mỗi lần bỏ qua. Đã đầu tư: bạn đã có lệnh đang chạy với khoản vay đó.
+    Dưới mức tối thiểu: số tiền mỗi khoản bạn đặt nhỏ hơn mức góp tối thiểu. Không đủ tiền: số dư khả
+    dụng không đủ để giữ tiền, hãy nạp thêm. Khoản vay đã đủ vốn: người bật trước đã góp hết phần còn
+    thiếu. Khoản vay đã đóng: hết hạn hoặc không còn nhận vốn. Khoản vay không khớp tiêu chí (hạng,
+    lãi, kỳ hạn) thì không có dòng nhật ký nào, và khoản lên Sàn trước lúc bạn bật cũng không được xét.
+  legal_refs: []
+  source: "finora-investment AutoInvestMatcher (ALREADY_INVESTED, BELOW_MINIMUM, INSUFFICIENT_FUNDS, LISTING_FULL, LISTING_CLOSED)"
+  version: AUTO_INVEST_V1
+  checked_at: "2026-10-15"
+  keywords: ["Auto-Invest bỏ qua", "không đủ tiền", "Auto-Invest không chạy", "nhật ký Auto-Invest", "ALREADY_INVESTED", "BELOW_MINIMUM", "INSUFFICIENT_FUNDS", "LISTING_FULL", "LISTING_CLOSED"]
+
+- id: NDT-LAI-DU-KIEN-01
+  title: Lãi dự kiến không phải lãi được bảo đảm
+  roles: [INVESTOR]
+  kind: CHINH_SACH
+  body: >-
+    Lãi dự kiến trên app là ước tính cả kỳ hạn với giả định người vay trả đúng lịch, tính trên số tiền
+    bạn góp. Trả gốc đều thì lãi xấp xỉ số tiền góp nhân lãi tháng nhân (số kỳ + 1) chia 2; trả góp đều
+    thì lãi bằng tổng các kỳ trừ số tiền góp. Lịch chính thức lập lúc giải ngân (kỳ đầu lẻ ngày, làm
+    tròn) nên số thật có thể lệch đôi chút. Lãi thực nhận còn thay đổi nếu người vay trả trước, tất toán
+    sớm, quá hạn hoặc nợ xấu, và bạn có thể mất một phần vốn. FINORA không bảo đảm lợi nhuận.
+  legal_refs: []
+  source: "finora-mobile src/features/market/investRules.ts (expectedInterest)"
+  version: FINORA_APP_2026_10
+  checked_at: "2026-10-15"
+  keywords: ["lãi dự kiến", "lợi nhuận", "bảo đảm lãi", "cam kết lãi", "được bao nhiêu lãi", "lãi thực nhận", "rủi ro"]
+
+- id: NDT-KHONG-TU-VAN-01
+  title: Trợ lý không tư vấn đầu tư
+  roles: [INVESTOR]
+  kind: CHINH_SACH
+  body: >-
+    Trợ lý không khuyên bạn nên đầu tư khoản nào và không xếp hạng khoản vay tốt nhất, an toàn nhất hay
+    lời nhất. Trợ lý chỉ lọc trung lập theo tiêu chí bạn tự đặt (hạng, lãi suất tối thiểu, kỳ hạn tối
+    đa), sắp theo hạn đóng gọi vốn, rồi giải thích dữ liệu của từng khoản. Mọi khoản vay đều có rủi ro
+    người vay chậm trả hoặc không trả, kể cả khoản hạng A. Quyết định đầu tư và rủi ro thuộc về bạn;
+    hãy đọc hồ sơ người vay và hợp đồng trước khi đặt lệnh. Đây là thông tin tham khảo, không phải tư
+    vấn đầu tư.
+  legal_refs: []
+  source: "docs/superpowers/specs/2026-10-15-tro-ly-finora-design.md mục 8.2, 10; docs/LEGAL-COMPLIANCE.md (LAW-CONSUMER-2023)"
+  version: AI_CHAT_001
+  checked_at: "2026-10-15"
+  keywords: ["nên đầu tư khoản nào", "khoản nào tốt nhất", "an toàn nhất", "lời nhất", "khuyên", "tư vấn đầu tư", "gợi ý đầu tư"]
+
+- id: NDT-HANG-01
+  title: Hạng A–E và hồ sơ người vay trên Sàn
+  roles: [INVESTOR]
+  kind: CHINH_SACH
+  body: >-
+    Hạng A–E trên thẻ khoản vay do FINORA xếp từ điểm tín dụng tổng hợp 0 đến 100: A từ 84 điểm, B từ
+    69, C từ 50, D từ 37, E dưới 37. Hạng dùng để định giá lãi; hạng không phải xếp hạng của cơ quan
+    nhà nước và không bảo đảm người vay trả đúng hạn. Trước khi đặt lệnh bạn xem được hồ sơ người vay
+    ẩn danh: khả năng trả nợ tự khai, tuổi, eKYC, nhà ở, học vấn, lịch sử vay tại FINORA, điểm CIC,
+    điểm, hạng, xác suất vỡ nợ và bảng luật chấm điểm. Hồ sơ không có họ tên, CCCD hay thông tin liên
+    lạc, và ghi rõ "giả lập" nếu dữ liệu nhân thân là dữ liệu mô phỏng.
+  legal_refs: []
+  source: "finora-ai config/product_config.json (grades); docs/LEGAL-COMPLIANCE.md LEGAL-DISCLOSURE-02"
+  version: CREDIT_POLICY_V1
+  checked_at: "2026-10-15"
+  keywords: ["hạng A", "hạng tín dụng", "xếp hạng khoản vay", "hồ sơ người vay", "điểm tín dụng", "xác suất vỡ nợ", "ẩn danh"]
