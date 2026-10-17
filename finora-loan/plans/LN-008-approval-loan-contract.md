@@ -156,6 +156,8 @@ Các API đọc dành cho admin:
 Gồm:
 
 - Application/requested terms/purpose.
+- `id` số của hồ sơ (explorer bằng chứng blockchain tra `LOAN_APPLICATION` theo ID này) và `contractNumber`
+  (`null` khi chưa lập Contract) — B73.
 - Financial snapshot và source tự khai.
 - Product min/base/max rate, repayment/core mapping snapshot.
 - Initial và final schedule summary/periods; trường `schedule` tương thích trả final nếu đã có.
@@ -590,7 +592,7 @@ Thái đã xác nhận bản thay đổi này ngày 2026-08-08; task chuyển qu
 | API | Thứ tự hàm thực tế | Cách hoạt động |
 |---|---|---|
 | `GET /api/v1/admin/loan-applications` | `AdminLoanDecisionController.listApplications` → `AdminLoanDecisionServiceImpl.listApplications` → `LoanApplicationRepository.findAll(Pageable)` hoặc `findByStatus` + `CreditScoringAssessmentRepository.findAllById` → `AdminLoanDecisionMapper.toSummary` | Không có `status` thì lấy một page tất cả; có `status` thì lọc một trạng thái. Assessment luôn batch-load nên số query không tăng theo số dòng, không tải document/history và không gọi mạng. |
-| `GET /api/v1/admin/loan-applications/{applicationNumber}/review` | `AdminLoanDecisionController.reviewDetail` → `AdminLoanDecisionServiceImpl.reviewDetail` → các repository snapshot local → `AdminLoanDecisionMapper.toDetail` | Đọc Application, initial/final schedule, eligibility, credit profile, latest assessment và tối đa 20 history bằng số query cố định. Đây là màn hình bằng chứng để admin quyết định, không chấm lại AI. |
+| `GET /api/v1/admin/loan-applications/{applicationNumber}/review` | `AdminLoanDecisionController.reviewDetail` → `AdminLoanDecisionServiceImpl.reviewDetail` → các repository snapshot local → `AdminLoanDecisionMapper.toDetail` | Đọc Application, initial/final schedule, eligibility, credit profile, latest assessment, số hợp đồng (`LoanContractRepository.findContractNumberByApplicationId`: một query lấy riêng cột theo khóa duy nhất `application_id`, không tải văn bản hợp đồng) và tối đa 20 history bằng số query cố định. Đây là màn hình bằng chứng để admin quyết định, không chấm lại AI. |
 
 ### 19.2 Admin approve/reject
 

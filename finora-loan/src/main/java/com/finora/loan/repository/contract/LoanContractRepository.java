@@ -19,6 +19,13 @@ public interface LoanContractRepository extends JpaRepository<LoanContract, Long
 
     Optional<LoanContract> findByApplicationId(Long applicationId);
 
+    /**
+     * Chỉ lấy số hợp đồng của hồ sơ cho màn duyệt (B73): một query theo khóa duy nhất {@code application_id},
+     * không tải nội dung văn bản hợp đồng. Rỗng khi Contract chưa được lập.
+     */
+    @Query("select contract.contractNumber from LoanContract contract where contract.applicationId = :applicationId")
+    Optional<String> findContractNumberByApplicationId(@Param("applicationId") Long applicationId);
+
     Optional<LoanContract> findByConsentIdempotencyKey(String consentIdempotencyKey);
 
     Page<LoanContract> findByBorrowerId(String borrowerId, Pageable pageable);

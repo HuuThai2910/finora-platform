@@ -353,6 +353,9 @@ class FinoraLoanApplicationIT {
                         get("/api/v1/admin/loan-applications/{number}/review", applicationNumber))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PENDING_REVIEW"))
+                // B73: ID số để mở explorer bằng chứng; chưa có Contract thì chưa có số hợp đồng.
+                .andExpect(jsonPath("$.id").value(submitted.path("id").asLong()))
+                .andExpect(jsonPath("$.contractNumber").doesNotExist())
                 .andReturn().getResponse().getContentAsString());
         long applicationVersion = review.path("version").asLong();
         long assessmentId = review.path("assessment").path("assessmentId").asLong();
@@ -439,6 +442,11 @@ class FinoraLoanApplicationIT {
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT funding_status FROM loan_applications WHERE application_number = ?",
                 String.class, applicationNumber)).isEqualTo("FULLY_FUNDED");
+        mockMvc.perform(get("/api/v1/admin/loan-applications/{number}/review", applicationNumber))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(submitted.path("id").asLong()))
+                .andExpect(jsonPath("$.contractNumber").value(jdbcTemplate.queryForObject(
+                        "SELECT contract_number FROM loan_contracts", String.class)));
 
         org.springframework.security.oauth2.jwt.Jwt investorJwt =
                 org.springframework.security.oauth2.jwt.Jwt.withTokenValue("investor-token")
