@@ -114,7 +114,7 @@ public class DisbursementSagaService {
                 && saga.getStatus() != DisbursementSagaStatus.RETRY_PENDING && !leaseExpired) return null;
         if (leaseExpired) {
             log.warn("Lease ghi core hết hạn, nhận lại saga: sagaId={}, attempt={}", saga.getSagaId(), saga.getAttemptCount());
-            if (saga.getAttemptCount() >= properties.maxAttempts()) {
+            if (saga.attemptsSinceRepair() >= properties.maxAttempts()) {
                 saga.markCoreBookingStalled(now);
                 return null;
             }
@@ -169,7 +169,7 @@ public class DisbursementSagaService {
     public void fail(UUID sagaId, int attempt, String code, String detail, boolean retryable) {
         DisbursementSaga saga = locked(sagaId);
         Instant now = clock.instant();
-        boolean canRetry = retryable && saga.getAttemptCount() < properties.maxAttempts();
+        boolean canRetry = retryable && saga.attemptsSinceRepair() < properties.maxAttempts();
         if (!saga.failCore(attempt, code, detail, canRetry, canRetry ? now.plus(properties.retryBackoff()) : null, now)) {
             log.warn("Bỏ qua lỗi core của lần thử cũ: sagaId={}, attempt={}, current={}, status={}",
                     sagaId, attempt, saga.getAttemptCount(), saga.getStatus());

@@ -36,6 +36,15 @@ public class CoreProductSyncStateService {
     private final HashingService hashingService;
     private final Clock clock;
 
+    /**
+     * External ID Product trên Fineract. Không gian tên rỗng giữ dạng cũ {@code FINORA-LP-<id>-V<n>}; có không gian tên
+     * (DB Loan khác dùng chung Fineract) thì thành {@code FINORA-<ns>-LP-<id>-V<n>} để id Product không đụng nhau.
+     */
+    static String productExternalId(String namespace, long productId, long configurationVersion) {
+        String prefix = namespace == null || namespace.isBlank() ? "FINORA-LP-" : "FINORA-" + namespace + "-LP-";
+        return prefix + productId + "-V" + configurationVersion;
+    }
+
     /** Ghi mapping và command trước; HTTP Fineract chỉ được chạy sau khi transaction này commit. */
     @Transactional
     public ProductSyncPreparation prepare(long productId, long expectedVersion, String actorId) {
@@ -43,7 +52,7 @@ public class CoreProductSyncStateService {
                 .orElseThrow(() -> new ResourceNotFoundException("Loan Product", "id", productId));
 
         long configurationVersion = product.getConfigurationVersion();
-        String externalId = "FINORA-LP-" + productId + "-V" + configurationVersion;
+        String externalId = productExternalId(properties.productNamespace(), productId, configurationVersion);
         String idempotencyKey = "CREATE_PRODUCT:" + externalId;
         FineractProductConfiguration configuration = configuration(product, externalId);
         String requestHash = hashingService.sha256(configuration);

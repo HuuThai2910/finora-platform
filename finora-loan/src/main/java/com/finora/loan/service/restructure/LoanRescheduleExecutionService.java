@@ -8,6 +8,7 @@ import com.finora.loan.domain.servicing.LoanServicingSnapshot;
 import com.finora.loan.integration.fineract.client.FineractIntegrationException;
 import com.finora.loan.integration.fineract.client.FineractRescheduleGateway;
 import com.finora.loan.integration.fineract.client.FineractServicingGateway;
+import com.finora.loan.messaging.event.LoanDelinquencyChangedEventData;
 import com.finora.loan.messaging.event.LoanRescheduledEventData;
 import com.finora.loan.repository.restructure.LoanRescheduleRequestRepository;
 import com.finora.loan.repository.servicing.FinoraLoanRepository;
@@ -112,10 +113,20 @@ public class LoanRescheduleExecutionService {
         LoanServicingProjection projection = projections.findByFinoraLoanIdForUpdate(loan.getId()).orElseThrow();
         Instant now = clock.instant();
         LocalDate previousMaturity = request.getOriginalMaturityDate();
+        int previousDpd = projection.getDaysPastDue();
         projection.applyCoreSnapshot(snapshot, now);
         loan.completeRestructuring(now);
-        collectionCases.apply(loan, projection, now);
+        CollectionCaseService.DebtGroupChange groups = collectionCases.apply(loan, projection, previousDpd, now);
         request.complete(snapshot.maturityDate(), now);
+        // Lịch mới có thể đổi số ngày quá hạn (dời ngày đến hạn). Lần đồng bộ sau thấy projection đã cập nhật nên không
+        // phát lại, vì vậy báo Investment/CIC ngay tại đây như một lần đồng bộ thường.
+        if (previousDpd != projection.getDaysPastDue()) {
+            outbox.recordForPublication("FinoraLoan", loan.getId().toString(), "LoanDelinquencyChanged", 1,
+                    new LoanDelinquencyChangedEventData(loan.getLoanApplicationId(), loan.getLoanNumber(),
+                            loan.getBorrowerId(), loan.getFineractLoanId(), previousDpd, projection.getDaysPastDue(),
+                            groups.previous(), groups.current(), projection.getOverdueAmount().toPlainString(),
+                            projection.getOverdueSince(), projection.getTotalOutstanding().toPlainString(), now));
+        }
         outbox.recordForPublication("FinoraLoan", loan.getId().toString(), "LoanRescheduled", 1,
                 new LoanRescheduledEventData(loan.getLoanApplicationId(), loan.getLoanNumber(), loan.getBorrowerId(),
                         loan.getFineractLoanId(), request.getRequestId(), request.getRequestType(), previousMaturity,

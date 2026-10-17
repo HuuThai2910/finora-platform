@@ -47,6 +47,37 @@ public record LoanServicingHistory(String externalId, List<PrincipalMovement> mo
         return new Position(principal, daysPastDueAt(day));
     }
 
+    /**
+     * Nhóm nợ cuối ngày {@code day} theo D29: trong một đợt quá hạn liên tục, nhóm là nhóm cao nhất đã chạm. DPD chỉ giảm
+     * vào ngày trả nợ, nên DPD lớn nhất của đợt nằm ở chính ngày đó hoặc trong một ngày trả của đợt, ngay trước khoản trả
+     * (Loan quan sát được DPD này trong ngày, ví dụ 91 trước khi trả bớt về 61). Đợt kết thúc ở cuối một ngày trả không
+     * còn quá hạn; không có khoản trả nào thì DPD không thể từ dương về 0.
+     */
+    public int debtGroupAt(LocalDate day) {
+        int peak = daysPastDueAt(day);
+        if (peak == 0) return DebtGroup.FIRST;
+        List<LocalDate> payments = installments.stream().map(Installment::obligationsMetOn)
+                .filter(met -> met != null && !met.isAfter(day)).distinct()
+                .sorted(Comparator.reverseOrder()).toList();
+        for (LocalDate met : payments) {
+            if (daysPastDueAt(met) == 0) break;
+            peak = Math.max(peak, daysPastDueBeforePaymentOn(met));
+        }
+        return DebtGroup.fromDaysPastDue(peak);
+    }
+
+    /** DPD trong ngày {@code met} trước khoản trả của chính ngày đó: kỳ trả xong đúng ngày đó vẫn tính là chưa trả. */
+    private int daysPastDueBeforePaymentOn(LocalDate met) {
+        for (Installment installment : installments) {
+            if (!installment.dueDate().isBefore(met)) return 0;
+            LocalDate paid = installment.obligationsMetOn();
+            if (paid == null || !paid.isBefore(met)) {
+                return Math.toIntExact(ChronoUnit.DAYS.between(installment.dueDate(), met));
+            }
+        }
+        return 0;
+    }
+
     private int daysPastDueAt(LocalDate day) {
         for (Installment installment : installments) {
             if (!installment.dueDate().isBefore(day)) return 0;

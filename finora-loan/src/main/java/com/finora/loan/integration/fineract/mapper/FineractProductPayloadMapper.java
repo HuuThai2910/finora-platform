@@ -1,6 +1,7 @@
 package com.finora.loan.integration.fineract.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.finora.loan.config.FineractProperties;
 import com.finora.loan.integration.fineract.client.FineractIntegrationException;
 import com.finora.loan.integration.fineract.contract.FineractProductConfiguration;
 import com.finora.loan.integration.fineract.contract.FineractProductCreationResult;
@@ -20,6 +21,7 @@ public class FineractProductPayloadMapper {
 
     private final HashingService hashingService;
     private final FineractRepaymentPolicy repaymentPolicy;
+    private final FineractProperties properties;
 
     /** Ánh xạ Product FINORA sang allowlist Fineract 1.15; MVP chưa bật accounting. */
     public Map<String, Object> toCreateProductPayload(FineractProductConfiguration source) {
@@ -172,14 +174,26 @@ public class FineractProductPayloadMapper {
     }
 
     private String fineractName(FineractProductConfiguration source) {
-        String name = "FINORA " + source.code() + " v" + source.finoraProductVersion();
+        String namespace = namespace();
+        String name = "FINORA " + (namespace.isEmpty() ? "" : namespace + " ") + source.code()
+                + " v" + source.finoraProductVersion();
         return name.length() <= 100 ? name : name.substring(0, 100);
     }
 
     private String shortName(Long productId, Long productVersion) {
-        long value = Math.abs((productId * 31L) + productVersion);
+        String namespace = namespace();
+        // Không gian tên rỗng: đúng công thức cũ. Có không gian tên: trộn vào rồi lấy dư 36^3 để vẫn đủ 3 ký tự phân biệt
+        // giữa các Product liên tiếp (lấy chữ số đầu của một số lớn sẽ làm các Product trùng nhau).
+        long value = namespace.isEmpty()
+                ? Math.abs((productId * 31L) + productVersion)
+                : Math.floorMod(namespace.hashCode() * 961L + (productId * 31L) + productVersion, 46_656L);
         String code = Long.toString(value, 36).toUpperCase();
         return ("F" + code).substring(0, Math.min(4, code.length() + 1));
+    }
+
+    private String namespace() {
+        String value = properties == null ? null : properties.productNamespace();
+        return value == null ? "" : value;
     }
 
     private FineractIntegrationException contractMismatch(String message) {

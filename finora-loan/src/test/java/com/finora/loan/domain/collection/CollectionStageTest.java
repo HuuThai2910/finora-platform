@@ -21,6 +21,12 @@ class CollectionStageTest {
         assertThat(CollectionStage.fromDaysPastDue(daysPastDue)).isEqualTo(expected);
     }
 
+    @ParameterizedTest
+    @CsvSource({"1,EARLY_REMINDER", "2,ATTENTION", "3,NPL", "4,INTENSIVE", "5,LOSS"})
+    void mapsTheEpisodeDebtGroupToItsCollectionStage(int debtGroup, CollectionStage expected) {
+        assertThat(CollectionStage.fromDebtGroup(debtGroup)).isEqualTo(expected);
+    }
+
     @Test
     void rejectsCurrentLoanBecauseItDoesNotNeedCollectionCase() {
         assertThatThrownBy(() -> CollectionStage.fromDaysPastDue(0))

@@ -50,6 +50,27 @@ class LoanServicingHistoryTest {
     }
 
     @Test
+    void debtGroupKeepsTheHighestGroupOfTheEpisodeUntilArrearsAreFullyPaid() {
+        // Kỳ 17/11, 17/12, 17/1 chưa trả tới 16/2 (DPD 91); 16/2 trả kỳ 17/11 → DPD 61; 1/3 trả nốt hai kỳ.
+        LoanServicingHistory partlyCured = new LoanServicingHistory("LC-3",
+                List.of(new PrincipalMovement(LocalDate.of(2026, 10, 17), new BigDecimal("10000"))),
+                List.of(new Installment(LocalDate.of(2026, 11, 17), LocalDate.of(2027, 2, 16)),
+                        new Installment(LocalDate.of(2026, 12, 17), LocalDate.of(2027, 3, 1)),
+                        new Installment(LocalDate.of(2027, 1, 17), LocalDate.of(2027, 3, 1)),
+                        new Installment(LocalDate.of(2027, 4, 17), null)));
+
+        // Cuối ngày 15/2 mới quá hạn 90 ngày (nhóm 2); sáng 16/2 chạm 91 ngày rồi mới trả bớt.
+        assertThat(partlyCured.debtGroupAt(LocalDate.of(2027, 2, 15))).isEqualTo(2);
+        // D29: trả bớt chỉ hạ DPD về 61, đợt quá hạn chưa kết thúc nên vẫn nhóm 3.
+        assertThat(partlyCured.positionAt(LocalDate.of(2027, 2, 16)).daysPastDue()).isEqualTo(61);
+        assertThat(partlyCured.debtGroupAt(LocalDate.of(2027, 2, 16))).isEqualTo(3);
+        assertThat(partlyCured.debtGroupAt(LocalDate.of(2027, 2, 28))).isEqualTo(3);
+        // Trả đủ phần quá hạn: đợt kết thúc, nhóm về 1; đợt mới sau đó tính lại từ đầu.
+        assertThat(partlyCured.debtGroupAt(LocalDate.of(2027, 3, 1))).isEqualTo(1);
+        assertThat(partlyCured.debtGroupAt(LocalDate.of(2027, 4, 30))).isEqualTo(2);
+    }
+
+    @Test
     void fullyRepaidLoanHasZeroPosition() {
         LoanServicingHistory settled = new LoanServicingHistory("LC-2",
                 List.of(new PrincipalMovement(DISBURSED, new BigDecimal("500")),

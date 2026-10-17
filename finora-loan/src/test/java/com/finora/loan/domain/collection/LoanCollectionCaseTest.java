@@ -30,6 +30,27 @@ class LoanCollectionCaseTest {
         assertThat(collectionCase.getOverdueAmount()).isEqualByComparingTo("0.00");
     }
 
+    @Test
+    void debtGroupNeverDropsWithinAnEpisodeWhenTheBorrowerOnlyPaysPartOfTheArrears() {
+        Instant openedAt = Instant.parse("2026-11-27T00:00:00Z");
+        LoanCollectionCase collectionCase = LoanCollectionCase.open(
+                7L, "LN-007", "borrower-7", 91, money("5178000"), money("10354000"),
+                LocalDate.of(2026, 11, 17), openedAt);
+
+        // D29: trả bớt kỳ cũ nhất, DPD về 61 nhưng đợt quá hạn chưa kết thúc nên vẫn nhóm 3 (nợ xấu).
+        collectionCase.observe(61, money("3452000"), money("8628000"), LocalDate.of(2026, 12, 17),
+                openedAt.plusSeconds(60));
+        assertThat(collectionCase.getDaysPastDue()).isEqualTo(61);
+        assertThat(collectionCase.getDebtGroup()).isEqualTo(3);
+        assertThat(collectionCase.getStage()).isEqualTo(CollectionStage.NPL);
+
+        // Quá hạn tiếp tới 181 ngày thì nhóm vẫn tăng theo DPD.
+        collectionCase.observe(181, money("6904000"), money("8800000"), LocalDate.of(2026, 12, 17),
+                openedAt.plusSeconds(120));
+        assertThat(collectionCase.getDebtGroup()).isEqualTo(4);
+        assertThat(collectionCase.getStage()).isEqualTo(CollectionStage.INTENSIVE);
+    }
+
     private static BigDecimal money(String value) {
         return new BigDecimal(value).setScale(2);
     }

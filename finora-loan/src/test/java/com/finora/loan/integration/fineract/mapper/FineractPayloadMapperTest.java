@@ -25,7 +25,7 @@ class FineractPayloadMapperTest {
     private final HashingService hashingService = new HashingService(objectMapper);
     private final FineractRepaymentPolicy repaymentPolicy = new FineractRepaymentPolicy();
     private final FineractProductPayloadMapper productMapper =
-            new FineractProductPayloadMapper(hashingService, repaymentPolicy);
+            new FineractProductPayloadMapper(hashingService, repaymentPolicy, null);
     private final FineractSchedulePayloadMapper scheduleMapper =
             new FineractSchedulePayloadMapper(hashingService, repaymentPolicy);
 
@@ -298,6 +298,30 @@ class FineractPayloadMapperTest {
                 product, "FINORA-FINERACT-V2"))
                 .isInstanceOf(FineractIntegrationException.class)
                 .hasMessageContaining("PROGRESSIVE");
+    }
+
+    @Test
+    void namespacedEnvironmentNeverReusesTheFineractNameOrShortNameOfAnotherEnvironment() {
+        var e2e = new com.finora.loan.config.FineractProperties("http://fineract.test", "default", "e2e-user",
+                "not-used", null, null, null, "FINORA-FINERACT-V4", 3, null, 10, null, "e2e");
+        FineractProductPayloadMapper isolated = new FineractProductPayloadMapper(hashingService, repaymentPolicy, e2e);
+        FineractProductConfiguration first = configuration(RepaymentMethod.ANNUITY);
+        FineractProductConfiguration second = new FineractProductConfiguration(
+                2L, 1L, "PERSONAL_STANDARD_2", "Vay tiêu dùng 2",
+                new BigDecimal("10000000"), new BigDecimal("100000000"),
+                6, 24, new BigDecimal("12.5000"), RepaymentMethod.ANNUITY,
+                "FINORA-E2E-LP-2-V1", "FINORA-FINERACT-V4");
+
+        var shared = productMapper.toCreateProductPayload(first);
+        var isolatedFirst = isolated.toCreateProductPayload(first);
+        var isolatedSecond = isolated.toCreateProductPayload(second);
+
+        // Không gian tên rỗng: định danh cũ giữ nguyên để Product đã đồng bộ không đổi.
+        assertThat(shared).containsEntry("name", "FINORA PERSONAL_STANDARD v1").containsEntry("shortName", "FW");
+        // DB Loan khác dùng chung Fineract: tên và shortName khác hẳn, Product liên tiếp không trùng nhau.
+        assertThat(isolatedFirst).containsEntry("name", "FINORA E2E PERSONAL_STANDARD v1");
+        assertThat((String) isolatedFirst.get("shortName")).hasSizeBetween(2, 4).isNotEqualTo("FW")
+                .isNotEqualTo(isolatedSecond.get("shortName"));
     }
 
     private FineractProductConfiguration configuration(RepaymentMethod method) {

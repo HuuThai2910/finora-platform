@@ -132,6 +132,24 @@ class AdminLoanStatisticsServiceTest {
     }
 
     @Test
+    void loanStillInAnOverdueEpisodeKeepsItsEpisodeDebtGroupInThePortfolio() {
+        stubEmptySummary();
+        // D29: trả bớt từ DPD 91 về 61, hồ sơ thu hồi còn mở ở nhóm 3 → vẫn là nợ xấu, không tính vào nhóm 2.
+        when(repository.sumOutstandingByProductAndDpd()).thenReturn(List.of(
+                new OutstandingByProductDpdRow(1L, 61, 1, new BigDecimal("8628000.00"), new BigDecimal("8800000.00"),
+                        new BigDecimal("3452000.00"), 0, 3),
+                new OutstandingByProductDpdRow(1L, 0, 1, new BigDecimal("1000000.00"), new BigDecimal("1000000.00"),
+                        BigDecimal.ZERO.setScale(2), 0, null)));
+        when(repository.countApplicationsByProduct()).thenReturn(List.of(
+                new ProductApplicationsRow(1L, "VAY_NHANH", "Vay nhanh", 2)));
+
+        LoanStatisticsSummaryResponse.Portfolio portfolio = service.summary().portfolio();
+
+        assertThat(portfolio.byDebtGroup()).extracting(DebtGroupBreakdown::loans).containsExactly(1L, 0L, 1L, 0L, 0L);
+        assertThat(portfolio.nplPrincipalOutstanding()).isEqualByComparingTo("8628000.00");
+    }
+
+    @Test
     void nplRatioIsNullWhenNothingOutstanding() {
         stubEmptySummary();
 

@@ -52,9 +52,12 @@ public class LoanCollectionCase {
 
     public void observe(int dpd, BigDecimal overdue, BigDecimal outstanding, LocalDate since, Instant now) {
         if (status != CollectionCaseStatus.OPEN) throw new IllegalStateException("Collection case đã đóng");
-        stage = CollectionStage.fromDaysPastDue(dpd);
+        if (dpd <= 0) throw new IllegalArgumentException("DPD phải dương khi hồ sơ thu hồi còn mở");
         daysPastDue = dpd;
-        debtGroup = DebtGroup.fromDaysPastDue(dpd);
+        // D29: người vay chỉ trả bớt thì nhóm nợ (và mức thu hồi theo nhóm) giữ mức cao nhất của đợt; đợt kết thúc khi
+        // hồ sơ đóng, tức đã trả đủ phần quá hạn.
+        debtGroup = DebtGroup.withinEpisode(debtGroup == 0 ? null : debtGroup, dpd);
+        stage = CollectionStage.fromDebtGroup(debtGroup);
         overdueAmount = money(overdue);
         totalOutstanding = money(outstanding);
         overdueSince = since;

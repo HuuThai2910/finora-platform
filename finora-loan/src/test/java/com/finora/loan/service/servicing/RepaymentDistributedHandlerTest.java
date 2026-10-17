@@ -70,6 +70,12 @@ class RepaymentDistributedHandlerTest {
         org.mockito.Mockito.lenient().when(projections.findByFinoraLoanIdForUpdate(1L))
                 .thenReturn(Optional.of(projection));
         when(quarantine.findByEventIdForUpdate(any())).thenReturn(Optional.empty());
+        // CollectionCaseService là mock: trả nhóm theo DPD như khi chưa có đợt quá hạn nào kéo dài (D29 có test riêng).
+        org.mockito.Mockito.lenient().when(collectionCases.apply(any(), any(), org.mockito.ArgumentMatchers.anyInt(), any()))
+                .thenAnswer(invocation -> new CollectionCaseService.DebtGroupChange(
+                        com.finora.loan.domain.servicing.DebtGroup.fromDaysPastDue(invocation.getArgument(2)),
+                        com.finora.loan.domain.servicing.DebtGroup.fromDaysPastDue(
+                                invocation.<LoanServicingProjection>getArgument(1).getDaysPastDue())));
     }
 
     @Test

@@ -47,6 +47,17 @@ public class DisbursementSaga {
     private String lastErrorDetail;
     @Column(name = "disbursed_at")
     private Instant disbursedAt;
+    /** {@code attempt_count} tại lần vận hành sửa gần nhất (V31); giới hạn tự động tính lại từ đây. */
+    @Column(name = "repair_attempt_base", nullable = false)
+    private int repairAttemptBase;
+    @Column(name = "repair_count", nullable = false)
+    private int repairCount;
+    @Column(name = "last_repair_by", length = 100)
+    private String lastRepairBy;
+    @Column(name = "last_repair_at")
+    private Instant lastRepairAt;
+    @Column(name = "last_repair_note", length = 500)
+    private String lastRepairNote;
     @Version @Column(nullable = false)
     private Long version;
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -127,6 +138,29 @@ public class DisbursementSaga {
         lastErrorCode = "CORE_BOOKING_STALLED";
         lastErrorDetail = "Ghi core không trả kết quả sau " + attemptCount + " lần; đối soát Fineract theo externalId";
         nextRetryAt = null;
+        updatedAt = now;
+    }
+
+    /** Số lần ghi core kể từ lần vận hành sửa gần nhất; giới hạn tự động áp trên con số này, không trên claim token. */
+    public int attemptsSinceRepair() {
+        return attemptCount - repairAttemptBase;
+    }
+
+    /**
+     * Vận hành đã kiểm Fineract theo externalId (số hợp đồng) và xử lý nguyên nhân: đưa saga về ghi core lại (R2). Tiền đã
+     * giải ngân không đổi; gateway booking reconcile theo externalId nên lần chạy lại không tạo khoản vay thứ hai.
+     */
+    public void requeueAfterRepair(String actorId, String note, Instant now) {
+        if (status != DisbursementSagaStatus.REPAIR_REQUIRED) {
+            throw new IllegalStateException("Chỉ saga REPAIR_REQUIRED mới được đưa về ghi core lại");
+        }
+        status = DisbursementSagaStatus.RETRY_PENDING;
+        nextRetryAt = Objects.requireNonNull(now);
+        repairAttemptBase = attemptCount;
+        repairCount++;
+        lastRepairBy = requireText(actorId);
+        lastRepairAt = now;
+        lastRepairNote = truncate(requireText(note));
         updatedAt = now;
     }
 

@@ -82,6 +82,10 @@ management:
 finora:
   # Múi giờ của ngày nghiệp vụ (nộp hồ sơ, booking/giải ngân Fineract, servicing). Phải trùng múi giờ tenant Fineract.
   business-time-zone: ${FINORA_BUSINESS_TIME_ZONE:Asia/Ho_Chi_Minh}
+  # Chỉ harness E2E đặt (Q12): dời đồng hồ Loan, ví dụ P91D, để kiểm quá hạn/nợ xấu mà không chờ thật.
+  # Bị từ chối khi khởi động nếu chữ ký không phải MOCK hoặc không chạy profile local.
+  e2e:
+    clock-offset: ${FINORA_E2E_CLOCK_OFFSET:PT0S}
   # Pin-token xác nhận thao tác nhạy cảm — khoá HS256 phải GIỐNG NHAU ở finora-user
   # (bên cấp) và payment/investment/loan (bên kiểm). Mặc định chỉ dùng cho máy dev.
   pin:
@@ -247,6 +251,9 @@ finora:
     # V4 (D15) áp dụng cho Product/mapping tạo mới: tính lại lãi hằng ngày. V3/V2/V1 giữ snapshot để đọc tương thích;
     # Product đã đồng bộ không đổi version (chỉ Product DRAFT mới đồng bộ).
     product-config-version: ${FINERACT_PRODUCT_CONFIG_VERSION:FINORA-FINERACT-V4}
+    # Chỉ đặt khi nhiều DB Loan dùng chung một Fineract (stack E2E cô lập đặt E2E): externalId/tên/shortName Product có
+    # tiền tố riêng để không đụng Product của môi trường khác. Để trống giữ nguyên định danh hiện hành.
+    product-namespace: ${FINERACT_PRODUCT_NAMESPACE:}
     max-attempts: ${FINERACT_MAX_ATTEMPTS:3}
     retry-backoff: ${FINERACT_RETRY_BACKOFF:30s}
     retry-batch-size: ${FINERACT_RETRY_BATCH_SIZE:20}
