@@ -28,15 +28,24 @@ chứng minh retry/restart không làm trùng tiền, sửa projection/Note khi 
 
 ### Còn thiếu gì nếu tiến gần production?
 
-- Cổng tiền ra/rút tiền thật; hiện top-up có mock/ZaloPay sandbox nhưng disbursement ZaloPay chưa chạy thật.
-- Chữ ký PAdES nhúng vào PDF; hiện SmartCA UAT ký hash và lưu bằng chứng rời.
-- Fabric adapter/network/chaincode thật và proof cho nhiều mốc ngoài repayment.
-- Push notification thật, RBAC/PII/security hardening, observability và deployment hoàn chỉnh.
+Wave 3 (2026-10-17) đưa các mục dưới đây lên mức demo có kiểm chứng; phần còn thiếu là phần production:
+
+- Rút tiền: luồng đầy đủ với provider payout giả lập có callback HMAC (W3B). Còn: payout/giải ngân qua tổ chức thanh toán
+  thật sau hợp đồng và legal review (`LEGAL-PAYMENT-01`).
+- Hợp đồng: hợp đồng mới ký PAdES-B-B nhúng nối tiếp và biên nhận riêng (W3C), bằng chứng thư demo/UAT. Còn: ký SmartCA UAT
+  thật trên app, chứng thư thật từng bên, dấu thời gian/LTV, legal review.
+- Blockchain: Fabric local thật hai tổ chức neo bốn mốc, tra cứu và đối chiếu (W3D). Còn: Fabric CA, nhiều orderer, tổ chức
+  kiểm toán độc lập thật; giá trị chứng cứ pháp lý `NEEDS_LEGAL_REVIEW`.
+- Thông báo: in-app theo domain event và pipeline Expo Push (W3F). Còn: thử push trên máy thật, bật nhắc lịch (D64).
+- Bảo mật/vận hành: cổng R8A (W3A), CI GitHub Actions xanh, health/gauge (W3E). Còn: R8B (PII/secret/log, mã hóa token),
+  chặn tự đăng ký `ADMIN` (D20), Prometheus/dashboard, backup/restore.
+- CIC: nhánh nhận nợ quá hạn của Hải chờ review (D65); bản deploy công khai phải có kho riêng tư và xác thực trước khi nhận
+  CCCD thật (B70).
 - Model governance, fraud nâng cao, secondary market/auto-invest hardening.
 
 ### Điều đã chốt và không đưa lại vào backlog
 
-- CIC là service Node deploy tại `https://cic-service-node.vercel.app/`; FINORA chỉ cấu hình URL.
+- CIC là service Node deploy tại `https://cic-service-node.vercel.app/`; FINORA chỉ cấu hình URL (D1). E2E kiểm nhận quá hạn bằng CIC Node chạy local (`-WithLocalCic`, D65).
 - Mobile phải dùng bộ UI mới, không phục hồi màn mock/UI cũ.
 - Fineract là nguồn chuẩn lịch trả, nghĩa vụ và breakdown; frontend không tự tính lại tiền.
 - Payment ledger là nguồn chuẩn dịch chuyển tiền nội bộ; Investment là nguồn chuẩn Note/ownership.
@@ -88,7 +97,7 @@ SoR, ledger/event và khả năng retry.
 | ID | Ưu tiên | Owner | Phạm vi | Trạng thái | Kết quả cần đạt |
 |---|---|---|---|---|---|
 | R0 | P0 | Both | Source/docs | `DONE` | Backend, web, mobile cùng mốc code; roadmap/rule khớp code |
-| R1 | P0 | Both | E2E | `IN_PROGRESS` | R1A baseline tự động đã chạy thật ngày 2026-10-17; R1B chạy sạch core và toàn bộ servicing sau R2/R3 |
+| R1 | P0 | Both | E2E | `READY_FOR_REVIEW` | R1A baseline tự động đã chạy thật ngày 2026-10-17; R1B chạy sạch core và toàn bộ servicing sau R2/R3: hồi quy cuối Wave 3 (mục 3c) đủ sáu fixture servicing, năm drill lỗi thật và một lượt Fabric thật, 12/12 PASS |
 | G-POLICY | P0 | Both | Policy/Contract | `IN_PROGRESS` | Khoản vay cũ/mới dùng đúng policy version và hợp đồng/quote/UI cùng một công thức; Wave 2B xong biểu phí trả trước (`G-POLICY-W2`); Wave 2C xong core V4 + hợp đồng `LOAN_TERMS_V3` (`W2C`) |
 | R2 | P0 | Thai | Loan/Payment/Fineract | `IN_PROGRESS` | Restart/timeout/duplicate không giải ngân hoặc thu tiền hai lần; Wave 2 xong B06–B13 (`R2-W2` chờ review); Wave 2C xong B28–B30 và khoản trả kỳ giữ tới ngày đến hạn (`W2C` chờ review) |
 | R3 | P0 | Hai | Investment | `IN_PROGRESS` | Order–hold, Note activation, ownership và portfolio tự repair; Wave 2 xong B14–B16 (`R3-W2` chờ Hải review) |
@@ -185,6 +194,9 @@ lựa chọn kỹ thuật còn lại, miễn phù hợp nghiệp vụ và chạy
 | D77 | Payment phát `RepaymentCollected.v1` khi giữ khoản trả kỳ trước hạn (`postOn`) và `RepaymentCancelled.v1` khi hủy thật; gửi lại cùng `Idempotency-Key` hay hủy lặp không phát lần hai; publisher Payment chỉ cho đúng loại + v1 trong allowlist | Kỹ thuật | 3 (W3F producer) |
 | D78 | Investment mời biểu quyết cơ cấu bằng `InvestorNoteServicingChanged.v1` `RESCHEDULE_CONSENT_REQUESTED`, một bản cho mỗi chủ phiếu, chỉ khi phiếu được tạo lần đầu cho `requestId` (giao trùng/phát lại với eventId mới không mời lại) | Nghiệp vụ | 3 (W3F producer) |
 | D79 | Consumer Payment: lỗi contract/validation vào thẳng `<topic>.payment.DLT`; lỗi khác thử lại lùi dần 1–30 giây trong 3 phút rồi vào DLT (`PAYMENT_KAFKA_RETRY_*`, `PAYMENT_KAFKA_DLT_SUFFIX`) | Kỹ thuật | 3 (W3F producer, B58) |
+| D80 | Web: nút "Bằng chứng blockchain" ở đầu trang chi tiết hồ sơ vay, bật khi có `id`, không ẩn trước khi có hợp đồng (explorer báo chưa có proof) | Kỹ thuật | 3 |
+| D82 | (Nhánh B76, chưa merge) Payment phát `RepaymentCancelled.v1` `reason=CORE_REJECTED` chỉ khi khoản trả kỳ được giữ bị Fineract từ chối dứt khoát và đã hoàn tiền, cùng transaction với bút toán hoàn; `cancelPending` phát `BORROWER_CANCELLED`; thiếu `reason` nghĩa là `BORROWER_CANCELLED` | Kỹ thuật | Sau Wave 3 |
+| D83 | (Nhánh B76, chưa merge) Notification luôn nghe hai topic P5; `CORE_REJECTED` luôn tạo `INSTALLMENT_PAYMENT_FAILED` (push không số tiền); thông báo giữ/hủy chỉ khi bật nhắc lịch | Kỹ thuật | Sau Wave 3 |
 | D75 | Không thêm `signedPdfHash` vào `LoanContractActivated.v1`: proof `CONTRACT_DOCUMENT` neo `pdfReceiptHash`, biên nhận `PADES_RECEIPT_V1` ghi SHA-256 bản ký đủ, nên chuỗi proof → biên nhận → PDF ký đủ kiểm được; harness kiểm `proof.contract-anchors-signed-receipt` | Kỹ thuật | 3 |
 | D28 | Sửa B32: admin "Ghi lại vào hệ thống lõi" cho khoản trả nợ `RECONCILIATION_REQUIRED` sau khoảng an toàn (`PAYMENT_CORE_REPOST_SAFE_AFTER`, mặc định 15 phút): tra cứu theo externalId trước, chỉ POST khi Fineract chưa có, dùng đúng externalId/số tiền/ngày ghi nhận ban đầu; Fineract từ chối thì tra cứu lại rồi mới hoàn tiền. Chọn thao tác thủ công có điều kiện thay cho tự động ghi lại vì đây là ngoại lệ tài chính cần người chịu trách nhiệm; mỗi lần ghi lại lưu ai và lúc nào | Nghiệp vụ | 2D (xong) |
 
@@ -265,12 +277,33 @@ Nguồn: rà soát code ngày 2026-10-16/17 và evidence R1A (`docker/e2e/out/r1
 | B69 | P3 | DOC | F06 bước 4 còn ghi `keycloakUserId` là `borrowerId` của mapping | Fixed Wave 3 — `user_profiles.id` (B26) |
 | B71 | P2 | Mobile | `InlineContractConsent` đọc lỗi của lần render trước sau `await`: `409` đầu tiên không tải lại | Fixed (D73) |
 | B72 | P2 | Mobile | Hỏi SmartCA nền nuốt lỗi cuối (từ chối ký, `INVESTOR_SIGNATURE_NOT_STARTED`) và hỏi tiếp tới 12 lần: người dùng không biết chữ ký bị từ chối | Fixed (D73) |
-| B73 | P3 | Loan/Web | `AdminLoanReviewDetailResponse` thiếu `id` số và `contractNumber`: trang duyệt hồ sơ không mở được proof, admin không tìm proof theo số hồ sơ | Open — thêm hai field ở Loan |
+| B73 | P3 | Loan/Web | `AdminLoanReviewDetailResponse` thiếu `id` số và `contractNumber`: trang duyệt hồ sơ không mở được proof, admin không tìm proof theo số hồ sơ | Fixed Wave 3 (D80) — Loan thêm hai field (truy vấn chỉ cột số hợp đồng theo `application_id` duy nhất), web có nút "Bằng chứng blockchain" ở đầu trang duyệt hồ sơ |
 | B74 | P3 | Mobile | Màn cài đặt thông báo R7 dùng khung `Screen`/`PHeader`/`Card` cũ | Fixed (D74) |
-| B76 | P3 | R2/R7 | Khoản trả kỳ được giữ mà Fineract từ chối vào ngày đến hạn thì được hoàn tiền và `FAILED` nhưng không phát event: Notification giữ cờ "đã giữ" nên không nhắc "đến hạn hôm nay" cho kỳ đó (chỉ ảnh hưởng khi bật nhắc lịch D64) | Open |
+| B76 | P3 | R2/R7 | Khoản trả kỳ được giữ mà Fineract từ chối vào ngày đến hạn thì được hoàn tiền và `FAILED` nhưng không phát event: người vay không được báo khoản trả trước bị từ chối; Notification giữ cờ "đã giữ" nên không nhắc "đến hạn hôm nay" khi bật nhắc lịch | Bản sửa trên nhánh `worktree-agent-a234c64210b1e0838` (D82, D83), owner quyết định chưa merge trong Wave 3 vì đụng đường ghi tiền ngay trước UAT; chờ Hải review |
+| B82 | P3 | R7 | Notification đọc bù hai topic P5 sau khi ngừng có thể xử lý `RepaymentCancelled` trước `RepaymentCollected` của cùng khoản (khác topic), đặt lại cờ "đã giữ" | Open — cần dấu "đã nhả" theo `repaymentId` (migration Notification) |
 | B65 | P2 | R1 | Launcher E2E chạy jar có sẵn dù mã nguồn đã sửa sau lần build: lượt `w3a-installment-20261017-183146` báo `withdrawal.admin-queue-reachable` 404 vì jar Gateway build lúc 16:31, trước commit thêm route `/api/v1/admin/withdrawals/**` lúc 17:25. Evidence trên jar cũ cho kết luận sai về code | Fixed Wave 3 — `Assert-JarFresh` so jar với file mới nhất trong `src/main`/`pom.xml` của module, `finora-common` và pom gốc, từ chối kèm hướng dẫn `-Build` (`-AllowStaleJar` khi cố ý); chạy lại `w3a-installment-20261017-184734` 79/79 |
 | B70 | P1 | R8/CIC | Rủi ro lộ CCCD qua CIC Node công khai: bản deploy không xác thực API đọc (`/api/v1/ho-so`, `/api/v1/nhat-ky`), lưu toàn bộ dữ liệu trong Vercel Blob `public` (`cic/du-lieu.json`, không hậu tố ngẫu nhiên), tra CCCD lạ thì lưu hồ sơ mới + nhật ký kèm CCCD. Trong khi đó `docker-compose*.yml` và `.env.example` để `USER_CIC_MAPPING_ENABLED` mặc định `true` trỏ tới bản này, trái với registry ("mặc định tắt"). Lúc kiểm (2026-10-17) kho chỉ có 1.000 hồ sơ mẫu, 2 dòng nhật ký: chưa lộ thật | Fixed phía FINORA Wave 3 — mặc định `false` ở hai compose và `.env.example`, README và `LEGAL-DATA-01` ghi chỉ dùng CCCD tổng hợp với bản deploy. Phía CIC: nhánh `feat/finora-delinquency-intake` chặn lưu mapping khi kho là Blob public; xác thực API đọc và kho riêng tư chờ Hải quyết |
 | S01 | P1 | R8 | Tự đăng ký `ADMIN`; AI không xác thực (kể cả `PUT config`); endpoint nội bộ Notification `permitAll`; `mock-complete` không gắn môi trường; PIN token dùng lại được trong TTL; URL Neon mặc định trong `application.yml` của Loan | W3A (D33–D40): AI/Notification xác thực, danh tính service, cổng môi trường, PIN gắn thao tác, URL Neon bỏ khỏi `application.yml`, chống dò mật khẩu và giới hạn tần suất; unit/IT xanh. E2E `w3a-installment-20261017-184734` 79/79 sau khi realm có client/role mới. Chặn tự đăng ký `ADMIN` vẫn hoãn (D20) |
+
+## 3c. Hồi quy cuối Wave 3 (2026-10-17)
+
+Stack local `-Database local -WithToxiproxy -WithLocalCic`, toàn bộ jar build lại từ `6f10d9c` (gồm W3A–W3F, R9, producer
+P1–P7, B58). CI GitHub trên `6f10d9c` xanh 11/11 job (run 39037702697). Mọi lượt đều PASS.
+
+| Lượt | Nội dung | Kết quả | Check |
+|---|---|---|---|
+| `w3r-installment-20261017-204753` | Trả kỳ mặc định + drill phát lại (access, PIN, rút tiền, PAdES, proof, thông báo, field producer) | PASS | 94/94 |
+| `w3r-defaultcure-20261017-205432` | Quá hạn → nợ xấu → khắc phục → tất toán, CIC local nhận quá hạn | PASS | 81/81 |
+| `w3r-reschedule-20261017-210235` | Cơ cấu có nhà đầu tư biểu quyết | PASS | 68/68 |
+| `w3r-drill-paymentcrash-20261017-210639` | Drill: Payment chết khi giải ngân | PASS | 62/62 |
+| `w3r-drill-loancrash-20261017-211128` | Drill: Loan chết khi ghi khoản vay vào Fineract | PASS | 63/63 |
+| `w3r-drill-investmentdown-20261017-211611` | Drill: Investment tắt khi Loan phát LoanDisbursed | PASS | 61/61 |
+| `w3r-drill-responselost-20261017-212211` | Drill: mất phản hồi Fineract khi ghi kỳ trả (Toxiproxy) | PASS | 85/85 |
+| `w3r-drill-requestlost-20261017-212800` | Drill: mất request tới Fineract khi ghi kỳ trả (Toxiproxy) | PASS | 86/86 |
+| `w3r-overduecure-20261017-213427` | Quá hạn 10 ngày rồi khắc phục, CIC local | PASS | 70/70 |
+| `w3r-partialprepayment-20261017-213956` | Trả trước một phần có phí | PASS | 67/67 |
+| `w3r-earlysettlement-20261017-214332` | Tất toán sớm | PASS | 67/67 |
+| `w3r-fabric-installment-20261017-214817` | Trả kỳ mặc định trên Hyperledger Fabric thật (-WithFabric) | PASS | 94/94 |
 
 ## 4. R0 — Đồng bộ source, roadmap và tài liệu
 
