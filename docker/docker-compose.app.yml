@@ -217,7 +217,7 @@ services:
       NOTIFICATION_SERVICE_URL: http://host.docker.internal:8086
       # CIC là dịch vụ Node đã deploy; task DB sẽ tự retry nếu endpoint chưa sẵn sàng.
       CIC_SERVICE_URL: ${CIC_SERVICE_URL:-https://cic-service-node.vercel.app}
-      USER_CIC_MAPPING_ENABLED: "${USER_CIC_MAPPING_ENABLED:-true}"
+      USER_CIC_MAPPING_ENABLED: "${USER_CIC_MAPPING_ENABLED:-false}"
       CIC_INTERNAL_API_KEY: "${CIC_INTERNAL_API_KEY:-}"
     ports:
       - "8085:8085"

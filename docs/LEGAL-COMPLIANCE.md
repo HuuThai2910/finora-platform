@@ -130,6 +130,11 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 - Event servicing `LoanDelinquencyChanged.v1` chỉ chứa business ID, DPD, nhóm nợ nội bộ và
   breakdown tiền cần thiết; không chứa CCCD. Mapping `borrowerId ↔ CCCD` được bảo vệ bằng
   khóa nội bộ và chỉ lưu ở CIC mock. Đây vẫn là dữ liệu demo, không phải báo cáo CIC thật.
+- B70 (kiểm 2026-10-17): bản CIC Node deploy (`cic-service-node.vercel.app`) là mock công khai — API liệt kê hồ sơ
+  và nhật ký tra cứu (`/api/v1/ho-so`, `/api/v1/nhat-ky`) không xác thực, kho dữ liệu là Vercel Blob `public` đường dẫn
+  cố định, tra một CCCD chưa có thì CIC lưu hồ sơ mới và nhật ký kèm số CCCD. Lúc kiểm, kho chỉ có 1.000 hồ sơ mẫu và 2
+  dòng nhật ký (chưa có CCCD thật). Vì vậy bản deploy chỉ dùng với CCCD tổng hợp; worker mapping của User mặc định tắt;
+  dùng CCCD thật cần CIC có xác thực và kho riêng tư (owner CIC: Hải) — `NEEDS_OWNER_DECISION`.
 - Blockchain proof foundation chỉ lưu/gửi SHA-256, schema version và business reference; không nhận raw PDF, CCCD, AI payload hoặc dữ liệu thanh toán chi tiết. Receipt `MOCK` phải luôn được trình bày là dữ liệu demo, không phải bằng chứng đã ghi Hyperledger Fabric.
 - Từ W3D (2026-10-17) bốn mốc (hợp đồng đủ chữ ký, giải ngân, trả nợ, phát hành/chuyển nhượng Note) được neo lên Fabric local khi bật `HYPERLEDGER_FABRIC`: on-chain chỉ có proofId, loại proof, mã aggregate (chaincode chặn khoảng trắng/chữ có dấu nên không chèn được họ tên), SHA-256, version, service nguồn và metadata giao dịch. Blockchain không lưu `data` của event (số tiền, investorId); người kiểm toán lấy artifact ở service nguồn để tính lại hash. API explorer chỉ cho `ROLE_ADMIN`, receipt MOCK trả kèm cảnh báo không nằm trên chain. Xem [`W3D`](../.agents/plans/W3D-fabric-proofs.md).
 

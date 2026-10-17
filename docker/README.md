@@ -99,8 +99,11 @@ Trước khi chạy, cập nhật `docker/.env` theo `docker/.env.example`:
   `https://cic-service-node.vercel.app/`; Compose không còn build CIC Java cũ.
 - `CIC_INTERNAL_API_KEY` bảo vệ API nội bộ tạo mapping borrowerId–CCCD; phải dùng cùng giá trị
   ở client nội bộ gọi CIC và không commit secret thật.
-- `USER_CIC_MAPPING_ENABLED=true` bật worker User. Sau eKYC, User tự đăng ký mapping vào CIC;
-  CIC tạm tắt thì task nằm trong PostgreSQL User và retry, không làm eKYC thất bại.
+- `USER_CIC_MAPPING_ENABLED` (mặc định `false`, B70) bật worker User. Sau eKYC, User tự đăng ký mapping
+  `borrowerId ↔ CCCD` vào CIC; CIC tạm tắt thì task nằm trong PostgreSQL User và retry, không làm eKYC thất bại.
+  Chỉ bật khi CIC đích lưu mapping riêng tư, ví dụ CIC Node chạy local cho E2E. Bản CIC Node deploy trên Vercel là
+  mock công khai: API đọc hồ sơ/nhật ký không xác thực, dữ liệu nằm trong Blob `public`, tra một CCCD lạ là lưu hồ sơ
+  mới kèm nhật ký. Không eKYC hay tra cứu bằng CCCD thật khi FINORA trỏ tới bản này.
 - `KEYCLOAK_CLIENT_SECRET` phải đúng client `finora-user-client` trong realm đang dùng.
 - `FINORA_AES_SECRET` và `FINORA_HMAC_SECRET` phải đúng với dữ liệu User hiện có.
 - `GEMINI_API_KEY` chỉ bắt buộc khi test OCR/eKYC.
