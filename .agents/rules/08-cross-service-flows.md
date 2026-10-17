@@ -32,7 +32,7 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 1. **Quét:** client gửi `POST /api/v1/users/profile/ekyc-verify` gồm ảnh mặt trước và mặt sau CCCD. User chạy tuần tự và dừng ở bước đầu tiên trượt: rate limit → `POST /api/v1/ai/ekyc/ocr` trên ảnh mặt trước → đối chiếu HMAC số CCCD (`ID_MISMATCH` với hồ sơ có số cũ, `ID_TAKEN` nếu số thuộc tài khoản khác). Đạt thì cất kết quả OCR vào **bản nháp Redis (TTL 10 phút)** và trả `DRAFT_READY` kèm bản nháp — **hồ sơ chưa được ghi**.
 2. Ảnh mặt sau không OCR (model chỉ đọc mặt trước) — nộp kèm làm bằng chứng cầm thẻ đầy đủ, phục vụ đối soát tay khi có nghi vấn.
 3. **Xác nhận:** người dùng soát bản nháp trên client; sai thì quét lại, đúng thì gọi `POST /api/v1/users/profile/ekyc-confirm` (không mang dữ liệu — bản nháp đọc từ Redis để client không sửa được thông tin OCR). User kiểm tra trùng lần cuối, ghi bản nháp vào hồ sơ, chuyển `VERIFIED` (`documentVerified = true`) và tạo `user_cic_mapping_tasks` trong cùng transaction; chỉ xoá nháp Redis sau khi DB commit. Nháp hết hạn trả `DRAFT_EXPIRED`.
-4. **Ánh xạ CIC:** worker User lấy task bằng lease, giải mã CCCD just-in-time rồi gọi API nội bộ CIC với `keycloakUserId` làm `borrowerId`. CIC tắt không rollback eKYC; task retry lũy tiến và request lặp được CIC xử lý idempotent. CCCD không đi qua Kafka/log/bảng task.
+4. **Ánh xạ CIC:** worker User lấy task bằng lease, giải mã CCCD just-in-time rồi gọi API nội bộ CIC với ID hồ sơ `user_profiles.id` (claim `user_id`, B26) làm `borrowerId`. CIC tắt không rollback eKYC; task retry lũy tiến và request lặp được CIC xử lý idempotent. CCCD không đi qua Kafka/log/bảng task.
 4. Các trường hợp trượt giữ nguyên trạng thái hồ sơ và trả `resultCode` (`OCR_FAILED`/`ID_MISMATCH`/`ID_TAKEN`/`RATE_LIMITED`/`AI_UNAVAILABLE`/`DRAFT_EXPIRED`) để client hướng dẫn chụp lại.
 
 **State authority:** AI không giữ trạng thái; rate limit nằm ở User (Redis). Số CCCD là điều kiện đối chiếu duy nhất; họ tên và ngày sinh chỉ sinh cảnh báo `ocrWarnings`. Phần face-match/liveness phía AI đã xoá hẳn (2026-08-22); AI chỉ còn `/ocr` cho eKYC — engine duy nhất là Gemini vision, bắt buộc cấu hình `GEMINI_API_KEY` (thiếu key endpoint trả lỗi và User hiển thị AI_UNAVAILABLE).
@@ -284,6 +284,12 @@ breakdown; V24 giữ/replay event hợp lệ nhưng thiếu mapping. Blockchain 
 Kafka broker local publish/consume envelope v1 đã xanh. Notification đã consume
 `InvestorNoteServicingChanged.v1`, lưu delivery PostgreSQL và cung cấp REST cho mobile; push hệ điều hành
 vẫn cần device-token/provider receipt riêng.
+
+**Cập nhật 2026-10-17 tối (D65):** nhánh `feat/finora-delinquency-intake` của `cic-service-node` (chờ Hải review, chưa
+deploy) hoàn thiện Task 2–4 trong plan của Hải: `POST /api/v1/internal/borrower-mappings` (khóa `X-Finora-Internal-Key`,
+CCCD che, một-một, idempotent), consumer Kafka opt-in `CIC_KAFKA_CONSUMER_ENABLED` (group `cic-loan-delinquency`, lỗi vào
+`<topic>.DLT`), event tới trước mapping được giữ và phát lại theo `occurredAt`, mỗi event một phiên bản hồ sơ. Bản Vercel
+không giữ được consumer Kafka; E2E chạy CIC local bằng `-WithLocalCic`. Đoạn đính chính dưới đây mô tả bản đang deploy.
 
 **Đính chính 2026-10-17 (B27):** câu “CIC Node ngoài Compose đã có consumer, processed-event và pending-mapping
 queue” mô tả bản CIC Java cũ. Bản CIC Node đang deploy (`/api/v1/suc-khoe` trả kho tệp, 1000 hồ sơ) và source

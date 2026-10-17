@@ -1621,10 +1621,15 @@ function Invoke-NotificationChecks {
                 if ($missing.Count -eq 0) { return @{ Done = $true; Value = @($response.Json) } }
                 return @{ State = "missing=$($missing -join ',')" }
             }
-            $keys = @(@($items) | ForEach-Object { "$(Field $_ 'type')/$(Field $_ 'businessReference')" })
+            # Bản giao trùng của cùng một event có cùng occurredAt; trả nợ/quá hạn nhiều lần trên một khoản vay là các event khác
+            # nhau. Mốc một lần (ký, hiệu lực, giải ngân, phát hành Note) phải có đúng một bản cho khoản vay.
+            $keys = @(@($items) | ForEach-Object { "$(Field $_ 'type')/$(Field $_ 'businessReference')/$(Field $_ 'occurredAt')" })
             $duplicates = @($keys | Group-Object | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name })
-            Add-E2ECheck -Name "notification.$($spec.Label)-lifecycle" -Passed ($duplicates.Count -eq 0) `
-                -Detail "types=$(($types | Sort-Object) -join ',') total=$(@($items).Count) duplicates=$($duplicates -join ',')"
+            $onceTypes = @('BORROWER_SIGNATURE_REQUESTED', 'CONTRACT_ACTIVATED', 'LOAN_DISBURSED', 'INVESTOR_SIGNATURE_REQUESTED', 'INVESTOR_CONTRACT_ACTIVATED', 'NOTES_ISSUED')
+            $repeatedOnce = @(@($items) | Where-Object { $onceTypes -contains [string](Field $_ 'type') } |
+                Group-Object { "$(Field $_ 'type')/$(Field $_ 'businessReference')" } | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name })
+            Add-E2ECheck -Name "notification.$($spec.Label)-lifecycle" -Passed ($duplicates.Count -eq 0 -and $repeatedOnce.Count -eq 0) `
+                -Detail "types=$(($types | Sort-Object) -join ',') total=$(@($items).Count) duplicates=$($duplicates -join ',') repeatedMilestones=$($repeatedOnce -join ',')"
         } catch {
             Add-E2ECheck -Name "notification.$($spec.Label)-lifecycle" -Passed $false -Detail $_.Exception.Message
         }
@@ -2163,6 +2168,72 @@ function Add-DelinquencyMilestone {
     })
 }
 
+function Get-LocalCic {
+    <# D65: CIC Node local do launcher bật (-WithLocalCic); $null khi stack dùng bản deploy (không kiểm CIC). #>
+    $entry = Get-LauncherEntry -Name 'cic'
+    if ($null -eq $entry -or -not (Get-Process -Id ([int](Field $entry 'pid')) -ErrorAction SilentlyContinue)) { return $null }
+    $secrets = Read-E2EDotEnv -Path (Join-Path $PSScriptRoot 'out\.env.e2e')
+    return [pscustomobject]@{ Url = "http://localhost:$(Field $entry 'port')"; Key = $secrets['CIC_INTERNAL_API_KEY_E2E'] }
+}
+
+function Register-CicMapping {
+    <#
+      Người vay E2E không eKYC (không dùng ảnh CCCD giả) nên worker User không có CCCD để gửi; harness thay vai worker đăng ký
+      mapping `borrowerId ↔ CCCD` bằng CCCD tổng hợp đầu 999 (không phải mã tỉnh thật), mỗi lượt một số. Kiểm luôn: đăng ký
+      lại cùng cặp là idempotent, khóa sai bị 403, response chỉ trả CCCD đã che.
+    #>
+    param($Cic, $Application)
+    $cccd = '999' + ('{0:D9}' -f ([long]([DateTime]::UtcNow.Ticks % 1000000000)))
+    $body = [ordered]@{ borrowerId = [string](Field $Application 'borrowerId'); soCccd = $cccd }
+    $uri = "$($Cic.Url)/api/v1/internal/borrower-mappings"
+    $first = Invoke-E2EHttp -Method POST -Uri $uri -Headers @{ 'X-Finora-Internal-Key' = $Cic.Key } -Body $body
+    $again = Invoke-E2EHttp -Method POST -Uri $uri -Headers @{ 'X-Finora-Internal-Key' = $Cic.Key } -Body $body
+    $wrongKey = Invoke-E2EHttp -Method POST -Uri $uri -Headers @{ 'X-Finora-Internal-Key' = 'e2e-wrong-key' } -Body $body
+    $masked = [string](Field $first.Json 'soCccdDaChe')
+    $leaked = ([string]$first.Text).Contains($cccd) -or ([string]$again.Text).Contains($cccd)
+    Add-E2ECheck -Name 'cic.mapping-registered' `
+        -Passed ($first.Status -in @(200, 201) -and $again.Status -in @(200, 201) -and $wrongKey.Status -eq 403 -and $masked -and -not $leaked) `
+        -Detail "HTTP $($first.Status)/$($again.Status) wrongKey=$($wrongKey.Status) masked=$masked replayed=$(Field $first.Json 'soSuKienDaPhatLai') leaked=$leaked"
+    return $cccd
+}
+
+function Wait-CicProfile {
+    <# Chờ phiên bản mới nhất của hồ sơ CIC có nhóm nợ hiện tại mong đợi; không ghi CCCD, họ tên vào log/evidence. #>
+    param($Cic, [string]$Cccd, [int]$ExpectedCurrent, [string]$Description)
+    return Wait-Step -Description $Description -TimeoutSeconds 90 -Probe {
+        $response = Invoke-E2EHttp -Method GET -Uri "$($Cic.Url)/api/v1/ho-so/$Cccd"
+        if ($response.Status -ne 200) { return @{ State = "HTTP $($response.Status)" } }
+        $current = Field $response.Json 'nhomNoHienTai'
+        if ($null -ne $current -and [int]$current -eq $ExpectedCurrent) { return @{ Done = $true; Value = $response.Json } }
+        return @{ State = "nhomNoHienTai=$current phienBan=$(Field $response.Json 'phienBan')" }
+    }
+}
+
+function Add-CicCheck {
+    <# Một check CIC theo mốc; lỗi chờ được ghi thành check sai thay vì dừng fixture servicing. #>
+    param($Cic, [string]$Cccd, [string]$Name, [int]$ExpectedCurrent, [int]$ExpectedHighest, [switch]$RecoveryWindow, [switch]$NoRecoveryWindow)
+    try {
+        $profile = Wait-CicProfile -Cic $Cic -Cccd $Cccd -ExpectedCurrent $ExpectedCurrent -Description "CIC $Name"
+    } catch {
+        Add-E2ECheck -Name $Name -Passed $false -Detail $_.Exception.Message
+        return $null
+    }
+    $highest = [int](Field $profile 'nhomNoCaoNhat')
+    $cured = [string](Field $profile 'ngayKhacPhucNoXau')
+    $cooldown = [string](Field $profile 'tamKhoaVayDen')
+    $review = [string](Field $profile 'thamDinhThuCongDen')
+    $ok = $highest -eq $ExpectedHighest
+    if ($RecoveryWindow) {
+        # Policy nội bộ FINORA (không phải luật): tạm khóa 12 tháng, thẩm định thủ công tới 24 tháng tính từ ngày khắc phục.
+        $base = if ($cured) { [datetime]::ParseExact($cured, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) } else { $null }
+        $ok = $ok -and $null -ne $base -and $cooldown -eq $base.AddMonths(12).ToString('yyyy-MM-dd') -and $review -eq $base.AddMonths(24).ToString('yyyy-MM-dd')
+    }
+    if ($NoRecoveryWindow) { $ok = $ok -and -not $cured -and -not $cooldown }
+    Add-E2ECheck -Name $Name -Passed $ok `
+        -Detail "nhomNoHienTai=$(Field $profile 'nhomNoHienTai') nhomNoCaoNhat=$highest ngayKhacPhucNoXau=$cured tamKhoaVayDen=$cooldown thamDinhThuCongDen=$review phienBan=$(Field $profile 'phienBan')"
+    return $profile
+}
+
 function Invoke-DelinquencyFixture {
     <#
       R1B fixture 2 (OverdueCure) và 6 (DefaultCure) trên đồng hồ E2E (Q12): Fineract business date, Loan và Payment cùng
@@ -2189,6 +2260,12 @@ function Invoke-DelinquencyFixture {
         Add-E2ECheck -Name 'delinquency.dpd10-group2' -Passed $true `
             -Detail "overdue=$(Field $view 'overdueAmount') overdueSince=$firstDue position=$(Field $position 'status')/$(Field $position 'debtGroup')"
         Add-DelinquencyMilestone -Timeline $timeline -Name 'DPD_10' -View $view -Position $position
+        $cic = Get-LocalCic
+        $cicCccd = $null
+        if ($null -ne $cic) {
+            $cicCccd = Register-CicMapping -Cic $cic -Application $Application
+            $null = Add-CicCheck -Cic $cic -Cccd $cicCccd -Name 'cic.dpd10-group2' -ExpectedCurrent 2 -ExpectedHighest 2
+        }
         if ($Mode -eq 'OverdueCure') {
             $cure = Pay-Overdue -Borrower $Borrower -Application $Application -Label 'dpd10'
             $cures += $cure
@@ -2197,6 +2274,9 @@ function Invoke-DelinquencyFixture {
             Add-E2ECheck -Name 'delinquency.overdue-cured' -Passed ((Money (Field $view 'overdueAmount')) -eq 0) `
                 -Detail "paid=$(Format-E2EMoney $cure.Amount) principal=$(Field $cure.Repayment 'principalAmount') interest=$(Field $cure.Repayment 'interestAmount') nextDue=$(Field $view 'nextDueDate')"
             Add-DelinquencyMilestone -Timeline $timeline -Name 'CURED' -View $view -Position $position
+            if ($null -ne $cic) {
+                $null = Add-CicCheck -Cic $cic -Cccd $cicCccd -Name 'cic.overdue-cured-no-recovery-window' -ExpectedCurrent 1 -ExpectedHighest 2 -NoRecoveryWindow
+            }
         } else {
             # Mốc 2: 91 ngày → nhóm 3 (nợ xấu): Loan DEFAULTED, Note của nhà đầu tư DEFAULTED.
             Move-E2EClock -Date (& $plus $firstDue 91) -Services @('loan', 'payment')
@@ -2205,6 +2285,7 @@ function Invoke-DelinquencyFixture {
             Add-E2ECheck -Name 'delinquency.dpd91-defaulted' -Passed $true `
                 -Detail "overdue=$(Field $view 'overdueAmount') position=$(Field $position 'status')/$(Field $position 'debtGroup')"
             Add-DelinquencyMilestone -Timeline $timeline -Name 'DPD_91' -View $view -Position $position
+            if ($null -ne $cic) { $null = Add-CicCheck -Cic $cic -Cccd $cicCccd -Name 'cic.dpd91-bad-debt' -ExpectedCurrent 3 -ExpectedHighest 3 }
             # D26: trả bớt đúng kỳ quá hạn cũ nhất → DPD tính từ kỳ chưa trả tiếp theo, khoản vay vẫn DEFAULTED cho tới khi
             # trả đủ phần quá hạn (Loan chỉ hồi phục khi DPD và tiền quá hạn đều về 0). D29 (sửa B36): nhóm nợ của đợt quá
             # hạn giữ 3, nên Note của nhà đầu tư vẫn DEFAULTED nhóm 3 chứ không về ACTIVE nhóm 2 theo DPD 61.
@@ -2224,6 +2305,9 @@ function Invoke-DelinquencyFixture {
             Add-E2ECheck -Name 'delinquency.default-cured-recovers' -Passed ((Money (Field $view 'totalOutstanding')) -gt 0) `
                 -Detail "paid=$(Format-E2EMoney $cure.Amount) outstanding=$(Field $view 'totalOutstanding') nextDue=$(Field $view 'nextDueDate') position=$(Field $position 'status')"
             Add-DelinquencyMilestone -Timeline $timeline -Name 'CURED_FROM_DEFAULT' -View $view -Position $position
+            if ($null -ne $cic) {
+                $null = Add-CicCheck -Cic $cic -Cccd $cicCccd -Name 'cic.cure-opens-recovery-window' -ExpectedCurrent 1 -ExpectedHighest 3 -RecoveryWindow
+            }
             $oldestUnpaid = [string](Field $view 'nextDueDate')
             # Mốc 3, 4: 181 và 361 ngày tính từ kỳ chưa trả cũ nhất sau khi khắc phục.
             Move-E2EClock -Date (& $plus $oldestUnpaid 181) -Services @('loan', 'payment')
@@ -2236,6 +2320,7 @@ function Invoke-DelinquencyFixture {
             $position = Wait-InvestorPosition -Investor $Investor -LoanId $loanId -ExpectedStatus 'DEFAULTED' -ExpectedGroup 5
             Add-E2ECheck -Name 'delinquency.dpd361-group5' -Passed $true -Detail "overdue=$(Field $view 'overdueAmount') outstanding=$(Field $view 'totalOutstanding')"
             Add-DelinquencyMilestone -Timeline $timeline -Name 'DPD_361' -View $view -Position $position
+            if ($null -ne $cic) { $null = Add-CicCheck -Cic $cic -Cccd $cicCccd -Name 'cic.dpd361-group5' -ExpectedCurrent 5 -ExpectedHighest 5 }
             # Trả hết: mọi kỳ đã quá hạn nên khoản khắc phục là toàn bộ dư nợ → SETTLED, vị thế CLOSED. Nếu Fineract còn phần lãi
             # sau ngày đáo hạn chưa vào nghĩa vụ (EOD chưa tính lại lãi) thì Loan thấy số quá hạn mới: trả tiếp theo nghĩa vụ mới,
             # tối đa ba lần, và ghi số lần trả vào evidence.
@@ -2263,6 +2348,30 @@ function Invoke-DelinquencyFixture {
     $expectedEvents = if ($Mode -eq 'OverdueCure') { 2 } else { 6 }
     Add-E2ECheck -Name 'delinquency.events-per-change' -Passed ($records.Count -ge $expectedEvents) `
         -Detail "records=$($records.Count) expectedAtLeast=$expectedEvents eventIds=$(@($records | ForEach-Object { $_.EventId } | Select-Object -Unique).Count)"
+    if ($null -ne $cic -and $cicCccd) {
+        # Mỗi event quá hạn (kể cả event tới trước mapping, được phát lại) tạo đúng một phiên bản hồ sơ append-only.
+        $eventIds = @($records | ForEach-Object { $_.EventId } | Where-Object { $_ } | Select-Object -Unique)
+        try {
+            $history = Wait-Step -Description 'CIC đủ phiên bản theo event' -TimeoutSeconds 60 -Probe {
+                $response = Invoke-E2EHttp -Method GET -Uri "$($cic.Url)/api/v1/ho-so/$cicCccd/lich-su"
+                $count = [int](Field $response.Json 'soPhienBan')
+                if ($count -ge $eventIds.Count) { return @{ Done = $true; Value = $count } }
+                return @{ State = "phienBan=$count events=$($eventIds.Count)" }
+            }
+            Add-E2ECheck -Name 'cic.one-version-per-event' -Passed ($history -eq $eventIds.Count) -Detail "phienBan=$history events=$($eventIds.Count)"
+        } catch {
+            Add-E2ECheck -Name 'cic.one-version-per-event' -Passed $false -Detail $_.Exception.Message
+        }
+        # Giao trùng: phát lại đúng record cuối (cùng eventId) không tạo phiên bản mới.
+        $last = @($records | Where-Object { $_.EventId }) | Select-Object -Last 1
+        if ($null -ne $last) {
+            $before = [int](Field (Invoke-E2EHttp -Method GET -Uri "$($cic.Url)/api/v1/ho-so/$cicCccd/lich-su").Json 'soPhienBan')
+            Send-E2EKafkaRecord -Container $KafkaContainer -Record $last
+            Start-Sleep -Seconds 10
+            $after = [int](Field (Invoke-E2EHttp -Method GET -Uri "$($cic.Url)/api/v1/ho-so/$cicCccd/lich-su").Json 'soPhienBan')
+            Add-E2ECheck -Name 'cic.duplicate-event-ignored' -Passed ($after -eq $before) -Detail "phienBan before=$before after=$after"
+        }
+    }
     Set-E2EEvidence 'servicingFixture' ([ordered]@{
         type = $Mode; firstDueDate = $firstDue; timeline = @($timeline)
         cures = @($cures | ForEach-Object { [ordered]@{ repaymentId = $_.RepaymentId; amount = (Format-E2EMoney $_.Amount); overdue = (Format-E2EMoney $_.Overdue)

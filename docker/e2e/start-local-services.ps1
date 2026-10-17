@@ -209,7 +209,7 @@ function Assert-JarFresh {
       ghi của jar với file mới nhất trong src/main và pom.xml của module, finora-common và pom gốc.
     #>
     param([string]$Module, [string]$Jar)
-    if ($AllowStaleJar) { return }
+    if ($allowStaleJars) { return }
     $jarTime = (Get-Item -LiteralPath $Jar).LastWriteTimeUtc
     $newest = $null
     foreach ($relative in @("$Module\src\main", "$Module\pom.xml", 'finora-common\src\main', 'finora-common\pom.xml', 'pom.xml')) {
@@ -379,6 +379,12 @@ $useToxiproxy = [bool]$WithToxiproxy
 if (-not $useToxiproxy -and $Action -eq 'Restart') {
     $recordedPayment = @((Read-State).processes | Where-Object { $_.name -eq 'payment' }) | Select-Object -First 1
     if ($recordedPayment -and [string](Get-E2EField $recordedPayment 'fineractVia') -eq 'toxiproxy') { $useToxiproxy = $true }
+}
+# B65: lệnh Restart do harness gọi giữa lượt (dời đồng hồ, drill) giữ đúng lựa chọn -AllowStaleJar của lượt Start, nếu không
+# lượt phát triển cố ý chạy jar cũ sẽ dừng ở lần dời đồng hồ đầu tiên.
+$allowStaleJars = [bool]$AllowStaleJar
+if (-not $allowStaleJars -and $Action -eq 'Restart') {
+    $allowStaleJars = @((Read-State).processes | Where-Object { $Services -contains $_.name -and [bool](Get-E2EField $_ 'staleJarAllowed') }).Count -gt 0
 }
 if ($useToxiproxy) {
     $catalog['payment'].Env['FINERACT_BASE_URL'] = "http://localhost:$toxiproxyFineractPort/fineract-provider/api/v1"
@@ -580,6 +586,7 @@ function Start-FinoraService {
         database = $(if ($localDatabases.Contains($Name)) { $Database } else { '' })
         fineractVia = $(if ($Name -eq 'payment' -and $useToxiproxy) { 'toxiproxy' } else { '' })
         ledger = $(if ($Name -eq 'blockchain') { if ($useFabric) { 'fabric' } else { 'mock' } } else { '' })
+        staleJarAllowed = $allowStaleJars
         startedAt = (Get-Date).ToUniversalTime().ToString('o')
     }
     Write-State -State $State

@@ -98,8 +98,9 @@ claim `user_id`) làm `borrowerId` và retry có lease. Task chỉ giữ `user_p
 
 Loan/Investment/Payment/AI dùng claim `user_id` (ID hồ sơ) làm `borrowerId`; từ Wave 2C mapping CIC cũng dùng đúng
 khóa này (B26 đã sửa ở `CicMappingWorker`, trước đó gửi `keycloakUserId`). Bản CIC Node đang deploy chỉ có API tra cứu
-điểm theo CCCD, chưa có endpoint mapping hay consumer Kafka (B27); worker mapping của User mặc định tắt
-(`USER_CIC_MAPPING_ENABLED=false`).
+điểm theo CCCD, chưa có endpoint mapping hay consumer Kafka (B27); nhánh `feat/finora-delinquency-intake` của
+`cic-service-node` bổ sung cả hai (D65, chờ Hải review). Worker mapping của User mặc định tắt
+(`USER_CIC_MAPPING_ENABLED=false`, B70): chỉ bật khi CIC đích lưu mapping riêng tư.
 
 CURRENT STATE: Keycloak và `finora-user` dùng PostgreSQL cài trực tiếp trên máy host
 (`localhost:5432`, database `keycloak` và `finora_user`); Docker chỉ còn chạy Keycloak và
