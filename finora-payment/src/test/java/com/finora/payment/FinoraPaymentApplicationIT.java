@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.finora.common.exception.BusinessException;
 import com.finora.payment.domain.ledger.LedgerBalanceBucket;
 import com.finora.payment.domain.ledger.LedgerDirection;
@@ -153,6 +154,9 @@ class FinoraPaymentApplicationIT {
 
     @Autowired
     private PaymentOutboxEventRepository outboxRepository;
+
+    @Autowired
+    private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     @Autowired
     private com.finora.payment.repository.servicing.PaymentLoanAccountRepository loanAccountRepository;
@@ -693,6 +697,21 @@ class FinoraPaymentApplicationIT {
         assertThat(held.transactionDate()).isEqualTo(today);
         assertThat(held.postOn()).isEqualTo(dueDate);
         assertThat(borrowerAvailable("BORROWER-531")).isEqualByComparingTo("0.00");
+        // P5 (D77): cùng transaction với bút toán trừ ví, Payment báo khoản giữ để Notification không nhắc kỳ này.
+        assertThat(outboxEvents("RepaymentCollected")).singleElement().satisfies(event -> {
+            assertThat(event.getAggregateId()).isEqualTo(Long.toString(applicationId));
+            assertThat(event.getEventVersion()).isEqualTo(1);
+            JsonNode data = json(event.getPayloadJson());
+            assertThat(data.path("repaymentId").asText()).isEqualTo(held.repaymentId().toString());
+            assertThat(data.path("loanApplicationId").asLong()).isEqualTo(applicationId);
+            assertThat(data.path("borrowerId").asText()).isEqualTo("BORROWER-531");
+            assertThat(data.path("repaymentType").asText()).isEqualTo("SCHEDULED");
+            assertThat(data.path("amount").isTextual()).isTrue();
+            assertThat(data.path("amount").asText()).isEqualTo("1725000.00");
+            assertThat(data.path("currency").asText()).isEqualTo("VND");
+            assertThat(data.path("dueDate").asText()).isEqualTo(dueDate.toString());
+            assertThat(data.path("collectedAt").isTextual()).isTrue();
+        });
         Long id = repaymentRepository.findByRepaymentId(held.repaymentId()).orElseThrow().getId();
         // D16: chưa tới ngày đến hạn thì worker không thấy, gọi trực tiếp cũng không ghi core.
         assertThat(repaymentService.collectedIds()).doesNotContain(id);
@@ -713,9 +732,10 @@ class FinoraPaymentApplicationIT {
         assertThatThrownBy(() -> earlySettlementQuoteService.create(applicationId))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getCode()).isEqualTo("INSTALLMENT_PENDING_POSTING"));
-        // Gửi lại đúng lệnh cũ vẫn trả kết quả cũ, không bị chặn.
+        // Gửi lại đúng lệnh cũ vẫn trả kết quả cũ, không bị chặn, và không phát event giữ lần hai.
         assertThat(repaymentService.create(applicationId, new BigDecimal("1725000.00"), today, "early-531")
                 .repaymentId()).isEqualTo(held.repaymentId());
+        assertThat(outboxEvents("RepaymentCollected")).hasSize(1);
 
         testClock.advance(Duration.ofDays(16));
         when(repaymentCoreGateway.postRepayment(any())).thenReturn(new PaymentRepayment.CoreBreakdown(
@@ -742,6 +762,18 @@ class FinoraPaymentApplicationIT {
         assertThat(walletRepository.findByOwnerTypeAndOwnerIdAndCurrency(
                 WalletOwnerType.INVESTOR, "INVESTOR-531", "VND").orElseThrow().getAvailableBalance())
                 .isEqualByComparingTo("1725000.00");
+        // P4: người vay nằm trong RepaymentDistributed (ID logic đã lưu trên khoản trả); kỳ tiếp theo vẫn từ Fineract.
+        assertThat(outboxEvents("RepaymentDistributed")).singleElement().satisfies(event -> {
+            JsonNode data = json(event.getPayloadJson());
+            assertThat(data.path("repaymentId").asText()).isEqualTo(held.repaymentId().toString());
+            assertThat(data.path("borrowerId").asText()).isEqualTo("BORROWER-531");
+            assertThat(data.path("nextDueDate").asText()).isEqualTo(dueDate.plusMonths(1).toString());
+            assertThat(data.path("nextDueAmount").asText()).isEqualTo("1725000.00");
+        });
+        assertThat(outboxEvents("RepaymentCancelled")).isEmpty();
+        // Consumer LoanDisbursed của Payment đọc bằng chính ObjectMapper này: field Loan bổ sung (P2/P3) bị bỏ qua.
+        assertThat(objectMapper.isEnabled(
+                com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)).isFalse();
     }
 
     @Test
@@ -761,13 +793,24 @@ class FinoraPaymentApplicationIT {
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getCode()).isEqualTo("REPAYMENT_OWNER_MISMATCH"));
         actAsBorrower("BORROWER-532");
+        assertThat(outboxEvents("RepaymentCancelled")).isEmpty();
         var cancelled = repaymentService.cancelPending(held.repaymentId());
         assertThat(cancelled.status()).isEqualTo(PaymentRepaymentStatus.CANCELLED);
         assertThat(borrowerAvailable("BORROWER-532")).isEqualByComparingTo("1725000.00");
-        // Hủy lại không hoàn tiền lần hai.
+        // Hủy lại không hoàn tiền lần hai và không phát RepaymentCancelled lần hai (P5, D77).
         assertThat(repaymentService.cancelPending(held.repaymentId()).status())
                 .isEqualTo(PaymentRepaymentStatus.CANCELLED);
         assertThat(borrowerAvailable("BORROWER-532")).isEqualByComparingTo("1725000.00");
+        assertThat(outboxEvents("RepaymentCollected")).hasSize(1);
+        assertThat(outboxEvents("RepaymentCancelled")).singleElement().satisfies(event -> {
+            assertThat(event.getAggregateId()).isEqualTo(Long.toString(applicationId));
+            JsonNode data = json(event.getPayloadJson());
+            assertThat(data.path("repaymentId").asText()).isEqualTo(held.repaymentId().toString());
+            assertThat(data.path("loanApplicationId").asLong()).isEqualTo(applicationId);
+            assertThat(data.path("borrowerId").asText()).isEqualTo("BORROWER-532");
+            assertThat(data.path("dueDate").asText()).isEqualTo(today.plusDays(10).toString());
+            assertThat(data.path("cancelledAt").isTextual()).isTrue();
+        });
         assertThat(repaymentService.scheduledDue(applicationId).pending()).isNull();
 
         when(repaymentCoreGateway.earlySettlementQuote(fineractLoanId, today)).thenReturn(new EarlySettlementCoreQuote(
@@ -805,6 +848,8 @@ class FinoraPaymentApplicationIT {
         assertThat(collected.postOn()).isNull();
         assertThat(repaymentService.collectedIds())
                 .contains(repaymentRepository.findByRepaymentId(collected.repaymentId()).orElseThrow().getId());
+        // Khoản ghi Fineract ngay không bị giữ: không có RepaymentCollected, RepaymentDistributed sẽ theo sau (D77).
+        assertThat(outboxEvents("RepaymentCollected")).isEmpty();
     }
 
     @Test
@@ -978,6 +1023,18 @@ class FinoraPaymentApplicationIT {
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getCode()).isEqualTo("PARTIAL_PREPAYMENT_QUOTE_STALE"));
         assertThat(borrowerAvailable("BORROWER-534")).isEqualByComparingTo("6275000.00");
+    }
+
+    private List<com.finora.payment.domain.outbox.PaymentOutboxEvent> outboxEvents(String eventType) {
+        return outboxRepository.findAll().stream().filter(event -> eventType.equals(event.getEventType())).toList();
+    }
+
+    private JsonNode json(String payload) {
+        try {
+            return objectMapper.readTree(payload);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
+            throw new IllegalStateException(exception);
+        }
     }
 
     private void issueNote(long applicationId, long listingId, long noteId, String investorId) {

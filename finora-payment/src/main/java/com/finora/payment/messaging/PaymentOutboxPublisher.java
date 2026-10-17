@@ -33,14 +33,7 @@ public class PaymentOutboxPublisher{
   PaymentOutboxEvent e=repository.findById(id).orElseThrow();
   try{JsonNode data=mapper.readTree(e.getPayloadJson());String envelope=mapper.writeValueAsString(
     new KafkaEventEnvelope(e.getEventId(),e.getCreatedAt().toString(),e.getEventVersion(),data));
-   String topic=switch(e.getEventType()){
-    case "DisbursementCompleted" -> environment.getProperty("finora.payment.disbursement-completed-topic","finora.payment.disbursement-completed");
-    case "DisbursementFailed" -> environment.getProperty("finora.payment.disbursement-failed-topic","finora.payment.disbursement-failed");
-    case "RepaymentDistributed" -> environment.getProperty("finora.payment.repayment-distributed-topic","finora.payment.repayment-distributed");
-    case "WithdrawalCompleted" -> environment.getProperty("finora.payment.withdrawal-completed-topic","finora.payment.withdrawal-completed");
-    case "WithdrawalFailed" -> environment.getProperty("finora.payment.withdrawal-failed-topic","finora.payment.withdrawal-failed");
-    default -> throw new IllegalArgumentException("Payment event chưa có Kafka route: "+e.getEventType());
-   };
+   String topic=topic(e.getEventType(),e.getEventVersion());
    ProducerRecord<String,String> record=new ProducerRecord<>(topic,e.getAggregateId(),envelope);
    record.headers().add("finora-event-id",e.getEventId().toString().getBytes(StandardCharsets.UTF_8));
    record.headers().add("finora-event-type",e.getEventType().getBytes(StandardCharsets.UTF_8));
@@ -54,6 +47,24 @@ public class PaymentOutboxPublisher{
   }catch(Exception ex){
    retryLater(e,ex);
   }
+ }
+ /**
+  * Allowlist route theo đúng loại + version event của Payment (mọi event hiện ở v1). Event/version chưa khai báo không
+  * được gửi (thử lại rồi {@code DEAD_LETTER}) thay vì rơi vào topic đoán. {@code RepaymentCollected}/
+  * {@code RepaymentCancelled} là P5 (W3F, D77), consumer Notification.
+  */
+ String topic(String eventType,int eventVersion){
+  if(eventVersion!=1)throw new IllegalArgumentException("Payment event chưa có Kafka route: "+eventType+" v"+eventVersion);
+  return switch(eventType){
+   case "DisbursementCompleted" -> environment.getProperty("finora.payment.disbursement-completed-topic","finora.payment.disbursement-completed");
+   case "DisbursementFailed" -> environment.getProperty("finora.payment.disbursement-failed-topic","finora.payment.disbursement-failed");
+   case "RepaymentDistributed" -> environment.getProperty("finora.payment.repayment-distributed-topic","finora.payment.repayment-distributed");
+   case "RepaymentCollected" -> environment.getProperty("finora.payment.repayment-collected-topic","finora.payment.repayment-collected");
+   case "RepaymentCancelled" -> environment.getProperty("finora.payment.repayment-cancelled-topic","finora.payment.repayment-cancelled");
+   case "WithdrawalCompleted" -> environment.getProperty("finora.payment.withdrawal-completed-topic","finora.payment.withdrawal-completed");
+   case "WithdrawalFailed" -> environment.getProperty("finora.payment.withdrawal-failed-topic","finora.payment.withdrawal-failed");
+   default -> throw new IllegalArgumentException("Payment event chưa có Kafka route: "+eventType+" v"+eventVersion);
+  };
  }
  private void retryLater(PaymentOutboxEvent e,Exception ex){
   log.warn("Publish Payment event thất bại, thử lại sau: eventId={}, type={}, error={}",

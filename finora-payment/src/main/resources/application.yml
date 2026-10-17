@@ -134,6 +134,9 @@ finora:
     loan-disbursed-topic: ${LOAN_DISBURSED_TOPIC:finora.loan.disbursed}
     note-ownership-changed-topic: ${INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC:finora.investment.note-ownership-changed}
     repayment-distributed-topic: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:finora.payment.repayment-distributed}
+    # P5 (W3F, D77): khoản trả kỳ trước hạn được giữ tới ngày đến hạn (D16) và lúc người vay hủy nó; consumer Notification.
+    repayment-collected-topic: ${PAYMENT_REPAYMENT_COLLECTED_TOPIC:finora.payment.repayment-collected}
+    repayment-cancelled-topic: ${PAYMENT_REPAYMENT_CANCELLED_TOPIC:finora.payment.repayment-cancelled}
     servicing-group: ${PAYMENT_SERVICING_GROUP:payment-servicing}
     repayment-worker-delay: ${PAYMENT_REPAYMENT_WORKER_DELAY:3000}
     reconciliation-worker-delay: ${PAYMENT_RECONCILIATION_WORKER_DELAY:30000}
