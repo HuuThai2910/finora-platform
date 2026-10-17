@@ -29,6 +29,8 @@ param(
     # Đưa lưu lượng Payment → Fineract qua Toxiproxy (container finora-toxiproxy, profile e2e-faults) để harness tiêm lỗi
     # mạng (Q13). Lưu vào state: các lần chạy lại Payment sau đó tự giữ đường đi này.
     [switch]$WithToxiproxy,
+    # Bỏ qua kiểm tra jar cũ hơn mã nguồn (B65). Chỉ dùng khi cố ý chạy lại bản build trước để so sánh hành vi.
+    [switch]$AllowStaleJar,
     [int]$StartTimeoutSeconds = 300
 )
 
@@ -189,6 +191,30 @@ function Write-State {
 function Get-JarPath {
     param([string]$Module)
     return (Join-Path $platformRoot "$Module\target\$Module-1.0.0-SNAPSHOT.jar")
+}
+
+function Assert-JarFresh {
+    <#
+      B65: evidence chạy trên jar build trước lần sửa mã thì sai lệch (route Gateway mới trả 404 vì jar cũ). So thời điểm
+      ghi của jar với file mới nhất trong src/main và pom.xml của module, finora-common và pom gốc.
+    #>
+    param([string]$Module, [string]$Jar)
+    if ($AllowStaleJar) { return }
+    $jarTime = (Get-Item -LiteralPath $Jar).LastWriteTimeUtc
+    $newest = $null
+    foreach ($relative in @("$Module\src\main", "$Module\pom.xml", 'finora-common\src\main', 'finora-common\pom.xml', 'pom.xml')) {
+        $path = Join-Path $platformRoot $relative
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+        $item = Get-Item -LiteralPath $path
+        $files = if ($item.PSIsContainer) { @(Get-ChildItem -LiteralPath $path -Recurse -File) } else { @($item) }
+        foreach ($file in $files) {
+            if ($null -eq $newest -or $file.LastWriteTimeUtc -gt $newest.LastWriteTimeUtc) { $newest = $file }
+        }
+    }
+    if ($null -ne $newest -and $newest.LastWriteTimeUtc -gt $jarTime) {
+        throw ("Jar $Module build lúc $($jarTime.ToLocalTime().ToString('s')) cũ hơn $($newest.FullName) " +
+            "(sửa lúc $($newest.LastWriteTimeUtc.ToLocalTime().ToString('s'))). Chạy lại với -Build; -AllowStaleJar nếu cố ý dùng jar cũ.")
+    }
 }
 
 function Invoke-Build {
@@ -422,6 +448,7 @@ function Start-FinoraService {
     if ($null -eq $spec) { throw "Service không có trong danh mục: $Name" }
     $jar = Get-JarPath -Module $spec.Module
     if (-not (Test-Path -LiteralPath $jar)) { throw "Thiếu $jar. Chạy lại với -Build." }
+    Assert-JarFresh -Module $spec.Module -Jar $jar
     if (Test-E2ETcpPort -Port $spec.Port) {
         throw "Cổng $($spec.Port) của $Name đang bị tiến trình khác dùng (IntelliJ?); dừng bản chạy ngoài launcher để cấu hình E2E có hiệu lực."
     }

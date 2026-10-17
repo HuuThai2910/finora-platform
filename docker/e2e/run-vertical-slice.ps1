@@ -174,9 +174,10 @@ function Register-E2EUser {
       Đăng ký hai bước như mobile: /register tạo challenge OTP, OTP đọc từ Redis User local (thay hộp thư),
       /verify-registration tạo tài khoản Keycloak + hồ sơ và trả token cho client mobile.
     #>
-    param([ValidateSet('BORROWER', 'INVESTOR')][string]$Role, [string]$Label)
+    param([ValidateSet('BORROWER', 'INVESTOR')][string]$Role, [string]$Label, [string]$Variant = '')
     $suffix = ($RunId -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
-    $email = "e2e.$($Role.ToLowerInvariant()).$suffix@finora.test"
+    # Variant phân biệt tài khoản thứ hai cùng vai trò trong một lượt (bước kiểm quyền chéo W3A).
+    $email = "e2e.$($Role.ToLowerInvariant())$Variant.$suffix@finora.test"
     $password = 'E2e!' + [Guid]::NewGuid().ToString('N').Substring(0, 16)
     $register = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/auth/register" `
         -Body @{ email = $email; password = $password; fullName = "E2E $Label $suffix"; role = $Role }
@@ -202,9 +203,11 @@ function Register-E2EUser {
 }
 
 function Get-PinToken {
-    param($Actor, [ValidateSet('REPAYMENT', 'INVEST', 'SIGN_CONTRACT')][string]$Scope)
+    <# Token PIN chỉ hợp lệ cho đúng thao tác có Idempotency-Key = RequestKey (D38, W3A). #>
+    param($Actor, [ValidateSet('REPAYMENT', 'INVEST', 'SIGN_CONTRACT', 'WITHDRAW')][string]$Scope,
+        [Parameter(Mandatory = $true)][string]$RequestKey)
     $response = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/users/me/pin/verify" -Token $Actor.Token `
-        -Body @{ pin = $Actor.Pin; scope = $Scope }
+        -Body @{ pin = $Actor.Pin; scope = $Scope; requestKey = $RequestKey }
     Assert-E2EStatus -Response $response -Expected 200 -Step "Xác thực PIN $Scope ($($Actor.Role))"
     return (Field $response.Json 'pinToken')
 }
@@ -881,7 +884,7 @@ function Fund-Listing {
 
     $listingId = [long](Field $Listing 'listingId')
     $orderKey = New-E2EKey -Prefix 'order'
-    $pinToken = Get-PinToken -Actor $Investor -Scope INVEST
+    $pinToken = Get-PinToken -Actor $Investor -Scope INVEST -RequestKey $orderKey
     # D6/LEGAL-DISCLOSURE-02: lệnh sơ cấp gửi kèm version công bố rủi ro nhà đầu tư vừa xác nhận trên màn hình.
     $orderBody = @{ amount = $LoanAmount; riskAcknowledgementVersion = $RiskDisclosureVersion }
     $order = Invoke-E2EHttp -Method POST -Uri "$InvestmentUrl/api/v1/investments/listings/$listingId/orders" -Token $Investor.Token `
@@ -938,7 +941,7 @@ function Sign-Contract {
         pdfDocumentHash = (Field $investorView.Json 'pdfDocumentHash')
         signatureMethod = (Field $investorView.Json 'availableSignatureMethod')
     }
-    $pinToken = Get-PinToken -Actor $Investor -Scope SIGN_CONTRACT
+    $pinToken = Get-PinToken -Actor $Investor -Scope SIGN_CONTRACT -RequestKey $signKey
     $lenderSign = Invoke-E2EHttp -Method POST -Uri "$LoanUrl/api/v1/investor/loan-contracts/$contractNumber/sign" -Token $Investor.Token `
         -Headers @{ 'Idempotency-Key' = $signKey; 'X-Pin-Token' = $pinToken } -Body $signBody
     Assert-E2EStatus -Response $lenderSign -Expected 200 -Step 'Investor ký hợp đồng'
@@ -958,9 +961,10 @@ function Sign-Contract {
     $borrowerPdfHash = Get-E2ESha256Hex -Bytes $borrowerPdf.Bytes
     Add-E2ECheck -Name 'contract.same-document-both-parties' -Passed ($borrowerPdfHash -eq $investorPdfHash -and $borrowerPdfHash -eq (Field $borrowerView 'pdfDocument.contentHash') -and (Field $borrowerView 'documentHash') -eq $signBody.documentHash) -Detail $borrowerPdfHash.Substring(0, 16)
 
-    $pinToken = Get-PinToken -Actor $Borrower -Scope SIGN_CONTRACT
+    $borrowerSignKey = New-E2EKey -Prefix 'sign-borrower'
+    $pinToken = Get-PinToken -Actor $Borrower -Scope SIGN_CONTRACT -RequestKey $borrowerSignKey
     $borrowerSign = Invoke-E2EHttp -Method POST -Uri "$LoanUrl/api/v1/loan-contracts/$contractNumber/sign" -Token $Borrower.Token `
-        -Headers @{ 'Idempotency-Key' = (New-E2EKey -Prefix 'sign-borrower'); 'X-Pin-Token' = $pinToken } -Body ([ordered]@{
+        -Headers @{ 'Idempotency-Key' = $borrowerSignKey; 'X-Pin-Token' = $pinToken } -Body ([ordered]@{
             version = [long](Field $borrowerView 'version')
             documentHash = (Field $borrowerView 'documentHash')
             pdfDocumentHash = (Field $borrowerView 'pdfDocument.contentHash')
@@ -1044,7 +1048,7 @@ function Wait-Disbursement {
 function Submit-ScheduledRepayment {
     <# Lệnh trả kỳ qua Gateway; trả nguyên response để bước gọi tự kiểm status (kể cả 409 có chủ đích). #>
     param($Borrower, [long]$LoanApplicationId, [decimal]$Amount, [string]$Key, [string]$PinToken)
-    if (-not $PinToken) { $PinToken = Get-PinToken -Actor $Borrower -Scope REPAYMENT }
+    if (-not $PinToken) { $PinToken = Get-PinToken -Actor $Borrower -Scope REPAYMENT -RequestKey $Key }
     return Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/repayments" -Token $Borrower.Token `
         -Headers @{ 'Idempotency-Key' = $Key; 'X-Pin-Token' = $PinToken } `
         -Body ([ordered]@{ loanApplicationId = $LoanApplicationId; amount = $Amount })
@@ -1101,9 +1105,10 @@ function Pay-Installment {
     $postedEarly = @(Field $coreHeld 'transactions' | Where-Object { (Field $_ 'externalId') -eq "FINORA-REPAY-$heldId" })
     Add-E2ECheck -Name 'repayment.held-not-posted-early' -Passed ($postedEarly.Count -eq 0) `
         -Detail "externalId=FINORA-REPAY-$heldId count=$($postedEarly.Count)"
-    $cancelPin = Get-PinToken -Actor $Borrower -Scope REPAYMENT
+    $cancelKey = New-E2EKey -Prefix 'repay-cancel'
+    $cancelPin = Get-PinToken -Actor $Borrower -Scope REPAYMENT -RequestKey $cancelKey
     $cancel = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/repayments/$heldId/cancel" -Token $Borrower.Token `
-        -Headers @{ 'X-Pin-Token' = $cancelPin } -EmptyJsonBody
+        -Headers @{ 'Idempotency-Key' = $cancelKey; 'X-Pin-Token' = $cancelPin } -EmptyJsonBody
     Assert-E2EStatus -Response $cancel -Expected 200 -Step 'Hủy khoản trả kỳ đang giữ'
     $afterCancel = Get-Wallet -Actor $Borrower
     Add-E2ECheck -Name 'repayment.cancel-refunds-held-installment' `
@@ -1115,7 +1120,13 @@ function Pay-Installment {
 
     # Lần 2: trả lại và giữ tới ngày đến hạn; dời đồng hồ tới đúng ngày đó để worker ghi core.
     $key = New-E2EKey -Prefix 'repay'
-    $pinToken = Get-PinToken -Actor $Borrower -Scope REPAYMENT
+    $pinToken = Get-PinToken -Actor $Borrower -Scope REPAYMENT -RequestKey $key
+    # D38: token PIN của thao tác này không dùng được cho một thao tác khác cùng scope, kể cả cùng số tiền.
+    $otherAction = Submit-ScheduledRepayment -Borrower $Borrower -LoanApplicationId $loanApplicationId -Amount $due `
+        -Key (New-E2EKey -Prefix 'repay-other') -PinToken $pinToken
+    Add-E2ECheck -Name 'security.pin-token-bound-to-one-action' `
+        -Passed ($otherAction.Status -eq 403 -and (Get-E2EErrorCode $otherAction) -eq 'PIN_TOKEN_INVALID') `
+        -Detail "HTTP $($otherAction.Status) $(Get-E2EErrorCode $otherAction)"
     $created = Submit-ScheduledRepayment -Borrower $Borrower -LoanApplicationId $loanApplicationId -Amount $due -Key $key -PinToken $pinToken
     Assert-E2EStatus -Response $created -Expected 200, 201 -Step 'Tạo lệnh trả nợ qua Gateway'
     $repaymentId = Field $created.Json 'repaymentId'
@@ -1255,6 +1266,150 @@ function Test-SettlementQuotePolicy {
     })
 }
 
+function Test-Denied {
+    <# Tài nguyên của người khác: 403 hoặc 404 đều là từ chối; 2xx là lộ dữ liệu. #>
+    param([string]$Name, $Response, [int[]]$Allowed = @(403, 404))
+    Add-E2ECheck -Name $Name -Passed ($Allowed -contains $Response.Status) `
+        -Detail "HTTP $($Response.Status) $(Get-E2EErrorCode $Response)"
+}
+
+function Invoke-AccessControlChecks {
+    <#
+      R8A (W3A): người dùng thứ hai cùng vai trò không đọc được tài nguyên của người thứ nhất chỉ bằng cách đổi ID;
+      người vay không gọi được API quản trị; AI và endpoint nội bộ Notification từ chối lời gọi không token; Gateway
+      chuyển đủ body POST tới AI (B43).
+    #>
+    param($Borrower, $Investor, $Admin, $Application, [string]$ContractNumber, $Loan, $Order, [string]$RepaymentId)
+    Write-E2EStep 'Kiểm quyền chéo giữa người dùng, vai trò và lời gọi không token (R8A)'
+    $otherBorrower = Register-E2EUser -Role BORROWER -Label 'Borrower khac' -Variant 'b'
+    $otherInvestor = Register-E2EUser -Role INVESTOR -Label 'Investor khac' -Variant 'b'
+    $applicationNumber = [string](Field $Application 'applicationNumber')
+    $applicationId = [long](Field $Application 'id')
+
+    Test-Denied 'access.other-borrower.application' (Invoke-E2EHttp -Method GET `
+        -Uri "$LoanUrl/api/v1/loan-applications/$applicationNumber" -Token $otherBorrower.Token)
+    Test-Denied 'access.other-borrower.contract' (Invoke-E2EHttp -Method GET `
+        -Uri "$LoanUrl/api/v1/loan-contracts/$ContractNumber" -Token $otherBorrower.Token)
+    Test-Denied 'access.other-borrower.contract-pdf' (Invoke-E2EHttp -Method GET `
+        -Uri "$LoanUrl/api/v1/loan-contracts/$ContractNumber/document" -Token $otherBorrower.Token -Binary)
+    Test-Denied 'access.other-borrower.servicing-loan' (Invoke-E2EHttp -Method GET `
+        -Uri "$LoanUrl/api/v1/loans/$($Loan.LoanNumber)" -Token $otherBorrower.Token)
+    Test-Denied 'access.other-borrower.scheduled-due' (Invoke-E2EHttp -Method GET `
+        -Uri "$GatewayUrl/api/v1/repayments/scheduled-due?loanApplicationId=$applicationId" -Token $otherBorrower.Token)
+    if ($RepaymentId) {
+        Test-Denied 'access.other-borrower.repayment' (Invoke-E2EHttp -Method GET `
+            -Uri "$GatewayUrl/api/v1/repayments/$RepaymentId" -Token $otherBorrower.Token)
+    }
+    $orderReference = [string](Field $Order 'orderReference')
+    Test-Denied 'access.other-investor.hold' (Invoke-E2EHttp -Method GET `
+        -Uri "$GatewayUrl/api/v1/transactions/holds?orderReference=$orderReference" -Token $otherInvestor.Token)
+    Test-Denied 'access.other-investor.contract' (Invoke-E2EHttp -Method GET `
+        -Uri "$LoanUrl/api/v1/investor/loan-contracts/$ContractNumber" -Token $otherInvestor.Token)
+
+    Test-Denied 'access.borrower-not-admin.disbursement-sagas' (Invoke-E2EHttp -Method GET `
+        -Uri "$LoanUrl/api/v1/admin/disbursement-sagas?status=COMPLETED&page=0&size=1" -Token $Borrower.Token) -Allowed @(403)
+    Test-Denied 'access.borrower-not-admin.repayment-reconciliation' (Invoke-E2EHttp -Method GET `
+        -Uri "$GatewayUrl/api/v1/admin/repayment-reconciliation" -Token $Borrower.Token) -Allowed @(403)
+    Test-Denied 'access.investor-not-admin.order-incidents' (Invoke-E2EHttp -Method GET `
+        -Uri "$GatewayUrl/api/v1/investments/admin/order-incidents" -Token $Investor.Token) -Allowed @(403)
+
+    $explainBody = @{ probe = 1 }
+    Test-Denied 'access.anonymous.ai-direct' (Invoke-E2EHttp -Method POST `
+        -Uri 'http://localhost:8000/api/v1/ai/credit/explain' -Body $explainBody) -Allowed @(401)
+    Test-Denied 'access.anonymous.ai-gateway' (Invoke-E2EHttp -Method POST `
+        -Uri "$GatewayUrl/api/v1/ai/credit/explain" -Body $explainBody) -Allowed @(401)
+    Test-Denied 'access.borrower.ai-scoring' (Invoke-E2EHttp -Method POST `
+        -Uri "$GatewayUrl/api/v1/ai/credit/explain" -Token $Borrower.Token -Body $explainBody) -Allowed @(403)
+    Test-Denied 'access.anonymous.notification-internal' (Invoke-E2EHttp -Method POST `
+        -Uri 'http://localhost:8086/api/internal/notifications/otp-email' `
+        -Body @{ email = 'khong-gui@finora.test'; otp = '123456' }) -Allowed @(401)
+    # Admin qua Gateway: body {"probe":1} tới AI đủ để FastAPI báo thiếu từng field (body tới nơi, B43), không phải
+    # "body: Field required" như khi Gateway nuốt body.
+    $adminExplain = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/ai/credit/explain" -Token $Admin.Token -Body $explainBody
+    $missing = @(Field $adminExplain.Json 'detail' | ForEach-Object { (@(Field $_ 'loc') -join '.') })
+    Add-E2ECheck -Name 'gateway.ai-post-body-forwarded' `
+        -Passed ($adminExplain.Status -eq 422 -and ($missing -contains 'body.loan_amnt') -and ($missing -notcontains 'body')) `
+        -Detail "HTTP $($adminExplain.Status) missing=$(($missing | Select-Object -First 3) -join ',')"
+}
+
+function Submit-Withdrawal {
+    <# Lệnh rút qua Gateway; token PIN WITHDRAW gắn với đúng Idempotency-Key (D38). Trả nguyên response. #>
+    param($Actor, [decimal]$Amount, [string]$AccountNumber, [string]$Key, [string]$PinToken)
+    if (-not $PinToken) { $PinToken = Get-PinToken -Actor $Actor -Scope WITHDRAW -RequestKey $Key }
+    return Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/wallets/me/withdrawals" -Token $Actor.Token `
+        -Headers @{ 'Idempotency-Key' = $Key; 'X-Pin-Token' = $PinToken } `
+        -Body ([ordered]@{ amount = $Amount; bankCode = 'VCB'; accountNumber = $AccountNumber; accountHolderName = 'Nguoi Vay Thu Nghiem' })
+}
+
+function Wait-WithdrawalFinal {
+    param($Actor, [string]$WithdrawalId, [string]$Description)
+    return Wait-Step -Description $Description -TimeoutSeconds 120 -Probe {
+        $detail = Invoke-E2EHttp -Method GET -Uri "$GatewayUrl/api/v1/wallets/me/withdrawals/$WithdrawalId" -Token $Actor.Token
+        $status = [string](Field $detail.Json 'status')
+        if ($status -in 'COMPLETED', 'FAILED') { return @{ Done = $true; Value = $detail.Json } }
+        return @{ State = $status }
+    }
+}
+
+function Invoke-WithdrawalChecks {
+    <#
+      R4 (W3B): người vay rút tiền về tài khoản ngân hàng qua provider giả lập. Thành công qua callback ký HMAC; tài khoản
+      kết thúc 0000 bị provider báo sai và tiền hoàn về ví; dưới mức tối thiểu và vượt hạn mức ngày bị chặn trước khi
+      tiền di chuyển; gửi lại cùng lệnh không trừ ví lần hai.
+    #>
+    param($Borrower, $Admin)
+    Write-E2EStep 'Rút tiền về tài khoản ngân hàng qua provider giả lập (R4)'
+    $policy = Invoke-E2EHttp -Method GET -Uri "$GatewayUrl/api/v1/wallets/withdrawal-policy" -Token $Borrower.Token
+    Assert-E2EStatus -Response $policy -Expected 200 -Step 'Đọc chính sách rút tiền'
+    Add-E2ECheck -Name 'withdrawal.policy' -Passed ((Money (Field $policy.Json 'minimumAmount')) -eq 50000 `
+        -and (Money (Field $policy.Json 'remainingToday')) -eq 50000000 -and (Field $policy.Json 'simulatedProvider') -eq $true) `
+        -Detail "minimum=$(Field $policy.Json 'minimumAmount') remaining=$(Field $policy.Json 'remainingToday') simulated=$(Field $policy.Json 'simulatedProvider')"
+
+    $below = Submit-Withdrawal -Actor $Borrower -Amount 49000 -AccountNumber '0123456789' -Key (New-E2EKey -Prefix 'wd-min')
+    Add-E2ECheck -Name 'withdrawal.below-minimum-rejected' `
+        -Passed ($below.Status -eq 422 -and (Get-E2EErrorCode $below) -eq 'WITHDRAWAL_BELOW_MINIMUM') `
+        -Detail "HTTP $($below.Status) $(Get-E2EErrorCode $below)"
+
+    $before = Get-Wallet -Actor $Borrower
+    $key = New-E2EKey -Prefix 'wd-ok'
+    $pin = Get-PinToken -Actor $Borrower -Scope WITHDRAW -RequestKey $key
+    $created = Submit-Withdrawal -Actor $Borrower -Amount 100000 -AccountNumber '0123456789' -Key $key -PinToken $pin
+    Assert-E2EStatus -Response $created -Expected 201 -Step 'Tạo lệnh rút'
+    $withdrawalId = [string](Field $created.Json 'withdrawalId')
+    $again = Submit-Withdrawal -Actor $Borrower -Amount 100000 -AccountNumber '0123456789' -Key $key -PinToken $pin
+    $afterRequest = Get-Wallet -Actor $Borrower
+    Add-E2ECheck -Name 'withdrawal.debited-once' `
+        -Passed ((Field $again.Json 'withdrawalId') -eq $withdrawalId -and ($before.Available - $afterRequest.Available) -eq 100000) `
+        -Detail "available $(Format-E2EMoney $before.Available) -> $(Format-E2EMoney $afterRequest.Available) replay=$($again.Status)"
+    Add-E2ECheck -Name 'withdrawal.account-masked' -Passed ((Field $created.Json 'accountNumberMasked') -eq '******6789') `
+        -Detail "masked=$(Field $created.Json 'accountNumberMasked')"
+    $completed = Wait-WithdrawalFinal -Actor $Borrower -WithdrawalId $withdrawalId -Description 'Provider giả lập gọi callback thành công'
+    Add-E2ECheck -Name 'withdrawal.completed-by-signed-callback' -Passed ((Field $completed 'status') -eq 'COMPLETED') `
+        -Detail "status=$(Field $completed 'status')"
+
+    $failedKey = New-E2EKey -Prefix 'wd-bad-account'
+    $failed = Submit-Withdrawal -Actor $Borrower -Amount 60000 -AccountNumber '123450000' -Key $failedKey
+    Assert-E2EStatus -Response $failed -Expected 201 -Step 'Tạo lệnh rút tới tài khoản sai'
+    $failedFinal = Wait-WithdrawalFinal -Actor $Borrower -WithdrawalId ([string](Field $failed.Json 'withdrawalId')) `
+        -Description 'Provider giả lập báo tài khoản sai'
+    $afterRefund = Get-Wallet -Actor $Borrower
+    Add-E2ECheck -Name 'withdrawal.failed-refunded' `
+        -Passed ((Field $failedFinal 'status') -eq 'FAILED' -and $afterRefund.Available -eq $afterRequest.Available) `
+        -Detail "status=$(Field $failedFinal 'status') code=$(Field $failedFinal 'failureCode') available=$(Format-E2EMoney $afterRefund.Available)"
+
+    $overLimit = Submit-Withdrawal -Actor $Borrower -Amount 50000000 -AccountNumber '0123456789' -Key (New-E2EKey -Prefix 'wd-limit')
+    Add-E2ECheck -Name 'withdrawal.daily-limit-enforced' `
+        -Passed ($overLimit.Status -eq 422 -and (Get-E2EErrorCode $overLimit) -eq 'WITHDRAWAL_DAILY_LIMIT') `
+        -Detail "HTTP $($overLimit.Status) $(Get-E2EErrorCode $overLimit)"
+
+    $queue = Invoke-E2EHttp -Method GET -Uri "$GatewayUrl/api/v1/admin/withdrawals" -Token $Admin.Token
+    Add-E2ECheck -Name 'withdrawal.admin-queue-reachable' -Passed ($queue.Status -eq 200) -Detail "HTTP $($queue.Status)"
+    Set-E2EEvidence 'withdrawal' ([ordered]@{
+        completed = $withdrawalId; failed = [string](Field $failed.Json 'withdrawalId')
+        availableBefore = $before.Available; availableAfter = $afterRefund.Available
+    })
+}
+
 function Collect-KafkaEvidence {
     param($Application, [string]$ContractNumber, [string]$RepaymentId)
     Write-E2EStep 'Event Kafka của luồng'
@@ -1378,7 +1533,7 @@ function Invoke-ServicingRepayment {
     param($Borrower, [string]$Path, $QuoteId, [decimal]$Total, [string]$Label)
     $borrowerBefore = Get-Wallet -Actor $Borrower
     $key = New-E2EKey -Prefix 'servicing'
-    $pinToken = Get-PinToken -Actor $Borrower -Scope REPAYMENT
+    $pinToken = Get-PinToken -Actor $Borrower -Scope REPAYMENT -RequestKey $key
     $created = Invoke-E2EHttp -Method POST -Uri "$GatewayUrl/api/v1/repayments/$Path" -Token $Borrower.Token `
         -Headers @{ 'Idempotency-Key' = $key; 'X-Pin-Token' = $pinToken } -Body @{ quoteId = $QuoteId }
     Assert-E2EStatus -Response $created -Expected 200, 201 -Step "Gửi lệnh $Label"
@@ -1888,7 +2043,7 @@ try {
         $application = Submit-Application -Borrower $borrower -Product $product
         Complete-Underwriting -Borrower $borrower -Admin $admin -Application $application
         $listing = Wait-Listing -Borrower $borrower -Investor $investor -Application $application
-        $null = Fund-Listing -Investor $investor -Listing $listing
+        $order = Fund-Listing -Investor $investor -Listing $listing
         $heldBeforeDisbursement = (Get-Wallet -Actor $investor).Held
         $borrowerBeforeDisbursement = Get-Wallet -Actor $borrower
         Prepare-FaultDrill
@@ -1909,9 +2064,13 @@ try {
                     # Báo giá tất toán theo hợp đồng được kiểm bên trong, sau khi hủy khoản trả kỳ đang giữ.
                     $paid = Pay-Installment -Borrower $borrower -Investor $investor -Application $application -Loan $loan -Admin $admin
                     $repaymentId = $paid.RepaymentId
+                    # R4: rút một phần tiền giải ngân còn trong ví sau khi đã trả kỳ (số nhỏ, không ảnh hưởng bước sau).
+                    if (-not $FaultDrill) { Invoke-WithdrawalChecks -Borrower $borrower -Admin $admin }
                 }
             }
         }
+        Invoke-AccessControlChecks -Borrower $borrower -Investor $investor -Admin $admin -Application $application `
+            -ContractNumber $contractNumber -Loan $loan -Order $order -RepaymentId $repaymentId
         $null = Collect-KafkaEvidence -Application $application -ContractNumber $contractNumber -RepaymentId $repaymentId
         if ($Drills -and $repaymentId) {
             Invoke-DuplicateDrills -Investor $investor -Application $application -ContractNumber $contractNumber -RepaymentId $repaymentId

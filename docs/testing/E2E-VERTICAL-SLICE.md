@@ -18,6 +18,8 @@ là R1B sau R2/R3. Task plan: [`R1A-e2e-vertical-slice-baseline.md`](../../.agen
 | KYC người vay trong Loan | Profile mock VERIFIED (profile `local`) | eKYC thật (adapter thuộc Wave 2) |
 | eKYC nhà đầu tư | Tắt bằng `INVESTMENT_REQUIRE_EKYC=false` chỉ trong stack E2E | Bỏ kiểm tra eKYC ở môi trường khác |
 | OTP đăng ký | Đọc `reg_otp:<email>` trong Redis User local | Email OTP |
+| Rút tiền về ngân hàng (W3B) | Provider payout `mock`: nhận lệnh, gọi callback HTTP thật có chữ ký HMAC tới Payment; tài khoản kết thúc `0000` mô phỏng tài khoản sai | Chuyển khoản ngân hàng, tiền thật |
+| Xác thực giữa service (W3A) | Client credentials Keycloak thật: `finora-loan-client` → AI, `finora-user-client` → AI OCR và Notification, `finora-ai-client` → User | — |
 
 ## 2. Hạ tầng Docker
 
@@ -27,6 +29,18 @@ docker compose --env-file docker/.env -f docker/docker-compose.yml --profile dem
 # Khi finora-user hoặc finora-common đổi code: build lại container User (launcher sẽ chặn nếu image cũ hơn commit)
 docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo up -d --build --no-deps user
 ```
+
+Từ Wave 3 (W3A) realm `finora` phải có client service và role mới trước lần chạy đầu. Chạy một lần cho mỗi realm (cần mật
+khẩu admin master của Keycloak; script không in secret, tự ghi secret vào `docker/.env`, `finora-loan/.env`, `finora-ai/.env`
+git-ignore), rồi tạo lại container AI và User để nhận image/secret mới:
+
+```bash
+KEYCLOAK_ADMIN_PASSWORD='<mật khẩu admin master>' bash docker/keycloak/add-service-clients.sh   # thêm --skip-brute-force nếu realm dùng chung
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile ai up -d --build --no-deps ai
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo up -d --build --no-deps user
+```
+
+Thiếu bước này thì AI trả `401/403` cho Loan (chấm điểm đứng ở hàng đợi retry) và User không gửi được email qua Notification.
 
 `blockchain-postgres` được launcher bật tự động. `docker/.env` hiện để trống mật khẩu của container này nên
 launcher sinh mật khẩu local một lần trong `docker/e2e/out/.env.e2e` (git-ignore) và dùng lại cho các lần sau.
@@ -41,6 +55,10 @@ powershell -ExecutionPolicy Bypass -File docker/e2e/start-local-services.ps1 -Ac
 # Chạy lại đúng một service (ví dụ sau khi build lại jar); các service khác giữ nguyên
 powershell -ExecutionPolicy Bypass -File docker/e2e/start-local-services.ps1 -Action Restart -Services payment
 ```
+
+Launcher từ chối bật service khi jar cũ hơn file mới nhất trong `src/main`/`pom.xml` của module, `finora-common` hoặc
+pom gốc (B65): evidence trên jar cũ cho kết quả sai, ví dụ route Gateway mới trả `404`. Thêm `-Build` để build lại;
+`-AllowStaleJar` chỉ dùng khi cố ý chạy lại bản build trước.
 
 `-PaymentClockOffset P<n>D` và `-LoanClockOffset P<n>D` (chỉ harness dùng, Q12) chạy Payment/Loan với đồng hồ lệch n
 ngày; Payment từ chối khởi động nếu provider giải ngân hoặc nạp tiền không phải `mock`, Loan từ chối nếu chữ ký không
@@ -157,6 +175,17 @@ không chứng minh hành vi của một provider thật.
 | Kafka | Mỗi topic của luồng có đúng một `eventId` cho business key | Kafka |
 | Drill | Phát lại event không tạo Note/tiền/thông báo/proof thứ hai | Investment + Payment + Notification + Blockchain |
 
+## 5b. Kiểm bảo mật và rút tiền (Wave 3)
+
+| Check | Ý nghĩa |
+|---|---|
+| `security.pin-token-bound-to-one-action` | Token PIN của lệnh trả kỳ dùng cho một `Idempotency-Key` khác bị `403 PIN_TOKEN_INVALID` (D38) |
+| `access.other-borrower.*`, `access.other-investor.*` | Người dùng thứ hai cùng vai trò đổi ID không đọc được hồ sơ, hợp đồng, PDF, khoản vay, khoản trả, khoản giữ của người thứ nhất (`403/404`) |
+| `access.borrower-not-admin.*`, `access.investor-not-admin.*` | Token người dùng gọi API quản trị nhận `403` |
+| `access.anonymous.*`, `access.borrower.ai-scoring` | AI (trực tiếp và qua Gateway) và endpoint nội bộ Notification từ chối lời gọi không token (`401`); token người vay không chấm điểm được (`403`) |
+| `gateway.ai-post-body-forwarded` | Admin gọi AI qua Gateway, FastAPI báo thiếu từng field: body POST tới nơi (B43) |
+| `withdrawal.*` | Chỉ ở fixture trả kỳ mặc định: policy, dưới mức tối thiểu bị chặn, trừ ví đúng một lần khi gửi lại, số tài khoản che, `COMPLETED` qua callback ký HMAC, tài khoản sai `FAILED` và hoàn tiền, vượt hạn mức ngày bị chặn, hàng đợi admin |
+
 ## 6. Evidence
 
 `docker/e2e/out/<runId>.json` gồm `environment` (dependency thật/mock), `accounts`, `product`, `application`,
@@ -185,6 +214,7 @@ của JVM bị drill tắt vẫn còn.
 | Triệu chứng | Nguyên nhân thường gặp |
 |---|---|
 | `Container finora-user tạo lúc … cũ hơn commit` | Build lại container User (mục 2) |
+| `Jar finora-… cũ hơn …` | Mã nguồn đã sửa sau lần build jar; chạy launcher với `-Build` (B65) |
 | `blockchain-postgres không healthy` | Script init có CRLF trong working copy; `.gitattributes` yêu cầu LF cho `*.sh` |
 | `Cổng 808x đang bị tiến trình khác dùng` | Dừng service chạy từ IntelliJ trước khi chạy launcher |
 | Lệnh gọi launcher không bao giờ kết thúc | Không pipe output của launcher (`\| Select-Object`, `\| Tee-Object`): JVM con giữ handle stdout nên pipeline không nhận EOF; chạy launcher trực tiếp |

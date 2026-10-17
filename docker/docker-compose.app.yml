@@ -250,6 +250,8 @@ services:
       PAYMENT_REDIS_PASSWORD: ""
       FINERACT_BASE_URL: http://fineract:8443/fineract-provider/api/v1
       FINERACT_REPAYMENT_PAYMENT_TYPE_ID: ${FINERACT_REPAYMENT_PAYMENT_TYPE_ID:-1}
+      # Provider payout giả lập gọi lại chính Payment qua tên service trong mạng Docker (R4).
+      PAYMENT_MOCK_PAYOUT_CALLBACK_URL: http://payment:8082/api/v1/wallets/callbacks/mock-payout
       INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC: ${INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC:-finora.investment.note-ownership-changed}
       PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:-finora.payment.repayment-distributed}
       PAYMENT_SERVICING_GROUP: ${PAYMENT_SERVICING_GROUP:-payment-servicing}
