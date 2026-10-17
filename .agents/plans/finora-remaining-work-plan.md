@@ -306,6 +306,29 @@ P1–P7, B58). CI GitHub trên `6f10d9c` xanh 11/11 job (run 39037702697). Mọi
 | `w3r-earlysettlement-20261017-214332` | Tất toán sớm | PASS | 67/67 |
 | `w3r-fabric-installment-20261017-214817` | Trả kỳ mặc định trên Hyperledger Fabric thật (-WithFabric) | PASS | 94/94 |
 
+## 3d. Việc tồn đọng sau Wave 3 (cập nhật 2026-10-17 tối)
+
+Danh sách làm tiếp, gom từ plan con, báo cáo của agent và quyết định trong buổi tối 2026-10-17. Mã `N..` chỉ dùng để theo
+dõi trong bảng này; defect/quyết định giữ mã gốc. Hướng dẫn máy dev sau khi pull: [`WAVE3-UPGRADE`](../../docs/ops/WAVE3-UPGRADE.md).
+
+| Mã | Ưu tiên | Owner | Việc | Điều kiện / nguồn |
+|---|---|---|---|---|
+| N01 | P1 | Thái + Claude | Test tay UI theo `docs/testing/UI-MANUAL-TEST-GUIDE.md`; xác nhận 12 điểm nghi lỗi ở §7.1 (ví dụ DPD phía nhà đầu tư không giảm sau khi trả bớt quá hạn, 91 so với 61 của Loan; tạo listing kẹt khi số tiền không chia hết mệnh giá Note; 500 thay 409 khi quyết định cơ cấu đã thẩm định) rồi ghi vào register từ B77 | Lần đầu chạy profile `apps` (N02) |
+| N02 | P1 | Thái | Lần đầu chạy profile `apps` (`docker/README.md` mục 1b) trên DB Neon: Flyway áp migration còn thiếu lên Neon dùng chung; báo Hải trước | Cấu hình đã kiểm bằng `docker compose config`, chưa chạy thật |
+| N03 | P1 | Hải | CIC: kho bền và riêng tư (Vercel Blob Private ≥ 2.3 hoặc DB) và xác thực cho API đọc `/api/v1/ho-so`, `/api/v1/nhat-ky`; bản deploy hiện ghi `/tmp` (mất khi instance khởi động lại) | B68, B70, D84 — bắt buộc trước khi có CCCD thật |
+| N04 | P1 | Thái (FINORA) + Hải (CIC) | Đẩy quá hạn sang CIC qua HTTPS: CIC thêm `POST /api/v1/internal/loan-delinquency-events` (khóa `X-Finora-Internal-Key`, body là envelope `LoanDelinquencyChanged.v1`, dùng lại xử lý chờ mapping/chống trùng theo `eventId`); Loan thêm bộ chuyển tiếp đọc `finora.loan.delinquency-changed` (group riêng), gửi có thử lại lùi dần, hết lượt vào DLT, cờ bật/tắt mặc định tắt. Ước lượng ~45 phút (CIC) + 1,5–2 giờ (Loan) | Vercel không đọc được Kafka local; cần N03 để dữ liệu bền |
+| N05 | P1 | Thái | Ký SmartCA UAT thật với PAdES (W3C §13): Loan chạy IntelliJ với `FINORA_SIGNATURE_PROVIDER=VNPT_SMART_CA`, Gateway chạy IntelliJ (Gateway trong Docker định tuyến tới tên container); kiểm giả định RSA PKCS#1 v1.5 | Cần duyệt trên app SmartCA |
+| N06 | P1 | Hải | Review và merge nhánh B76 `worktree-agent-a234c64210b1e0838` (D82, D83); sửa test B66; review phần của Hải đã vào `main` (AI CI, Investment, User, Notification) | Owner quyết định không merge B76 trong Wave 3 |
+| N07 | P1 | Thái | Đổi `CIC_INTERNAL_API_KEY` (giá trị đã lộ trong vùng chọn IDE gửi kèm tin nhắn) ở `docker/.env` và Vercel, rồi Redeploy | Trước khi có dữ liệu thật |
+| N08 | P2 | Thái | Push trên máy thật: EAS projectId (`EXPO_PUBLIC_EAS_PROJECT_ID`), development build, `NOTIFICATION_PUSH_PROVIDER=expo` | R7 |
+| N09 | P2 | Thái (owner) | Quyết định: bật nhắc lịch (D64); tên chủ tài khoản nhận tiền phải khớp eKYC (W3B §7); chặn tự đăng ký `ADMIN` (D20); cấu hình AI chuẩn (B44, Hải) | — |
+| N10 | P2 | Claude | Sửa 15 chỗ lệch tài liệu ở §7 của hướng dẫn test UI (nhãn cũ trong `finora-mobile/docs/LOAN-SERVICING-UI-TEST.md`, `finora-web/.env.example` thừa biến, chữ 429, quy tắc trả trước bản cũ…) | — |
+| N11 | P2 | Both | R9 còn lại: Prometheus/dashboard và cảnh báo, API đưa outbox `DEAD_LETTER` về hàng đợi (B57), test backup/restore, E2E trên CI với stack riêng mỗi job | R9 |
+| N12 | P2 | Both | R8B: redaction PII/secret trong log, mã hóa token thiết bị push, retention | Q17 để ngoài Wave 3 |
+| N13 | P3 | Hải | B82: dấu "đã nhả" theo `repaymentId` để Notification không đặt lại cờ giữ khi đọc bù hai topic P5 | Cần migration Notification |
+| N14 | P3 | Claude | Launcher: tùy chọn chữ ký SmartCA; `-WithLocalCic` tự trỏ mapping của User về CIC local (cùng khóa nội bộ) và trả về Vercel khi `Stop` | Tiện cho test |
+| N15 | P3 | Claude | Dọn worktree agent trong `.claude/worktrees` (giữ nhánh, nhất là B76); bỏ hoặc gộp `docker/docker-compose.app.yml` vì profile `apps` của `docker-compose.yml` thay thế (thiếu Notification, Blockchain; User đọc `finora-user/.env` không tồn tại) | — |
+
 ## 4. R0 — Đồng bộ source, roadmap và tài liệu
 
 ### Việc làm
