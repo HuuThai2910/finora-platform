@@ -1,0 +1,161 @@
+# CI của finora-platform (Q14, D19; W3E D55).
+#
+# Bốn nhóm job chạy song song, không cần secret thật:
+#   - rules:       .agents/scripts/validate-rules.ps1 (PowerShell 7 trên Linux)
+#   - secret-scan: gitleaks quét toàn bộ lịch sử git, chỉ in giá trị đã che
+#   - java:        mỗi module một job `mvn -pl <module> -am verify` (đúng cổng 06-quality-gates),
+#                  Testcontainers dùng Docker có sẵn của runner ubuntu
+#   - ai:          pytest của finora-ai; 10 test lệch cấu hình của B44 tách khỏi cổng chặn và báo riêng
+#
+# Mọi action pin theo commit SHA (tag ghi ở comment); gitleaks pin theo tag + digest image.
+# Khi nâng version: chọn bản đã phát hành ít nhất hai tuần, cập nhật SHA và comment cùng lúc.
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/**"
+      - "fix/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rules:
+    name: Rule validator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Kiểm tra rule/skill/entrypoint
+        shell: pwsh
+        run: ./.agents/scripts/validate-rules.ps1
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      # gitleaks OSS (MIT), không cần license key khi chạy bằng image thay cho gitleaks-action.
+      GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+    steps:
+      - name: Checkout toàn bộ lịch sử
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Quét secret trong mọi commit của HEAD
+        # --redact: log chỉ có vị trí và rule, không có giá trị. False positive đã duyệt nằm trong .gitleaksignore
+        # (fingerprint commit:file:rule:line) hoặc comment `gitleaks:allow` ngay trên dòng đó.
+        # --log-opts chỉ lấy lịch sử của HEAD: mặc định gitleaks quét `--all`, kéo cả nhánh khác chưa merge vào kết quả.
+        # safe.directory: repo thuộc user runner, git trong container chạy user khác nên phải khai báo tin cậy.
+        run: |
+          docker run --rm \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+            -v "${GITHUB_WORKSPACE}:/repo:ro" -w /repo \
+            "${GITLEAKS_IMAGE}" git /repo --log-opts="--full-history HEAD" \
+            --gitleaks-ignore-path /repo/.gitleaksignore --redact --no-banner --verbose
+
+  java:
+    name: Java verify (${{ matrix.module }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      # Một module đỏ không được che kết quả của module khác.
+      fail-fast: false
+      matrix:
+        module:
+          - finora-common
+          - finora-gateway
+          - finora-loan
+          - finora-payment
+          - finora-blockchain
+          - finora-investment
+          - finora-user
+          - finora-notification
+    env:
+      # Runner tự hủy sau job nên không cần Ryuk dọn container; image Ryuk của Testcontainers 1.19 dùng Docker API cũ.
+      TESTCONTAINERS_RYUK_DISABLED: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: JDK 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Docker API cho Testcontainers
+        # Testcontainers 1.19.7 (do Spring Boot 3.2.5 quản lý) mặc định gọi Docker API 1.32; Docker Engine 29 trên runner
+        # chỉ nhận từ 1.44. docker-java đọc api.version trong file này (biến DOCKER_API_VERSION không có tác dụng).
+        run: printf 'api.version=1.44\n' > "${HOME}/.docker-java.properties"
+      - name: mvn verify
+        run: mvn -B -ntp -pl "${{ matrix.module }}" -am verify
+      - name: Lưu báo cáo test khi đỏ
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: test-reports-${{ matrix.module }}
+          path: |
+            **/target/surefire-reports/
+            **/target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  ai:
+    name: AI tests (pytest)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: finora-ai
+    env:
+      # Danh sách node id lệch cấu hình của B44 (finora-remaining-work-plan mục 3b, Hải quyết cấu hình chuẩn).
+      KNOWN_FAILURES_FILE: ../.github/ci/ai-known-failures-b44.txt
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Python 3.12 (cùng image runtime docker/Dockerfile.ai)
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            finora-ai/requirements.txt
+            finora-ai/requirements-dev.txt
+      - name: Cài dependency
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: pytest (cổng chặn, trừ đúng các test B44)
+        # Chỉ bỏ chọn đúng node id trong file; test mới đỏ hoặc test B44 đổi tên vẫn làm job đỏ.
+        run: |
+          mapfile -t known < <(grep -Ev '^[[:space:]]*(#|$)' "${KNOWN_FAILURES_FILE}")
+          deselect=()
+          for id in "${known[@]}"; do deselect+=(--deselect "${id}"); done
+          python -m pytest -q -p no:cacheprovider "${deselect[@]}"
+      - name: pytest B44 (không chặn, báo trạng thái)
+        # Bước này đỏ là bình thường cho tới khi B44 được sửa; khi cả danh sách xanh thì xóa file và bỏ bước này.
+        continue-on-error: true
+        run: |
+          mapfile -t known < <(grep -Ev '^[[:space:]]*(#|$)' "${KNOWN_FAILURES_FILE}")
+          if python -m pytest -q -p no:cacheprovider -rf "${known[@]}"; then
+            echo "::notice title=B44::${#known[@]} test trong danh sách B44 đã xanh; xóa .github/ci/ai-known-failures-b44.txt"
+            echo "B44: ${#known[@]}/${#known[@]} test đã xanh, gỡ khỏi danh sách cách ly." >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "::warning title=B44::Còn test B44 đỏ (cách ly, không chặn merge); xem log bước này"
+            echo "B44: còn test lệch cấu hình (${#known[@]} test cách ly), không chặn merge." >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
