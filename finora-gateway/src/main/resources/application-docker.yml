@@ -20,7 +20,7 @@ spring:
           - id: payment-service
             uri: http://payment:8082
             predicates:
-              - Path=/api/v1/wallets/**,/api/v1/transactions/**,/api/v1/repayments/**,/api/v1/admin/repayment-reconciliation/**
+              - Path=/api/v1/wallets/**,/api/v1/transactions/**,/api/v1/repayments/**,/api/v1/admin/repayment-reconciliation/**,/api/v1/admin/disbursement-reconciliation/**
           - id: blockchain-service
             uri: http://blockchain:8083
             predicates:
