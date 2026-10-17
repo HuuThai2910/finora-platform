@@ -2,9 +2,12 @@ package com.finora.investment.client.impl;
 
 import com.finora.investment.client.PaymentClient;
 import com.finora.investment.client.PaymentHoldResult;
+import com.finora.investment.client.PaymentHoldView;
 import com.finora.investment.client.PaymentTransferResult;
 import java.math.BigDecimal;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -24,6 +27,9 @@ public class StubPaymentClient implements PaymentClient {
     private final Map<String, BigDecimal> availableBalances = new ConcurrentHashMap<>();
     private final Map<String, HeldFund> holds = new ConcurrentHashMap<>();
 
+    /** Mã lệnh đã nhả: gọi giữ tiền lại trả khoản cũ ở trạng thái RELEASED như Payment thật (R3). */
+    private final Set<String> releasedHolds = ConcurrentHashMap.newKeySet();
+
     /** Lần thanh toán từ tiền giữ đã thực hiện, khóa theo mã thanh toán để chống trùng lặp. */
     private final Map<String, Settlement> settlements = new ConcurrentHashMap<>();
 
@@ -41,6 +47,9 @@ public class StubPaymentClient implements PaymentClient {
         HeldFund existing = holds.get(orderReference);
         if (existing != null) {
             return PaymentHoldResult.ok(orderReference);
+        }
+        if (releasedHolds.contains(orderReference)) {
+            return PaymentHoldResult.alreadyReleased(orderReference);
         }
 
         boolean[] deducted = {false};
@@ -66,8 +75,32 @@ public class StubPaymentClient implements PaymentClient {
     }
 
     @Override
+    public synchronized Optional<PaymentHoldView> findHold(String orderReference) {
+        HeldFund held = holds.get(orderReference);
+        if (held != null) return Optional.of(new PaymentHoldView(orderReference, held.amount(), "HELD"));
+        if (releasedHolds.contains(orderReference)) {
+            return Optional.of(new PaymentHoldView(orderReference, BigDecimal.ZERO.setScale(2), "RELEASED"));
+        }
+        return Optional.empty();
+    }
+
+    /** Chỉ cho kiểm thử: lần nhả kế tiếp lỗi như Payment trả về, để thử đường lùi lịch và dừng cho vận hành (R3). */
+    private volatile com.finora.investment.client.PaymentCallException nextReleaseFailure;
+
+    public void failNextRelease(String code, boolean retryable) {
+        nextReleaseFailure = new com.finora.investment.client.PaymentCallException(
+                code, "Stub Payment từ chối nhả tiền", retryable, null);
+    }
+
+    @Override
     public synchronized void release(String holdReference, String orderReference) {
+        com.finora.investment.client.PaymentCallException failure = nextReleaseFailure;
+        if (failure != null) {
+            nextReleaseFailure = null;
+            throw failure;
+        }
         HeldFund released = holds.remove(holdReference);
+        releasedHolds.add(holdReference);
         if (released == null) {
             log.info("Stub Payment bỏ qua nhả tiền đã xử lý: orderReference={}", orderReference);
             return;

@@ -132,6 +132,9 @@ class FundingFlowIT {
     @Autowired
     private PortfolioService portfolioService;
 
+    @Autowired
+    private com.finora.investment.service.impl.OrderIncidentService orderIncidentService;
+
     private static final AtomicInteger LOAN_SEQUENCE = new AtomicInteger(1000);
 
     /**
@@ -425,7 +428,8 @@ class FundingFlowIT {
         LoanDisbursedEventData event = new LoanDisbursedEventData(
                 sagaId, listing.getLoanId(), listing.getApplicationNumber(), contractNumber, listing.getId(),
                 "3000000.00", "VND", "MOCK-PAYMENT-1", 9001L,
-                "FINORA-FINERACT-V2", now.plusSeconds(2));
+                "FINORA-FINERACT-V2", now.plusSeconds(2), "LN-DISBURSE-" + listing.getLoanId(),
+                java.time.LocalDate.of(2027, 3, 27));
         loanDisbursedEventHandler.handle(eventId, now.plusSeconds(2), event);
         loanDisbursedEventHandler.handle(eventId, now.plusSeconds(2), event);
 
@@ -437,6 +441,10 @@ class FundingFlowIT {
         assertThat(commitmentRepository.findByListingIdAndStatus(
                 listing.getId(), CommitmentStatus.FINALIZED)).hasSize(1);
         assertThat(noteRepository.findByLoanIdAndStatus(listing.getLoanId(), NoteStatus.ACTIVE)).hasSize(3);
+        // B34: vị thế có ngày đáo hạn theo core ngay sau giải ngân, không phải chờ lần cơ cấu đầu tiên.
+        actAs("INVESTOR-DISBURSE");
+        assertThat(portfolioService.portfolio().positions()).singleElement()
+                .satisfies(position -> assertThat(position.maturityDate()).isEqualTo(java.time.LocalDate.of(2027, 3, 27)));
     }
 
     @Test
@@ -814,6 +822,124 @@ class FundingFlowIT {
                 .isEqualTo(OrderStatus.COMMITTED);
         assertThat(listingRepository.findById(created.listingId()).orElseThrow().getCommittedAmount())
                 .isEqualByComparingTo("2000000.00");
+    }
+
+    @Test
+    @DisplayName("R3: lệnh chờ mà Payment đã giữ tiền được chốt theo khoản giữ đó, không giữ lần hai")
+    void pendingOrderWhoseHoldExistsIsCommittedWithoutHoldingTwice() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        BigDecimal before = stubPayment().availableBalance("INVESTOR-R3-HELD");
+        var pending = orderTransactions.createPendingOrder(created.listingId(), "INVESTOR-R3-HELD",
+                "key-r3-held", "hash-r3-held", new PlaceOrderRequest(new BigDecimal("2000000.00")));
+        // Lần giữ tiền trước đã thành công ở Payment nhưng Investment mất kết quả.
+        assertThat(stubPayment().hold("INVESTOR-R3-HELD", new BigDecimal("2000000.00"), pending.getOrderReference())
+                .isSuccess()).isTrue();
+        pending.setUpdatedAt(Instant.now().minusSeconds(600));
+        orderRepository.save(pending);
+
+        assertThat(fundingMaintenance.resumeStalePendingOrders(100)).isGreaterThanOrEqualTo(1);
+
+        var committed = orderRepository.findById(pending.getId()).orElseThrow();
+        assertThat(committed.getStatus()).isEqualTo(OrderStatus.COMMITTED);
+        assertThat(committed.getPaymentHoldReference()).isEqualTo(pending.getOrderReference());
+        assertThat(stubPayment().availableBalance("INVESTOR-R3-HELD"))
+                .isEqualByComparingTo(before.subtract(new BigDecimal("2000000.00")));
+    }
+
+    @Test
+    @DisplayName("R3: lệnh chờ có khoản giữ đã được nhả bị từ chối, không cam kết trên khoản không còn tiền")
+    void pendingOrderWhoseHoldWasAlreadyReleasedIsRejectedNotCommitted() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        var pending = orderTransactions.createPendingOrder(created.listingId(), "INVESTOR-R3-RELEASED",
+                "key-r3-released", "hash-r3-released", new PlaceOrderRequest(new BigDecimal("2000000.00")));
+        stubPayment().hold("INVESTOR-R3-RELEASED", new BigDecimal("2000000.00"), pending.getOrderReference());
+        stubPayment().release(pending.getOrderReference(), pending.getOrderReference());
+        BigDecimal before = stubPayment().availableBalance("INVESTOR-R3-RELEASED");
+        pending.setUpdatedAt(Instant.now().minusSeconds(600));
+        orderRepository.save(pending);
+
+        fundingMaintenance.resumeStalePendingOrders(100);
+
+        var rejected = orderRepository.findById(pending.getId()).orElseThrow();
+        assertThat(rejected.getStatus()).isEqualTo(OrderStatus.REJECTED);
+        assertThat(rejected.getRejectedReasonCode()).isEqualTo("PAYMENT_HOLD_ALREADY_RELEASED");
+        assertThat(rejected.getPaymentReleasedAt()).isNotNull();
+        assertThat(listingRepository.findById(created.listingId()).orElseThrow().getCommittedAmount())
+                .isEqualByComparingTo("0.00");
+        assertThat(stubPayment().availableBalance("INVESTOR-R3-RELEASED")).isEqualByComparingTo(before);
+    }
+
+    @Test
+    @DisplayName("R3: người dùng hủy lệnh thì tiền giữ được nhả sau khi lệnh đã hủy xong")
+    void userCancelReleasesTheHoldAfterTheOrderIsCancelled() {
+        actAs("INVESTOR-R3-CANCEL");
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        BigDecimal before = stubPayment().availableBalance("INVESTOR-R3-CANCEL");
+        OrderResponse order = fundingService.placeOrder(created.listingId(), "key-r3-cancel",
+                new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
+
+        fundingService.cancelOrder(order.orderReference());
+
+        var cancelled = orderRepository.findByOrderReference(order.orderReference()).orElseThrow();
+        assertThat(cancelled.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(cancelled.getPaymentReleasedAt()).isNotNull();
+        assertThat(stubPayment().availableBalance("INVESTOR-R3-CANCEL")).isEqualByComparingTo(before);
+    }
+
+    @Test
+    @DisplayName("R3: Payment từ chối nhả chắc chắn thì dừng cho vận hành; admin hẹn thử lại thì worker nhả được")
+    void releaseThatPaymentRefusesStopsForOperationsAndCanBeRetried() {
+        actAs("INVESTOR-R3-BLOCKED");
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        BigDecimal before = stubPayment().availableBalance("INVESTOR-R3-BLOCKED");
+        OrderResponse order = fundingService.placeOrder(created.listingId(), "key-r3-blocked",
+                new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
+        stubPayment().failNextRelease("PAYMENT_HOLD_NOT_RELEASABLE", false);
+
+        fundingService.cancelOrder(order.orderReference());
+
+        var blocked = orderRepository.findByOrderReference(order.orderReference()).orElseThrow();
+        assertThat(blocked.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(blocked.getPaymentReleasedAt()).isNull();
+        assertThat(blocked.getReleaseBlockedAt()).isNotNull();
+        assertThat(blocked.getReleaseErrorCode()).isEqualTo("PAYMENT_HOLD_NOT_RELEASABLE");
+        // Worker không quét lệnh đã dừng; vận hành thấy lệnh trên màn sự cố.
+        assertThat(orderRepository.findReleaseDue(Instant.now(), org.springframework.data.domain.PageRequest.of(0, 100)))
+                .noneMatch(item -> item.getOrderReference().equals(order.orderReference()));
+        assertThat(orderIncidentService.list(0, 100).getContent()).anySatisfy(incident -> {
+            assertThat(incident.orderReference()).isEqualTo(order.orderReference());
+            assertThat(incident.issue()).isEqualTo("RELEASE_BLOCKED");
+        });
+
+        orderIncidentService.retry(order.orderReference());
+        assertThat(fundingMaintenance.releasePendingHolds(100)).isGreaterThanOrEqualTo(1);
+
+        assertThat(orderRepository.findByOrderReference(order.orderReference()).orElseThrow().getPaymentReleasedAt())
+                .isNotNull();
+        assertThat(stubPayment().availableBalance("INVESTOR-R3-BLOCKED")).isEqualByComparingTo(before);
+    }
+
+    @Test
+    @DisplayName("R3: lỗi tạm thời khi nhả tiền lùi lịch thử lại thay vì chặn hàng đợi")
+    void retryableReleaseFailureBacksOffInsteadOfBlockingTheQueue() {
+        actAs("INVESTOR-R3-BACKOFF");
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        OrderResponse order = fundingService.placeOrder(created.listingId(), "key-r3-backoff",
+                new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
+        stubPayment().failNextRelease("PAYMENT_UNAVAILABLE", true);
+
+        fundingService.cancelOrder(order.orderReference());
+
+        var waiting = orderRepository.findByOrderReference(order.orderReference()).orElseThrow();
+        assertThat(waiting.getPaymentReleasedAt()).isNull();
+        assertThat(waiting.getReleaseBlockedAt()).isNull();
+        assertThat(waiting.getReleaseAttemptCount()).isEqualTo(1);
+        assertThat(waiting.getReleaseNextAttemptAt()).isAfter(Instant.now());
+        assertThat(orderRepository.findReleaseDue(Instant.now(), org.springframework.data.domain.PageRequest.of(0, 100)))
+                .noneMatch(item -> item.getOrderReference().equals(order.orderReference()));
+        assertThat(orderRepository.findReleaseDue(Instant.now().plusSeconds(3600),
+                org.springframework.data.domain.PageRequest.of(0, 100)))
+                .anyMatch(item -> item.getOrderReference().equals(order.orderReference()));
     }
 
     @Test

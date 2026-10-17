@@ -48,4 +48,35 @@ public interface InvestmentOrderRepository extends JpaRepository<InvestmentOrder
             ORDER BY o.id ASC
             """)
     List<InvestmentOrder> findReleasePending(Pageable pageable);
+
+    /** R3: lệnh chờ giữ tiền đủ cũ và đã tới lượt thử lại; lệnh lỗi lùi dần nên không chặn lệnh mới. */
+    @Query("""
+            SELECT o FROM InvestmentOrder o
+            WHERE o.status = 'PENDING_FUNDS' AND o.updatedAt < :before
+              AND (o.pendingNextAttemptAt IS NULL OR o.pendingNextAttemptAt <= :now)
+            ORDER BY COALESCE(o.pendingNextAttemptAt, o.updatedAt) ASC, o.id ASC
+            """)
+    List<InvestmentOrder> findPendingDue(@Param("before") Instant before, @Param("now") Instant now, Pageable pageable);
+
+    /** R3: khoản giữ chưa nhả, chưa bị dừng và đã tới lượt thử lại (index {@code ix_order_release_due}). */
+    @Query("""
+            SELECT o FROM InvestmentOrder o
+            WHERE o.status IN ('CANCELLED', 'REJECTED')
+              AND o.paymentHoldReference IS NOT NULL AND o.paymentReleasedAt IS NULL
+              AND o.releaseBlockedAt IS NULL
+              AND (o.releaseNextAttemptAt IS NULL OR o.releaseNextAttemptAt <= :now)
+            ORDER BY COALESCE(o.releaseNextAttemptAt, o.updatedAt) ASC, o.id ASC
+            """)
+    List<InvestmentOrder> findReleaseDue(@Param("now") Instant now, Pageable pageable);
+
+    /** R3: lệnh cần vận hành xem: nhả bị dừng, hoặc đã thử lại từ {@code threshold} lần mà chưa xong. */
+    @Query("""
+            SELECT o FROM InvestmentOrder o
+            WHERE o.releaseBlockedAt IS NOT NULL
+               OR (o.status = 'PENDING_FUNDS' AND o.pendingAttemptCount >= :threshold)
+               OR (o.status IN ('CANCELLED', 'REJECTED') AND o.paymentHoldReference IS NOT NULL
+                   AND o.paymentReleasedAt IS NULL AND o.releaseAttemptCount >= :threshold)
+            ORDER BY o.updatedAt ASC, o.id ASC
+            """)
+    Page<InvestmentOrder> findIncidents(@Param("threshold") int threshold, Pageable pageable);
 }

@@ -22,6 +22,7 @@ public class LoanDisbursedEventHandler{
  private final ProcessedEventRepository processed;private final MarketListingRepository listings;
  private final NoteIssuanceService notes;private final InvestmentNoteRepository noteRepository;
  private final InvestmentOutboxService outboxService;private final Clock clock;
+ private final com.finora.investment.repository.InvestmentLoanServicingStateRepository servicingStates;
  @Transactional public void handle(UUID eventId,Instant occurredAt,LoanDisbursedEventData data){
   if(processed.existsByEventId(eventId))return;
   MarketListing listing=listings.findByIdForUpdate(data.listingId()).orElseThrow(()->
@@ -48,7 +49,21 @@ public class LoanDisbursedEventHandler{
   listing.setDisbursementSagaId(data.sagaId());listing.setPaymentReference(data.paymentReference());
   listing.setFineractLoanId(data.fineractLoanId());listing.setDisbursedAt(data.disbursedAt());
   listing.setUpdatedBy("SYSTEM-LOAN-EVENT");listing.setUpdatedAt(clock.instant());
+  recordMaturity(data);
   processed.save(ProcessedEvent.create(eventId,"LoanDisbursed",1,"finora-loan",data.contractNumber(),occurredAt,clock.instant()));
+ }
+
+ /** B34: ngày đáo hạn theo core lúc giải ngân; event Loan bản cũ không có thì giữ như trước (chờ cơ cấu). */
+ private void recordMaturity(LoanDisbursedEventData data){
+  if(data.maturityDate()==null||data.loanNumber()==null||data.loanNumber().isBlank())return;
+  var now=clock.instant();
+  var current=servicingStates.findByApplicationIdForUpdate(data.loanApplicationId()).orElse(null);
+  if(current==null){
+   servicingStates.save(com.finora.investment.domain.note.InvestmentLoanServicingState.disbursed(
+    data.loanApplicationId(),data.loanNumber(),data.maturityDate(),now));
+  }else{
+   current.initializeMaturity(data.maturityDate(),now);
+  }
  }
 
  private void requireFinancialResult(MarketListing listing,LoanDisbursedEventData data){

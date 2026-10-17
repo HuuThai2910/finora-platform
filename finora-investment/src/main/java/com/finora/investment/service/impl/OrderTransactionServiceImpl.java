@@ -10,7 +10,6 @@ import com.finora.common.enums.investment.OrderStatus;
 import com.finora.investment.dto.request.PlaceOrderRequest;
 import com.finora.investment.dto.response.OrderResponse;
 import com.finora.investment.exception.InvestmentDomainException;
-import com.finora.investment.client.PaymentClient;
 import com.finora.investment.client.PaymentHoldResult;
 import com.finora.investment.mapper.InvestmentMapper;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
@@ -22,6 +21,7 @@ import com.finora.investment.service.OrderTransactionService;
 import com.finora.investment.service.messaging.AllocationSnapshotService;
 import com.finora.investment.service.outbox.InvestmentOutboxService;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,7 +39,6 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
     private final MarketListingRepository listingRepository;
     private final InvestmentOrderRepository orderRepository;
     private final InvestmentCommitmentRepository commitmentRepository;
-    private final PaymentClient paymentClient;
     private final InvestmentMapper mapper;
     private final AllocationSnapshotService allocationSnapshotService;
     private final InvestmentOutboxService outboxService;
@@ -106,18 +105,18 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
         BigDecimal amount = order.getAmount();
 
         if (listing.getStatus() != ListingStatus.OPEN) {
-            rejectAndRelease(order, holdReference, "LISTING_NOT_OPEN", "Khoản vay không còn nhận vốn", now);
+            rejectHeld(order, holdReference, "LISTING_NOT_OPEN", "Khoản vay không còn nhận vốn", now);
             return mapper.toOrderResponse(order);
         }
         if (!listing.getFundingClosesAt().isAfter(now)) {
-            rejectAndRelease(order, holdReference,
+            rejectHeld(order, holdReference,
                     "LISTING_WINDOW_CLOSED", "Đã hết hạn gọi vốn cho khoản vay này", now);
             return mapper.toOrderResponse(order);
         }
 
         BigDecimal remaining = listing.getTargetAmount().subtract(listing.getCommittedAmount());
         if (amount.compareTo(remaining) > 0) {
-            rejectAndRelease(order, holdReference, "LISTING_INSUFFICIENT_REMAINING",
+            rejectHeld(order, holdReference, "LISTING_INSUFFICIENT_REMAINING",
                     "Khoản vay chỉ còn nhận thêm " + remaining.toPlainString() + " đồng", now);
             log.info("Từ chối lệnh và nhả tiền: orderReference={}, reason=LISTING_INSUFFICIENT_REMAINING",
                     order.getOrderReference());
@@ -248,11 +247,12 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
         listing.setUpdatedAt(now);
         listingRepository.save(listing);
 
-        paymentClient.release(commitment.getPaymentHoldReference(), order.getOrderReference());
-        order.setPaymentReleasedAt(now);
-        order.setUpdatedAt(now);
+        // R3: không nhả tiền trong transaction này. Nhả trong transaction thì Payment có thể đã nhả mà Investment rollback,
+        // lệnh vẫn COMMITTED trên khoản giữ không còn tiền và cả đợt giải ngân sau đó hỏng. FundingService nhả sau khi
+        // commit; lỗi thì worker thử lại.
+        if (order.getPaymentHoldReference() == null) order.setPaymentHoldReference(commitment.getPaymentHoldReference());
 
-        log.info("Hủy lệnh và hoàn vốn: orderReference={}", orderReference);
+        log.info("Hủy lệnh, chờ nhả tiền giữ: orderReference={}", orderReference);
         return mapper.toOrderResponse(order);
     }
 
@@ -271,32 +271,93 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
                 .ifPresent(order -> {
                     Instant now = Instant.now();
                     order.setPaymentReleasedAt(now);
+                    order.setReleaseNextAttemptAt(null);
                     order.setUpdatedAt(now);
                 });
     }
 
-    /**
-     * Từ chối lệnh đã giữ tiền và thử nhả ngay. Ghi {@code paymentHoldReference} để nếu lần nhả này
-     * lỗi thì worker ({@code findReleasePending}) nhả lại — chỉ đánh dấu đã nhả khi Payment xác nhận.
-     */
-    private void rejectAndRelease(
-            InvestmentOrder order, String holdReference, String reasonCode, String reasonDetail, Instant now) {
-        order.setPaymentHoldReference(holdReference);
-        rejectOrder(order, reasonCode, reasonDetail, now);
-        if (releaseQuietly(order, holdReference)) {
+    @Override
+    @Transactional
+    public OrderResponse rejectWithReleasedHold(Long orderId, String holdReference) {
+        InvestmentOrder order = orderRepository.findById(orderId).orElseThrow();
+        if (order.getStatus() == OrderStatus.PENDING_FUNDS) {
+            Instant now = Instant.now();
+            order.setPaymentHoldReference(holdReference);
             order.setPaymentReleasedAt(now);
+            rejectOrder(order, "PAYMENT_HOLD_ALREADY_RELEASED", "Khoản giữ tiền của lệnh đã được nhả trước đó", now);
+            log.warn("Từ chối lệnh chờ vì khoản giữ đã được nhả: orderReference={}", order.getOrderReference());
+        }
+        return mapper.toOrderResponse(order);
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse rejectWithHoldAnomaly(Long orderId, String holdReference, String holdStatus) {
+        InvestmentOrder order = orderRepository.findById(orderId).orElseThrow();
+        if (order.getStatus() == OrderStatus.PENDING_FUNDS) {
+            Instant now = Instant.now();
+            order.setPaymentHoldReference(holdReference);
+            rejectOrder(order, "PAYMENT_HOLD_NOT_HELD", "Khoản giữ tiền của lệnh đang ở trạng thái " + holdStatus, now);
+            // Không tự nhả: khoản giữ đã vào giải ngân (hoặc lệch số tiền) là dữ liệu mâu thuẫn, vận hành phải đối chiếu.
+            order.setReleaseErrorCode("PAYMENT_HOLD_" + holdStatus);
+            order.setReleaseBlockedAt(now);
+            log.error("Lệnh chờ có khoản giữ không còn ở trạng thái giữ: orderReference={}, holdStatus={}",
+                    order.getOrderReference(), holdStatus);
+        }
+        return mapper.toOrderResponse(order);
+    }
+
+    @Override
+    @Transactional
+    public void recordReleaseFailure(Long orderId, String errorCode, boolean retryable, Instant now) {
+        InvestmentOrder order = orderRepository.findById(orderId).orElseThrow();
+        if (order.getPaymentReleasedAt() != null) return;
+        order.setReleaseAttemptCount(order.getReleaseAttemptCount() + 1);
+        order.setReleaseErrorCode(errorCode);
+        if (retryable) {
+            order.setReleaseNextAttemptAt(now.plus(backoff(order.getReleaseAttemptCount())));
+        } else {
+            order.setReleaseNextAttemptAt(null);
+            order.setReleaseBlockedAt(now);
         }
     }
 
-    private boolean releaseQuietly(InvestmentOrder order, String holdReference) {
-        try {
-            paymentClient.release(holdReference, order.getOrderReference());
-            return true;
-        } catch (RuntimeException e) {
-            log.warn("Chưa nhả được tiền giữ, worker sẽ thử lại: orderReference={}, exceptionType={}",
-                    order.getOrderReference(), e.getClass().getName());
-            return false;
-        }
+    @Override
+    @Transactional
+    public void recordPendingFailure(Long orderId, Instant now) {
+        InvestmentOrder order = orderRepository.findById(orderId).orElseThrow();
+        if (order.getStatus() != OrderStatus.PENDING_FUNDS) return;
+        order.setPendingAttemptCount(order.getPendingAttemptCount() + 1);
+        order.setPendingNextAttemptAt(now.plus(backoff(order.getPendingAttemptCount())));
+    }
+
+    @Override
+    @Transactional
+    public InvestmentOrder retryIncident(String orderReference) {
+        InvestmentOrder order = orderRepository.findByOrderReference(orderReference)
+                .orElseThrow(() -> InvestmentDomainException.notFound("ORDER_NOT_FOUND", "Không tìm thấy lệnh đầu tư"));
+        // Giữ mã lỗi và số lần thử để còn dấu vết; chỉ bỏ trạng thái dừng và lịch lùi để worker làm ở lượt kế tiếp.
+        order.setReleaseBlockedAt(null);
+        order.setReleaseNextAttemptAt(null);
+        order.setPendingNextAttemptAt(null);
+        order.setUpdatedBy(SecurityUtils.getCurrentUserId() == null ? "ADMIN" : SecurityUtils.getCurrentUserId());
+        return order;
+    }
+
+    /** 30 giây, 1, 2, 4... phút, tối đa 1 giờ giữa hai lần thử. */
+    private static Duration backoff(int attempts) {
+        long seconds = 30L << Math.min(Math.max(attempts - 1, 0), 7);
+        return Duration.ofSeconds(Math.min(seconds, 3600));
+    }
+
+    /**
+     * Từ chối lệnh đã giữ tiền. Ghi {@code paymentHoldReference} và để {@code paymentReleasedAt} trống: FundingService nhả
+     * ngay sau khi transaction này commit, lỗi thì worker ({@code findReleaseDue}) nhả lại (R3).
+     */
+    private void rejectHeld(
+            InvestmentOrder order, String holdReference, String reasonCode, String reasonDetail, Instant now) {
+        order.setPaymentHoldReference(holdReference);
+        rejectOrder(order, reasonCode, reasonDetail, now);
     }
 
     private void requirePlaceable(MarketListing listing, BigDecimal amount, Instant now) {
