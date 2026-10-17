@@ -24,8 +24,9 @@ là hai repository riêng nằm cùng workspace.
 - Payment có wallet, immutable balanced ledger, hold/release/capture, chuyển tiền nội bộ,
   mock top-up và ZaloPay sandbox callback. Luồng rút tiền/thanh toán ra ngoài thật và
   ZaloPay disbursement vẫn chưa hoàn thiện.
-- SmartCA hiện ký hash PDF và lưu bằng chứng chữ ký rời. File PDF chưa nhúng chữ ký PAdES;
-  nhiều bên ký cần incremental signing nếu triển khai giai đoạn sau.
+- Hợp đồng mới ký PAdES-B-B nhúng nối tiếp (W3C): SmartCA ký hash của signed attributes, PDFBox/BouncyCastle nhúng
+  CMS bằng incremental update, MOCK ký bằng chứng thư demo tự ký; biên nhận PDF riêng. Hợp đồng trước V32 giữ bằng
+  chứng rời. Chứng thư MOCK/UAT không có giá trị pháp lý.
 - Blockchain có proof store hash-only, idempotency, lease/retry/DLT và consumer bốn mốc (hợp đồng, giải ngân, trả nợ,
   Note); từ W3D có adapter + mạng Hyperledger Fabric local (`-WithFabric`, mặc định vẫn MOCK), API explorer/verify
   cho ADMIN. Proof servicing (tất toán/cơ cấu/nợ xấu) và trang explorer trên web còn thiếu.

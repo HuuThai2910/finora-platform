@@ -94,7 +94,7 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 - Sau click-wrap, Loan tạo thêm `SIGNED_RECEIPT` chứa bằng chứng actor/time/method; không ghi đè PDF `SIGNABLE` mà borrower đã đọc.
 - Loan lưu riêng `signatureProvider`, `signatureTransactionId` và `signatureEvidenceHash`. Với local/dev, provider phải ghi rõ `MOCK` và method `CLICK_WRAP_MVP`; không được hiển thị hoặc báo cáo nó như chữ ký số SmartCA.
 - Adapter VNPT SmartCA UAT chỉ đọc credential từ biến môi trường, kiểm tra chứng thư, gửi hash PDF và polling trạng thái. Contract chỉ thành `SIGNED` sau khi VNPT trả chữ ký đúng `transactionId + docId`; không lưu OTP/token/private key hoặc raw signature. Fixed signer bị khóa vào host UAT và không được bật production.
-- Receipt của adapter SmartCA hiện là bằng chứng chữ ký tách rời. Không được tuyên bố PDF đã có chữ ký PAdES nhúng cho tới khi tích hợp và kiểm chứng SDK/HashSigner chính thức tương thích. Cấu hình và giới hạn được ghi tại `docs/integrations/VNPT-SMARTCA-UAT.md`.
+- Từ W3C (R5), hợp đồng mới có chữ ký PAdES-B-B nhúng nối tiếp (bên cho vay trước, người vay cuối) và biên nhận PDF riêng ghi SHA-256 bản ký đủ; hợp đồng trước V32 giữ bằng chứng chữ ký tách rời. Chứng thư MOCK demo (`CN=FINORA DEMO - KHONG CO GIA TRI PHAP LY`) và chứng thư VNPT UAT **không phải chữ ký số có giá trị pháp lý**; app, trang ký và biên nhận ghi rõ. Click-wrap hay chữ ký số bắt buộc cho loại hợp đồng này vẫn `LEGAL-OPEN-03`; chứng thư production theo từng bên, dịch vụ tin cậy và dấu thời gian `NEEDS_LEGAL_REVIEW`. Cấu hình và giới hạn được ghi tại `docs/integrations/VNPT-SMARTCA-UAT.md`.
 - `documentHash` legacy và hash PDF là bằng chứng toàn vẹn kỹ thuật; chỉ đặt trong vùng đối chiếu, không dùng thay điều khoản chính và **không tự biến thao tác click thành chữ ký số**.
 - Contract nhiều bên chỉ được lập sau `LoanFullyFunded.v2`, khi danh sách nhà đầu tư, phần vốn,
   `allocationVersion` và `allocationHash` đã khóa. Mỗi bên cho vay ký cùng PDF/hash trước, sau đó người
@@ -126,6 +126,10 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
   được bảo vệ.
 - Số tài khoản ngân hàng nhận tiền rút (W3B) lưu dạng AES-256-GCM, API chỉ trả bản che `******1234`; event và log không
   mang số đầy đủ.
+- Chứng thư SmartCA thật có thể chứa CCCD trong subject; khi ký PAdES, chứng thư nằm trong PDF và DB Loan. FINORA không lưu
+  subject riêng, biên nhận chỉ in CN/serial/tổ chức cấp/vân tay. Dùng chứng thư thật cần legal review (`NEEDS_LEGAL_REVIEW`).
+- Push (W3F) không mang số tiền, tên hay số khoản vay; nội dung chi tiết chỉ trong app sau đăng nhập. Token thiết bị chưa
+  mã hóa khi lưu và chưa có retention (R8B).
 - Outbox Contract chỉ chứa business ID, hash/version, trạng thái ký và thời gian; không chứa CCCD, thu nhập, raw AI payload, OTP hoặc secret provider. Kafka adapter đã có allowlist theo exact event/version nhưng mặc định tắt và chưa có route/topic hoạt động; event listing chỉ được mở sau khi Loan–Investment duyệt payload tối thiểu.
 - Event servicing `LoanDelinquencyChanged.v1` chỉ chứa business ID, DPD, nhóm nợ nội bộ và
   breakdown tiền cần thiết; không chứa CCCD. Mapping `borrowerId ↔ CCCD` được bảo vệ bằng

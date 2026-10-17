@@ -93,9 +93,9 @@ SoR, ledger/event và khả năng retry.
 | R2 | P0 | Thai | Loan/Payment/Fineract | `IN_PROGRESS` | Restart/timeout/duplicate không giải ngân hoặc thu tiền hai lần; Wave 2 xong B06–B13 (`R2-W2` chờ review); Wave 2C xong B28–B30 và khoản trả kỳ giữ tới ngày đến hạn (`W2C` chờ review) |
 | R3 | P0 | Hai | Investment | `IN_PROGRESS` | Order–hold, Note activation, ownership và portfolio tự repair; Wave 2 xong B14–B16 (`R3-W2` chờ Hải review) |
 | R4 | P1 | Thai | Payment | `READY_FOR_REVIEW` | Rút tiền và provider disbursement sandbox chạy thật, đối soát được; W3B xong rút tiền qua provider payout giả lập (D41–D44), E2E `w3a-installment-20261017-184734`; provider thật chờ legal review |
-| R5 | P1 | Thai + Hai | Loan/Investment/SmartCA | `BACKLOG` | PDF có chữ ký nhúng của nhiều bên hoặc quyết định giữ receipt rời được duyệt |
-| R6 | P1 | Thai | Blockchain | `BACKLOG` | Fabric thật + proof/query/reconcile cho các mốc đã duyệt |
-| R7 | P1 | Hai | Notification | `IN_PROGRESS` | Template đầy đủ và push thật; lỗi provider không làm sai nghiệp vụ |
+| R5 | P1 | Thai + Hai | Loan/Investment/SmartCA | `READY_FOR_REVIEW` | PDF có chữ ký nhúng của nhiều bên hoặc quyết định giữ receipt rời được duyệt; W3C xong PAdES-B-B nối tiếp (D45–D49), MOCK ký bằng chứng thư demo; ký SmartCA UAT thật cần người duyệt trên app |
+| R6 | P1 | Thai | Blockchain | `READY_FOR_REVIEW` | Fabric thật + proof/query/reconcile cho các mốc đã duyệt; W3D xong mạng Fabric local 2 tổ chức, chaincode `finora-ledger`, bốn mốc, API quản trị (D50–D54); mặc định vẫn MOCK, bật bằng `-WithFabric` |
+| R7 | P1 | Hai | Notification | `READY_FOR_REVIEW` | Template đầy đủ và push thật; lỗi provider không làm sai nghiệp vụ; W3F xong thông báo theo domain event, Expo Push (token, preference, che nội dung màn khóa, retry/DEAD), nhắc lịch tắt mặc định (D60–D64); push thật trên máy thật và producer bổ sung `borrowerId` (P1–P7) còn lại |
 | R8 | P1 | Both | Security | `IN_PROGRESS` | RBAC/resource auth, PII/secret/log và abuse controls được kiểm chứng; R8A xong ở W3A (D33–D40, E2E `w3a-installment-20261017-184734`), chặn tự đăng ký `ADMIN` hoãn (D20) |
 | R9 | P1 | Both | Ops | `BACKLOG` | Health, metrics, alert, replay/DLT và deployment tái lập được |
 | R10 | P2 | Hai | AI | `BACKLOG` | Backtest/champion-challenger, fraud và early warning có metric |
@@ -152,6 +152,23 @@ lựa chọn kỹ thuật còn lại, miễn phù hợp nghiệp vụ và chạy
 | D42 | Kết quả chi tiền chưa rõ không bao giờ gửi lệnh chi mới: tra cứu provider theo `withdrawalId`; chỉ gửi lại với đúng mã khi provider khẳng định chưa nhận | Nghiệp vụ | 3 (W3B) |
 | D43 | Provider payout mock gọi callback HTTP thật, ký HMAC-SHA256 trên body; tài khoản kết thúc `0000` mô phỏng tài khoản sai; endpoint callback 404 khi provider không phải mock | Kỹ thuật | 3 (W3B) |
 | D44 | Số tài khoản nhận tiền mã hóa AES-256-GCM, chỉ trả bản che; hash idempotency dùng HMAC của số tài khoản để không dò ngược được | Security | 3 (W3B) |
+| D45 | Biên nhận chữ ký là PDF riêng (`PADES_RECEIPT_V1`) lập sau chữ ký cuối, ghi SHA-256 bản ký đủ; `/document` trả bản ký đủ khi hoàn tất, biên nhận ở `/receipt`. Chèn trang sau khi ký làm trình đọc coi chữ ký trước bị sửa | Kỹ thuật | 3 (W3C) |
+| D46 | Chuỗi bản ký lưu ở bảng mới `loan_contract_signatures` (PREPARED/SIGNED/ABANDONED); giữ `UNIQUE(contract_id, artifact_type)` của V9, chỉ thêm loại `SIGNED_PDF` | Kỹ thuật | 3 (W3C) |
+| D47 | Bên cho vay ký theo thứ tự hoàn tất, mỗi lúc một phiên ký trên một hợp đồng (khóa + partial unique), người vay ký cuối; consent nhận hash SIGNABLE nên client không đổi request | Nghiệp vụ | 3 (W3C) |
+| D48 | PAdES-B-B (`ETSI.CAdES.detached`, SHA-256, RSA PKCS#1 v1.5, content-type/message-digest/signing-certificate-v2, không signing-time), chữ ký ẩn, chừa 16 KiB, kiểm chữ ký của provider trước khi nhúng; worker hỏi SmartCA 15 giây/lần, đóng phiên sau 10 phút | Kỹ thuật | 3 (W3C) |
+| D49 | Hồ sơ ký chốt lúc lập hợp đồng; hợp đồng trước V32 giữ luồng bằng chứng rời; `FINORA_SIGNATURE_PADES_ENABLED=false` là đường lùi; MOCK ký PAdES thật bằng chứng thư tự ký `CN=FINORA DEMO - KHONG CO GIA TRI PHAP LY`; không lưu subject chứng thư | Kỹ thuật | 3 (W3C) |
+| D50 | Mạng Fabric 2.5.16 LTS local: một orderer Raft, Org1MSP (FINORA ghi) và Org2MSP (kiểm toán), mỗi tổ chức một peer LevelDB, TLS, endorsement MAJORITY (cả hai tổ chức ký); crypto cryptogen git-ignore; chỉ mở gateway peer0.org1 tại `127.0.0.1:7051`; kiểm ≥ 768 MiB RAM Docker trước khi bật | Kỹ thuật | 3 (W3D) |
+| D51 | Chaincode `finora-ledger` (Go, chaincode-as-a-service): ghi một lần, cùng id cùng hash trả bản cũ, hash khác hoặc mốc thứ hai bị từ chối, chỉ Org1MSP ghi, allowlist đầu vào; `RegisterProof`, `GetProof`, `GetProofsByAggregate` | Kỹ thuật | 3 (W3D) |
+| D52 | Bốn mốc neo hash: hợp đồng đủ chữ ký (`LoanContractActivated`), giải ngân (`LoanDisbursed`), trả nợ (`RepaymentDistributed`), phát hành/chuyển nhượng Note (`NoteOwnershipChanged`); hash v2 = SHA-256 JSON chuẩn hóa của `data` (khóa sắp xếp, bỏ null, chỉ số nguyên), chỉ lưu hash; quyết định servicing hoãn | Nghiệp vụ | 3 (W3D) |
+| D53 | Adapter `fabric-gateway` 1.4.0, danh tính `User1@org1` đọc từ file PEM; timeout evaluate 5 s, endorse 15 s, submit 5 s, commit 60 s; lỗi phân loại retry (unavailable, timeout, commit chưa rõ, MVCC) và vĩnh viễn (chaincode từ chối, danh tính, giao dịch sai) | Kỹ thuật | 3 (W3D) |
+| D54 | API proof chỉ `ROLE_ADMIN`: tra theo tham chiếu nghiệp vụ hoặc trạng thái, verify (artifact + DB ↔ chain), retry `DEAD_LETTER`; worker đối soát định kỳ opt-in; lỗi consume vào `<topic>.DLT` | Security | 3 (W3D) |
+| D60 | Người nhận thông báo lấy từ event, thiếu thì từ bảng tra dựng từ `LoanFundingRequested`/`LoanFullyFunded.v2`; event mâu thuẫn người vay đã lưu thì vào DLT, không gửi ai; group mới `notification-domain-events` | Nghiệp vụ | 3 (W3F) |
+| D61 | Quá hạn chỉ báo khi bắt đầu quá hạn, lên nhóm nợ, thành nợ xấu hoặc khắc phục; bỏ thông báo hằng ngày, cả phía nhà đầu tư | Nghiệp vụ | 3 (W3F) |
+| D62 | Expo Push: provider `log` (giả lập, mặc định, cổng môi trường chặn ở staging/production), `expo`, `disabled`; tối đa 5 thiết bị mỗi người, token chuyển chủ khi tài khoản khác đăng ký, thu hồi khi đăng xuất/`DeviceNotRegistered`; 6 lần thử rồi `DEAD`; không push event cũ hơn 24 giờ, 22:00–07:00 hoãn tới 07:00 (trừ rút tiền) | Kỹ thuật | 3 (W3F) |
+| D63 | Nội dung push không có số tiền, tên, số khoản vay (test kiểm mọi template không có chữ số); push quá hạn chung chung; in-app luôn bật, push bật mặc định và tắt được theo nhóm | Security | 3 (W3F) |
+| D64 | Nhắc lịch trước 3 ngày và đúng ngày đến hạn, bỏ kỳ Payment đang giữ (D16); **tắt mặc định** tới khi Payment phát event giữ/hủy khoản trả kỳ (P5), nếu không người trả sớm vẫn bị nhắc | Nghiệp vụ | 3 (W3F) |
+| D65 | CIC nhận nợ quá hạn: hoàn thiện Task 2–4 trong plan của Hải (`cic-service-node`) trên nhánh `feat/finora-delinquency-intake`, không deploy, Hải review trước merge. FINORA giữ nguyên producer (`LoanDelinquencyChanged.v1`, mapping `X-Finora-Internal-Key` của User). E2E chạy CIC Node local có Kafka consumer; mặc định vẫn là bản deploy (D1). Bản Vercel không giữ được Kafka consumer nên chỉ nhận mapping | Phạm vi | 3 |
+| D75 | Không thêm `signedPdfHash` vào `LoanContractActivated.v1`: proof `CONTRACT_DOCUMENT` neo `pdfReceiptHash`, biên nhận `PADES_RECEIPT_V1` ghi SHA-256 bản ký đủ, nên chuỗi proof → biên nhận → PDF ký đủ kiểm được; harness kiểm `proof.contract-anchors-signed-receipt` | Kỹ thuật | 3 |
 | D28 | Sửa B32: admin "Ghi lại vào hệ thống lõi" cho khoản trả nợ `RECONCILIATION_REQUIRED` sau khoảng an toàn (`PAYMENT_CORE_REPOST_SAFE_AFTER`, mặc định 15 phút): tra cứu theo externalId trước, chỉ POST khi Fineract chưa có, dùng đúng externalId/số tiền/ngày ghi nhận ban đầu; Fineract từ chối thì tra cứu lại rồi mới hoàn tiền. Chọn thao tác thủ công có điều kiện thay cho tự động ghi lại vì đây là ngoại lệ tài chính cần người chịu trách nhiệm; mỗi lần ghi lại lưu ai và lúc nào | Nghiệp vụ | 2D (xong) |
 
 ## 3b. Defect register
@@ -205,6 +222,21 @@ Nguồn: rà soát code ngày 2026-10-16/17 và evidence R1A (`docker/e2e/out/r1
 | B42 | P1 | R2 | Spring 6.1 `RestClient` + `SimpleClientHttpRequestFactory` báo mất phản hồi/ngắt kết nối khi đang chờ phản hồi của POST bằng `RestClientException`, không phải `ResourceAccessException`. Payment ghi repayment đó là `FINERACT_REPAYMENT_UNEXPECTED` (vẫn đối soát, không hoàn tiền, nhưng sai nhãn cho vận hành); Loan coi reset khi ghi khoản vay là `FINERACT_UNEXPECTED_ERROR` không retry → saga dừng `REPAIR_REQUIRED` dù tra theo số hợp đồng là an toàn; AI scoring tương tự. Phát hiện ở drill Q13 `FineractResponseLost`/`FineractRequestLost` | Fixed Wave 2D (D32) — phân loại theo cause chain; `FineractRepaymentConnectionLossTest` (socket thật), `FineractHttpClientTest`, `AiCreditScoringHttpClientTest`; drill chạy lại `w2d-drill-responselost-20261017-154203`, `w2d-drill-requestlost-20261017-154552`, `w2d-drill-paymentcrash-20261017-155545` |
 | B43 | P1 | R8 | Gateway nuốt body POST tới AI (422 "body: Field required"): JDK `HttpClient` của Gateway MVC gửi `Upgrade: h2c`, uvicorn 0.27 giữ body chờ nâng cấp. Vì vậy web admin gọi thẳng AI cổng 8000 không xác thực | Fixed Wave 3 (W3A, D33) — `UpstreamHttpClientConfigTest`, `UpstreamHttpClientWiringTest` |
 | B44 | P2 | AI | AI test suite: TestClient của Starlette 0.35 (FastAPI 0.109) không chạy với httpx 0.28 mà google-genai bắt buộc, nên mọi test dùng TestClient lỗi khi tạo client; thiếu `pytest-asyncio`/`pytest-httpx`. Sau khi sửa môi trường còn 10 test đỏ từ trước W3A: thứ tự/ngưỡng luật trong `config/product_config.json` lệch test (`test_rule_engine`, `test_config_rules_api::test_xoa_luat_mac_dinh`) và payload cũ của `TestRouterV14` | Partly fixed Wave 3 — FastAPI 0.115.6 + `requirements-dev.txt`; 10 test lệch cấu hình chờ Hải quyết cấu hình nào là chuẩn (đổi bên nào cũng đổi điểm tín dụng đang chạy) |
+| B45 | P1 | R5 | SmartCA ký SHA-256 của cả tệp (`data_to_be_signed = pdfDocumentHash`), giá trị chữ ký chỉ được băm rồi bỏ: PDF không có chữ ký nhúng, không ai kiểm được chữ ký từ tệp | Fixed W3C — ký hash signed attributes và nhúng CMS; `PadesSignatureChainTest`, IT PAdES |
+| B46 | P1 | R5 | `get_certificate` bỏ qua `cert_data`/`chain_data`, không kiểm hạn/khóa, chỉ đọc `cert_status_code` (đặc tả 4.1 dùng `cert_status = "Đang hoạt động"`) | Fixed W3C — `VnptSmartCaSignatureProviderTest` |
+| B47 | P2 | R5 | Không có worker hỏi SmartCA: người dùng xác nhận trên app mà không quay lại FINORA thì chữ ký không được ghi; phiên bỏ dở treo `SIGNING` | Fixed W3C — `ContractPdfSignatureWorker`; IT bất đồng bộ |
+| B48 | P2 | R5 | Ràng buộc V9 `UNIQUE(contract_id, artifact_type)` không chứa được các bản ký nối tiếp | Fixed W3C bằng bảng riêng (D46) |
+| B49 | P3 | R5 | Hết hạn trong lúc ký ghi history `from_status = PENDING_SIGNATURE` cố định, sai với hợp đồng nhiều bên | Fixed W3C |
+| B50 | P1 | R6 | Worker gửi proof tới ledger đang cấu hình: đổi provider thì proof Fabric có thể nhận receipt MOCK (và ngược lại), DB không chặn | Fixed W3D — định dạng receipt tách biệt, worker và check constraint theo provider |
+| B51 | P1 | R6 | Hash proof repayment cũ phụ thuộc thứ tự khóa JSON; outbox Payment lưu JSONB nên đảo khóa, auditor không tính lại được | Fixed W3D — hash v2 JSON chuẩn hóa; proof v1 vẫn kiểm được |
+| B52 | P1 | R6 | Consumer Blockchain không có error handler: DB lỗi khi consume làm mất yêu cầu proof sau 10 lần thử liền, không có DLT | Fixed W3D — `<topic>.DLT` |
+| B53 | P2 | R6 | Proof id ngẫu nhiên: cùng mốc phát lại với eventId mới tạo proof logic thứ hai | Fixed W3D — UUIDv5 theo mốc + unique index + index trong chaincode |
+| B54 | P2 | R6 | Blockchain không cấu hình JWT resource server: mọi endpoint, kể cả health, rơi về user Basic auth do Spring sinh | Fixed W3D — `BlockchainSecurityConfig` |
+| B60 | P2 | R7 | Nhà đầu tư nhận một thông báo mới mỗi ngày khoản vay còn quá hạn | Fixed W3F (D61) |
+| B61 | P3 | R7 | Loại thay đổi servicing chưa biết bị hiện thành "quá hạn" | Fixed W3F |
+| B62 | P1 | R7 | Consumer Notification không có error handler, DLT hay theo dõi trùng: event lỗi bị bỏ qua sau 10 lần thử | Fixed W3F — `<topic>.notification.DLT`, xử lý một lần theo `eventId` |
+| B63 | P3 | R7 | Template có thể in `null`; `.env.example` của mobile còn mock miền thông báo | Fixed W3F |
+| B64 | P2 | R7 | Event Loan/Payment không mang id người nhận | Workaround W3F bằng bảng tra; sửa thật ở producer (P1–P7 trong W3F §13) |
 | B65 | P2 | R1 | Launcher E2E chạy jar có sẵn dù mã nguồn đã sửa sau lần build: lượt `w3a-installment-20261017-183146` báo `withdrawal.admin-queue-reachable` 404 vì jar Gateway build lúc 16:31, trước commit thêm route `/api/v1/admin/withdrawals/**` lúc 17:25. Evidence trên jar cũ cho kết luận sai về code | Fixed Wave 3 — `Assert-JarFresh` so jar với file mới nhất trong `src/main`/`pom.xml` của module, `finora-common` và pom gốc, từ chối kèm hướng dẫn `-Build` (`-AllowStaleJar` khi cố ý); chạy lại `w3a-installment-20261017-184734` 79/79 |
 | B70 | P1 | R8/CIC | Rủi ro lộ CCCD qua CIC Node công khai: bản deploy không xác thực API đọc (`/api/v1/ho-so`, `/api/v1/nhat-ky`), lưu toàn bộ dữ liệu trong Vercel Blob `public` (`cic/du-lieu.json`, không hậu tố ngẫu nhiên), tra CCCD lạ thì lưu hồ sơ mới + nhật ký kèm CCCD. Trong khi đó `docker-compose*.yml` và `.env.example` để `USER_CIC_MAPPING_ENABLED` mặc định `true` trỏ tới bản này, trái với registry ("mặc định tắt"). Lúc kiểm (2026-10-17) kho chỉ có 1.000 hồ sơ mẫu, 2 dòng nhật ký: chưa lộ thật | Fixed phía FINORA Wave 3 — mặc định `false` ở hai compose và `.env.example`, README và `LEGAL-DATA-01` ghi chỉ dùng CCCD tổng hợp với bản deploy. Phía CIC: nhánh `feat/finora-delinquency-intake` chặn lưu mapping khi kho là Blob public; xác thực API đọc và kho riêng tư chờ Hải quyết |
 | S01 | P1 | R8 | Tự đăng ký `ADMIN`; AI không xác thực (kể cả `PUT config`); endpoint nội bộ Notification `permitAll`; `mock-complete` không gắn môi trường; PIN token dùng lại được trong TTL; URL Neon mặc định trong `application.yml` của Loan | W3A (D33–D40): AI/Notification xác thực, danh tính service, cổng môi trường, PIN gắn thao tác, URL Neon bỏ khỏi `application.yml`, chống dò mật khẩu và giới hạn tần suất; unit/IT xanh. E2E `w3a-installment-20261017-184734` 79/79 sau khi realm có client/role mới. Chặn tự đăng ký `ADMIN` vẫn hoãn (D20) |
@@ -474,6 +506,11 @@ external theo incremental update, SmartCA ký hash (`sign_type: hash`), BouncyCa
 code phải xác nhận `get_certificate` trả chứng thư DER đầy đủ; chứng thư UAT không phải chữ ký số có giá trị
 pháp lý production.
 
+Trạng thái Wave 3 ([`W3C`](W3C-pades-contract-signing.md), Hải review phần Investment/hợp đồng trước merge):
+hợp đồng mới ký PAdES-B-B nối tiếp, bản SIGNABLE là tiền tố byte của bản ký đủ, biên nhận riêng (D45–D49, B45–B49),
+Loan V32. Loan 283 unit + 19 IT xanh; pyHanko 0.25.1 xác nhận ba chữ ký hợp lệ đúng thuộc tính PAdES-B-B. Còn lại: ký
+SmartCA UAT thật (cần người duyệt trên app, W3C §13), kiểm bằng Acrobat; chứng thư MOCK/UAT không có giá trị pháp lý.
+
 ### Acceptance nếu chọn PAdES
 
 - PDF mở bằng trình đọc chuẩn thấy chữ ký/chứng thư và kiểm tra được integrity.
@@ -507,6 +544,13 @@ Fabric adapter thật cố ý fail-closed; contract/disbursement consumer và qu
 - Explorer/query theo business reference và integrity reconciliation DB ↔ chain.
 - Fabric outage chỉ retry/DLT proof, không rollback tiền/hợp đồng đã commit.
 
+Trạng thái Wave 3 ([`W3D`](W3D-fabric-proofs.md)): mạng Fabric local thật, chaincode `finora-ledger`, bốn mốc, API
+proof và worker đối soát (D50–D54, B50–B54). Blockchain 49 unit + 11 IT xanh; chạy thật: bốn mốc ghi lên block 4–7,
+Org2 đọc độc lập cùng hash, hash giả cùng id bị từ chối, sửa hash trong PostgreSQL bị phát hiện `MISMATCHED`, drill
+dừng `peer0.org2` giữ `PENDING` rồi ghi đúng một lần khi peer quay lại. Mặc định vẫn MOCK; harness kiểm proof qua API
+cho cả hai ledger. Còn lại: trang explorer web, chứng cứ pháp lý `NEEDS_LEGAL_REVIEW`, Fabric CA và nhiều orderer cho
+production.
+
 ### Acceptance
 
 - Hash đối chiếu lại được từ artifact nguồn; mock và Fabric receipt không bị nhầm.
@@ -527,6 +571,11 @@ preference, provider push/SMS/email đầy đủ và bounded retry/DLT cho mọi
 - Chỉ gửi quá hạn khi chuyển stage/episode, không spam mỗi ngày.
 - Push provider adapter, token lifecycle, opt-in/preference và redaction nội dung màn khóa.
 - Dedup theo source event + recipient + channel; delivery lỗi không rollback nghiệp vụ.
+
+Trạng thái Wave 3 ([`W3F`](W3F-notifications-expo-push.md), Hải review trước merge): Notification xử lý mọi event
+Loan/Investment/Payment hiện có và event rút tiền, Expo Push (D60–D64, B60–B64; B24 đã sửa), Notification V2–V4.
+134 unit + 18 IT xanh; mobile đăng ký thiết bị và màn "Cài đặt thông báo". Còn lại: push trên máy thật (cần EAS
+projectId và development build), producer bổ sung `borrowerId`/event giữ khoản trả kỳ (P1–P7), mã hóa token khi lưu (R8B).
 
 ## 13. R8 — Security, privacy và audit
 

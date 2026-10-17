@@ -396,6 +396,11 @@ chiếu trước khi ghi lại sau timeout và worker đối chiếu DB ↔ chai
 
 **Failure:** gửi lỗi không rollback nghiệp vụ nguồn; MUST NOT log payload chứa PII hoặc secret.
 
+**Hiện trạng W3F (D60–D64):** xử lý một lần theo `eventId` (bảng processed event); người nhận lấy từ event, thiếu thì
+từ bảng tra dựng từ event gọi vốn; event chờ người nhận tối đa 24 giờ rồi hết hạn; payload sai vào
+`<topic>.notification.DLT`. In-app luôn tạo; push Expo theo preference từng nhóm, nội dung không có số tiền/tên/số khoản
+vay, retry 6 lần rồi `DEAD`, receipt kiểm sau. Provider mặc định `log` là giả lập, không phải push thật.
+
 ## F10 — Rút tiền về tài khoản ngân hàng
 
 **Trigger:** người vay/nhà đầu tư rút số dư khả dụng (PIN `WITHDRAW`, `Idempotency-Key`). **Orchestrator:** Payment.

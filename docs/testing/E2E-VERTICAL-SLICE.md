@@ -12,9 +12,9 @@ là R1B sau R2/R3. Task plan: [`R1A-e2e-vertical-slice-baseline.md`](../../.agen
 | User/Keycloak, Loan, Investment, Payment ledger, Notification, Kafka | Code hiện hành, dữ liệu thật trên DB dev | — |
 | Fineract | Fineract 1.15 local thật (lịch trả, booking, repayment) | Core dùng chung giữa các máy |
 | AI | Container AI v17 thật; CIC Node đã deploy | Có dữ liệu CIC: borrower chưa eKYC nên rule CIC thiếu dữ liệu |
-| Chữ ký | `MOCK + CLICK_WRAP_MVP` | SmartCA hoặc PDF có chữ ký PAdES |
+| Chữ ký | `MOCK + CLICK_WRAP_MVP`; hợp đồng mới có PDF ký PAdES-B-B nối tiếp bằng chứng thư demo tự ký (W3C), không có giá trị pháp lý | SmartCA UAT/chứng thư thật |
 | Nạp ví, giải ngân ra ngoài | Provider `mock` | ZaloPay/ngân hàng, tiền thật |
-| Blockchain | Proof store thật, ledger `MOCK` | Fabric |
+| Blockchain | Proof store thật, ledger `MOCK` mặc định; `-WithFabric` ghi lên mạng Hyperledger Fabric local thật (W3D) | Fabric production (CA, nhiều orderer) |
 | KYC người vay trong Loan | Profile mock VERIFIED (profile `local`) | eKYC thật (adapter thuộc Wave 2) |
 | eKYC nhà đầu tư | Tắt bằng `INVESTMENT_REQUIRE_EKYC=false` chỉ trong stack E2E | Bỏ kiểm tra eKYC ở môi trường khác |
 | OTP đăng ký | Đọc `reg_otp:<email>` trong Redis User local | Email OTP |
@@ -185,6 +185,20 @@ không chứng minh hành vi của một provider thật.
 | `access.anonymous.*`, `access.borrower.ai-scoring` | AI (trực tiếp và qua Gateway) và endpoint nội bộ Notification từ chối lời gọi không token (`401`); token người vay không chấm điểm được (`403`) |
 | `gateway.ai-post-body-forwarded` | Admin gọi AI qua Gateway, FastAPI báo thiếu từng field: body POST tới nơi (B43) |
 | `withdrawal.*` | Chỉ ở fixture trả kỳ mặc định: policy, dưới mức tối thiểu bị chặn, trừ ví đúng một lần khi gửi lại, số tài khoản che, `COMPLETED` qua callback ký HMAC, tài khoản sai `FAILED` và hoàn tiền, vượt hạn mức ngày bị chặn, hàng đợi admin |
+
+| `contract.pades-signature-count` | Hồ sơ ký `PADES_B_B`, số chữ ký nhúng bằng số bên (một nhà đầu tư + người vay = 2) |
+| `contract.signed-pdf-incremental` | `/document` sau chữ ký cuối là bản ký đủ: hash khớp API, đếm đúng `/ByteRange`, bản SIGNABLE là tiền tố byte |
+| `contract.pades-receipt` | Biên nhận `/receipt` của người vay và nhà đầu tư là cùng một tệp, hash khớp API của cả hai phía |
+| `proof.milestones-confirmed` | API quản trị trả proof `CONFIRMED` cho hợp đồng, giải ngân, Note (và trả nợ nếu có), không mốc nào có hai proof |
+| `proof.receipt-matches-ledger` | Ledger MOCK: receipt `MOCK_NOT_ON_CHAIN`; `-WithFabric`: `FABRIC_ON_CHAIN`, transaction 64 hex |
+| `proof.artifact-recomputed` | Gửi `data` của event Kafka nguồn: hash tính lại `MATCHED`; chain `NOT_ON_CHAIN_MOCK` (MOCK) hoặc `MATCHED` (Fabric) |
+| `proof.artifact-tamper-detected` | Artifact thêm một field thì `MISMATCHED` |
+| `proof.contract-anchors-signed-receipt` | `pdfReceiptHash` trong event được neo bằng hash biên nhận đang phục vụ (D75) |
+
+Chạy với Fabric thật (R6): thêm `-WithFabric` vào lệnh `Start` của launcher. Launcher kiểm RAM Docker (≥ 768 MiB trống),
+dựng mạng `docker/fabric-network` (idempotent), trỏ Blockchain sang `HYPERLEDGER_FABRIC` và nâng heap lên 256m; mạng tốn
+thêm khoảng 200 MiB. Harness tự đọc ledger từ state launcher. Xong thì `powershell -File
+docker/fabric-network/fabric-network.ps1 -Action Down` (thêm `-RemoveData` để xóa crypto và dữ liệu chain).
 
 ## 6. Evidence
 

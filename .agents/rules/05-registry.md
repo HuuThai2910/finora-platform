@@ -31,7 +31,7 @@ của `finora-user`. Nguồn chuẩn là `docker/keycloak/template/realm-finora.
 render lúc chạy từ `KEYCLOAK_CLIENT_SECRET` trong `docker/.env`, không commit vào template.
 
 Consumer group hiện có: `payment-group`, `blockchain-group`, `notification-group`,
-`notification-investor-servicing`, `cic-loan-delinquency`.
+`notification-investor-servicing`, `notification-domain-events` (W3F), `cic-loan-delinquency`.
 
 Contract Loan–Investment đã được Thái chấp thuận triển khai ngày 2026-09-26; Hải phải review
 phần Investment trước merge:
@@ -42,8 +42,8 @@ phần Investment trước merge:
 | `finora.investment.loan-fully-funded` | Investment | `loan-investment-funding` | Trả allocation bất biến để Loan lập hợp đồng nhiều bên |
 | `finora.investment.loan-funding-expired` | Investment | `loan-investment-funding` | Đợt gọi vốn hết hạn chưa đủ vốn; Loan đặt `fundingStatus = EXPIRED`, không lập Contract |
 | `finora.loan.funding-cancelled` | Loan | `investment-loan-funding` | Đã đủ vốn nhưng không giải ngân (Contract `DECLINED`/`EXPIRED` hoặc `DisbursementFailed` khi saga còn `WAITING_PAYMENT`); Investment hủy commitment, listing `CANCELLED` và nhả hold |
-| `finora.loan.investor-signature-requested` | Loan | `investment-loan-funding` | Gắn Contract/PDF chung vào listing; Notification consumer bổ sung sau |
-| `finora.loan.borrower-signature-requested` | Loan | Chưa đăng ký | Báo tất cả lender đã ký; Notification consumer bổ sung sau |
+| `finora.loan.investor-signature-requested` | Loan | `investment-loan-funding`, `notification-domain-events` | Gắn Contract/PDF chung vào listing; Notification báo từng nhà đầu tư ký |
+| `finora.loan.borrower-signature-requested` | Loan | `notification-domain-events` | Báo người vay khi tất cả lender đã ký (B24 đã sửa ở W3F) |
 | `finora.loan.contract-activated` | Loan | `investment-loan-funding`, `blockchain-group` | Investment cập nhật Contract có hiệu lực; Blockchain neo SHA-256 data (proof `CONTRACT_DOCUMENT`, W3D) |
 | `finora.loan.delinquency-changed` | Loan | `cic-loan-delinquency`, `investment-loan-funding` | CIC tách nhóm hiện tại/lịch sử; Investment cập nhật DPD/nhóm nợ cho Note projection |
 | `finora.loan.settled` | Loan | `investment-loan-funding` | Investment lưu lifecycle projection; không dùng thay `RepaymentDistributed` để chia tiền/đóng Note |
@@ -80,8 +80,16 @@ Crypto/genesis/package sinh bởi `docker/fabric-network/fabric-network.ps1` và
 
 Payload và consumer hiện có được mô tả tại
 [`docs/integrations/LOAN-INVESTMENT-EVENTS.md`](../../docs/integrations/LOAN-INVESTMENT-EVENTS.md).
-Notification chỉ là consumer ở topic servicing đã đăng ký rõ. Payment và Blockchain chỉ là consumer
-ở các topic đã đăng ký rõ trong bảng/contract; không suy diễn subscription khác.
+Notification (W3F, D60) đọc bằng group `notification-domain-events` các topic: `finora.loan.funding-requested`,
+`finora.investment.loan-fully-funded`, `finora.investment.loan-funding-expired`, `finora.loan.funding-cancelled`,
+`finora.loan.investor-signature-requested`, `finora.loan.borrower-signature-requested`, `finora.loan.contract-activated`,
+`finora.loan.disbursed`, `finora.payment.repayment-distributed`, `finora.loan.delinquency-changed`, `finora.loan.settled`,
+`finora.loan.reschedule-consent-requested`, `finora.investment.reschedule-consent-completed`, `finora.loan.rescheduled`,
+`finora.payment.withdrawal-completed`, `finora.payment.withdrawal-failed`; group `notification-investor-servicing` giữ
+`finora.investment.note-servicing-changed`. Record lỗi vào `<topic>.notification.DLT` (không dùng chung `.DLT` của
+consumer khác). `finora.payment.repayment-collected`/`repayment-cancelled` (P5) là đề xuất, chưa có producer; chỉ đọc khi
+bật nhắc lịch. Payment và Blockchain chỉ là consumer ở các topic đã đăng ký rõ trong bảng/contract; không suy diễn
+subscription khác.
 
 Mapping `borrowerId ↔ CCCD` được đăng ký trực tiếp vào CIC qua API nội bộ có
 `X-Finora-Internal-Key`; tuyệt đối không đưa CCCD thô vào Kafka. Event đến trước mapping
