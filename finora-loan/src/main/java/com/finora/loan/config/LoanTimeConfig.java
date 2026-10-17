@@ -16,6 +16,7 @@ import java.time.ZoneId;
         LoanContractProperties.class,
         RiskBasedPricingProperties.class,
         SignatureProviderProperties.class,
+        PadesSignatureProperties.class,
         InvestmentIntegrationProperties.class,
         OutboxProperties.class,
         LoanRescheduleProperties.class,

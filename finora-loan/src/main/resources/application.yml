@@ -108,6 +108,15 @@ finora:
       sandbox-serial-number: ${VNPT_SMARTCA_SANDBOX_SERIAL_NUMBER:}
       connect-timeout: ${VNPT_SMARTCA_CONNECT_TIMEOUT:3s}
       read-timeout: ${VNPT_SMARTCA_READ_TIMEOUT:15s}
+    pades:
+      # R5/D13: hợp đồng nhiều bên mới ký PAdES-B-B ẩn, nhúng vào PDF theo incremental update. false chỉ là đường lùi
+      # vận hành (hợp đồng mới quay về bằng chứng tách rời); hợp đồng đã lập không đổi cách ký.
+      enabled: ${FINORA_SIGNATURE_PADES_ENABLED:true}
+      # Phiên SmartCA hết hạn sau khoảng 300 giây; quá thời gian này worker giải phóng lượt ký cho bên khác.
+      signing-session-timeout: ${FINORA_SIGNATURE_PADES_SESSION_TIMEOUT:10m}
+      worker-enabled: ${FINORA_SIGNATURE_PADES_WORKER_ENABLED:true}
+      worker-delay: ${FINORA_SIGNATURE_PADES_WORKER_DELAY:15000}
+      worker-batch-size: ${FINORA_SIGNATURE_PADES_WORKER_BATCH_SIZE:20}
   loan:
     # Version này được snapshot khi borrower submit để đối chiếu đúng nội dung đã xác nhận.
     pricing-disclosure-version: ${LOAN_PRICING_DISCLOSURE_VERSION:RATE_DISCLOSURE_V2}
