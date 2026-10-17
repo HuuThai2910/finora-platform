@@ -1,5 +1,6 @@
 package com.finora.user.controller;
 
+import com.finora.common.security.ratelimit.RateLimited;
 import com.finora.common.dto.BaseResponse;
 import com.finora.common.security.SecurityUtils;
 import com.finora.user.dto.request.EkycVerifyRequest;
@@ -62,6 +63,8 @@ public class UserProfileController {
      */
     @PostMapping("/profile/ekyc-verify")
     @PreAuthorize("hasAuthority('user:cccd:scan')")
+    // Mỗi lần quét gọi Gemini có tính phí (D40): 5 lần/10 phút mỗi người dùng.
+    @RateLimited(value = "ekyc.ocr", limit = 5, window = "PT10M")
     public BaseResponse<EkycResultResponse> verifyEkyc(
             @Valid @RequestBody EkycVerifyRequest request) {
 

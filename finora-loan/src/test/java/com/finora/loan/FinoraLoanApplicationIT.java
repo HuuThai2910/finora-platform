@@ -458,11 +458,13 @@ class FinoraLoanApplicationIT {
                 investorContract.path("documentHash").asText(),
                 investorContract.path("pdfDocumentHash").asText());
 
+        // Token PIN gắn với đúng Idempotency-Key của lần ký (D38).
+        String investorSignKey = "investor-sign-" + UUID.randomUUID();
         JsonNode signedInvestorContract = objectMapper.readTree(mockMvc.perform(
                         post("/api/v1/investor/loan-contracts/{number}/sign", contractNumber)
                         .header(PinTokenService.HEADER_NAME,
-                                pinTokenService.issue("INVESTOR-001", PinScope.SIGN_CONTRACT).token())
-                        .header("Idempotency-Key", "investor-sign-" + UUID.randomUUID())
+                                pinTokenService.issue("INVESTOR-001", PinScope.SIGN_CONTRACT, investorSignKey).token())
+                        .header("Idempotency-Key", investorSignKey)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(signJson))
                 .andExpect(status().isOk())
@@ -501,10 +503,11 @@ class FinoraLoanApplicationIT {
                 borrowerContract.path("version").asLong(),
                 borrowerContract.path("documentHash").asText(),
                 borrowerContract.path("pdfDocument").path("contentHash").asText());
+        String borrowerSignKey = "borrower-sign-" + UUID.randomUUID();
         mockMvc.perform(post("/api/v1/loan-contracts/{number}/sign", contractNumber)
                         .header(PinTokenService.HEADER_NAME,
-                                pinTokenService.issue("BORROWER-001", PinScope.SIGN_CONTRACT).token())
-                        .header("Idempotency-Key", "borrower-sign-" + UUID.randomUUID())
+                                pinTokenService.issue("BORROWER-001", PinScope.SIGN_CONTRACT, borrowerSignKey).token())
+                        .header("Idempotency-Key", borrowerSignKey)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(borrowerSignJson))
                 .andExpect(status().isOk())

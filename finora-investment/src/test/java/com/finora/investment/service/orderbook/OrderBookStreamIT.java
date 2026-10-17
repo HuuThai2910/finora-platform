@@ -135,7 +135,7 @@ class OrderBookStreamIT {
                             uri("/api/v1/investments/order-books/" + listingId + "/orders"))
                     .header("Authorization", "Bearer OBS-SELLER")
                     .header(PinTokenService.HEADER_NAME,
-                            pinTokenService.issue("OBS-SELLER", PinScope.ORDER).token())
+                            pinTokenService.issue("OBS-SELLER", PinScope.ORDER, "stream-ask-1").token())
                     .header("Idempotency-Key", "stream-ask-1")
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(

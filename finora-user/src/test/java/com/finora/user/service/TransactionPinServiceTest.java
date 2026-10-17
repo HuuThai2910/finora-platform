@@ -42,6 +42,7 @@ class TransactionPinServiceTest {
     private static final Instant NOW = Instant.parse("2026-10-09T03:00:00Z");
     private static final ClientInfo CLIENT = new ClientInfo("10.0.0.1", "jest");
     private static final String PIN = "394817";
+    private static final String REQUEST_KEY = "idem-order-3a9f";
 
     @Mock
     private UserPinRepository pinRepository;
@@ -93,9 +94,9 @@ class TransactionPinServiceTest {
     void nhapDungPinNhanDuocTokenDungLoaiThaoTac() {
         when(pinRepository.findForUpdate(USER_ID)).thenReturn(Optional.of(storedPin()));
 
-        PinTokenResponse response = service.verify(USER_ID, PIN, PinScope.ORDER, CLIENT);
+        PinTokenResponse response = service.verify(USER_ID, PIN, PinScope.ORDER, REQUEST_KEY, CLIENT);
 
-        pinTokenService.verify(response.pinToken(), USER_ID.toString(), PinScope.ORDER);
+        pinTokenService.verify(response.pinToken(), USER_ID.toString(), PinScope.ORDER, REQUEST_KEY);
         assertThat(response.expiresAt()).isEqualTo(NOW.plus(Duration.ofMinutes(3)));
     }
 
@@ -104,7 +105,7 @@ class TransactionPinServiceTest {
         UserPin pin = storedPin();
         when(pinRepository.findForUpdate(USER_ID)).thenReturn(Optional.of(pin));
 
-        assertThatThrownBy(() -> service.verify(USER_ID, "000001", PinScope.ORDER, CLIENT))
+        assertThatThrownBy(() -> service.verify(USER_ID, "000001", PinScope.ORDER, REQUEST_KEY, CLIENT))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("còn 4 lần")
                 .extracting("code").isEqualTo("PIN_INCORRECT");
@@ -118,15 +119,15 @@ class TransactionPinServiceTest {
         when(profileRepository.findByKeycloakUserId(USER_ID)).thenReturn(Optional.of(profile()));
 
         for (int i = 0; i < UserPin.MAX_FAILED_ATTEMPTS - 1; i++) {
-            assertCode(() -> service.verify(USER_ID, "000001", PinScope.ORDER, CLIENT), "PIN_INCORRECT");
+            assertCode(() -> service.verify(USER_ID, "000001", PinScope.ORDER, REQUEST_KEY, CLIENT), "PIN_INCORRECT");
         }
-        assertCode(() -> service.verify(USER_ID, "000001", PinScope.ORDER, CLIENT), "PIN_LOCKED");
+        assertCode(() -> service.verify(USER_ID, "000001", PinScope.ORDER, REQUEST_KEY, CLIENT), "PIN_LOCKED");
 
         assertThat(pin.isLocked(NOW)).isTrue();
         verify(notificationService).sendSuspiciousActivityAlert(eq(7L), eq("hai@finora.vn"),
                 eq("10.0.0.1"), eq("jest"), anyString());
         // Đang khoá thì nhập đúng cũng bị từ chối.
-        assertCode(() -> service.verify(USER_ID, PIN, PinScope.ORDER, CLIENT), "PIN_LOCKED");
+        assertCode(() -> service.verify(USER_ID, PIN, PinScope.ORDER, REQUEST_KEY, CLIENT), "PIN_LOCKED");
     }
 
     @Test

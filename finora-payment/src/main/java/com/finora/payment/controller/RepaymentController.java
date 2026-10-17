@@ -1,5 +1,6 @@
 package com.finora.payment.controller;
 
+import com.finora.common.security.ratelimit.RateLimited;
 import com.finora.common.security.pin.PinScope;
 import com.finora.common.security.pin.RequirePin;
 import com.finora.payment.dto.request.CreateRepaymentRequest;
@@ -47,6 +48,8 @@ public class RepaymentController {
         return service.scheduledDue(loanApplicationId);
     }
 
+    // Báo giá đọc Fineract mỗi lần (D40): chung 30 báo giá/phút mỗi người dùng.
+    @RateLimited(value = "repayment.quote", limit = 30, window = "PT1M")
     @PostMapping("/early-settlement-quotes")
     public EarlySettlementQuoteResponse createEarlySettlementQuote(
             @Valid @RequestBody CreateEarlySettlementQuoteRequest request) {
@@ -65,6 +68,7 @@ public class RepaymentController {
         return service.createEarlySettlement(request.quoteId(), idempotencyKey);
     }
 
+    @RateLimited(value = "repayment.quote", limit = 30, window = "PT1M")
     @PostMapping("/partial-prepayment-quotes")
     public PartialPrepaymentQuoteResponse createPartialPrepaymentQuote(
             @Valid @RequestBody CreatePartialPrepaymentQuoteRequest request) {
@@ -90,11 +94,13 @@ public class RepaymentController {
 
     /**
      * Hủy khoản trả kỳ trước hạn đang chờ ghi nhận vào sổ nợ (D16); tiền hoàn về ví. Cần PIN vì hủy nhầm làm kỳ bị quá hạn.
-     * Gọi lại với khoản đã hủy trả nguyên kết quả.
+     * Gọi lại với khoản đã hủy trả nguyên kết quả. {@code Idempotency-Key} chỉ dùng để gắn token PIN với đúng lần hủy
+     * này (D38); thao tác vốn idempotent theo trạng thái khoản trả.
      */
     @PostMapping("/{repaymentId}/cancel")
     @RequirePin(PinScope.REPAYMENT)
-    public RepaymentResponse cancel(@PathVariable UUID repaymentId) {
+    public RepaymentResponse cancel(@RequestHeader("Idempotency-Key") String idempotencyKey,
+            @PathVariable UUID repaymentId) {
         return service.cancelPending(repaymentId);
     }
 }
