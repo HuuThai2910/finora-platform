@@ -50,6 +50,12 @@ docker compose --env-file docker/.env -f docker/docker-compose.yml --profile app
 
 - Cần `BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD` và `BLOCKCHAIN_DB_PASSWORD` trong `docker/.env` (container DB khởi tạo bằng các giá
   trị này ở lần đầu).
+- **Mặc định giả lập để test UI (D85)**, ghi đè `.env` của module: Loan ký `MOCK` và coi người vay đã eKYC (`mock`),
+  Investment tắt kiểm eKYC nhà đầu tư và worker Auto-Invest. Đổi bằng `APPS_SIGNATURE_PROVIDER`,
+  `APPS_BORROWER_PROFILE_PROVIDER`, `APPS_INVESTMENT_REQUIRE_EKYC`, `APPS_INVESTMENT_AUTO_INVEST_ENABLED` trong `docker/.env`
+  rồi `up -d loan investment` (tạo lại container; `restart` giữ biến cũ). Ký SmartCA UAT ngay trong container Loan:
+  `APPS_SIGNATURE_PROVIDER=VNPT_SMART_CA`, thông tin `VNPT_SMARTCA_*` đọc từ `finora-loan/.env`; không cần IntelliJ vì
+  SmartCA không gọi ngược vào Loan.
 - Muốn debug một service bằng IntelliJ: `docker stop finora-<service>` rồi chạy service đó trong IntelliJ (trùng cổng nếu không
   dừng container).
 - Lần đầu chạy code mới, Flyway áp migration còn thiếu lên DB Neon (dùng chung với cả nhóm); migration đã áp không gỡ được.

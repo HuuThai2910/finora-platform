@@ -1,8 +1,9 @@
 # Hướng dẫn kiểm thử thủ công giao diện FINORA (web quản trị và mobile) trên stack E2E local
 
-> Cập nhật: 2026-10-17 · Nhánh: `feat/finora-remaining-wave-3` của `finora-platform`, `finora-web`, `finora-mobile` ·
+> Cập nhật: 2026-10-18 · Nhánh: `feat/finora-remaining-wave-3` của `finora-platform`, `finora-web`, `finora-mobile` ·
 > Người duyệt: Thái (owner) · Người kiểm: Hải và các thành viên.
-> Chỉ dùng trên stack E2E của máy dev: không tiền thật, không CCCD thật, không môi trường dùng chung.
+> Chỉ dùng trên máy dev (profile `apps` với DB Neon dev, hoặc stack E2E DB local, mục 2.1a): không tiền thật, không CCCD
+> thật, không production.
 
 ## 0. Cách đọc tài liệu
 
@@ -43,8 +44,8 @@ thuộc tên màn hình hay lệnh.
 | Trong phạm vi | Ngoài phạm vi |
 |---|---|
 | Mobile (`finora-mobile`): người vay, nhà đầu tư | Hiệu năng, tải, bảo mật hạ tầng |
-| Web quản trị (`finora-web`): admin | Môi trường dùng chung (Neon dev), demo Compose, production |
-| Backend chạy bằng launcher E2E, DB local riêng (`-Database local`) | Tiền thật, CCCD thật, chữ ký số có giá trị pháp lý |
+| Web quản trị (`finora-web`): admin | Demo Compose, production |
+| Backend chạy bằng profile `apps` (Docker + DB Neon dev) hoặc launcher E2E với DB local riêng (`-Database local`), mục 2.1a | Tiền thật, CCCD thật, chữ ký số có giá trị pháp lý |
 | Kiểm tra phụ bằng API khi UI không có đường đi | Chợ Notes thứ cấp (R11, chưa có kịch bản nghiệm thu) |
 
 ### 1.4 Cái gì thật, cái gì giả lập
@@ -67,6 +68,10 @@ thuộc tên màn hình hay lệnh.
 | OTP đăng ký | Đọc key `reg_otp:<email>` trong Redis `finora-user-redis` | Email OTP |
 | Đồng hồ | Chỉ Loan và Payment dời được ngày (launcher `-LoanClockOffset`/`-PaymentClockOffset`) cùng business date của Fineract | Tính năng của demo/production (không có API đổi ngày) |
 
+Cách A (profile `apps`, mục 2.1a) mặc định dùng cùng các giả lập trên (D85): chữ ký `MOCK`, KYC người vay mock, tắt eKYC
+nhà đầu tư và worker Auto-Invest, dù `.env` của module ghi gì. Khác stack E2E: dữ liệu User, Loan, Payment, Investment,
+Notification nằm trên Neon dùng chung; CIC luôn là bản Vercel; không dời đồng hồ.
+
 Trên mọi màn hình liên quan, app phải ghi rõ là môi trường demo/giả lập (ví nạp mock, rút tiền, chữ ký demo, proof MOCK).
 Thiếu nhãn đó là lỗi (`docs/LEGAL-COMPLIANCE.md`: `LEGAL-PAYMENT-01`, `LEGAL-CONTRACT-01`, `LEGAL-DATA-01`).
 
@@ -88,13 +93,14 @@ Hai cách chạy **không bật cùng lúc** (trùng cổng 8080–8086). Đổi
 | Nhóm ca | Cách bật | Ghi chú |
 |---|---|---|
 | Phần lớn ca gắn **[UI]**: đăng ký, hồ sơ vay, duyệt, gọi vốn, ký MOCK, giải ngân, trả kỳ, trả trước, tất toán, rút tiền, sự cố, proof MOCK, thông báo, bảo mật | **Cách A — profile `apps`** (Docker + DB Neon, mục dưới) | Dữ liệu ở Neon như khi chạy IntelliJ |
-| Ký **SmartCA UAT thật** (mục 4.5) | Cách A rồi `docker stop finora-loan finora-gateway`; chạy **Loan và Gateway trong IntelliJ**, `finora-loan/.env` có `FINORA_SIGNATURE_PROVIDER=VNPT_SMART_CA` cùng thông tin UAT | Gateway trong Docker định tuyến tới tên container nên không thấy Loan chạy trên máy |
+| Ký **SmartCA UAT thật** (mục 4.5) | Cách A, thêm `APPS_SIGNATURE_PROVIDER=VNPT_SMART_CA` vào `docker/.env` rồi tạo lại container Loan: `docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps up -d loan`. Thông tin UAT (`VNPT_SMARTCA_*`) đọc từ `finora-loan/.env`. Xong thì xóa biến và chạy lại lệnh để về `MOCK` | Không cần IntelliJ: SmartCA không gọi ngược vào Loan (chưa dùng webhook), Loan đối soát khi người dùng bấm kiểm tra. Khi bật, mọi chữ ký đều cần duyệt trên app SmartCA (một signer test cố định) |
 | Ca cần **dời đồng hồ** (quá hạn, nợ xấu, ghi kỳ đúng ngày đến hạn — nhãn [UI + công cụ] dùng T2) | **Cách B — launcher E2E** `-Database local` (mục 2.2–2.3) | DB local tự tạo lại; chữ ký luôn MOCK; không dùng chung với SmartCA |
 | **Fabric thật** (`BC-06`, `BC-N08`, `BC-N09`) | Cách B thêm `-WithFabric` | Thêm khoảng 200–400 MB RAM |
 | **CIC local** (mục 4.15) | Cách B thêm `-WithLocalCic` | CIC trên Vercel không nhận được quá hạn (không đọc được Kafka local) |
 
 **Cách A — profile `apps` (Docker + DB Neon).** PowerShell trong `finora-platform`. Jar đã build sẵn; chỉ build lại khi sửa
-code (Maven `package`, rồi `docker compose ... --profile apps restart <service>`). Chi tiết: `docker/README.md` mục 1b.
+code (Maven `package`, rồi `docker compose ... --profile apps restart <service>`). Đổi biến `APPS_*` (D85) thì dùng
+`up -d <service>` để tạo lại container; `restart` giữ biến cũ. Chi tiết: `docker/README.md` mục 1b.
 
 ```powershell
 # Bật tất cả: Kafka, Keycloak, User, AI, Fineract, DB Blockchain/Fineract và sáu service Java (Loan, Payment, Investment,
@@ -298,6 +304,14 @@ Product trên web (mục 4.3, `ADM-05`). Để số liệu khớp mục 4, dùng
 theo hạng AI nên điều khoản tự xác nhận (`AUTO_AUTHORIZED`). Chỉ Product `DRAFT` mới đồng bộ được sang Fineract (D21); Product
 mới dùng core V4 (lãi theo ngày).
 
+**Stack Neon (nhóm A): chỉ nộp hồ sơ vào Product vừa tạo trên chính máy mình.** DB Loan dùng chung nên app liệt kê cả Product
+mà máy khác đã đồng bộ vào Fineract của họ, trong khi Fineract chạy riêng trên từng máy (B21). Ngày 2026-10-18, Product
+`ACTIVE` 3–6 (`VAY_TIEU_DUNG_NHANH`, `VAY_HOC_PHI`, `VAY_KINH_DOANH_NHO`, `VAY_SUA_NHA`) trỏ tới Product Fineract 501–504,
+không có trên Fineract local của máy Thái: hồ sơ vào các Product này đi hết gọi vốn và ký rồi mới hỏng ở bước ghi khoản vay
+vào Fineract. Product 1 và 2 khớp Fineract local nhưng là core V1/V2 (số liệu khác mục 4). Không tạm dừng Product 3–6 vì là
+dữ liệu chung của nhóm. Log Loan có dòng `WARN … FINERACT_REQUEST_REJECTED … Loan with identifier … does not exist` cho khoản
+vay cũ của máy khác: bỏ qua.
+
 Kịch bản chuẩn của tài liệu: vay 10.000.000 đ, 6 tháng, 12%/năm. Số liệu mong đợi (evidence `w3r-installment-20261017-204753`):
 kỳ 1 = 1.726.000 đ (gốc 1.624.000 + lãi 102.000), tổng phải trả theo lịch ban đầu 10.354.000 đ, mệnh giá Note 1.000.000 đ,
 góp tối thiểu 1.000.000 đ, 10 Note sau giải ngân, kỳ đầu đến hạn đúng một tháng sau ngày giải ngân.
@@ -339,12 +353,15 @@ tạo tối đa 10 lệnh nạp mỗi giờ (D40).
 
 ### 2.9 eKYC người vay
 
-- Stack E2E chạy `FINORA_BORROWER_PROFILE_PROVIDER=mock`: Loan coi người vay là `VERIFIED`, 30 tuổi, nguồn
+- Stack E2E và cách A (D85) chạy `FINORA_BORROWER_PROFILE_PROVIDER=mock`: Loan coi người vay là `VERIFIED`, 30 tuổi, nguồn
   `MOCK_USER_PROFILE`; nhà đầu tư thấy nhãn hồ sơ giả lập. Đây là cách duy nhất đi hết luồng mà không dùng CCCD.
 - Không làm eKYC trên app bằng ảnh CCCD giả hay thật. OCR gọi Gemini (`GEMINI_API_KEY`), và nếu
-  `USER_CIC_MAPPING_ENABLED=true` thì User gửi mapping CCCD sang CIC; bản CIC deploy là mock công khai, tra một CCCD lạ là
-  lưu hồ sơ kèm số CCCD vào kho `public` (B70). Biến này mặc định `false`, giữ nguyên.
+  `USER_CIC_MAPPING_ENABLED=true` thì User gửi mapping CCCD sang CIC; bản CIC deploy trên Vercel không xác thực API đọc và
+  lưu hồ sơ kèm số CCCD ở `/tmp` (B70). Repo mặc định `false`; máy Thái đang bật theo D84 vì chỉ có dữ liệu giả, nên càng
+  không làm eKYC bằng CCCD thật.
 - Kiểm cổng eKYC (`LOAN-N05`): chạy lại Loan với `-BorrowerProfileProvider user` (mục 2.3); người vay mới chưa eKYC bị chặn.
+  Cách A: `APPS_BORROWER_PROFILE_PROVIDER=user` trong `docker/.env` rồi `docker compose ... up -d loan`; xong xóa biến và
+  chạy lại lệnh.
 
 ### 2.10 Công cụ phụ
 
@@ -782,8 +799,8 @@ dùng chung container AI: đổi luật làm đổi điểm của mọi hồ sơ
 | Mã | Kích hoạt | Cách gây ra | Kết quả mong đợi |
 |---|---|---|---|
 | ADM-N01 | [UI] | Mở cùng một hồ sơ ở hai tab trình duyệt; duyệt ở tab 1; ở tab 2 bấm "Duyệt hồ sơ" hoặc "Từ chối" | Tab 2: khối lỗi "Hồ sơ đã được cập nhật bởi yêu cầu khác" (`409 LOAN_APPLICATION_VERSION_CONFLICT`, kiểm phiên bản trước trạng thái) kèm "mã truy vết" và nút "Tải lại hồ sơ"; không có quyết định thứ hai |
-| ADM-N02 | [UI + công cụ] | Hồ sơ có assessment `FAILED` (LOAN-N06, AI đã bật lại) | Nút duyệt/từ chối khóa: "Cần có kết quả chấm điểm trước khi duyệt hoặc từ chối."; "Yêu cầu chấm lại" → "Đã gửi yêu cầu chấm lại. Kết quả sẽ cập nhật khi hệ thống chấm xong." → tải lại trang: có kết quả. Backend `POST /api/v1/admin/loan-applications/{n}/scoring-retry` `202`; mỗi lần chấm lại thủ công chỉ một lần gọi AI (AI còn lỗi thì về `FAILED` ngay) |
-| ADM-N02b | [UI + công cụ] | Bấm "Yêu cầu chấm lại" khi assessment còn `RETRY_PENDING` (AI đang tắt, chưa hết lượt) | Nút vẫn hiện nhưng backend từ chối: `409 CREDIT_ASSESSMENT_RETRY_NOT_ALLOWED` "Chỉ assessment FAILED mới được retry thủ công" |
+| ADM-N02 | [UI + công cụ] | Hồ sơ có assessment `FAILED` (LOAN-N06, AI đã bật lại) | Nút duyệt/từ chối khóa: "Cần có kết quả chấm điểm trước khi duyệt hoặc từ chối."; "Yêu cầu chấm lại" → "Đã gửi yêu cầu chấm lại. Kết quả sẽ cập nhật khi hệ thống chấm xong." → tải lại trang: có kết quả. Backend `POST /api/v1/admin/loan-applications/{n}/scoring-retry` `202`; mỗi lần chấm lại thủ công chỉ một lần gọi AI (AI còn lỗi thì về `FAILED` ngay). Web trước `554522e` gửi version của lần chấm thay vì version hồ sơ nên trả `409 LOAN_APPLICATION_VERSION_CONFLICT` "Hồ sơ đã được cập nhật bởi yêu cầu khác" (B84); còn gặp là web chưa cập nhật |
+| ADM-N02b | [UI + công cụ] | Bấm "Yêu cầu chấm lại" khi assessment còn `RETRY_PENDING` (AI đang tắt, chưa hết lượt) | Nút hiện nhưng khóa, rê chuột thấy "Hệ thống đang tự chấm lại, chưa cần yêu cầu thêm." (B83). Lần chấm `FAILED` mà hồ sơ không còn chờ thẩm định: "Chỉ hồ sơ chờ thẩm định mới yêu cầu chấm lại được." Gọi API vẫn trả `409 CREDIT_ASSESSMENT_RETRY_NOT_ALLOWED` "Chỉ assessment FAILED mới được retry thủ công" |
 | ADM-N02c | [API] | Duyệt hồ sơ có assessment `FAILED`; từ chối hồ sơ có assessment `FAILED` | Duyệt: `409 ASSESSMENT_NOT_ELIGIBLE_FOR_DECISION`. Từ chối: backend cho phép, nhưng web khóa nút từ chối khi chưa có kết quả chấm (UI chặt hơn backend) |
 | ADM-N03 | [UI] | Mở trang thẩm định của hồ sơ đã duyệt/đã từ chối/đã rút | Không có khay quyết định; câu "Hồ sơ đang ở bước {x}. Chỉ hồ sơ chờ thẩm định mới duyệt hoặc từ chối được." hoặc "Người vay đã rút hồ sơ." |
 | ADM-N04 | [API] | Gửi lại lệnh duyệt cùng `Idempotency-Key` | `200`, hồ sơ vẫn `APPROVED`, không có quyết định thứ hai (`decision.idempotent-replay`) |
@@ -872,7 +889,7 @@ gọi đủ vốn"; hồ sơ người vay chuyển funding `FULLY_FUNDED`; Loan 
 | FUND-N15 | [API] | Đặt lệnh dưới mức tối thiểu / không chia hết mệnh giá / vượt phần còn thiếu (T7, PIN `INVEST`) | App chặn trước (FUND-N02) | `400 ORDER_BELOW_MINIMUM` "Số tiền đầu tư thấp hơn mức tối thiểu"; `400 ORDER_NOT_DIVISIBLE` "Số tiền đầu tư phải chia hết cho mệnh giá Note"; `409 LISTING_INSUFFICIENT_REMAINING` "Khoản vay chỉ còn nhận thêm {n} đồng"; không giữ tiền |
 | FUND-N16 | [API] | Đặt lệnh vào listing đã đủ vốn hoặc quá hạn | — | `409 LISTING_NOT_OPEN` "Khoản vay không còn nhận vốn" / `409 LISTING_WINDOW_CLOSED` "Đã hết hạn gọi vốn" |
 | FUND-N17 | [API] | Hủy lệnh sơ cấp qua API: `POST :8084/api/v1/investments/orders/{orderReference}/cancel` (không cần PIN) khi listing còn `OPEN` | Mobile không có nút | `200`, lệnh `CANCELLED`, khoản giữ được nhả sau khi lệnh commit: đang giữ −số lệnh, khả dụng +số lệnh. Listing đã đủ vốn: `409 FUNDED_ALLOCATION_LOCKED`; đang giải ngân: `409 COMMITMENT_ALREADY_FINALIZED`; lệnh của người khác: `403 ACCESS_DENIED`; gọi lại khi đã hủy: `200` như cũ |
-| FUND-N18 | [UI] | Người vay mở "Sàn" → một khoản vay → "Đầu tư …" | Thanh đầu tư vẫn hiện cho người vay (app không ẩn theo vai trò); backend chặn bằng `403` không có body nên app hiện câu dự phòng "Phiên đăng nhập đã hết hạn." (câu gây hiểu nhầm, ghi P3) | Không có lệnh, ví không đổi |
+| FUND-N18 | [UI] | Người vay mở "Sàn" → một khoản vay → "Đầu tư …" | Thanh đầu tư vẫn hiện cho người vay (app không ẩn theo vai trò); backend chặn bằng `403` không có body, app hiện "Bạn không có quyền thực hiện thao tác này." (B86; bản mobile trước `b43f41c` hiện "Phiên đăng nhập đã hết hạn.") | Không có lệnh, ví không đổi |
 | FUND-N19 | [UI + công cụ] | Tắt Payment (T5) rồi đặt lệnh; bật lại | "Lệnh đang chờ ví xác nhận" / "Hệ thống đã ghi nhận lệnh nhưng ví chưa xác nhận giữ tiền…" | `409 PAYMENT_UNAVAILABLE` "Dịch vụ ví đang bận…", lệnh `PENDING_FUNDS`; worker làm tiếp sau khoảng 2 phút khi Payment sống: `COMMITTED`, giữ tiền đúng một lần. Kẹt từ 3 lần thử thì hiện ở `INC-06` |
 
 **FUND-07 [UI] Màn gọi vốn trên web.** "Gọi vốn & Notes": dải "Chờ duyệt", "Đang gọi vốn", "Đã đủ vốn", "Rời sàn"; tab "Tất cả",
@@ -1357,7 +1374,7 @@ chứng kỹ thuật về toàn vẹn dữ liệu, không phải chữ ký số 
 **BC-01 [UI] Tra cứu theo khoản vay.** Sidebar "Kiểm toán" → "Bằng chứng blockchain" (hoặc nút "Bằng chứng blockchain" ở chi
 tiết gọi vốn, hoặc link "Bằng chứng" ở "Sự cố giao dịch"). Chọn "Hồ sơ vay", nhập ID số → "Tra cứu" → banner "Đang tra theo Hồ
 sơ vay {id}: gồm mọi trạng thái, cũ nhất trước. Chọn một trạng thái ở trên sẽ bỏ tra cứu." Bảng: các mốc hợp đồng, giải ngân,
-phát hành Note (và trả nợ), cột "Trạng thái" "Đã xác nhận", "Biên nhận" = "MOCK, không trên Fabric", "Giao dịch Fabric" = "Không
+phát hành Note (và trả nợ), cột "Trạng thái" "Đã xác nhận", "Biên nhận" = "MOCK, không có trên Fabric", "Giao dịch Fabric" = "Không
 có, biên nhận MOCK". Mỗi mốc đúng một dòng (`proof.milestones-confirmed`). Các loại tra cứu khác: "Hợp đồng" (`LC-…`), "Giải
 ngân" (mã saga), "Trả nợ" (mã giao dịch trả nợ), "Phát hành Note", "Chuyển nhượng Note".
 
@@ -1393,7 +1410,7 @@ dòng `[fabric]` kèm JSON cùng `payloadHash`, `submitterMspId = Org1MSP`. Xong
 | BC-N07 | [UI] | "Đưa lại hàng đợi gửi" với proof không phải `DEAD_LETTER` | Mục bị khóa, tooltip "Chỉ proof dừng gửi (DEAD_LETTER) mới đưa lại hàng đợi được."; qua API `409 PROOF_NOT_DEAD_LETTER` |
 | BC-N08 | [UI + công cụ] | Fabric: `docker stop finora-fabric-peer0-org2`, tạo một mốc mới (ví dụ giải ngân khoản vay khác); sau vài phút `docker start finora-fabric-peer0-org2` | Proof "Chờ gửi"/"Đang gửi" với lỗi `FABRIC_ENDORSE_FAILED` (thiếu endorsement Org2); bật lại → "Đã xác nhận" đúng một lần, "Khớp sổ cái". Tiền/hợp đồng ở service nguồn không bị chặn |
 | BC-N09 | [UI + công cụ] | Như BC-N08 nhưng để peer tắt tới khi hết 10 lần thử (lùi 5 giây → 5 phút, khoảng 20–25 phút) | Tab "Dừng gửi" có proof; bật peer → "Đưa lại hàng đợi gửi" (không có hộp thoại xác nhận) → toast "Đã đưa proof {mã} về hàng đợi; hệ thống sẽ gửi lại lên sổ cái ở lượt kế tiếp." → "Đã xác nhận". Ledger MOCK không bao giờ lỗi nên không có `DEAD_LETTER` trên stack mặc định |
-| BC-N10 | [UI] | Rà mọi màn với ledger MOCK | Không chỗ nào hiện proof MOCK như đã lên chain: không có transaction 64 hex, kết quả chain không bao giờ "Khớp sổ cái". Nhãn badge "MOCK, không trên Fabric" và nhãn kết quả "MOCK, không có trên Fabric" khác nhau một chữ (mục 7.1) |
+| BC-N10 | [UI] | Rà mọi màn với ledger MOCK | Không chỗ nào hiện proof MOCK như đã lên chain: không có transaction 64 hex, kết quả chain không bao giờ "Khớp sổ cái". Badge biên nhận và kết quả đối chiếu cùng nhãn "MOCK, không có trên Fabric", dòng phụ "Dữ liệu demo, không ghi lên Hyperledger Fabric" (B85) |
 | BC-N11 | [API] | Token người vay gọi `GET :8080/api/v1/blockchain/proofs` | `403` (chỉ `ROLE_ADMIN`) |
 
 ### 4.14 Thông báo và push (W3F)
@@ -1601,8 +1618,8 @@ IDEMPOTENCY_KEY_REQUIRED`.
 `http://localhost:5173/loans/operations?tab=incidents` hay `/blockchain/proofs`) chỉ hiện "Không có quyền truy cập"; không có
 dữ liệu nào tải về (DevTools: các lời gọi admin trả `403`).
 
-**SEC-07 [UI] Người vay đặt lệnh đầu tư** (FUND-N18): bị backend chặn `403`, không có lệnh; app hiện câu dự phòng "Phiên đăng nhập
-đã hết hạn." (gây hiểu nhầm, ghi P3).
+**SEC-07 [UI] Người vay đặt lệnh đầu tư** (FUND-N18): bị backend chặn `403`, không có lệnh; app hiện "Bạn không có quyền thực
+hiện thao tác này." (B86; bản mobile trước `b43f41c` hiện "Phiên đăng nhập đã hết hạn.").
 
 **SEC-08 [UI] Nhà đầu tư không xem được hồ sơ người vay chưa lên sàn.** Hồ sơ ẩn danh chỉ mở từ listing đã lên sàn; hồ sơ khác
 trả `404` như không tồn tại (`LEGAL-DISCLOSURE-02`). Màn "Hồ sơ người vay" lỗi hiện "Thử tải lại sau ít phút. Hồ sơ chỉ xem được
@@ -1754,20 +1771,26 @@ khi viết (2026-10-17):
 | 14 | `docker/fabric-network/README.md` chỉ nêu `Up`, `Status`, `Down` | Script còn `-Action Proof -Org org1/org2 -ProofId <uuid>` (W3D dùng để tổ chức kiểm toán đọc proof) | Bổ sung README |
 | 15 | `finora-web/plans/WEB-UI-001-giao-dien-mem.md`: web gọi thẳng AI `localhost:8000`; WEB-LOAN-001: trang chính sách AI chỉ đọc | Web gọi AI qua proxy → Gateway; trang "Chính sách đánh giá AI" sửa và lưu được | Cập nhật plan web |
 
-### 7.1 Quan sát nghi lỗi (đề xuất defect, chưa có trong register)
+### 7.1 Quan sát nghi lỗi (đề xuất defect; mục đã sửa có mã B trong register)
 
-Đọc từ code hoặc evidence khi viết tài liệu; người kiểm xác nhận trên UI rồi mới mở mã B mới (mục 5.3):
+Đọc từ code hoặc evidence khi viết tài liệu; người kiểm xác nhận trên UI rồi mới mở mã B mới (mục 5.3). Mục **Đã sửa** có bản
+sửa ngày 2026-10-18: kiểm lại theo ca ghi ở cuối dòng.
 
 1. DPD trên vị thế nhà đầu tư không giảm sau khi người vay trả bớt ở DPD 91 (91 so với 61 phía Loan) — OVD-04.
 2. Loan nhận số tiền vay không chia hết mệnh giá Note, listing không bao giờ được tạo, hồ sơ kẹt ở gọi vốn — LOAN-N11.
 3. Admin quyết định đề nghị cơ cấu đã qua bước thẩm định trả `500` thay vì `409` — RSC-N10.
 4. Web "Gọi vốn & Notes" có thể ghi "Đã phát hành Note" cho khoản đủ vốn chưa giải ngân — FUND-07.
-5. `403` không có body (ví dụ người vay bấm "Đầu tư") hiện "Phiên đăng nhập đã hết hạn." trên mobile — FUND-N18.
+5. **Đã sửa — B86 (mobile `b43f41c`).** `403` không có body (ví dụ người vay bấm "Đầu tư") hiện "Phiên đăng nhập đã hết hạn.";
+   nay là "Bạn không có quyền thực hiện thao tác này." Thanh "Đầu tư" vẫn hiện cho người vay — FUND-N18, SEC-07.
 6. Đăng nhập tài khoản bị admin khóa có thể trả "Lỗi hệ thống xác thực…" (`500`) — AUTH-N11; phiên hết hạn không có thông báo trên
    mobile và web — AUTH-N12.
-7. Web hiện "Yêu cầu chấm lại" khi assessment còn `RETRY_PENDING` nhưng backend chỉ nhận `FAILED` — ADM-N02b.
+7. **Đã sửa — B83 (web `c363690`).** Web bật "Yêu cầu chấm lại" khi assessment còn `RETRY_PENDING` nhưng backend chỉ nhận
+   `FAILED`; nay nút khóa kèm lý do — ADM-N02b. Cùng nút: web gửi version lần chấm thay vì version hồ sơ nên chấm lại trả `409`
+   (B84, web `554522e`) — ADM-N02.
 8. Form từ chối điều khoản ghi tiêu đề "Từ chối hợp đồng này" — LOAN-03; nhãn hộp thư "Lịch trả nợ" cho tin hợp đồng — mục 7 #9.
-9. Lỗi HTTP khi tải PDF hợp đồng hiện nguyên chuỗi "API {status}: {body}" trên mobile.
+9. **Đã sửa — B87 (mobile `21f9d39`).** Lỗi HTTP khi mở hoặc tải PDF hợp đồng hiện nguyên chuỗi "API {status}: {body}" trên
+   mobile; nay hiện câu của backend hoặc câu theo mã lỗi, lỗi tệp và chia sẻ: "Không mở được bản PDF hợp đồng, vui lòng thử lại."
 10. Cảnh báo "khoản vay chưa đồng bộ kịp từ Fineract" trên trang thống kê web đang bị tắt trong code (`TEMPORARILY_HIDDEN`).
 11. Thiếu header bắt buộc (không phải PIN), UUID sai định dạng hay enum lạ ở query có thể trả `500 INTERNAL_ERROR` thay vì `400`.
-12. Web dùng hai nhãn cho cùng ý proof MOCK: badge "MOCK, không trên Fabric" và kết quả đối chiếu "MOCK, không có trên Fabric" — BC-N10 (P3).
+12. **Đã sửa — B85 (web `d5dc976`, `deb23fd`).** Web dùng hai nhãn cho cùng ý proof MOCK; nay badge và kết quả đối chiếu cùng
+    là "MOCK, không có trên Fabric" — BC-N10.

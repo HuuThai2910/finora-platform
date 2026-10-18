@@ -745,6 +745,11 @@ services:
     environment:
       <<: *finora-app-network
       SPRING_PROFILES_ACTIVE: local
+      # D85: mặc định giả lập như stack E2E để test UI bằng tài khoản không eKYC, ghi đè `.env` của module. Đổi trong
+      # docker/.env rồi `up -d loan`: APPS_SIGNATURE_PROVIDER=VNPT_SMART_CA ký SmartCA UAT (VNPT_SMARTCA_* lấy từ
+      # finora-loan/.env), APPS_BORROWER_PROFILE_PROVIDER=user đọc eKYC thật của User.
+      FINORA_SIGNATURE_PROVIDER: ${APPS_SIGNATURE_PROVIDER:-MOCK}
+      FINORA_BORROWER_PROFILE_PROVIDER: ${APPS_BORROWER_PROFILE_PROVIDER:-mock}
     ports:
       - "8081:8081"
     depends_on:
@@ -797,6 +802,10 @@ services:
     env_file: ../finora-investment/.env
     environment:
       <<: *finora-app-network
+      # D85: nhà đầu tư test không eKYC vẫn đầu tư được; Auto-Invest tắt để quy tắc có sẵn trên Neon không tự góp vốn
+      # rồi thành bên phải ký. Đổi bằng APPS_INVESTMENT_REQUIRE_EKYC / APPS_INVESTMENT_AUTO_INVEST_ENABLED.
+      INVESTMENT_REQUIRE_EKYC: ${APPS_INVESTMENT_REQUIRE_EKYC:-false}
+      INVESTMENT_AUTO_INVEST_ENABLED: ${APPS_INVESTMENT_AUTO_INVEST_ENABLED:-false}
     ports:
       - "8084:8084"
     depends_on:

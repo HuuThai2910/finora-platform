@@ -22,7 +22,7 @@ khác mất xác thực service (401).
 
 | File | Biến |
 |---|---|
-| `docker/.env` | `KEYCLOAK_LOAN_CLIENT_SECRET`, `KEYCLOAK_AI_CLIENT_SECRET`, `FINORA_BUSINESS_TIME_ZONE`, `FINORA_BORROWER_PROFILE_PROVIDER`, `USER_CIC_MAPPING_ENABLED` (mặc định `false`), `BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD`, `BLOCKCHAIN_DB_PASSWORD` (đặt giá trị ngẫu nhiên trước lần đầu bật `blockchain-postgres`) |
+| `docker/.env` | `KEYCLOAK_LOAN_CLIENT_SECRET`, `KEYCLOAK_AI_CLIENT_SECRET`, `FINORA_BUSINESS_TIME_ZONE`, `FINORA_BORROWER_PROFILE_PROVIDER`, `USER_CIC_MAPPING_ENABLED` (mặc định `false`), `BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD`, `BLOCKCHAIN_DB_PASSWORD` (đặt giá trị ngẫu nhiên trước lần đầu bật `blockchain-postgres`); tùy chọn `APPS_*` của profile `apps` (mặc định giả lập, D85) |
 | `finora-loan/.env` | `LOAN_DB_URL/USERNAME/PASSWORD` (Loan không còn mặc định trỏ Neon, D39), `KEYCLOAK_LOAN_CLIENT_SECRET`; `FINORA_SIGNATURE_PADES_*` có mặc định |
 | `finora-ai/.env` | `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET`, `KEYCLOAK_ISSUER_URI`, `KEYCLOAK_JWK_SET_URI`, `FINORA_ENVIRONMENT` |
 | `finora-notification/.env` | `NOTIFICATION_PUSH_PROVIDER` (mặc định `log`), `NOTIFICATION_DUE_REMINDER_ENABLED`, `EXPO_ACCESS_TOKEN` (chỉ khi push thật) |
