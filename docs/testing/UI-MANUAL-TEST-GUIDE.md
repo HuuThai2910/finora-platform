@@ -224,6 +224,9 @@ npm run dev     # Vite, http://localhost:5173
 | Nhà đầu tư | Đăng ký bằng API với `role = INVESTOR` như harness (lệnh dưới), rồi đăng nhập mobile. Chip "Nhà đầu tư" của tài khoản demo dùng chung cho cả nhóm nên số dư và lịch sử không sạch; chỉ dùng để xem nhanh. Ca nhiều bên cho vay cần 2 nhà đầu tư |
 | Người dùng thứ hai | Một người vay và một nhà đầu tư khác cho mục 4.16 |
 
+Cách nhanh nhất để có đủ người vay và nhà đầu tư (đã có PIN, ví nhà đầu tư đã nạp): script `new-test-accounts.ps1` ở cuối
+mục này.
+
 Đặt email theo mẫu `qa.<tên>.<vai trò>.<yyyyMMddHHmm>@finora.test` (domain không có hộp thư thật). Form mobile bắt buộc số
 điện thoại 10 chữ số bắt đầu bằng 0 và **không được trùng** với tài khoản khác ("Số điện thoại này đã được đăng ký trong hệ
 thống"): dùng số giả theo lượt, ví dụ `09` + 8 chữ số của ngày giờ. Mật khẩu tối thiểu 8 ký tự, lưu trong trình quản lý mật
@@ -260,6 +263,32 @@ docker exec finora-user-redis sh -c 'if [ -z "${USER_REDIS_PASSWORD:+x}" ]; then
 Lệnh trả 6 chữ số; rỗng là OTP chưa được ghi, đã hết hạn hoặc đã dùng. PIN giao dịch: 6 chữ số, tránh dãy lặp, tăng, giảm và
 PIN phổ biến (User từ chối; harness sinh PIN có ít nhất 4 chữ số khác nhau).
 
+#### Tạo tài khoản bằng script `new-test-accounts.ps1`
+
+Script đi lại đúng luồng API của harness (đăng ký → OTP trong Redis → xác minh → tạo PIN), đăng nhập lại qua Gateway bằng
+mật khẩu vừa lưu rồi nạp ví mock. Mặc định tạo 2 người vay và 2 nhà đầu tư (đủ cho ca nhiều bên cho vay và mục 4.16), nạp
+mỗi nhà đầu tư tới 100.000.000 đ, người vay không nạp. Cần Gateway, User, container `finora-user-redis` và Payment (khi có
+nạp). Dữ liệu giả: email `qa.<borrower|investor>.<yyyyMMddHHmmss>.<n>@finora.test`, họ tên `QA Người vay …`/`QA Nhà đầu
+tư …`, mật khẩu và PIN ngẫu nhiên riêng từng tài khoản; không có số điện thoại, không eKYC.
+
+PowerShell:
+
+```powershell
+# 2 người vay + 2 nhà đầu tư (mỗi nhà đầu tư có 100.000.000 đ trong ví)
+powershell -ExecutionPolicy Bypass -File docker/e2e/new-test-accounts.ps1
+# Chọn số lượng và mức nạp (đồng; 0 = không nạp; tối đa 100.000.000 đ)
+powershell -ExecutionPolicy Bypass -File docker/e2e/new-test-accounts.ps1 -Borrowers 1 -Investors 3 -TopUpAmount 50000000 -BorrowerTopUpAmount 5000000
+```
+
+- Kết quả ghi vào `docker/e2e/out/test-accounts.json` (git-ignore, UTF-8): mảng `accounts`, mỗi phần tử có `createdAt`,
+  `role`, `email`, `userId`, `fullName`, `password`, `pin`. Mỗi lần chạy chỉ nối thêm, không ghi đè tài khoản cũ. Mở file
+  bằng editor để lấy mật khẩu và PIN; không dán nội dung file vào báo cáo hay chat (mục 2.1). Đổi đường dẫn bằng `-OutFile`;
+  script từ chối file nằm trong repo mà không bị git-ignore.
+- Console chỉ in email, vai trò, userId, kết quả đăng nhập và nạp ví; không in mật khẩu, PIN, OTP hay token.
+- Thiếu phụ thuộc thì script dừng kèm lý do: Gateway/User/Payment không phản hồi, container Redis chưa chạy, Payment không
+  cho nạp giả lập (D37, mục 2.8). Tài khoản tạo xong trước chỗ lỗi vẫn nằm trong file.
+- Gateway hoặc Payment ở địa chỉ khác: `-GatewayUrl`, `-PaymentUrl` (mặc định `http://localhost:8080`, `http://localhost:8082`).
+
 ### 2.7 Sản phẩm vay đang bán
 
 Người vay chỉ nộp được hồ sơ vào Product `ACTIVE` đã đồng bộ Fineract. Harness ngừng Product E2E của nó
@@ -287,6 +316,26 @@ Nhà đầu tư (và người vay khi cần trả thêm) nạp ví trên mobile:
 
 API nạp chỉ nhận số nguyên đồng, 10.000–100.000.000 đ mỗi lần; tạo lệnh nạp giới hạn 10 lệnh/giờ mỗi người (D40). Hoàn tất một
 lệnh hai lần không cộng tiền hai lần.
+
+**Nạp lại bằng script (`-TopUpOnly`).** Ví nằm trong DB của Payment: đổi giữa cách A (Neon) và cách B (DB local) thì tài
+khoản trong `docker/e2e/out/test-accounts.json` (mục 2.6) vẫn đăng nhập được nhưng ví trống. Chạy lại script với
+`-TopUpOnly`: không tạo tài khoản, đăng nhập từng tài khoản trong file và nạp mock tới mức cần (`-TopUpAmount` cho nhà đầu
+tư, mặc định 100.000.000 đ; `-BorrowerTopUpAmount` cho người vay, mặc định 0 = bỏ qua). Mức nạp là số dư khả dụng cần đạt:
+ví đã đủ thì không tạo lệnh, nên chạy lại không cộng thêm tiền; ví thiếu thì nạp phần còn thiếu (tối thiểu 10.000 đ).
+
+PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File docker/e2e/new-test-accounts.ps1 -TopUpOnly
+# Nạp cả người vay trong file tới 5.000.000 đ
+powershell -ExecutionPolicy Bypass -File docker/e2e/new-test-accounts.ps1 -TopUpOnly -BorrowerTopUpAmount 5000000
+```
+
+Trước lệnh nạp đầu tiên, script hỏi Payment có chức năng giả lập không (gọi `mock-complete` với một mã lệnh không tồn tại,
+không tạo gì). Payment không chạy `PAYMENT_TOPUP_PROVIDER=mock` với `FINORA_ENVIRONMENT` là `local`/`e2e`/`demo` (D37; cách
+A đọc `finora-payment/.env`, launcher cách B tự đặt `mock`) thì script dừng và không tạo lệnh nạp nào. Một tài khoản đăng
+nhập lỗi (ví dụ tài khoản không còn trên Keycloak) chỉ bị đánh dấu `LỖI`, các tài khoản khác vẫn được nạp; mỗi tài khoản
+tạo tối đa 10 lệnh nạp mỗi giờ (D40).
 
 ### 2.9 eKYC người vay
 
