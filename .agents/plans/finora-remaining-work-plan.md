@@ -333,7 +333,7 @@ dõi trong bảng này; defect/quyết định giữ mã gốc. Hướng dẫn m
 | N12 | P2 | Both | R8B: redaction PII/secret trong log, mã hóa token thiết bị push, retention | Q17 để ngoài Wave 3 |
 | N13 | P3 | Hải | B82: dấu "đã nhả" theo `repaymentId` để Notification không đặt lại cờ giữ khi đọc bù hai topic P5 | Cần migration Notification |
 | N14 | P3 | Claude | Launcher: tùy chọn chữ ký SmartCA; `-WithLocalCic` tự trỏ mapping của User về CIC local (cùng khóa nội bộ) và trả về Vercel khi `Stop` | Tiện cho test |
-| N15 | P3 | Claude | Dọn worktree agent trong `.claude/worktrees` (giữ nhánh, nhất là B76); bỏ hoặc gộp `docker/docker-compose.app.yml` vì profile `apps` của `docker-compose.yml` thay thế (thiếu Notification, Blockchain; User đọc `finora-user/.env` không tồn tại) | — |
+| N15 | P3 | Claude | ~~Dọn worktree agent~~ (xong 2026-10-18 ở platform, web, mobile; nhánh giữ nguyên, B76 là `worktree-agent-a234c64210b1e0838` @ `77aae07`); còn: bỏ hoặc gộp `docker/docker-compose.app.yml` vì profile `apps` của `docker-compose.yml` thay thế (thiếu Notification, Blockchain; User đọc `finora-user/.env` không tồn tại) | — |
 
 ## 4. R0 — Đồng bộ source, roadmap và tài liệu
 
