@@ -36,7 +36,7 @@ Thay cho việc mở IntelliJ: sáu service Java (Loan, Payment, Investment, Not
 container `eclipse-temurin:21-jre` bằng **jar đã build sẵn**, không build image. Mỗi service đọc `.env` của module (DB Neon
 như khi chạy IntelliJ); Compose chỉ đổi địa chỉ `localhost` trong `.env` (Kafka, Keycloak, Fineract, AI, User, Payment) sang
 tên service trong mạng Docker. Blockchain dùng container `blockchain-postgres` (chưa có DB Neon), ledger MOCK, listener và
-worker bật; Fineract dùng `fineract-postgres`.
+worker bật (ghi lên Fabric local khi đặt `BLOCKCHAIN_PROOF_PROVIDER=HYPERLEDGER_FABRIC`, mục dưới); Fineract dùng `fineract-postgres`.
 
 ```powershell
 # Build jar một lần trước lần bật đầu tiên
@@ -62,6 +62,10 @@ docker compose --env-file docker/.env -f docker/docker-compose.yml --profile dem
   rồi `up -d loan investment` (tạo lại container; `restart` giữ biến cũ). Ký SmartCA UAT ngay trong container Loan:
   `APPS_SIGNATURE_PROVIDER=VNPT_SMART_CA`, thông tin `VNPT_SMARTCA_*` đọc từ `finora-loan/.env`; không cần IntelliJ vì
   SmartCA không gọi ngược vào Loan.
+- **Fabric thật (D86):** `powershell -ExecutionPolicy Bypass -File docker/fabric-network/fabric-network.ps1 -Action Up`
+  (dựng mạng hai tổ chức, kiểm RAM, thêm khoảng 200–400 MB), đặt `BLOCKCHAIN_PROOF_PROVIDER=HYPERLEDGER_FABRIC` trong
+  `docker/.env` rồi `up -d blockchain`. Container Blockchain nối peer qua mạng Docker và đọc danh tính trong
+  `docker/fabric-network` (mount chỉ đọc). Xong: xóa biến, `up -d blockchain`, rồi `fabric-network.ps1 -Action Down`.
 - Muốn debug một service bằng IntelliJ: `docker stop finora-<service>` rồi chạy service đó trong IntelliJ (trùng cổng nếu không
   dừng container).
 - Lần đầu chạy code mới, Flyway áp migration còn thiếu lên DB Neon (dùng chung với cả nhóm); migration đã áp không gỡ được.

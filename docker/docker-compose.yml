@@ -854,9 +854,12 @@ services:
   blockchain:
     <<: *finora-app
     container_name: finora-blockchain
-    command: ["java", "-Xmx192m", "-XX:+UseSerialGC", "-jar", "/app/app.jar"]
+    # 256m như launcher -WithFabric: gRPC/Netty của Fabric Gateway cần thêm bộ nhớ so với ledger MOCK.
+    command: ["java", "-Xmx256m", "-XX:+UseSerialGC", "-jar", "/app/app.jar"]
     volumes:
       - ../finora-blockchain/target/finora-blockchain-1.0.0-SNAPSHOT.jar:/app/app.jar:ro
+      # Danh tính Fabric do docker/fabric-network/fabric-network.ps1 sinh (git-ignore); chỉ được đọc khi provider là Fabric.
+      - ./fabric-network:/fabric-network:ro
     environment:
       <<: *finora-app-network
       BLOCKCHAIN_DB_URL: jdbc:postgresql://blockchain-postgres:5432/${BLOCKCHAIN_DB_NAME:-finora_blockchain}
@@ -866,6 +869,14 @@ services:
       BLOCKCHAIN_KAFKA_LISTENER_ENABLED: "true"
       BLOCKCHAIN_PROOF_WORKER_ENABLED: "true"
       BLOCKCHAIN_PROOF_PROVIDER: ${BLOCKCHAIN_PROOF_PROVIDER:-MOCK}
+      # D86: BLOCKCHAIN_PROOF_PROVIDER=HYPERLEDGER_FABRIC trong docker/.env ghi proof lên mạng Fabric local (dựng trước bằng
+      # fabric-network.ps1 -Action Up). Peer cùng mạng finora-network qua alias đúng tên chứng thư TLS; job đối soát tự bỏ
+      # qua khi provider là MOCK.
+      BLOCKCHAIN_PROOF_RECONCILIATION_ENABLED: "true"
+      FABRIC_PEER_ENDPOINT: peer0.org1.finora.local:7051
+      FABRIC_CERT_PATH: /fabric-network/crypto-config/peerOrganizations/org1.finora.local/users/User1@org1.finora.local/msp/signcerts/User1@org1.finora.local-cert.pem
+      FABRIC_KEY_PATH: /fabric-network/crypto-config/peerOrganizations/org1.finora.local/users/User1@org1.finora.local/msp/keystore/priv_sk
+      FABRIC_TLS_CERT_PATH: /fabric-network/crypto-config/peerOrganizations/org1.finora.local/peers/peer0.org1.finora.local/tls/ca.crt
     ports:
       - "8083:8083"
     depends_on:

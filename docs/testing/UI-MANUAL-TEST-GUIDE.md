@@ -69,7 +69,7 @@ thuộc tên màn hình hay lệnh.
 | Đồng hồ | Chỉ Loan và Payment dời được ngày (launcher `-LoanClockOffset`/`-PaymentClockOffset`) cùng business date của Fineract | Tính năng của demo/production (không có API đổi ngày) |
 
 Cách A (profile `apps`, mục 2.1a) mặc định dùng cùng các giả lập trên (D85): chữ ký `MOCK`, KYC người vay mock, tắt eKYC
-nhà đầu tư và worker Auto-Invest, dù `.env` của module ghi gì. Khác stack E2E: dữ liệu User, Loan, Payment, Investment,
+nhà đầu tư và worker Auto-Invest, dù `.env` của module ghi gì; ledger `MOCK` trừ khi bật Fabric (D86). Khác stack E2E: dữ liệu User, Loan, Payment, Investment,
 Notification nằm trên Neon dùng chung; CIC luôn là bản Vercel; không dời đồng hồ.
 
 Trên mọi màn hình liên quan, app phải ghi rõ là môi trường demo/giả lập (ví nạp mock, rút tiền, chữ ký demo, proof MOCK).
@@ -95,7 +95,7 @@ Hai cách chạy **không bật cùng lúc** (trùng cổng 8080–8086). Đổi
 | Phần lớn ca gắn **[UI]**: đăng ký, hồ sơ vay, duyệt, gọi vốn, ký MOCK, giải ngân, trả kỳ, trả trước, tất toán, rút tiền, sự cố, proof MOCK, thông báo, bảo mật | **Cách A — profile `apps`** (Docker + DB Neon, mục dưới) | Dữ liệu ở Neon như khi chạy IntelliJ |
 | Ký **SmartCA UAT thật** (mục 4.5) | Cách A, thêm `APPS_SIGNATURE_PROVIDER=VNPT_SMART_CA` vào `docker/.env` rồi tạo lại container Loan: `docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps up -d loan`. Thông tin UAT (`VNPT_SMARTCA_*`) đọc từ `finora-loan/.env`. Xong thì xóa biến và chạy lại lệnh để về `MOCK` | Không cần IntelliJ: SmartCA không gọi ngược vào Loan (chưa dùng webhook), Loan đối soát khi người dùng bấm kiểm tra. Khi bật, mọi chữ ký đều cần duyệt trên app SmartCA (một signer test cố định) |
 | Ca cần **dời đồng hồ** (quá hạn, nợ xấu, ghi kỳ đúng ngày đến hạn — nhãn [UI + công cụ] dùng T2) | **Cách B — launcher E2E** `-Database local` (mục 2.2–2.3) | DB local tự tạo lại; chữ ký luôn MOCK; không dùng chung với SmartCA |
-| **Fabric thật** (`BC-06`, `BC-N08`, `BC-N09`) | Cách B thêm `-WithFabric` | Thêm khoảng 200–400 MB RAM |
+| **Fabric thật** (`BC-06`, `BC-N08`, `BC-N09`) | Cách A: `powershell -ExecutionPolicy Bypass -File docker/fabric-network/fabric-network.ps1 -Action Up`, thêm `BLOCKCHAIN_PROOF_PROVIDER=HYPERLEDGER_FABRIC` vào `docker/.env` rồi `docker compose ... up -d blockchain` (D86). Cách B: thêm `-WithFabric` | Thêm khoảng 200–400 MB RAM. Proof tạo trước khi bật vẫn là MOCK. Xong: xóa biến, `up -d blockchain`, `fabric-network.ps1 -Action Down` |
 | **CIC local** (mục 4.15) | Cách B thêm `-WithLocalCic` | CIC trên Vercel không nhận được quá hạn (không đọc được Kafka local) |
 
 **Cách A — profile `apps` (Docker + DB Neon).** PowerShell trong `finora-platform`. Jar đã build sẵn. Mọi lệnh `docker compose`
