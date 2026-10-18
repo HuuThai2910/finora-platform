@@ -1,7 +1,9 @@
 # Profile `apps`: sáu service Java (Loan, Payment, Investment, Notification, Blockchain, Gateway) chạy bằng jar đã build
 # (`mvn -pl <module> -am package -DskipTests`), không build image. Mỗi service đọc `.env` của module (DB Neon như khi chạy
-# IntelliJ); Compose chỉ đổi các địa chỉ `localhost` trong `.env` sang tên service trong mạng Docker. Sửa code thì build lại
-# jar rồi `docker compose ... restart <service>`; muốn debug một service bằng IntelliJ thì dừng container của nó trước.
+# IntelliJ); Compose chỉ đổi các địa chỉ `localhost` trong `.env` sang tên service trong mạng Docker. Lệnh compose của profile
+# này cần đủ `--profile demo --profile fineract --profile blockchain --profile apps` (Kafka, Keycloak, DB Blockchain ở profile
+# khác). Sửa code thì `stop <service>` trước (container giữ khóa file jar trên Windows), build lại jar rồi `up -d <service>`;
+# muốn debug một service bằng IntelliJ thì dừng container của nó trước.
 x-finora-app: &finora-app
   image: eclipse-temurin:21-jre-jammy
   profiles: ["apps"]

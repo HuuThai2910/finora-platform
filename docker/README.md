@@ -39,14 +39,20 @@ tên service trong mạng Docker. Blockchain dùng container `blockchain-postgre
 worker bật; Fineract dùng `fineract-postgres`.
 
 ```powershell
-# Build jar một lần (và mỗi khi sửa code)
+# Build jar một lần trước lần bật đầu tiên
 mvn -B -ntp -pl finora-loan,finora-payment,finora-investment,finora-notification,finora-blockchain,finora-gateway -am package -DskipTests
 # Bật hạ tầng + sáu service (Kafka, Keycloak, User, AI, Fineract, DB Blockchain/Fineract, rồi các app)
 docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps up -d
 docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps ps
-# Sau khi build lại jar của một service
-docker compose --env-file docker/.env -f docker/docker-compose.yml --profile apps restart loan
+# Sửa code một service: dừng container trước (container giữ khóa file jar, Maven không ghi đè được), build, bật lại
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps stop loan
+mvn -B -ntp -pl finora-loan -am package -DskipTests
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps up -d loan
 ```
+
+- Mọi lệnh `docker compose` của profile `apps` phải có đủ bốn profile như trên: chỉ `--profile apps` thì Compose báo
+  `depends on undefined service "kafka": invalid compose project` (Kafka, Keycloak ở profile `demo`, DB Blockchain ở
+  `blockchain`). Tắt riêng sáu service app, giữ hạ tầng: `... stop loan payment investment notification blockchain gateway`.
 
 - Cần `BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD` và `BLOCKCHAIN_DB_PASSWORD` trong `docker/.env` (container DB khởi tạo bằng các giá
   trị này ở lần đầu).
@@ -418,17 +424,15 @@ Lỗi gửi email: ... lỗi=Couldn't connect to host                   -> sai M
 
 ## 5. Chạy Loan application bằng container
 
+Loan chạy trong container qua profile `apps` (mục 1b) cùng năm service còn lại và đọc DB từ `finora-loan/.env` (Neon dev).
+Bật hoặc tạo lại riêng Loan:
+
 ```powershell
-docker compose --env-file docker/.env -f docker/docker-compose.yml --profile loan --profile apps up -d --build loan
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps up -d loan
 ```
 
-Trong Docker network:
-
-```text
-jdbc:postgresql://loan-postgres:5432/finora_loan
-```
-
-Postman gọi `http://localhost:8081`. DBeaver kết nối `localhost:15433`.
+Postman gọi `http://localhost:8081`. PostgreSQL offline `loan-postgres` (profile `loan`, mục 6, DBeaver `localhost:15433`)
+chỉ dùng khi chạy Loan ngoài container với `LOAN_DB_URL` trỏ cổng đó.
 
 ## 6. DBeaver cho PostgreSQL Loan offline
 

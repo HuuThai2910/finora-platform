@@ -98,9 +98,11 @@ Hai cách chạy **không bật cùng lúc** (trùng cổng 8080–8086). Đổi
 | **Fabric thật** (`BC-06`, `BC-N08`, `BC-N09`) | Cách B thêm `-WithFabric` | Thêm khoảng 200–400 MB RAM |
 | **CIC local** (mục 4.15) | Cách B thêm `-WithLocalCic` | CIC trên Vercel không nhận được quá hạn (không đọc được Kafka local) |
 
-**Cách A — profile `apps` (Docker + DB Neon).** PowerShell trong `finora-platform`. Jar đã build sẵn; chỉ build lại khi sửa
-code (Maven `package`, rồi `docker compose ... --profile apps restart <service>`). Đổi biến `APPS_*` (D85) thì dùng
-`up -d <service>` để tạo lại container; `restart` giữ biến cũ. Chi tiết: `docker/README.md` mục 1b.
+**Cách A — profile `apps` (Docker + DB Neon).** PowerShell trong `finora-platform`. Jar đã build sẵn. Mọi lệnh `docker compose`
+của cách A dùng đủ bốn profile như lệnh bật dưới đây (chỉ `--profile apps` thì Compose báo `invalid compose project`). Sửa
+code một service: `stop <service>` trước (container giữ khóa file jar trên Windows nên Maven không ghi đè được), Maven
+`package`, rồi `up -d <service>`. Đổi biến `APPS_*` (D85) cũng dùng `up -d <service>` để tạo lại container; `restart` giữ
+biến cũ. Chi tiết: `docker/README.md` mục 1b.
 
 ```powershell
 # Bật tất cả: Kafka, Keycloak, User, AI, Fineract, DB Blockchain/Fineract và sáu service Java (Loan, Payment, Investment,
@@ -117,8 +119,8 @@ docker compose --env-file docker/.env -f docker/docker-compose.yml --profile dem
 Sau đó chạy web (mục 2.4) và mobile (mục 2.5). Cổng 8080–8086 mở cho mạng LAN nên điện thoại thật gọi được qua IP máy tính
 (Windows có thể hỏi quyền firewall).
 
-**Cách B — launcher E2E (DB local).** Các mục 2.2–2.3 dưới đây. Trước khi bật, tắt các container app của cách A:
-`docker compose --env-file docker/.env -f docker/docker-compose.yml --profile apps stop`.
+**Cách B — launcher E2E (DB local).** Các mục 2.2–2.3 dưới đây. Trước khi bật, tắt sáu container app của cách A (giữ
+hạ tầng): `docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps stop loan payment investment notification blockchain gateway`. Quay lại cách A: `start-local-services.ps1 -Action Stop` rồi lệnh bật cách A.
 
 ### 2.2 Dựng hạ tầng Docker (cách B)
 

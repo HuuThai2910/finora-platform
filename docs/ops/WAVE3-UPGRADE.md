@@ -34,7 +34,8 @@ khác mất xác thực service (401).
 # Image User và AI đổi code (W3A, W3E)
 docker compose --env-file docker/.env -f docker/docker-compose.yml --profile ai up -d --build --no-deps ai
 docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo up -d --build --no-deps user
-# Jar của sáu service Java
+# Jar của sáu service Java. Nếu sáu container app (profile apps) đang chạy thì dừng trước: container giữ khóa file jar
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps stop loan payment investment notification blockchain gateway
 mvn -B -ntp -pl finora-loan,finora-payment,finora-investment,finora-notification,finora-blockchain,finora-gateway -am package -DskipTests
 # Chạy hằng ngày bằng Docker với DB Neon (docker/README.md mục 1b), hoặc chạy service trong IntelliJ như trước
 docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps up -d
