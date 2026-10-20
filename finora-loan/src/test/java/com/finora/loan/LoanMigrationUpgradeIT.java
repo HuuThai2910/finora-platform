@@ -23,7 +23,7 @@ class LoanMigrationUpgradeIT {
             .withPassword("finora_test");
 
     @Test
-    void existingV4DatabaseUpgradesThroughV25WithoutRecreatingOldTables() throws Exception {
+    void existingV4DatabaseUpgradesThroughV32WithoutRecreatingOldTables() throws Exception {
         Flyway.configure()
                 .dataSource(POSTGRESQL.getJdbcUrl(), POSTGRESQL.getUsername(), POSTGRESQL.getPassword())
                 .locations("classpath:db/migration")
@@ -37,8 +37,21 @@ class LoanMigrationUpgradeIT {
                 .load();
         upgraded.migrate();
 
-        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("25");
+        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("32");
         assertThat(upgraded.info().pending()).isEmpty();
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT COUNT(*)
+                     FROM information_schema.columns
+                     WHERE table_schema = 'public'
+                       AND table_name = 'loan_applications'
+                       AND column_name IN ('funding_cancelled_at', 'funding_cancel_reason')
+                     """)) {
+            // V27 bồi hoàn gọi vốn phải nâng cấp được trên DB cũ mà không đổi dữ liệu FULLY_FUNDED hiện có.
+            assertThat(result.next()).isTrue();
+            assertThat(result.getInt(1)).isEqualTo(2);
+        }
         try (Connection connection = POSTGRESQL.createConnection("");
              Statement statement = connection.createStatement();
              ResultSet result = statement.executeQuery("""
@@ -221,6 +234,92 @@ class LoanMigrationUpgradeIT {
                      """)) {
             assertThat(result.next()).isTrue();
             assertThat(result.getInt(1)).isEqualTo(3);
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT indexname, indexdef
+                     FROM pg_indexes
+                     WHERE schemaname = 'public'
+                       AND tablename = 'loan_disbursement_sagas'
+                       AND indexname IN ('idx_loan_disbursement_saga_due', 'idx_loan_disbursement_saga_worker_due')
+                     """)) {
+            // V28 thay index worker cũ: saga CORE_BOOKING hết lease cũng phải được quét bằng index.
+            assertThat(result.next()).isTrue();
+            assertThat(result.getString("indexname")).isEqualTo("idx_loan_disbursement_saga_worker_due");
+            assertThat(result.getString("indexdef")).contains("CORE_BOOKING_PENDING", "RETRY_PENDING", "'CORE_BOOKING'");
+            assertThat(result.next()).isFalse();
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT COUNT(*)
+                     FROM information_schema.columns
+                     WHERE table_schema = 'public'
+                       AND table_name = 'loan_applications'
+                       AND column_name LIKE 'kyc_snapshot_%'
+                     """)) {
+            // V29 thêm snapshot eKYC lúc nộp; hồ sơ cũ để trống toàn bộ cột.
+            assertThat(result.next()).isTrue();
+            assertThat(result.getInt(1)).isEqualTo(7);
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT COUNT(*)
+                     FROM information_schema.columns
+                     WHERE table_schema = 'public'
+                       AND table_name = 'loan_contracts'
+                       AND column_name = 'early_settlement_policy_version'
+                     """)) {
+            // V30 ghi biểu phí trả trước mà hợp đồng đã công bố (G-POLICY-W2).
+            assertThat(result.next()).isTrue();
+            assertThat(result.getInt(1)).isEqualTo(1);
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT COUNT(*)
+                     FROM information_schema.columns
+                     WHERE table_schema = 'public'
+                       AND table_name = 'loan_disbursement_sagas'
+                       AND column_name IN ('repair_attempt_base', 'repair_count', 'last_repair_by', 'last_repair_at',
+                                           'last_repair_note')
+                     """)) {
+            // V31 lưu lần vận hành đưa saga REPAIR_REQUIRED về ghi core lại (R2, Wave 2D).
+            assertThat(result.next()).isTrue();
+            assertThat(result.getInt(1)).isEqualTo(5);
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT column_default
+                     FROM information_schema.columns
+                     WHERE table_schema = 'public'
+                       AND table_name = 'loan_contracts'
+                       AND column_name = 'signature_profile'
+                     """)) {
+            // V32 (R5): hợp đồng cũ giữ bằng chứng tách rời; chỉ hợp đồng mới chọn PAdES khi lập.
+            assertThat(result.next()).isTrue();
+            assertThat(result.getString(1)).contains("DETACHED_EVIDENCE");
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT indexname
+                     FROM pg_indexes
+                     WHERE schemaname = 'public'
+                       AND tablename = 'loan_contract_signatures'
+                     ORDER BY indexname
+                     """)) {
+            // Một phiên chờ mỗi hợp đồng, một bản SIGNED mỗi vị trí và mỗi bên ký, worker quét phiên đang chờ.
+            java.util.List<String> indexes = new java.util.ArrayList<>();
+            while (result.next()) {
+                indexes.add(result.getString(1));
+            }
+            assertThat(indexes).contains(
+                    "uq_loan_contract_signatures_in_flight", "uq_loan_contract_signatures_sequence",
+                    "uq_loan_contract_signatures_signer", "idx_loan_contract_signatures_in_flight_due");
         }
     }
 }

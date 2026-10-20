@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * Một nguồn ánh xạ duy nhất giữa chính sách trả nợ FINORA và mã Fineract 1.15.
- * MVP luôn dùng dư nợ giảm dần và tính lãi theo cùng chu kỳ trả nợ.
+ * Luôn dùng dư nợ giảm dần; kiểu tính lãi đi theo version cấu hình core (V4 theo ngày, V1–V3 theo kỳ).
  */
 @Component
 public class FineractRepaymentPolicy {
@@ -18,7 +18,7 @@ public class FineractRepaymentPolicy {
         return 0;
     }
 
-    public int interestCalculationPeriodType() {
-        return 1;
+    public int interestCalculationPeriodType(String configVersion) {
+        return FineractAllocationPolicy.interestCalculationPeriodType(configVersion);
     }
 }

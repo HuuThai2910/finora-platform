@@ -12,7 +12,8 @@ Ba chế độ::
     # Liveness với embedding có sẵn (base64)
     python scripts/ekyc_smoke.py liveness --video quay.mp4 --embedding <b64> --steps ...
 
-Token nội bộ lấy từ ``--token`` hoặc biến ``AI_INTERNAL_TOKEN``. Script **không in PII**:
+Access token service account (client role ``ai:ekyc:ocr`` của ``finora-user-client``, D34/D35) lấy từ
+``--token`` hoặc biến ``AI_ACCESS_TOKEN``, ví dụ token ``client_credentials`` xin từ Keycloak. Script **không in PII**:
 số định danh chỉ hiện 4 số cuối, các trường khác chỉ in nguồn (QR/MRZ/OCR/AI). Dữ liệu
 thật để ngoài repo.
 """
@@ -39,7 +40,7 @@ def _mask(value: str | None) -> str:
 
 
 def _headers(token: str | None) -> dict:
-    return {"X-Internal-Token": token} if token else {}
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 def _read(path: Path) -> bytes:
@@ -151,7 +152,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("mode", choices=["document", "liveness", "full"])
     parser.add_argument("--url", default="http://localhost:8000")
-    parser.add_argument("--token", default=os.getenv("AI_INTERNAL_TOKEN"))
+    parser.add_argument("--token", default=os.getenv("AI_ACCESS_TOKEN"))
     parser.add_argument("--front", type=Path)
     parser.add_argument("--back", type=Path)
     parser.add_argument("--qr-text")

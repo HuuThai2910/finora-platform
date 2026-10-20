@@ -6,6 +6,7 @@ import com.finora.payment.config.EarlySettlementPolicyProperties;
 import com.finora.payment.domain.repayment.PartialPrepaymentQuote;
 import com.finora.payment.domain.servicing.PaymentLoanAccount;
 import com.finora.payment.dto.response.PartialPrepaymentQuoteResponse;
+import com.finora.payment.integration.fineract.FineractQuoteErrors;
 import com.finora.payment.integration.fineract.PartialPrepaymentCoreSnapshot;
 import com.finora.payment.integration.fineract.RepaymentCoreGateway;
 import com.finora.payment.repository.repayment.PartialPrepaymentQuoteRepository;
@@ -23,9 +24,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 @RequiredArgsConstructor
 public class PartialPrepaymentQuoteService {
-    static final String REQUIRED_CORE_VERSION = "FINORA-FINERACT-V2";
     private final PaymentLoanAccountRepository loanAccounts;
     private final PartialPrepaymentQuoteRepository quotes;
+    private final RepaymentInFlightGuard inFlight;
     private final RepaymentCoreGateway fineract;
     private final EarlySettlementFeeCalculator feeCalculator;
     private final EarlySettlementPolicyProperties policy;
@@ -38,12 +39,21 @@ public class PartialPrepaymentQuoteService {
         QuotePreparation preparation = transactionTemplate.execute(status -> prepare(applicationId, borrowerId));
         if (preparation == null) throw new IllegalStateException("Không chuẩn bị được báo giá trả trước một phần");
         LocalDate today = LocalDate.now(clock);
-        PartialPrepaymentCoreSnapshot core = fineract.partialPrepaymentSnapshot(preparation.fineractLoanId(), today);
+        PartialPrepaymentCoreSnapshot core = FineractQuoteErrors.read(
+                () -> fineract.partialPrepaymentSnapshot(preparation.fineractLoanId(), today));
+        // D27: chỉ trả trước gốc khi không còn kỳ quá hạn. Fineract phân bổ khoản trả vào các kỳ quá hạn trước, nên
+        // "gốc trả thêm" sẽ chỉ trả nợ quá hạn mà vẫn bị tính phí trả trước. Kiểm theo kỳ chưa trả cũ nhất của lịch,
+        // không phụ thuộc job tính quá hạn cuối ngày của Fineract. Tất toán toàn bộ vẫn được phép.
+        if (core.nextDueDate() != null && core.nextDueDate().isBefore(today)) {
+            throw new BusinessException(HttpStatus.CONFLICT, "PARTIAL_PREPAYMENT_LOAN_OVERDUE",
+                    "Khoản vay đang quá hạn. Hãy thanh toán phần quá hạn trước khi trả trước gốc");
+        }
         if (normalized.compareTo(core.outstandingPrincipal()) >= 0) {
             throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, "PARTIAL_PREPAYMENT_AMOUNT_TOO_HIGH",
                     "Phần gốc trả trước phải nhỏ hơn gốc còn lại; dùng luồng tất toán để đóng toàn bộ khoản vay");
         }
-        EarlySettlementFeeCalculator.Fee fee = feeCalculator.calculate(normalized,
+        // Biểu phí của chính hợp đồng (snapshot trên tài khoản), không phải biểu phí đang áp cho hợp đồng mới.
+        EarlySettlementFeeCalculator.Fee fee = feeCalculator.calculate(preparation.policyVersion(), normalized,
                 core.originalTermMonths(), core.disbursedDate(), core.maturityDate(), today);
         var now = clock.instant();
         PartialPrepaymentQuote saved = transactionTemplate.execute(status -> {
@@ -54,7 +64,8 @@ public class PartialPrepaymentQuoteService {
             }
             try {
                 return quotes.save(PartialPrepaymentQuote.create(account, core, normalized, fee.rate(),
-                        fee.amount(), fee.policyVersion(), now.plus(policy.quoteTtl()), now));
+                        fee.amount(), fee.investorShare(), fee.finoraShare(), fee.policyVersion(),
+                        now.plus(policy.quoteTtl()), now));
             } catch (IllegalArgumentException exception) {
                 throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY,
                         "PARTIAL_PREPAYMENT_AMOUNT_INVALID", exception.getMessage());
@@ -77,7 +88,9 @@ public class PartialPrepaymentQuoteService {
     }
 
     private QuotePreparation prepare(Long applicationId, String borrowerId) {
-        return new QuotePreparation(requireEligibleAccount(applicationId, borrowerId).getFineractLoanId());
+        PaymentLoanAccount account = requireEligibleAccount(applicationId, borrowerId);
+        inFlight.requireNoneBeforeQuote(applicationId);
+        return new QuotePreparation(account.getFineractLoanId(), account.getEarlySettlementPolicyVersion());
     }
 
     private PaymentLoanAccount requireEligibleAccount(Long applicationId, String borrowerId) {
@@ -92,12 +105,9 @@ public class PartialPrepaymentQuoteService {
             throw new BusinessException(HttpStatus.CONFLICT, "PAYMENT_LOAN_NOT_ACTIVE",
                     "Khoản vay không còn hoạt động");
         }
-        if (!REQUIRED_CORE_VERSION.equals(account.getCoreConfigVersion())) {
-            throw new BusinessException(HttpStatus.CONFLICT, "PARTIAL_PREPAYMENT_REQUIRES_FINERACT_V2",
-                    "Khoản vay này dùng chiến lược core cũ và không hỗ trợ tái phân bổ trả trước một phần");
-        }
+        SelfServicePrepaymentPolicy.requireDailyInterestCore(account);
         return account;
     }
 
-    private record QuotePreparation(Long fineractLoanId) {}
+    private record QuotePreparation(Long fineractLoanId, String policyVersion) {}
 }

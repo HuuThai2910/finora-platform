@@ -39,7 +39,7 @@ public class PaymentServicingProjectionService {
         if (existing == null) {
             loanAccounts.save(PaymentLoanAccount.activate(data.loanApplicationId(), data.contractNumber(),
                     data.listingId(), disbursement.getBorrowerId(), data.fineractLoanId(),
-                    data.coreConfigVersion(), data.currency(),
+                    data.coreConfigVersion(), data.earlySettlementPolicyVersion(), data.currency(),
                     data.disbursedAt()));
         } else if (!existing.getFineractLoanId().equals(data.fineractLoanId())) {
             throw new IllegalArgumentException("Khoản vay Payment đã gắn Fineract loan khác");

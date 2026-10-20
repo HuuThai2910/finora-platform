@@ -32,6 +32,16 @@ public interface NoteIssuanceService {
      */
     int activateNotes(Long listingId);
 
+    /**
+     * Thao tác sửa lỗi của quản trị: chỉ khóa vốn/phát hành Note khi Loan đã xác nhận giải ngân (listing có
+     * {@code disbursedAt}). Trước giải ngân, tiền nhà đầu tư mới được giữ; khóa vốn sẽ chặn bù trừ khi hợp đồng bị
+     * từ chối và phát hành Note sẽ cho nhà đầu tư quyền với khoản vay chưa nhận tiền.
+     */
+    int finalizeCommitmentsAfterDisbursement(Long listingId);
+
+    /** @see #finalizeCommitmentsAfterDisbursement(Long) */
+    int activateNotesAfterDisbursement(Long listingId);
+
     /** Danh sách Note của một phần vốn, dùng cho màn hình chi tiết khoản đầu tư. */
     List<NoteResponse> notesOfCommitment(Long commitmentId);
 }

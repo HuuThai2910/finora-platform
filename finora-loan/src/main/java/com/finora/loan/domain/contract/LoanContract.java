@@ -46,6 +46,12 @@ public class LoanContract {
     @Column(name = "multi_party", nullable = false, updatable = false)
     private boolean multiParty;
 
+    /** Chốt khi lập Contract (R5): hợp đồng cũ giữ bằng chứng tách rời, hợp đồng mới ký PAdES nhúng vào PDF. */
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "signature_profile", nullable = false, length = 30, updatable = false)
+    private ContractSignatureProfile signatureProfile;
+
     @Column(name = "principal_amount", nullable = false, precision = 18, scale = 2, updatable = false)
     private BigDecimal principalAmount;
 
@@ -93,6 +99,13 @@ public class LoanContract {
 
     @Column(name = "document_version", nullable = false, length = 30, updatable = false)
     private String documentVersion;
+
+    /**
+     * Biểu phí trả trước mà văn bản hợp đồng đã công bố (G-POLICY-W2). {@code null} với hợp đồng {@code LOAN_TERMS_V1}
+     * không có điều khoản phí trả trước; Payment khi đó không thu phí.
+     */
+    @Column(name = "early_settlement_policy_version", length = 50, updatable = false)
+    private String earlySettlementPolicyVersion;
 
     @Column(name = "document_content", nullable = false, columnDefinition = "text", updatable = false)
     private String documentContent;
@@ -206,6 +219,7 @@ public class LoanContract {
         contract.applicationId = Objects.requireNonNull(applicationId, "applicationId");
         contract.borrowerId = requireText(borrowerId, "borrowerId");
         contract.multiParty = false;
+        contract.signatureProfile = ContractSignatureProfile.DETACHED_EVIDENCE;
         contract.principalAmount = money(terms.principalAmount(), "principalAmount");
         if (contract.principalAmount.signum() == 0) {
             throw new IllegalArgumentException("principalAmount phải dương");
@@ -238,6 +252,14 @@ public class LoanContract {
         return contract;
     }
 
+    /** Ghi biểu phí trả trước đã in trong văn bản, một lần trước khi lưu Contract (cột không cho update). */
+    public void recordEarlySettlementPolicy(String policyVersion) {
+        if (id != null || earlySettlementPolicyVersion != null) {
+            throw new IllegalStateException("Biểu phí trả trước chỉ ghi một lần trước khi lưu hợp đồng");
+        }
+        earlySettlementPolicyVersion = requireText(policyVersion, "earlySettlementPolicyVersion");
+    }
+
     /** Chuyển Contract mới tạo sang chuỗi ký lender trước, borrower sau. */
     public void initializeMultiParty() {
         if (id != null || status != LoanContractStatus.PENDING_SIGNATURE || consentAction != null) {
@@ -248,6 +270,23 @@ public class LoanContract {
         }
         multiParty = true;
         status = LoanContractStatus.PENDING_LENDER_SIGNATURES;
+    }
+
+    /**
+     * Chọn ký PAdES cho Contract nhiều bên mới chưa lưu. Không cho đổi sau khi lưu: một hợp đồng đang ký dở không được
+     * chuyển cách ký giữa chừng, nếu không các bên trước và sau sẽ ký hai loại bằng chứng khác nhau.
+     */
+    public void usePadesSignatures() {
+        if (id != null || !multiParty || status != LoanContractStatus.PENDING_LENDER_SIGNATURES) {
+            throw LoanDomainException.conflict(
+                    "SIGNATURE_PROFILE_LOCKED",
+                    "Chỉ Contract nhiều bên mới chưa lưu mới được chọn ký PAdES");
+        }
+        signatureProfile = ContractSignatureProfile.PADES_B_B;
+    }
+
+    public boolean isPadesSigned() {
+        return signatureProfile == ContractSignatureProfile.PADES_B_B;
     }
 
     public void markBorrowerSignatureReady(String actorId, Instant now) {
@@ -397,6 +436,22 @@ public class LoanContract {
     /** VNPT từ chối hoặc giao dịch hết hạn: trả về chờ ký và xóa attempt để borrower thử lại. */
     public void resetRejectedDigitalSignature(String actorId, Instant now) {
         requireOwner(actorId);
+        clearDigitalSignatureAttempt(actorId, now);
+    }
+
+    /**
+     * Worker đóng phiên SmartCA quá hạn của borrower (không có người dùng gọi API) để borrower ký lại bằng yêu cầu mới.
+     * Trả {@code false} khi Contract không còn ở trạng thái đang ký số, ví dụ request khác vừa hoàn tất.
+     */
+    public boolean expireDigitalSignatureSession(Instant now) {
+        if (status != LoanContractStatus.SIGNING) {
+            return false;
+        }
+        clearDigitalSignatureAttempt("SYSTEM", now);
+        return true;
+    }
+
+    private void clearDigitalSignatureAttempt(String actorId, Instant now) {
         if (status != LoanContractStatus.SIGNING) {
             return;
         }

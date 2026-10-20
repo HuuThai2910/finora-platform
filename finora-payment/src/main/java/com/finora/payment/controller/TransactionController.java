@@ -8,6 +8,7 @@ import com.finora.payment.dto.response.TransferResponse;
 import com.finora.payment.service.hold.HoldTransferService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -24,6 +25,12 @@ public class TransactionController {
     @PostMapping("/holds")
     public HoldResponse hold(@Valid @RequestBody CreateHoldRequest request) {
         return service.hold(request);
+    }
+
+    /** R3: đọc khoản giữ theo mã lệnh, không đổi gì; 404 khi chưa từng giữ tiền cho lệnh này. */
+    @GetMapping("/holds")
+    public HoldResponse findHold(@RequestParam String orderReference) {
+        return service.findByOrderReference(orderReference);
     }
 
     @PostMapping("/holds/{holdReference}/release")

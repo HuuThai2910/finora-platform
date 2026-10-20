@@ -9,6 +9,7 @@ import com.finora.loan.domain.contract.LoanContract;
 import com.finora.loan.domain.contract.ContractParty;
 import com.finora.loan.domain.contract.ContractPartyStatus;
 import com.finora.loan.domain.contract.ContractPartyType;
+import com.finora.loan.domain.contract.SignatureProviderType;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
 import com.finora.loan.support.HashingService;
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
@@ -33,7 +34,34 @@ import org.springframework.stereotype.Component;
 @Component
 public class ContractPdfRenderer {
 
-    public static final String DOCUMENT_VERSION = "CONTRACT_PDF_V1";
+    /** Bản PDF cho khoản vay core V1–V3; core V4 dùng {@link ContractTextVersion#DAILY_INTEREST_PDF_VERSION}. */
+    public static final String DOCUMENT_VERSION = "CONTRACT_PDF_V2";
+    /** Hậu tố version cho bản ký PAdES (R5): cùng điều khoản, khác trang xác nhận ký số. */
+    public static final String PADES_VERSION_SUFFIX = "_PADES";
+    /** Trang biên nhận chữ ký số tách rời của hợp đồng PAdES (Q9, D45). */
+    public static final String RECEIPT_DOCUMENT_VERSION = "PADES_RECEIPT_V1";
+    private static final String NO_BORROWER_EVIDENCE = "Chưa có bằng chứng xác nhận của người vay";
+    private static final String DETACHED_RECEIPT_NOTICE = "<b>XÁC NHẬN CỦA HỆ THỐNG FINORA</b><br/>FINORA ghi nhận"
+            + " phiên bản, trạng thái, thời điểm và phương thức thao tác. Receipt này là bằng chứng hệ thống tách rời;"
+            + " không tự chứng minh chữ ký PAdES đã được nhúng vào PDF.";
+    private static final String PADES_NOTICE = "<b>CHỮ KÝ SỐ VÀ TRANG BIÊN NHẬN</b><br/>Mỗi bên ký số bằng chữ ký"
+            + " ẩn theo chuẩn PAdES-B-B (ETSI.CAdES.detached), nhúng vào chính tệp này dưới dạng bản cập nhật gia tăng:"
+            + " các bên cho vay ký trước theo thứ tự hoàn tất, người vay ký sau cùng; chữ ký sau không thay đổi phần đã"
+            + " được ký trước. Xem và kiểm tra chữ ký trong bảng chữ ký của trình đọc PDF. Sau chữ ký cuối, FINORA phát"
+            + " hành trang biên nhận chữ ký số riêng, dẫn chiếu mã SHA-256 của tệp đã ký. Chứng thư ở môi trường"
+            + " demo/UAT không có giá trị pháp lý.";
+    private static final String MOCK_LEGAL_NOTICE = "<div class=\"notice\"><b>CHỮ KÝ DEMO - KHÔNG CÓ GIÁ TRỊ PHÁP LÝ"
+            + "</b><br/>Chữ ký được tạo bằng chứng thư tự ký \"FINORA DEMO - KHONG CO GIA TRI PHAP LY\", sinh tạm thời"
+            + " mỗi lần khởi động dịch vụ. Chữ ký chỉ chứng minh kỹ thuật tính toàn vẹn của tệp; không phải chữ ký số"
+            + " của các bên theo Luật Giao dịch điện tử.</div>";
+    private static final String UAT_LEGAL_NOTICE = "<div class=\"notice\"><b>CHỨNG THƯ VNPT SMARTCA MÔI TRƯỜNG UAT"
+            + "</b><br/>Chữ ký được tạo bằng chứng thư thử nghiệm của VNPT SmartCA UAT, có thể dùng chung một thuê bao"
+            + " test cho nhiều vai trò; đây không phải chữ ký số có giá trị pháp lý production. Trước khi dùng thật cần"
+            + " chứng thư production của đúng từng bên và thẩm định pháp lý.</div>";
+    private static final String RECEIPT_CSS = """
+            .receipt { margin: 10px 0 14px; page-break-inside: avoid; border-top: 2px solid #153a70; }
+            .receipt .hash { word-break: break-all; }
+            """;
     private static final ZoneId VIETNAM = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
@@ -55,9 +83,9 @@ public class ContractPdfRenderer {
     ) {
         byte[] content = render(html(
                 contractNumber, application, schedule, termsVersion, expiresAt,
-                "CHỜ NGƯỜI VAY XÁC NHẬN", null, null, null, null
+                "CHỜ NGƯỜI VAY XÁC NHẬN", null, null, null, null, pdfVersion(application)
         ));
-        return artifact(ContractPdfArtifactType.SIGNABLE, content);
+        return artifact(ContractPdfArtifactType.SIGNABLE, pdfVersion(application), content);
     }
 
     public ContractPdfArtifact renderFundedSignable(
@@ -70,9 +98,29 @@ public class ContractPdfRenderer {
             long allocationVersion,
             String allocationHash
     ) {
+        return renderFundedSignable(contractNumber, application, schedule, termsVersion, expiresAt,
+                allocations, allocationVersion, allocationHash, false);
+    }
+
+    /**
+     * Bản PAdES (R5, Q9) giữ nguyên điều khoản của phiên bản gốc, chỉ đổi trang xác nhận: mô tả thứ tự ký số ẩn và chỉ
+     * ra trang biên nhận nằm ngoài tệp. Đổi văn bản nên mang version riêng ({@code ..._PADES}).
+     */
+    public ContractPdfArtifact renderFundedSignable(
+            String contractNumber,
+            LoanApplication application,
+            ScheduleCalculationSnapshot schedule,
+            String termsVersion,
+            Instant expiresAt,
+            List<FundedContractAllocation> allocations,
+            long allocationVersion,
+            String allocationHash,
+            boolean pades
+    ) {
+        String version = pades ? padesPdfVersion(application) : pdfVersion(application);
         String base = html(
                 contractNumber, application, schedule, termsVersion, expiresAt,
-                "CHỜ CÁC BÊN KÝ", null, null, null, null);
+                pades ? "KÝ SỐ SAU CÙNG" : "CHỜ CÁC BÊN KÝ", null, null, null, null, version);
         String lenderRows = allocations.stream()
                 .map(allocation -> "<tr><td>" + allocation.commitmentId() + "</td><td>"
                         + escape(allocation.investorId()) + "</td><td>"
@@ -87,15 +135,86 @@ public class ContractPdfRenderer {
                 <table class="info"><tr><th>Phiên bản phân bổ</th><td>%d</td></tr><tr><th>Mã đối chiếu phân bổ</th><td class="hash">%s</td></tr></table>
                 <div class="notice blue">Mỗi nhà đầu tư trong danh sách ký trên cùng PDF/hash. Người vay chỉ được ký sau khi toàn bộ bên cho vay hoàn tất.</div>
                 """.formatted(lenderRows, allocationVersion, escape(allocationHash));
+        String lenderCell = pades
+                ? "<b>KÝ SỐ TRƯỚC</b><br/>" + allocations.size()
+                        + " bên cho vay lần lượt ký số ẩn (PAdES-B-B) trên chính tệp này trước người vay."
+                : "<b>CHỜ KÝ</b><br/>" + allocations.size() + " bên cho vay ký cùng PDF/hash trước người vay.";
         String funded = base
                 .replace("Chưa xác lập trong LN-008; không giả mạo nhà đầu tư hoặc chữ ký SmartCA",
                         allocations.size() + " nhà đầu tư theo Phụ lục 02; danh sách đã khóa từ Investment Service")
                 .replace("<b>CHƯA TÍCH HỢP</b><br/>Investment Service/VNPT SmartCA chưa cung cấp bằng chứng ký.",
-                        "<b>CHỜ KÝ</b><br/>" + allocations.size()
-                                + " bên cho vay ký cùng PDF/hash trước người vay.")
+                        lenderCell)
                 .replace("</body></html>", appendix + "</body></html>");
+        if (pades) {
+            funded = replaceRequired(funded, NO_BORROWER_EVIDENCE,
+                    "Người vay ký số ẩn (PAdES-B-B) sau cùng, khi đủ chữ ký bên cho vay.");
+            // Tệp không thể chứa hash của chính nó; hash bản đã ký nằm ở trang biên nhận tách rời.
+            funded = replaceRequired(funded, "<td class=\"hash\">Chưa xác nhận</td>",
+                    "<td class=\"hash\">Không in trong tệp; mã SHA-256 của tệp đã ký nằm ở trang biên nhận"
+                            + " chữ ký số</td>");
+            funded = replaceRequired(funded, DETACHED_RECEIPT_NOTICE, PADES_NOTICE);
+        }
         byte[] content = render(funded);
-        return artifact(ContractPdfArtifactType.SIGNABLE, content);
+        return artifact(ContractPdfArtifactType.SIGNABLE, version, content);
+    }
+
+    /**
+     * Trang biên nhận chữ ký số (Q9, D45): lập sau chữ ký cuối nên là tài liệu riêng, không nằm trong phần các bên đã
+     * ký; dẫn chiếu SHA-256 của SIGNABLE và của tệp PAdES đã ký đủ, liệt kê từng chữ ký đã kiểm theo thứ tự.
+     */
+    public ContractPdfArtifact renderSignatureReceipt(ContractSignatureReceipt receipt) {
+        // Mỗi chữ ký một khối hai cột: bảng tám cột trên A4 dọc làm ngắt giữa mã bên ký và thời điểm.
+        String rows = receipt.rows().stream()
+                .map(row -> "<table class=\"info receipt\">"
+                        + "<tr><th>Chữ ký số thứ " + row.sequence() + "</th><td><b>ĐÃ KÝ</b> - toàn vẹn hợp lệ"
+                        + " khi lập biên nhận</td></tr>"
+                        + "<tr><th>Bên ký</th><td>"
+                        + escape(row.signerType() == ContractPartyType.LENDER ? "Bên cho vay" : "Bên vay")
+                        + " - mã " + escape(row.signerId()) + "</td></tr>"
+                        + "<tr><th>Thời điểm ký</th><td>" + dateTime(row.signingTime()) + " (giờ Việt Nam)</td></tr>"
+                        + "<tr><th>Phương thức</th><td>" + escape(row.provider().name() + " / " + row.method().name())
+                        + " - " + escape(row.provider() == SignatureProviderType.MOCK
+                        ? "chữ ký demo" : "VNPT SmartCA UAT") + "</td></tr>"
+                        + "<tr><th>Chứng thư</th><td>" + escape(row.certificateCommonName())
+                        + "<br/>Serial: " + escape(row.certificateSerial())
+                        + "<br/>Tổ chức cấp: " + escape(row.issuerCommonName()) + "</td></tr>"
+                        + "<tr><th>SHA-256 chứng thư</th><td class=\"hash\">" + escape(row.certificateSha256())
+                        + "</td></tr>"
+                        + "<tr><th>SHA-256 phiên bản đã ký</th><td class=\"hash\">" + escape(row.revisionHash())
+                        + "<br/>" + row.revisionLength() + " byte đầu tệp</td></tr></table>")
+                .collect(java.util.stream.Collectors.joining());
+        String notices = receipt.rows().stream()
+                .map(ContractSignatureReceipt.Row::provider)
+                .distinct()
+                .map(provider -> provider == SignatureProviderType.MOCK ? MOCK_LEGAL_NOTICE : UAT_LEGAL_NOTICE)
+                .collect(java.util.stream.Collectors.joining());
+        String html = """
+                <!DOCTYPE html>
+                <html xmlns="http://www.w3.org/1999/xhtml" lang="vi">
+                <head><meta charset="UTF-8"/><style>%s%s</style></head>
+                <body>
+                  <div class="watermark">BẢN THỬ NGHIỆM - KHÔNG DÙNG PRODUCTION</div>
+                  <header class="national">
+                    <div class="brand"><strong>FINORA</strong><span>Nền tảng kết nối cho vay ngang hàng</span></div>
+                    <div class="country"><strong>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</strong><b>Độc lập - Tự do - Hạnh phúc</b><i>__________________</i></div>
+                  </header>
+                  <h1>TRANG BIÊN NHẬN CHỮ KÝ SỐ</h1>
+                  <p class="center strong">Hợp đồng cho vay số: %s</p>
+                  <p class="center">Mã hồ sơ vay: %s</p>
+                  %s
+                  <h2>TỆP HỢP ĐỒNG ĐƯỢC KÝ</h2>
+                  <table class="info"><tr><th>Bản các bên đã đọc (SIGNABLE)</th><td class="hash">%s</td></tr><tr><th>Phiên bản tài liệu</th><td>%s</td></tr><tr><th>Bản đã ký đủ (PAdES-B-B)</th><td class="hash">%s</td></tr><tr><th>Kích thước bản đã ký</th><td>%d byte</td></tr><tr><th>Số chữ ký nhúng</th><td>%d - bên cho vay ký trước, người vay ký sau cùng</td></tr><tr><th>Định dạng</th><td>PAdES-B-B, ETSI.CAdES.detached, SHA-256, chữ ký ẩn; mỗi chữ ký là một bản cập nhật gia tăng</td></tr><tr><th>Thời điểm lập biên nhận</th><td>%s</td></tr></table>
+                  <h2>CÁC CHỮ KÝ THEO THỨ TỰ</h2>
+                  %s
+                  <div class="notice blue"><b>VÌ SAO TRANG NÀY NẰM NGOÀI TỆP ĐÃ KÝ</b><br/>Mỗi chữ ký PAdES bao phủ toàn bộ tệp tại thời điểm ký. Trang biên nhận được lập sau chữ ký cuối cùng nên không thể nằm trong phần các bên đã ký; chèn thêm trang vào tệp sau khi ký sẽ làm trình đọc PDF coi các chữ ký trước là đã bị sửa đổi. Vì vậy FINORA phát hành biên nhận thành tài liệu riêng, dẫn chiếu mã SHA-256 của tệp đã ký ở trên.</div>
+                  <div class="notice blue"><b>CÁCH KIỂM TRA</b><br/>Mở tệp đã ký bằng trình đọc PDF có bảng chữ ký: mỗi chữ ký báo trạng thái toàn vẹn của đúng phiên bản nó đã ký. Chứng thư demo/UAT không thuộc danh sách tin cậy nên trình đọc báo chưa xác minh được danh tính người ký; điều này đúng với bản chất thử nghiệm.</div>
+                </body></html>
+                """.formatted(
+                css(RECEIPT_DOCUMENT_VERSION), RECEIPT_CSS, escape(receipt.contractNumber()),
+                escape(receipt.applicationNumber()), notices, escape(receipt.signableHash()),
+                escape(receipt.signableVersion()), escape(receipt.signedPdfHash()), receipt.signedPdfLength(),
+                receipt.rows().size(), dateTime(receipt.issuedAt()), rows);
+        return artifact(ContractPdfArtifactType.SIGNED_RECEIPT, RECEIPT_DOCUMENT_VERSION, render(html));
     }
 
     public ContractPdfArtifact renderSignedReceipt(
@@ -109,9 +228,9 @@ public class ContractPdfRenderer {
                 contract.getExpiresAt(), receiptStatus(contract),
                 contract.getSignedBy(), contract.getSignedAt(),
                 contract.getSignatureMethod() == null ? null : contract.getSignatureMethod().name(),
-                signedDocumentHash
+                signedDocumentHash, pdfVersion(application)
         ));
-        return artifact(ContractPdfArtifactType.SIGNED_RECEIPT, content);
+        return artifact(ContractPdfArtifactType.SIGNED_RECEIPT, pdfVersion(application), content);
     }
 
     public ContractPdfArtifact renderSignedReceipt(
@@ -129,7 +248,7 @@ public class ContractPdfRenderer {
                 contract.getExpiresAt(), receiptStatus(contract), contract.getSignedBy(),
                 contract.getSignedAt(),
                 contract.getSignatureMethod() == null ? null : contract.getSignatureMethod().name(),
-                signedDocumentHash)
+                signedDocumentHash, pdfVersion(application))
                 .replace("Chưa xác lập trong LN-008; không giả mạo nhà đầu tư hoặc chữ ký SmartCA",
                         lenders.size() + " nhà đầu tư theo Phụ lục bằng chứng chữ ký")
                 .replace("<b>CHƯA TÍCH HỢP</b><br/>Investment Service/VNPT SmartCA chưa cung cấp bằng chứng ký.",
@@ -149,7 +268,7 @@ public class ContractPdfRenderer {
                 <table class="info"><tr><th>Mã nhà đầu tư</th><th>Phần vốn</th><th>Trạng thái</th><th>Phương thức</th><th>Thời điểm ký</th><th>Evidence hash</th></tr>%s</table>
                 """.formatted(rows);
         byte[] content = render(base.replace("</body></html>", evidence + "</body></html>"));
-        return artifact(ContractPdfArtifactType.SIGNED_RECEIPT, content);
+        return artifact(ContractPdfArtifactType.SIGNED_RECEIPT, pdfVersion(application), content);
     }
 
     private static String lenderSignatureSummary(List<ContractParty> lenders) {
@@ -181,8 +300,19 @@ public class ContractPdfRenderer {
         return party.getSignatureProvider().name() + " / " + party.getSignatureMethod().name();
     }
 
-    private ContractPdfArtifact artifact(ContractPdfArtifactType type, byte[] content) {
-        return new ContractPdfArtifact(type, DOCUMENT_VERSION, content, hashingService.sha256Bytes(content));
+    private ContractPdfArtifact artifact(ContractPdfArtifactType type, String version, byte[] content) {
+        return new ContractPdfArtifact(type, version, content, hashingService.sha256Bytes(content));
+    }
+
+    /** PDF của hồ sơ core V4 mang điều 4 tính lãi theo ngày nên là một phiên bản tài liệu riêng. */
+    private static String pdfVersion(LoanApplication application) {
+        return ContractTextVersion.dailyInterest(application)
+                ? ContractTextVersion.DAILY_INTEREST_PDF_VERSION : DOCUMENT_VERSION;
+    }
+
+    /** Cùng điều khoản với bản gốc, khác trang xác nhận ký số; ví dụ {@code CONTRACT_PDF_V3_PADES}. */
+    public static String padesPdfVersion(LoanApplication application) {
+        return pdfVersion(application) + PADES_VERSION_SUFFIX;
     }
 
     private byte[] render(String html) {
@@ -219,7 +349,8 @@ public class ContractPdfRenderer {
             String signedBy,
             Instant signedAt,
             String signatureMethod,
-            String signedDocumentHash
+            String signedDocumentHash,
+            String pdfVersion
     ) {
         BigDecimal baseRate = application.getAnnualInterestRateSnapshot();
         BigDecimal finalRate = application.getFinalAnnualInterestRate() == null
@@ -251,9 +382,10 @@ public class ContractPdfRenderer {
                   <ol><li>Lãi suất cơ sở khi nộp hồ sơ: <b>%s%%/năm</b>. Lãi suất áp dụng cuối: <b>%s%%/năm</b>.</li><li>Phương thức trả nợ: %s; số liệu từng kỳ do Fineract tính theo snapshot đã chốt.</li><li>Tổng lãi dự kiến: <b>%s</b>. Lịch chính thức được xác định theo ngày giải ngân thực tế.</li></ol>
                   <h2>ĐIỀU 3. PHÍ VÀ NGHĨA VỤ THANH TOÁN</h2>
                   <ol><li>Tổng phí dự kiến: <b>%s</b>; tổng tiền phạt trong lịch dự kiến: <b>%s</b>.</li><li>Không thu khoản phí hoặc phạt không được công bố trong hợp đồng/phụ lục hợp lệ.</li><li>Cách xử lý quá hạn và thứ tự cấn trừ phải khớp cấu hình Fineract và điều khoản được pháp chế duyệt trước production.</li></ol>
-                  <h2>ĐIỀU 4. GIẢI NGÂN VÀ THANH TOÁN</h2>
+                  %s
+                  <h2>ĐIỀU 5. GIẢI NGÂN VÀ THANH TOÁN</h2>
                   <ol><li>Giải ngân chỉ thực hiện sau khi đủ điều kiện tài trợ, xác minh và chữ ký hợp lệ của các bên.</li><li>Tiền giải ngân và trả nợ đi qua tài khoản hoặc ví điện tử của tổ chức được phép; FINORA không tự giữ tiền như tài khoản thanh toán độc lập.</li></ol>
-                  <h2>ĐIỀU 5. QUYỀN VÀ CAM KẾT</h2>
+                  <h2>ĐIỀU 6. QUYỀN VÀ CAM KẾT</h2>
                   <ul><li>Người vay được đọc, tải, lưu hợp đồng và từ chối nếu không đồng ý.</li><li>Các bên cung cấp thông tin trung thực, bảo mật dữ liệu và thực hiện đúng nghĩa vụ đã chấp thuận.</li><li>Không sửa âm thầm artifact đã công bố; thay đổi điều khoản trọng yếu phải tạo phiên bản mới.</li></ul>
                   <div class="page-break"></div>
                   <h1 class="appendix">PHỤ LỤC 01</h1><h2 class="center">LỊCH TRẢ NỢ DỰ KIẾN</h2>
@@ -269,16 +401,19 @@ public class ContractPdfRenderer {
                   <div class="notice blue"><b>XÁC NHẬN CỦA HỆ THỐNG FINORA</b><br/>FINORA ghi nhận phiên bản, trạng thái, thời điểm và phương thức thao tác. Receipt này là bằng chứng hệ thống tách rời; không tự chứng minh chữ ký PAdES đã được nhúng vào PDF.</div>
                 </body></html>
                 """.formatted(
-                css(), escape(contractNumber), summary(application, schedule, finalRate),
+                css(pdfVersion), escape(contractNumber), summary(application, schedule, finalRate),
                 escape(application.getApplicationNumber()), escape(application.getBorrowerId()),
                 money(application.getRequestedAmount()), escape(purpose(application)),
                 application.getRequestedTermMonths(), date(schedule.getExpectedDisbursementDate()),
                 percentage(baseRate), percentage(finalRate), repaymentMethod(application),
                 money(schedule.getTotalInterest()), money(schedule.getTotalFees()),
-                money(schedule.getTotalPenalties()), date(schedule.getExpectedDisbursementDate()),
+                money(schedule.getTotalPenalties()),
+                LoanServicingContractTerms.html(
+                        application.getRequestedTermMonths(), ContractTextVersion.dailyInterest(application)),
+                date(schedule.getExpectedDisbursementDate()),
                 scheduleTable(schedule.getPeriodsSnapshotJson()), escape(receiptStatus),
                 signatureEvidence(signedBy, signedAt, signatureMethod), escape(termsVersion),
-                DOCUMENT_VERSION, escape(signedDocumentHash == null ? "Chưa xác nhận" : signedDocumentHash),
+                pdfVersion, escape(signedDocumentHash == null ? "Chưa xác nhận" : signedDocumentHash),
                 dateTime(expiresAt), escape(schedule.getCalculationPolicyVersion()),
                 escape(schedule.getResponseHash())
         );
@@ -321,7 +456,7 @@ public class ContractPdfRenderer {
 
     private static String signatureEvidence(String actor, Instant at, String method) {
         if (actor == null || at == null || method == null) {
-            return "Chưa có bằng chứng xác nhận của người vay";
+            return NO_BORROWER_EVIDENCE;
         }
         return "Người xác nhận: " + escape(actor) + "<br/>Thời gian: " + dateTime(at)
                 + "<br/>Phương thức: " + escape(method);
@@ -391,6 +526,14 @@ public class ContractPdfRenderer {
         return value == null || value.isNull() ? BigDecimal.ZERO : value.decimalValue();
     }
 
+    /** Bản PAdES thay đúng đoạn văn của mẫu gốc; mẫu gốc đổi mà quên cập nhật thì dừng thay vì in sai trang ký. */
+    private static String replaceRequired(String source, String target, String replacement) {
+        if (!source.contains(target)) {
+            throw new IllegalStateException("Mẫu PDF hợp đồng không còn đoạn cần thay cho bản PAdES");
+        }
+        return source.replace(target, replacement);
+    }
+
     private static String escape(String value) {
         if (value == null) {
             return "";
@@ -402,9 +545,9 @@ public class ContractPdfRenderer {
                 .replace("'", "&#39;");
     }
 
-    private static String css() {
+    private static String css(String pdfVersion) {
         return """
-                @page { size: A4; margin: 17mm 16mm 19mm; @bottom-left { content: "FINORA - CONTRACT_PDF_V1"; color: #64748b; font-size: 8px; } @bottom-right { content: "Trang " counter(page) " / " counter(pages); color: #64748b; font-size: 8px; } }
+                @page { size: A4; margin: 17mm 16mm 19mm; @bottom-left { content: "FINORA - PDF_VERSION"; color: #64748b; font-size: 8px; } @bottom-right { content: "Trang " counter(page) " / " counter(pages); color: #64748b; font-size: 8px; } }
                 * { box-sizing: border-box; } body { font-family: "DejaVu Sans"; color: #172033; font-size: 10.3pt; line-height: 1.52; margin: 0; }
                 .watermark { position: fixed; top: 47%; left: 13%; transform: rotate(-32deg); color: #e7ebf1; font-size: 24pt; font-weight: 700; z-index: -1; }
                 .national { display: table; width: 100%; border-bottom: 2px solid #1d5bd7; padding-bottom: 10px; margin-bottom: 24px; }
@@ -423,6 +566,6 @@ public class ContractPdfRenderer {
                 .signatures { margin-top: 20px; } .signatures th { background: #eff5ff; color: #153a70; padding: 10px; border: 1px solid #d7dfea; }
                 .signatures td { width: 50%; height: 92px; border: 1px solid #d7dfea; text-align: center; vertical-align: middle; padding: 10px; }
                 .hash { word-wrap: break-word; font-size: 8pt; } .page-break { page-break-before: always; }
-                """;
+                """.replace("PDF_VERSION", pdfVersion);
     }
 }

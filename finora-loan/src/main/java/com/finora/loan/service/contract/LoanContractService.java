@@ -17,9 +17,22 @@ public interface LoanContractService {
 
     LoanContractPdfContent document(String contractNumber);
 
+    /** Bản PDF mới nhất của chuỗi chữ ký PAdES (có thể đã có chữ ký các bên cho vay, chưa có chữ ký người vay). */
+    LoanContractPdfContent signedDocument(String contractNumber);
+
+    /** Trang biên nhận chữ ký số tách rời, chỉ có sau khi đủ chữ ký. */
+    LoanContractPdfContent receipt(String contractNumber);
+
     LoanContractActionResponse sign(String contractNumber, String idempotencyKey, SignLoanContractRequest request);
 
     LoanContractActionResponse refreshSignature(String contractNumber);
+
+    /**
+     * Worker đối soát phiên SmartCA của borrower khi người dùng không quay lại app (không có security context).
+     *
+     * @param sessionExpired phiên đã quá hạn: chưa có chữ ký thì đóng phiên để borrower ký lại bằng yêu cầu mới
+     */
+    void reconcilePadesSignature(String contractNumber, boolean sessionExpired);
 
     LoanContractActionResponse decline(
             String contractNumber,

@@ -2,6 +2,7 @@ package com.finora.payment.service.repayment;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -10,8 +11,10 @@ import com.finora.common.exception.BusinessException;
 import com.finora.payment.domain.repayment.PaymentRepayment;
 import com.finora.payment.domain.repayment.PaymentRepaymentStatus;
 import com.finora.payment.domain.servicing.PaymentLoanAccount;
+import com.finora.payment.integration.fineract.FineractRepaymentException;
 import com.finora.payment.repository.repayment.PaymentRepaymentRepository;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -23,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -37,7 +41,7 @@ class AdminRepaymentReconciliationServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new AdminRepaymentReconciliationService(repayments, repaymentService);
+        service = new AdminRepaymentReconciliationService(repayments, repaymentService, new MockEnvironment());
     }
 
     @AfterEach
@@ -53,7 +57,7 @@ class AdminRepaymentReconciliationServiceTest {
                 org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(repayment)));
 
-        var response = service.list(0, 20);
+        var response = service.list(null, 0, 20);
 
         assertThat(response.getContent()).singleElement().satisfies(item -> {
             assertThat(item.repaymentId()).isEqualTo(repayment.getRepaymentId());
@@ -66,6 +70,53 @@ class AdminRepaymentReconciliationServiceTest {
                 PaymentRepaymentStatus.CORE_POSTING,
                 PaymentRepaymentStatus.RECONCILIATION_REQUIRED,
                 PaymentRepaymentStatus.FAILED);
+    }
+
+    @Test
+    void listCanBeNarrowedToOpenWorkButNeverOutsideTheIncidentQueue() {
+        actAs("ROLE_ADMIN");
+        when(repayments.findByStatusInOrderByUpdatedAtAscIdAsc(
+                org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        service.list(List.of(PaymentRepaymentStatus.CORE_POSTING, PaymentRepaymentStatus.RECONCILIATION_REQUIRED), 0, 20);
+
+        ArgumentCaptor<List<PaymentRepaymentStatus>> statuses = ArgumentCaptor.forClass(List.class);
+        verify(repayments).findByStatusInOrderByUpdatedAtAscIdAsc(
+                statuses.capture(), org.mockito.ArgumentMatchers.any(Pageable.class));
+        assertThat(statuses.getValue()).containsExactly(
+                PaymentRepaymentStatus.CORE_POSTING, PaymentRepaymentStatus.RECONCILIATION_REQUIRED);
+        assertThatThrownBy(() -> service.list(List.of(PaymentRepaymentStatus.COMPLETED), 0, 20))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("REPAYMENT_INCIDENT_STATUS_INVALID"));
+    }
+
+    @Test
+    void repostRunsAsTheAdminWithTheSafeWindowAndShowsWhenItBecomesAvailable() {
+        actAs("ROLE_ADMIN");
+        PaymentRepayment repayment = reconciliationRequiredRepayment();
+        when(repayments.findByRepaymentId(repayment.getRepaymentId())).thenReturn(Optional.of(repayment));
+
+        var response = service.repost(repayment.getRepaymentId());
+
+        verify(repaymentService).repostCorePosting(42L, "admin-1", Duration.ofMinutes(15));
+        // Mock service không đổi trạng thái: khoản vẫn chờ đối soát, lúc được ghi lại = lần đổi trạng thái + 15 phút.
+        assertThat(response.coreRepostAvailableAt()).isEqualTo(Instant.parse("2026-10-04T02:16:00Z"));
+        assertThat(response.corePostingDate()).isEqualTo(LocalDate.of(2026, 10, 4));
+    }
+
+    @Test
+    void repostThatCannotReadTheCoreLeavesTheRepaymentUntouchedAndAsksToRetry() {
+        actAs("ROLE_ADMIN");
+        PaymentRepayment repayment = reconciliationRequiredRepayment();
+        when(repayments.findByRepaymentId(repayment.getRepaymentId())).thenReturn(Optional.of(repayment));
+        doThrow(new FineractRepaymentException("FINERACT_RECONCILIATION_UNAVAILABLE", "timeout", true, null))
+                .when(repaymentService).repostCorePosting(42L, "admin-1", Duration.ofMinutes(15));
+
+        assertThatThrownBy(() -> service.repost(repayment.getRepaymentId()))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("FINERACT_RECONCILIATION_UNAVAILABLE"));
+        assertThat(repayment.getStatus()).isEqualTo(PaymentRepaymentStatus.RECONCILIATION_REQUIRED);
     }
 
     @Test
@@ -96,7 +147,7 @@ class AdminRepaymentReconciliationServiceTest {
     void nonAdminCannotReadOrTriggerReconciliation() {
         actAs("ROLE_BORROWER");
 
-        assertThatThrownBy(() -> service.list(0, 20))
+        assertThatThrownBy(() -> service.list(null, 0, 20))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getCode()).isEqualTo("ADMIN_ROLE_REQUIRED"));
         verify(repayments, never()).findByStatusInOrderByUpdatedAtAscIdAsc(

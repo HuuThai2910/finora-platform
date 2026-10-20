@@ -5,6 +5,7 @@ import com.finora.common.security.SecurityUtils;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.contract.ConsentAction;
 import com.finora.loan.domain.contract.ContractPdfArtifactType;
+import com.finora.loan.domain.contract.ContractPdfSignature;
 import com.finora.loan.domain.contract.LoanContract;
 import com.finora.loan.domain.contract.LoanContractDocument;
 import com.finora.loan.domain.contract.LoanContractStatus;
@@ -17,11 +18,13 @@ import com.finora.loan.dto.contract.response.LoanContractDetailResponse;
 import com.finora.loan.dto.contract.response.LoanContractHistoryResponse;
 import com.finora.loan.dto.contract.response.LoanContractSummaryResponse;
 import com.finora.loan.exception.LoanBusinessException;
+import com.finora.loan.integration.signature.DigestSignatureCommand;
 import com.finora.loan.integration.signature.SignatureCommand;
 import com.finora.loan.integration.signature.SignatureEvidence;
 import com.finora.loan.integration.signature.SignatureProvider;
 import com.finora.loan.integration.signature.SignatureSubmission;
 import com.finora.loan.integration.signature.SignatureSubmissionStatus;
+import com.finora.loan.integration.signature.SigningCertificate;
 import com.finora.loan.integration.signature.SmartCaIntegrationException;
 import com.finora.loan.mapper.contract.LoanContractMapper;
 import com.finora.loan.repository.application.LoanApplicationRepository;
@@ -31,11 +34,13 @@ import com.finora.loan.repository.contract.LoanContractStatusHistoryRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
 import com.finora.loan.repository.disbursement.DisbursementSagaRepository;
 import com.finora.loan.service.contract.ContractConsentResult;
+import com.finora.loan.service.contract.ContractPdfSignatureService;
 import com.finora.loan.service.contract.LoanContractService;
 import com.finora.loan.service.contract.LoanContractPdfContent;
 import com.finora.loan.service.contract.LoanContractStateService;
 import com.finora.loan.service.contract.SignaturePreparation;
 import com.finora.loan.support.HashingService;
+import java.util.List;
 import java.util.Map;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
@@ -62,6 +67,7 @@ public class LoanContractServiceImpl implements LoanContractService {
     private final ScheduleCalculationSnapshotRepository scheduleRepository;
     private final DisbursementSagaRepository disbursementSagaRepository;
     private final LoanContractStateService stateService;
+    private final ContractPdfSignatureService pdfSignatureService;
     private final LoanContractMapper mapper;
     private final HashingService hashingService;
     private final SignatureProvider signatureProvider;
@@ -96,7 +102,10 @@ public class LoanContractServiceImpl implements LoanContractService {
         return mapper.toDetail(
                 contract, application, schedule, currentPdf(contract),
                 disbursementSagaRepository.findByContractNumber(contractNumber).orElse(null),
-                signatureProvider.type(), signatureProvider.method());
+                signatureProvider.type(), signatureProvider.method(),
+                contract.isPadesSigned() ? pdfSignatureService.signedSummaries(contract.getId()) : List.of(),
+                contractDocumentRepository.findByContractIdAndArtifactType(
+                        contract.getId(), ContractPdfArtifactType.SIGNED_RECEIPT).orElse(null));
     }
 
     @Override
@@ -113,6 +122,33 @@ public class LoanContractServiceImpl implements LoanContractService {
                 contractNumber + ".pdf", document.getContentType(), document.getContentHash(),
                 document.contentCopy()
         );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public LoanContractPdfContent signedDocument(String contractNumber) {
+        LoanContract contract = contract(contractNumber);
+        contract.requireOwner(SecurityUtils.getCurrentUserId());
+        ContractPdfSignature latest = pdfSignatureService.latestSigned(contract.getId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Loan Contract signed PDF", "contractNumber", contractNumber));
+        return new LoanContractPdfContent(
+                contractNumber + "-signed.pdf", LoanContractDocument.PDF_CONTENT_TYPE, latest.getContentHash(),
+                latest.contentCopy());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public LoanContractPdfContent receipt(String contractNumber) {
+        LoanContract contract = contract(contractNumber);
+        contract.requireOwner(SecurityUtils.getCurrentUserId());
+        LoanContractDocument receipt = contractDocumentRepository
+                .findByContractIdAndArtifactType(contract.getId(), ContractPdfArtifactType.SIGNED_RECEIPT)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Loan Contract receipt", "contractNumber", contractNumber));
+        return new LoanContractPdfContent(
+                contractNumber + "-receipt.pdf", receipt.getContentType(), receipt.getContentHash(),
+                receipt.contentCopy());
     }
 
     @Override
@@ -137,6 +173,9 @@ public class LoanContractServiceImpl implements LoanContractService {
             throw LoanBusinessException.badRequest(
                     "SIGNATURE_METHOD_PROVIDER_MISMATCH",
                     "Phương thức ký không khớp provider đang được FINORA cấu hình");
+        }
+        if (preparation.pades()) {
+            return signPades(contractNumber, normalizedKey, requestHash, request, borrowerId);
         }
         String transactionId = providerTransactionId(contractNumber, normalizedKey);
         String documentId = "FINORA-" + preparation.pdfDocumentHash().substring(0, 24);
@@ -173,6 +212,15 @@ public class LoanContractServiceImpl implements LoanContractService {
         if (contract.getStatus() != LoanContractStatus.SIGNING) {
             return mapper.toAction(contract);
         }
+        if (contract.isPadesSigned()) {
+            LoanContractStateService.PendingPadesSignature pending =
+                    stateService.pendingBorrowerSignature(contractNumber);
+            SignatureSubmission submission = status(pending.transactionId(), pending.documentId());
+            if (submission.status() == SignatureSubmissionStatus.NOT_FOUND) {
+                submission = submitDigest(pending.command());
+            }
+            return mapper.toAction(applyPadesSubmission(contractNumber, pending.signatureId(), submission));
+        }
         SignatureSubmission submission = status(
                 contract.getSignatureTransactionId(), contract.getSignatureDocumentId());
         if (submission.status() == SignatureSubmissionStatus.NOT_FOUND) {
@@ -188,6 +236,79 @@ public class LoanContractServiceImpl implements LoanContractService {
                     contract.getSignatureMethod()));
         }
         return mapper.toAction(applySubmission(contract, submission, borrowerId));
+    }
+
+    /**
+     * Worker chỉ hỏi trạng thái, không gửi lại yêu cầu ký khi người dùng vắng mặt. Phiên PDF còn treo trong khi
+     * Contract đã rời SIGNING (hết hạn/đóng) thì được hủy để không giữ lượt ký.
+     */
+    @Override
+    public void reconcilePadesSignature(String contractNumber, boolean sessionExpired) {
+        LoanContract contract = contract(contractNumber);
+        if (!contract.isPadesSigned()) {
+            return;
+        }
+        if (contract.getStatus() != LoanContractStatus.SIGNING) {
+            stateService.abandonOrphanedPadesSignature(contractNumber);
+            return;
+        }
+        LoanContractStateService.PendingPadesSignature pending = stateService.pendingBorrowerSignature(contractNumber);
+        SignatureSubmission submission;
+        try {
+            submission = signatureProvider.status(pending.transactionId(), pending.documentId());
+        } catch (SmartCaIntegrationException exception) {
+            if (!sessionExpired) {
+                return;
+            }
+            submission = SignatureSubmission.pending(pending.transactionId(), pending.documentId(), "UNAVAILABLE");
+        }
+        LoanContractStateService.PadesBorrowerOutcome outcome = stateService.applyPadesSubmission(
+                contractNumber, pending.signatureId(), submission.status(), submission.signatureValue(),
+                sessionExpired);
+        if (outcome.invalidSignature()) {
+            log.warn("SmartCA trả chữ ký không khớp chứng thư, đã hủy lần ký: contractNumber={}, signatureId={}",
+                    contractNumber, pending.signatureId());
+        }
+    }
+
+    private LoanContractActionResponse signPades(
+            String contractNumber,
+            String normalizedKey,
+            String requestHash,
+            SignLoanContractRequest request,
+            String borrowerId
+    ) {
+        // Chứng thư lấy ngoài transaction vì với SmartCA đây là lời gọi mạng.
+        SigningCertificate certificate = signingCertificate(borrowerId);
+        if (signatureProvider.completesSynchronously()) {
+            ContractConsentResult result = executeWithDuplicateRecovery(
+                    contractNumber, normalizedKey, requestHash, ConsentAction.SIGN,
+                    () -> stateService.signPades(
+                            contractNumber, normalizedKey, requestHash, request, certificate, borrowerId));
+            rejectExpired(result);
+            log.info("Borrower đã ký PAdES Contract: contractNumber={}, actorId={}", contractNumber, borrowerId);
+            return mapper.toAction(result.contract());
+        }
+        LoanContractStateService.PadesBorrowerStart started = stateService.beginPadesDigitalSignature(
+                contractNumber, normalizedKey, requestHash, request, certificate, borrowerId);
+        rejectExpired(started.result());
+        if (started.command() == null) {
+            return mapper.toAction(started.result().contract());
+        }
+        SignatureSubmission submission = submitDigest(started.command());
+        return mapper.toAction(applyPadesSubmission(contractNumber, started.signatureId(), submission));
+    }
+
+    /** Commit kết quả trước (kể cả việc hủy lần ký có chữ ký sai), sau đó mới báo lỗi cho client. */
+    private LoanContract applyPadesSubmission(String contractNumber, Long signatureId, SignatureSubmission submission) {
+        LoanContractStateService.PadesBorrowerOutcome outcome = stateService.applyPadesSubmission(
+                contractNumber, signatureId, submission.status(), submission.signatureValue(), false);
+        if (outcome.invalidSignature()) {
+            throw LoanBusinessException.serviceUnavailable(
+                    "SIGNATURE_PROVIDER_INVALID_SIGNATURE",
+                    "Chữ ký nhà cung cấp trả về không khớp chứng thư; vui lòng ký lại");
+        }
+        return outcome.contract();
     }
 
     private LoanContract applySubmission(
@@ -222,9 +343,25 @@ public class LoanContractServiceImpl implements LoanContractService {
         }
     }
 
+    private SignatureSubmission submitDigest(DigestSignatureCommand command) {
+        try {
+            return signatureProvider.submitDigest(command);
+        } catch (SmartCaIntegrationException exception) {
+            throw LoanBusinessException.serviceUnavailable(exception.getCode(), exception.getMessage());
+        }
+    }
+
     private SignatureSubmission status(String transactionId, String documentId) {
         try {
             return signatureProvider.status(transactionId, documentId);
+        } catch (SmartCaIntegrationException exception) {
+            throw LoanBusinessException.serviceUnavailable(exception.getCode(), exception.getMessage());
+        }
+    }
+
+    private SigningCertificate signingCertificate(String borrowerId) {
+        try {
+            return signatureProvider.signingCertificate(borrowerId);
         } catch (SmartCaIntegrationException exception) {
             throw LoanBusinessException.serviceUnavailable(exception.getCode(), exception.getMessage());
         }
@@ -298,15 +435,22 @@ public class LoanContractServiceImpl implements LoanContractService {
                         "Loan Contract", "contractNumber", contractNumber));
     }
 
+    /**
+     * PDF tại {@code /document}: SIGNABLE trong lúc các bên ký (cùng nội dung mọi bên đã đọc); sau khi đủ chữ ký là
+     * bản PAdES ký đủ (SIGNED_PDF), hoặc receipt tách rời với hợp đồng trước R5.
+     */
     private LoanContractDocument currentPdf(LoanContract contract) {
         if (contract.getStatus() == LoanContractStatus.SIGNED
                 || contract.getStatus() == LoanContractStatus.EFFECTIVE
                 || contract.getStatus() == LoanContractStatus.COMPLETED) {
-            LoanContractDocument receipt = contractDocumentRepository
-                    .findByContractIdAndArtifactType(contract.getId(), ContractPdfArtifactType.SIGNED_RECEIPT)
-                    .orElse(null);
-            if (receipt != null) {
-                return receipt;
+            for (ContractPdfArtifactType type
+                    : List.of(ContractPdfArtifactType.SIGNED_PDF, ContractPdfArtifactType.SIGNED_RECEIPT)) {
+                LoanContractDocument document = contractDocumentRepository
+                        .findByContractIdAndArtifactType(contract.getId(), type)
+                        .orElse(null);
+                if (document != null) {
+                    return document;
+                }
             }
         }
         return contractDocumentRepository

@@ -1,11 +1,13 @@
-"""Router eKYC nội bộ: token, 422, 503 (thiếu model / bận), multipart liveness.
+"""Router eKYC nội bộ: 422, 503 (thiếu model / bận), multipart liveness.
+
+Quyền (client role ``ai:ekyc:ocr``) kiểm ở ``tests/test_security.py``; ở đây ``tests/conftest.py`` cho
+request chạy với người gọi đủ quyền.
 
 Dùng ``httpx.AsyncClient`` + ``ASGITransport`` thay cho ``TestClient``: bộ ghim hiện tại
 (starlette 0.35.1 + httpx 0.28.1) làm ``TestClient`` lỗi ``unexpected keyword 'app'``.
 """
 
 import json
-import logging
 
 import httpx
 import numpy as np
@@ -131,52 +133,6 @@ def fake_service(monkeypatch, models_ok):
 async def test_endpoint_ocr_cu_da_bi_xoa():
     response = await post("/api/v1/ai/ekyc/ocr", json={"image_base64": b64(JPEG)})
     assert response.status_code == 404
-
-
-class TestInternalToken:
-    async def test_thieu_token_khi_da_cau_hinh(self, monkeypatch, fake_service):
-        monkeypatch.setenv("AI_INTERNAL_TOKEN", "bi-mat-noi-bo")
-        response = await post(DOCUMENT_URL, json=document_body())
-        assert response.status_code == 401
-        assert response.json() == {"detail": "INTERNAL_TOKEN_INVALID"}
-        assert fake_service.calls == 0
-
-    async def test_sai_token(self, monkeypatch, fake_service):
-        monkeypatch.setenv("AI_INTERNAL_TOKEN", "bi-mat-noi-bo")
-        response = await post(
-            DOCUMENT_URL, json=document_body(), headers={"X-Internal-Token": "doan-bua"}
-        )
-        assert response.status_code == 401
-
-    async def test_dung_token(self, monkeypatch, fake_service):
-        monkeypatch.setenv("AI_INTERNAL_TOKEN", "bi-mat-noi-bo")
-        response = await post(
-            DOCUMENT_URL,
-            json=document_body(),
-            headers={"X-Internal-Token": "bi-mat-noi-bo"},
-        )
-        assert response.status_code == 200
-        assert fake_service.calls == 1
-
-    async def test_liveness_cung_can_token(self, monkeypatch, models_ok):
-        monkeypatch.setenv("AI_INTERNAL_TOKEN", "bi-mat-noi-bo")
-        response = await post(
-            LIVENESS_URL,
-            data={"spec": spec()},
-            files={"video": ("v.mp4", b"x", "video/mp4")},
-        )
-        assert response.status_code == 401
-
-    async def test_che_do_dev_canh_bao_mot_lan(self, monkeypatch, fake_service, caplog):
-        monkeypatch.delenv("AI_INTERNAL_TOKEN", raising=False)
-        monkeypatch.setattr(
-            ekyc_router, "_dev_mode_warned", ekyc_router.threading.Event()
-        )
-        with caplog.at_level(logging.WARNING, logger="app.api.ekyc_router"):
-            first = await post(DOCUMENT_URL, json=document_body())
-            second = await post(DOCUMENT_URL, json=document_body())
-        assert first.status_code == second.status_code == 200
-        assert caplog.text.count("AI_INTERNAL_TOKEN rỗng") == 1
 
 
 class TestDocumentValidation:

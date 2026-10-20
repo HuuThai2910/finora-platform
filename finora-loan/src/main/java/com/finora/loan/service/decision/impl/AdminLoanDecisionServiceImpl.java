@@ -23,6 +23,7 @@ import com.finora.loan.dto.decision.response.AdminAssessmentExplanationResponse;
 import com.finora.loan.exception.LoanBusinessException;
 import com.finora.loan.integration.ai.contract.StoredAiCreditResponse;
 import com.finora.loan.repository.application.LoanApplicationStatusHistoryRepository;
+import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
 import com.finora.loan.repository.scoring.BorrowerCreditProfileRepository;
 import com.finora.loan.repository.scoring.BorrowerEligibilityCheckRepository;
@@ -56,6 +57,7 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
     private final BorrowerCreditProfileRepository creditProfileRepository;
     private final CreditScoringAssessmentRepository assessmentRepository;
     private final LoanApplicationStatusHistoryRepository historyRepository;
+    private final LoanContractRepository contractRepository;
     private final AdminLoanDecisionStateService stateService;
     private final AdminLoanDecisionMapper mapper;
     private final LoanApplicationMapper applicationMapper;
@@ -92,7 +94,10 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
                 application, assessments.get(application.getLatestCreditAssessmentId()))));
     }
 
-    /** Detail dùng số query cố định và chỉ đọc snapshot local; không gọi User, AI hoặc Fineract. */
+    /**
+     * Detail dùng số query cố định và chỉ đọc snapshot local; không gọi User, AI hoặc Fineract.
+     * Số hợp đồng lấy bằng một query theo khóa duy nhất {@code application_id}, không tải cả Contract.
+     */
     @Override
     @Transactional(readOnly = true)
     public AdminLoanReviewDetailResponse reviewDetail(String applicationNumber) {
@@ -120,8 +125,11 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
                                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))))
                 .map(applicationMapper::toHistoryResponse)
                 .getContent();
+        String contractNumber = contractRepository.findContractNumberByApplicationId(application.getId())
+                .orElse(null);
         return mapper.toDetail(
-                application, initialSchedule, finalSchedule, eligibility, creditProfile, assessment, history);
+                application, initialSchedule, finalSchedule, eligibility, creditProfile, assessment, history,
+                contractNumber);
     }
 
     @Override

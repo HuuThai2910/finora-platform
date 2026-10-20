@@ -31,15 +31,46 @@ spring:
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/finora}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/finora/protocol/openid-connect/certs}
 
 server:
   port: 8083
 
+management:
+  # Health Kafka chỉ có nghĩa khi Blockchain tiêu thụ event; tắt cùng listener để broker tắt không làm health đỏ (W3E).
+  health:
+    kafka:
+      enabled: ${BLOCKCHAIN_KAFKA_LISTENER_ENABLED:false}
+  endpoint:
+    health:
+      # Đường health bỏ qua chain bảo mật (BlockchainHealthEndpointSecurityConfig), không có người dùng nào được xác
+      # thực ở đó, nên không hiện chi tiết cho ai; tên và trạng thái thành phần vẫn hiện.
+      show-components: always
+      show-details: never
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        # Proof store là PostgreSQL; Fabric/Kafka lỗi chỉ làm proof chờ retry, không chặn traffic.
+        readiness:
+          include: readinessState,db
+
 finora:
   blockchain:
+    # Bốn mốc proof (W3D, D52); tên biến môi trường trùng với producer để đổi topic một chỗ.
+    contract-activated-topic: ${LOAN_CONTRACT_ACTIVATED_TOPIC:finora.loan.contract-activated}
+    loan-disbursed-topic: ${LOAN_DISBURSED_TOPIC:finora.loan.disbursed}
     repayment-distributed-topic: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:finora.payment.repayment-distributed}
+    note-ownership-changed-topic: ${INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC:finora.investment.note-ownership-changed}
     proof:
-      # MOCK chỉ phục vụ local/test và receipt luôn có tiền tố MOCK; Fabric thật fail-closed cho tới phase P4.
+      # MOCK chỉ phục vụ local/test và receipt luôn có tiền tố MOCK; HYPERLEDGER_FABRIC ghi lên mạng Fabric local
+      # (docker/fabric-network, launcher E2E -WithFabric).
       provider: ${BLOCKCHAIN_PROOF_PROVIDER:MOCK}
       worker-enabled: ${BLOCKCHAIN_PROOF_WORKER_ENABLED:false}
       worker-delay: ${BLOCKCHAIN_PROOF_WORKER_DELAY:5000}
@@ -48,14 +79,22 @@ finora:
       retry-backoff: ${BLOCKCHAIN_PROOF_RETRY_BACKOFF:5s}
       maximum-backoff: ${BLOCKCHAIN_PROOF_MAXIMUM_BACKOFF:5m}
       processing-lease: ${BLOCKCHAIN_PROOF_PROCESSING_LEASE:2m}
-
-# Hyperledger Fabric
-fabric:
-  channel-name: finora-channel
-  chaincode-name: finora-ledger
-  msp-id: Org1MSP
-  # Các path này sẽ được cấu hình khi dựng mạng Fabric
-  cert-path: ${FABRIC_CERT_PATH:./fabric-config/cert.pem}
-  key-path: ${FABRIC_KEY_PATH:./fabric-config/key.pem}
-  tls-cert-path: ${FABRIC_TLS_CERT_PATH:./fabric-config/tls-cert.pem}
-  peer-endpoint: ${FABRIC_PEER_ENDPOINT:localhost:7051}
+      # Đối chiếu DB ↔ Fabric định kỳ (chỉ có tác dụng khi provider là Fabric).
+      reconciliation-enabled: ${BLOCKCHAIN_PROOF_RECONCILIATION_ENABLED:false}
+      reconciliation-delay: ${BLOCKCHAIN_PROOF_RECONCILIATION_DELAY:600000}
+      chain-check-interval: ${BLOCKCHAIN_PROOF_CHAIN_CHECK_INTERVAL:24h}
+    fabric:
+      # Chỉ đọc khi provider=HYPERLEDGER_FABRIC. Đường dẫn file do fabric-network.ps1 ghi trong build/client.json;
+      # khóa riêng nằm ngoài Git.
+      peer-endpoint: ${FABRIC_PEER_ENDPOINT:localhost:7051}
+      peer-host-override: ${FABRIC_PEER_HOST_OVERRIDE:}
+      msp-id: ${FABRIC_MSP_ID:Org1MSP}
+      channel-name: ${FABRIC_CHANNEL_NAME:finora-channel}
+      chaincode-name: ${FABRIC_CHAINCODE_NAME:finora-ledger}
+      cert-path: ${FABRIC_CERT_PATH:}
+      key-path: ${FABRIC_KEY_PATH:}
+      tls-cert-path: ${FABRIC_TLS_CERT_PATH:}
+      evaluate-timeout: ${FABRIC_EVALUATE_TIMEOUT:5s}
+      endorse-timeout: ${FABRIC_ENDORSE_TIMEOUT:15s}
+      submit-timeout: ${FABRIC_SUBMIT_TIMEOUT:5s}
+      commit-status-timeout: ${FABRIC_COMMIT_STATUS_TIMEOUT:60s}

@@ -28,7 +28,7 @@ _load_dotenv()
 
 # Uvicorn chỉ cấu hình logger của chính nó; logger của app không có handler nên
 # log INFO (như dòng chẩn đoán eKYC) bị nuốt. Bật handler gốc **trước** khi import
-# router để cảnh báo lúc khởi động (ví dụ thiếu AI_INTERNAL_TOKEN) cũng có định dạng.
+# router để cảnh báo lúc khởi động (ví dụ cấu hình eKYC) cũng có định dạng.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -39,15 +39,21 @@ logging.basicConfig(
 # mới hơn) dùng nhầm bản cũ và có thể crash cả tiến trình (access violation). Nạp
 # zxing-cpp trước thì cả hai dùng bản hệ thống mới hơn. Linux/Docker không bị.
 import zxingcpp  # noqa: F401
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import config_router, credit_router, ekyc_router, fraud_router
+from app.security import CREDIT_SCORE, EKYC_OCR, FRAUD_DETECT, ROLE_ADMIN, api_docs_enabled, require_any
 
+_docs = api_docs_enabled()
 app = FastAPI(
     title="FINORA AI Service",
     description="Dịch vụ Trí tuệ Nhân tạo cho hệ thống P2P Lending FINORA",
     version="1.0.0",
+    # Swagger/OpenAPI chỉ mở ở local/e2e/demo (D35).
+    docs_url="/docs" if _docs else None,
+    redoc_url="/redoc" if _docs else None,
+    openapi_url="/openapi.json" if _docs else None,
 )
 
 app.add_middleware(
@@ -58,10 +64,16 @@ app.add_middleware(
 )
 
 # === Register Routers ===
-app.include_router(credit_router.router, prefix="/api/v1/ai/credit", tags=["Credit Scoring"])
-app.include_router(config_router.router, prefix="/api/v1/ai/config", tags=["Product Config"])
-app.include_router(ekyc_router.router, prefix="/api/v1/ai/ekyc", tags=["eKYC"])
-app.include_router(fraud_router.router, prefix="/api/v1/ai/fraud", tags=["Fraud Detection"])
+# Mọi endpoint nghiệp vụ cần access token Keycloak (D35): Loan chấm điểm bằng service account, admin web dùng phiên
+# đăng nhập; chỉ User được OCR CCCD; chỉ admin đọc/sửa cấu hình chấm điểm.
+app.include_router(credit_router.router, prefix="/api/v1/ai/credit", tags=["Credit Scoring"],
+                   dependencies=[Depends(require_any(CREDIT_SCORE, ROLE_ADMIN))])
+app.include_router(config_router.router, prefix="/api/v1/ai/config", tags=["Product Config"],
+                   dependencies=[Depends(require_any(ROLE_ADMIN))])
+app.include_router(ekyc_router.router, prefix="/api/v1/ai/ekyc", tags=["eKYC"],
+                   dependencies=[Depends(require_any(EKYC_OCR))])
+app.include_router(fraud_router.router, prefix="/api/v1/ai/fraud", tags=["Fraud Detection"],
+                   dependencies=[Depends(require_any(FRAUD_DETECT, ROLE_ADMIN))])
 
 
 @app.get("/health")

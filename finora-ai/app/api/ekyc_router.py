@@ -1,7 +1,7 @@
 """Router eKYC **nội bộ**: chỉ ``finora-user`` gọi, gateway chặn từ bên ngoài.
 
-- Mọi route kiểm header ``X-Internal-Token`` với env ``AI_INTERNAL_TOKEN`` (so sánh hằng
-  thời gian). Env rỗng = chế độ dev: chấp nhận và cảnh báo **một lần** lúc khởi động.
+- Quyền gắn ở ``main.py`` (D35): access token service account có client role ``ai:ekyc:ocr``
+  (``finora-user-client``, D34); thiếu/sai token 401, thiếu quyền 403.
 - Handler là ``def`` (không ``async``) để FastAPI chạy trong threadpool — phân tích ảnh
   vài giây không làm đứng ``/credit``, ``/fraud``, ``/health``.
 - Chỉ **một** phân tích nặng tại một thời điểm (VM 2 vCPU, container ~700 MB): bận thì
@@ -9,16 +9,14 @@
 - Thứ tự kiểm: đầu vào (422) → model mặt (503 ``FACE_MODELS_MISSING``) → slot (503 ``BUSY``).
 """
 
-import hmac
 import logging
-import os
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import lru_cache
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
@@ -38,43 +36,12 @@ from app.services.ekyc.service import EkycService
 
 logger = logging.getLogger(__name__)
 
-TOKEN_HEADER = "X-Internal-Token"
 RETRY_AFTER_SECONDS = "3"
 
 _heavy_slot = threading.Semaphore(1)
-_dev_mode_warned = threading.Event()
 
-
-def _expected_token() -> str:
-    return os.getenv("AI_INTERNAL_TOKEN", "").strip()
-
-
-def warn_if_dev_mode() -> None:
-    """Cảnh báo một lần nếu chưa đặt ``AI_INTERNAL_TOKEN`` (mọi lời gọi đều được nhận)."""
-    if not _expected_token() and not _dev_mode_warned.is_set():
-        _dev_mode_warned.set()
-        logger.warning(
-            "AI_INTERNAL_TOKEN rỗng — endpoint /api/v1/ai/ekyc/* chạy chế độ dev, "
-            "KHÔNG kiểm header %s. Đặt biến này khi deploy.",
-            TOKEN_HEADER,
-        )
-
-
-def require_internal_token(
-    x_internal_token: Annotated[str | None, Header(alias=TOKEN_HEADER)] = None,
-) -> None:
-    """Chặn mọi lời gọi không mang đúng token nội bộ (401 ``INTERNAL_TOKEN_INVALID``)."""
-    expected = _expected_token()
-    if not expected:
-        warn_if_dev_mode()
-        return
-    provided = (x_internal_token or "").encode("utf-8")
-    if not hmac.compare_digest(provided, expected.encode("utf-8")):
-        raise HTTPException(status_code=401, detail="INTERNAL_TOKEN_INVALID")
-
-
-router = APIRouter(dependencies=[Depends(require_internal_token)])
-warn_if_dev_mode()
+# Quyền (client role ai:ekyc:ocr) gắn khi include router trong main.py, giống các router khác của AI (D35).
+router = APIRouter()
 
 
 @lru_cache(maxsize=1)

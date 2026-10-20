@@ -8,7 +8,6 @@ import com.finora.user.client.AiEkycClient;
 import com.finora.user.client.AiEkycClient.DocumentFields;
 import com.finora.user.client.AiEkycClient.DocumentResult;
 import com.finora.user.client.AiEkycClient.FieldReading;
-import com.finora.user.config.AiServiceProperties;
 import com.finora.user.domain.EkycAttempt;
 import com.finora.user.domain.EkycConsent;
 import com.finora.user.domain.EkycDocumentDecision;
@@ -91,7 +90,6 @@ public class EkycVerificationService {
     private final EkycAttemptRepository attemptRepository;
     private final EkycEvidenceRepository evidenceRepository;
     private final AiEkycClient aiEkycClient;
-    private final AiServiceProperties aiProperties;
     private final EkycRateLimitService rateLimitService;
     private final EkycCounterStore counterStore;
     private final EkycDraftStore draftStore;
@@ -133,7 +131,7 @@ public class EkycVerificationService {
 
         DocumentResult document;
         try {
-            document = aiEkycClient.analyzeDocument(aiProperties.internalTokenOrEmpty(),
+            document = aiEkycClient.analyzeDocument(
                     toAiRequest(request, front, back, counterStore.currentRetakeCount(keycloakUserId)));
         } catch (FeignException e) {
             if (e.status() == 400 || e.status() == 422) {

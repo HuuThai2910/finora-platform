@@ -6,5 +6,6 @@ springdoc:
 
 finora:
   borrower-profile:
-    # Mock trả age 30/KYC VERIFIED cho mọi người vay; production không cấu hình provider này.
-    provider: mock
+    # Local dùng eKYC thật từ finora-user như môi trường khác (D4). Stack E2E đặt FINORA_BORROWER_PROFILE_PROVIDER=mock
+    # vì kịch bản không dùng ảnh CCCD giả; mock trả VERIFIED/30 tuổi và được gắn nhãn hồ sơ giả lập.
+    provider: ${FINORA_BORROWER_PROFILE_PROVIDER:user}

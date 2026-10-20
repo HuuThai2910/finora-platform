@@ -52,10 +52,11 @@ class CollectionCaseServiceTest {
         when(cases.save(any(LoanCollectionCase.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        service.apply(loan, projection, NOW);
+        var groups = service.apply(loan, projection, 90, NOW);
 
         assertThat(loan.getStatus()).isEqualTo(FinoraLoanStatus.DEFAULTED);
         verify(cases).save(any(LoanCollectionCase.class));
+        assertThat(groups).isEqualTo(new CollectionCaseService.DebtGroupChange(2, 3));
     }
 
     @Test
@@ -68,10 +69,29 @@ class CollectionCaseServiceTest {
         when(cases.findByLoanIdAndStatusForUpdate(1L, CollectionCaseStatus.OPEN))
                 .thenReturn(Optional.of(current));
 
-        service.apply(loan, projection, NOW);
+        var groups = service.apply(loan, projection, 91, NOW);
 
         assertThat(current.getStatus()).isEqualTo(CollectionCaseStatus.CURED);
         assertThat(loan.getStatus()).isEqualTo(FinoraLoanStatus.ACTIVE);
+        assertThat(groups).isEqualTo(new CollectionCaseService.DebtGroupChange(3, 1));
+    }
+
+    @Test
+    void partialPaymentOfArrearsKeepsTheDefaultedLoanInItsBadDebtGroup() {
+        loan.markDefaulted(NOW.minusSeconds(60));
+        LoanCollectionCase current = LoanCollectionCase.open(
+                1L, "LN-001", "borrower-1", 91, money("5178000"), money("9000000"),
+                LocalDate.of(2026, 7, 5), NOW.minusSeconds(60));
+        projection.applyCoreSnapshot(snapshot(61, "3452000", "8000000"), NOW);
+        when(cases.findByLoanIdAndStatusForUpdate(1L, CollectionCaseStatus.OPEN))
+                .thenReturn(Optional.of(current));
+
+        var groups = service.apply(loan, projection, 91, NOW);
+
+        // B36: event phải mang nhóm 3 để Investment giữ Note DEFAULTED như Loan, không về nhóm 2 theo DPD 61.
+        assertThat(groups).isEqualTo(new CollectionCaseService.DebtGroupChange(3, 3));
+        assertThat(current.getStatus()).isEqualTo(CollectionCaseStatus.OPEN);
+        assertThat(loan.getStatus()).isEqualTo(FinoraLoanStatus.DEFAULTED);
     }
 
     private static LoanServicingSnapshot snapshot(int dpd, String overdue, String outstanding) {

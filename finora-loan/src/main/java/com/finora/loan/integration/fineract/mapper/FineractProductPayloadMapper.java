@@ -1,6 +1,7 @@
 package com.finora.loan.integration.fineract.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.finora.loan.config.FineractProperties;
 import com.finora.loan.integration.fineract.client.FineractIntegrationException;
 import com.finora.loan.integration.fineract.contract.FineractProductConfiguration;
 import com.finora.loan.integration.fineract.contract.FineractProductCreationResult;
@@ -20,6 +21,7 @@ public class FineractProductPayloadMapper {
 
     private final HashingService hashingService;
     private final FineractRepaymentPolicy repaymentPolicy;
+    private final FineractProperties properties;
 
     /** Ánh xạ Product FINORA sang allowlist Fineract 1.15; MVP chưa bật accounting. */
     public Map<String, Object> toCreateProductPayload(FineractProductConfiguration source) {
@@ -44,17 +46,29 @@ public class FineractProductPayloadMapper {
         payload.put("interestRateFrequencyType", 3);
         payload.put("amortizationType", repaymentPolicy.amortizationType(source.repaymentMethod()));
         payload.put("interestType", repaymentPolicy.interestType());
-        payload.put("interestCalculationPeriodType", repaymentPolicy.interestCalculationPeriodType());
+        payload.put("interestCalculationPeriodType",
+                repaymentPolicy.interestCalculationPeriodType(source.configVersion()));
         payload.put("transactionProcessingStrategyCode", FineractAllocationPolicy.strategy(source.configVersion()));
         if (FineractAllocationPolicy.advanced(source.configVersion())) {
             // Fineract 1.15 chỉ cho phép Advanced Payment Allocation trên lịch PROGRESSIVE.
             // Nếu bỏ field này, Product vẫn tạo được ở dạng CUMULATIVE nhưng mọi Loan V2 sẽ bị
             // từ chối khi apply, nên phải snapshot cùng strategy ngay từ lúc tạo Product.
             payload.put("loanScheduleType", "PROGRESSIVE");
-            payload.put("paymentAllocation", FineractAllocationPolicy.paymentAllocation());
+            payload.put("paymentAllocation", FineractAllocationPolicy.paymentAllocation(source.configVersion()));
         }
         payload.put("accountingRule", 1);
-        payload.put("isInterestRecalculationEnabled", false);
+        boolean recalculation = FineractAllocationPolicy.interestRecalculation(source.configVersion());
+        payload.put("isInterestRecalculationEnabled", recalculation);
+        if (recalculation) {
+            // V4 (D15): lãi theo dư nợ thực tế, mốc tính lãi hằng ngày, không cộng dồn lãi vào gốc. Tất toán tính lãi
+            // đến đúng ngày tất toán; trả thêm gốc thì Fineract điều chỉnh kỳ cuối thay vì thu lãi các kỳ tương lai.
+            payload.put("interestRecalculationCompoundingMethod", 0);
+            payload.put("rescheduleStrategyMethod", 4);
+            payload.put("recalculationRestFrequencyType", 2);
+            payload.put("recalculationRestFrequencyInterval", 1);
+            payload.put("preClosureInterestCalculationStrategy", 1);
+            payload.put("isArrearsBasedOnOriginalSchedule", false);
+        }
         payload.put("daysInYearType", 1);
         payload.put("daysInMonthType", 1);
         payload.put("dateFormat", "yyyy-MM-dd");
@@ -113,13 +127,19 @@ public class FineractProductPayloadMapper {
         if (!matchesEnum(product.path("loanScheduleType"), "PROGRESSIVE")) {
             throw contractMismatch("Product Fineract V2 tồn tại nhưng loanScheduleType không phải PROGRESSIVE");
         }
+        boolean expectedRecalculation = FineractAllocationPolicy.interestRecalculation(configVersion);
+        if (product.path("isInterestRecalculationEnabled").asBoolean(false) != expectedRecalculation) {
+            // Product V4 tắt tính lại lãi sẽ thu lãi tương lai khi trả trước/tất toán (B28/B29): không tái sử dụng.
+            throw contractMismatch("Product Fineract tồn tại nhưng cờ tính lại lãi không khớp " + configVersion);
+        }
+        String expectedFutureRule = FineractAllocationPolicy.futureInstallmentAllocationRule(configVersion);
         JsonNode allocations = product.path("paymentAllocation");
         boolean validDefaultRule = false;
         if (allocations.isArray()) {
             for (JsonNode allocation : allocations) {
                 JsonNode order = allocation.path("paymentAllocationOrder");
                 if (matchesEnum(allocation.path("transactionType"), "DEFAULT")
-                        && matchesEnum(allocation.path("futureInstallmentAllocationRule"), "REAMORTIZATION")
+                        && matchesEnum(allocation.path("futureInstallmentAllocationRule"), expectedFutureRule)
                         && order.isArray() && order.size() == 12) {
                     validDefaultRule = true;
                     break;
@@ -127,7 +147,8 @@ public class FineractProductPayloadMapper {
             }
         }
         if (!validDefaultRule) {
-            throw contractMismatch("Product Fineract V2 tồn tại nhưng payment allocation/REAMORTIZATION không khớp");
+            throw contractMismatch("Product Fineract " + configVersion
+                    + " tồn tại nhưng payment allocation/" + expectedFutureRule + " không khớp");
         }
     }
 
@@ -153,14 +174,26 @@ public class FineractProductPayloadMapper {
     }
 
     private String fineractName(FineractProductConfiguration source) {
-        String name = "FINORA " + source.code() + " v" + source.finoraProductVersion();
+        String namespace = namespace();
+        String name = "FINORA " + (namespace.isEmpty() ? "" : namespace + " ") + source.code()
+                + " v" + source.finoraProductVersion();
         return name.length() <= 100 ? name : name.substring(0, 100);
     }
 
     private String shortName(Long productId, Long productVersion) {
-        long value = Math.abs((productId * 31L) + productVersion);
+        String namespace = namespace();
+        // Không gian tên rỗng: đúng công thức cũ. Có không gian tên: trộn vào rồi lấy dư 36^3 để vẫn đủ 3 ký tự phân biệt
+        // giữa các Product liên tiếp (lấy chữ số đầu của một số lớn sẽ làm các Product trùng nhau).
+        long value = namespace.isEmpty()
+                ? Math.abs((productId * 31L) + productVersion)
+                : Math.floorMod(namespace.hashCode() * 961L + (productId * 31L) + productVersion, 46_656L);
         String code = Long.toString(value, 36).toUpperCase();
         return ("F" + code).substring(0, Math.min(4, code.length() + 1));
+    }
+
+    private String namespace() {
+        String value = properties == null ? null : properties.productNamespace();
+        return value == null ? "" : value;
     }
 
     private FineractIntegrationException contractMismatch(String message) {

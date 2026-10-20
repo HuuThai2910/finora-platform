@@ -33,6 +33,10 @@ public record UpdateAutoInvestRequest(
         Integer maxTermMonths,
 
         @NotNull @DecimalMin("1000") @Digits(integer = 16, fraction = 2)
-        BigDecimal amountPerLoan
+        BigDecimal amountPerLoan,
+
+        /** Phiên bản công bố rủi ro nhà đầu tư vừa đọc; bắt buộc khi {@code enabled=true} (Q5). */
+        @Size(max = 50)
+        String riskAcknowledgementVersion
 ) {
 }

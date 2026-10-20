@@ -13,12 +13,14 @@ import java.util.List;
  * @param investedAmount   vốn đang nằm trong các Note còn dư nợ
  * @param principalRepaid  tiền gốc đã thu hồi
  * @param interestReceived tiền lãi đã nhận
+ * @param prepaymentFeeReceived phần phí trả trước được chia cho nhà đầu tư
  */
 public record PortfolioResponse(
         String pendingAmount,
         String investedAmount,
         String principalRepaid,
         String interestReceived,
+        String prepaymentFeeReceived,
         String totalReceived,
         int activeNoteCount,
         int positionCount,

@@ -57,6 +57,28 @@ class PaymentRepaymentTest {
     }
 
     @Test
+    void coreRepostOnlyStartsFromReconciliationAfterTheSafeWindowAndRecordsWhoAndWhen() {
+        PaymentRepayment repayment = repayment();
+        assertThatThrownBy(() -> repayment.startCoreRepost("admin-1", NOW)).isInstanceOf(IllegalStateException.class);
+        assertThat(repayment.coreRepostAvailableAt(java.time.Duration.ofMinutes(15))).isNull();
+
+        repayment.startCorePosting(NOW);
+        repayment.requireReconciliation("FINERACT_REPAYMENT_OUTCOME_UNKNOWN", "timeout", NOW.plusSeconds(15));
+        assertThat(repayment.coreRepostAvailableAt(java.time.Duration.ofMinutes(15)))
+                .isEqualTo(NOW.plusSeconds(15).plus(java.time.Duration.ofMinutes(15)));
+
+        repayment.startCoreRepost("admin-1", NOW.plusSeconds(1000));
+
+        assertThat(repayment.getStatus()).isEqualTo(PaymentRepaymentStatus.CORE_POSTING);
+        assertThat(repayment.getAttemptCount()).isEqualTo(2);
+        assertThat(repayment.getCoreRepostCount()).isEqualTo(1);
+        assertThat(repayment.getLastCoreRepostBy()).isEqualTo("admin-1");
+        assertThat(repayment.getLastCoreRepostAt()).isEqualTo(NOW.plusSeconds(1000));
+        assertThatThrownBy(() -> repayment.startCoreRepost("admin-1", NOW.plusSeconds(1001)))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void interruptedCorePostingMovesToReadOnlyReconciliationWithoutSecondAttempt() {
         PaymentRepayment repayment = repayment();
         repayment.startCorePosting(NOW);
@@ -66,6 +88,62 @@ class PaymentRepaymentTest {
         assertThat(repayment.getStatus()).isEqualTo(PaymentRepaymentStatus.RECONCILIATION_REQUIRED);
         assertThat(repayment.getErrorCode()).isEqualTo("CORE_POSTING_INTERRUPTED");
         assertThat(repayment.getAttemptCount()).isEqualTo(1);
+    }
+
+    @Test
+    void earlyInstallmentOnDailyInterestLoanIsHeldUntilItsDueDate() {
+        PaymentLoanAccount account = PaymentLoanAccount.activate(1L, "LC-1", 2L, "borrower", 3L,
+                "FINORA-FINERACT-V4", "VND", NOW);
+        LocalDate paidOn = LocalDate.of(2026, 10, 17);
+        LocalDate dueDate = LocalDate.of(2026, 11, 2);
+
+        PaymentRepayment repayment = PaymentRepayment.collected("idem-early", account, new BigDecimal("1725000.00"),
+                paidOn, PaymentRepaymentType.SCHEDULED, dueDate, UUID.randomUUID(), NOW);
+
+        // D16: thu tiền hôm nay nhưng ghi Fineract đúng ngày đến hạn để lãi của kỳ không đổi.
+        assertThat(account.dailyInterestCore()).isTrue();
+        assertThat(repayment.getTransactionDate()).isEqualTo(paidOn);
+        assertThat(repayment.corePostingDate()).isEqualTo(dueDate);
+        assertThat(repayment.awaitingDueDate(paidOn)).isTrue();
+        assertThat(repayment.awaitingDueDate(dueDate.minusDays(1))).isTrue();
+        assertThat(repayment.awaitingDueDate(dueDate)).isFalse();
+        // Từ ngày đến hạn khoản tiền thuộc về worker ghi core, người vay không hủy được nữa.
+        assertThatThrownBy(() -> repayment.cancelBeforeDueDate(dueDate, NOW))
+                .isInstanceOf(IllegalStateException.class);
+
+        repayment.cancelBeforeDueDate(paidOn, NOW);
+        assertThat(repayment.getStatus()).isEqualTo(PaymentRepaymentStatus.CANCELLED);
+        assertThat(repayment.getErrorCode()).isEqualTo("CANCELLED_BY_BORROWER");
+        assertThat(repayment.awaitingDueDate(paidOn)).isFalse();
+    }
+
+    @Test
+    void onlyAScheduledInstallmentPaidBeforeItsDueDateCanBeHeld() {
+        PaymentLoanAccount account = PaymentLoanAccount.activate(1L, "LC-1", 2L, "borrower", 3L,
+                "FINORA-FINERACT-V4", "VND", NOW);
+        LocalDate today = LocalDate.of(2026, 10, 17);
+
+        assertThatThrownBy(() -> PaymentRepayment.collected("idem-cure", account, new BigDecimal("1000.00"), today,
+                PaymentRepaymentType.OVERDUE_CURE, today.plusDays(5), UUID.randomUUID(), NOW))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> PaymentRepayment.collected("idem-today", account, new BigDecimal("1000.00"), today,
+                PaymentRepaymentType.SCHEDULED, today, UUID.randomUUID(), NOW))
+                .isInstanceOf(IllegalArgumentException.class);
+        PaymentRepayment immediate = PaymentRepayment.collected("idem-now", account, new BigDecimal("1000.00"), today,
+                PaymentRepaymentType.SCHEDULED, UUID.randomUUID(), NOW);
+        assertThat(immediate.getPostOn()).isNull();
+        assertThat(immediate.corePostingDate()).isEqualTo(today);
+        assertThat(immediate.awaitingDueDate(today)).isFalse();
+    }
+
+    @Test
+    void onlyCoreV4AccountsUseDailyInterestServicing() {
+        assertThat(PaymentLoanAccount.activate(1L, "LC-1", 2L, "b", 3L, "FINORA-FINERACT-V3", "VND", NOW)
+                .dailyInterestCore()).isFalse();
+        assertThat(PaymentLoanAccount.activate(1L, "LC-1", 2L, "b", 3L, null, "VND", NOW)
+                .dailyInterestCore()).isFalse();
+        assertThat(PaymentLoanAccount.activate(1L, "LC-1", 2L, "b", 3L, "FINORA-FINERACT-V4", "VND", NOW)
+                .dailyInterestCore()).isTrue();
     }
 
     @Test
@@ -87,7 +165,8 @@ class PaymentRepaymentTest {
                         new BigDecimal("800.00"), new BigDecimal("200.00"), BigDecimal.ZERO.setScale(2),
                         BigDecimal.ZERO.setScale(2), 24, LocalDate.of(2026, 10, 1),
                         LocalDate.of(2028, 10, 1)), new BigDecimal("0.010000"),
-                new BigDecimal("100.00"), "POLICY-1", NOW.plusSeconds(900), NOW);
+                new BigDecimal("100.00"), new BigDecimal("80.00"), new BigDecimal("20.00"),
+                "POLICY-1", NOW.plusSeconds(900), NOW);
         PaymentRepayment repayment = PaymentRepayment.earlySettlement("idem-early", account, quote,
                 UUID.randomUUID(), NOW);
         repayment.startCorePosting(NOW);
@@ -97,6 +176,8 @@ class PaymentRepaymentTest {
         assertThat(repayment.getAmount()).isEqualByComparingTo("1100.00");
         assertThat(repayment.getCoreAmount()).isEqualByComparingTo("1000.00");
         assertThat(repayment.getFeeAmount()).isEqualByComparingTo("100.00");
+        assertThat(repayment.getInvestorFeeShare()).isEqualByComparingTo("80.00");
+        assertThat(repayment.getFinoraFeeShare()).isEqualByComparingTo("20.00");
         assertThat(repayment.getRepaymentType()).isEqualTo(PaymentRepaymentType.EARLY_SETTLEMENT);
     }
 
@@ -110,7 +191,8 @@ class PaymentRepaymentTest {
                         new BigDecimal("9000.00"), LocalDate.of(2026, 11, 3),
                         new BigDecimal("1000.00"), 24, LocalDate.of(2026, 10, 1),
                         LocalDate.of(2028, 10, 1)), new BigDecimal("2000.00"),
-                new BigDecimal("0.010000"), new BigDecimal("100.00"), "POLICY-1",
+                new BigDecimal("0.010000"), new BigDecimal("100.00"),
+                new BigDecimal("80.00"), new BigDecimal("20.00"), "POLICY-1",
                 NOW.plusSeconds(900), NOW);
 
         PaymentRepayment repayment = PaymentRepayment.partialPrepayment("idem-partial", account, quote,
@@ -119,6 +201,8 @@ class PaymentRepaymentTest {
         assertThat(repayment.getRepaymentType()).isEqualTo(PaymentRepaymentType.PARTIAL_PREPAYMENT);
         assertThat(repayment.getCoreAmount()).isEqualByComparingTo("3000.00");
         assertThat(repayment.getAmount()).isEqualByComparingTo("3100.00");
+        assertThat(repayment.getInvestorFeeShare()).isEqualByComparingTo("80.00");
+        assertThat(repayment.getFinoraFeeShare()).isEqualByComparingTo("20.00");
         assertThat(repayment.getPartialPrepaymentQuoteId()).isEqualTo(quote.getQuoteId());
     }
 

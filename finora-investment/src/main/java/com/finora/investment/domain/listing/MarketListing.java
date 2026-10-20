@@ -67,6 +67,14 @@ public class MarketListing {
     @Column(name = "disbursed_at")
     private Instant disbursedAt;
 
+    /** Thời điểm nhận LoanFundingCancelled: đã đủ vốn nhưng khoản vay sẽ không được giải ngân. */
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+
+    /** {@code CONTRACT_DECLINED}, {@code CONTRACT_EXPIRED} hoặc {@code DISBURSEMENT_FAILED} do Loan quyết định. */
+    @Column(name = "cancellation_reason", length = 40)
+    private String cancellationReason;
+
     @Column(name = "application_number", nullable = false, length = 30, updatable = false)
     private String applicationNumber;
 
@@ -86,7 +94,8 @@ public class MarketListing {
     @Column(name = "product_code", nullable = false, length = 50, updatable = false)
     private String productCode;
 
-    @Column(nullable = false, length = 100, updatable = false)
+    /** Nhãn mục đích + chi tiết người vay tự nhập do Loan gửi; tối đa 600 ký tự theo V15. */
+    @Column(nullable = false, length = 600, updatable = false)
     private String purpose;
 
     @Column(nullable = false, length = 100, updatable = false)

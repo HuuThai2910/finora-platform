@@ -4,9 +4,10 @@ spring:
   application:
     name: finora-loan
   datasource:
-    # Neon/local đều truyền qua môi trường; repository không giữ host hoặc tài khoản triển khai mặc định.
-    url: ${LOAN_DB_URL:jdbc:postgresql://ep-steep-fire-az704hm0-pooler.c-3.ap-southeast-1.aws.neon.tech/finora-loan?sslmode=require&channel_binding=require}
-    username: ${LOAN_DB_USERNAME:neondb_owner}
+    # Neon/local đều truyền qua môi trường (LOAN_DB_URL/USERNAME/PASSWORD). Mặc định là PostgreSQL local của
+    # docker-compose (loan-postgres, cổng 15433) như các service khác; repository không giữ host hay tài khoản cloud (D39).
+    url: ${LOAN_DB_URL:jdbc:postgresql://localhost:15433/finora_loan}
+    username: ${LOAN_DB_USERNAME:finora_loan}
     password: ${LOAN_DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
   jpa:
@@ -66,20 +67,37 @@ springdoc:
 management:
   endpoint:
     health:
-      show-details: never
+      # Ai cũng thấy tên và trạng thái từng thành phần; lý do/thời điểm chỉ hiện với token ROLE_ADMIN (W3E, D56).
+      show-components: always
+      show-details: when-authorized
+      roles: ADMIN
       probes:
         enabled: true
       group:
+        # Liveness chỉ hỏi JVM còn chạy: dependency lỗi không được làm orchestrator khởi động lại Loan.
         liveness:
           include: livenessState
+        # Readiness gồm dependency mọi request đều cần. Kafka không vào đây: outbox giữ event trong DB khi broker tắt.
         readiness:
           include: readinessState,db
+        # Sự cố vận hành cần người xử lý nhưng không được rút Loan khỏi traffic (D57).
+        operations:
+          include: fineractEndOfDay,kafka
   endpoints:
     web:
       exposure:
         include: health,info,metrics
 
 finora:
+  # Múi giờ của ngày nghiệp vụ (nộp hồ sơ, booking/giải ngân Fineract, servicing). Phải trùng múi giờ tenant Fineract.
+  business-time-zone: ${FINORA_BUSINESS_TIME_ZONE:Asia/Ho_Chi_Minh}
+  # Chỉ harness E2E đặt (Q12): dời đồng hồ Loan, ví dụ P91D, để kiểm quá hạn/nợ xấu mà không chờ thật.
+  # Bị từ chối khi khởi động nếu chữ ký không phải MOCK hoặc không chạy profile local.
+  e2e:
+    clock-offset: ${FINORA_E2E_CLOCK_OFFSET:PT0S}
+    # Drill E2E (Q13): giữ luồng ở một điểm để harness tắt JVM; cùng điều kiện với clock-offset.
+    pause-point: ${FINORA_E2E_PAUSE_POINT:}
+    pause-duration: ${FINORA_E2E_PAUSE_DURATION:PT0S}
   # Pin-token xác nhận thao tác nhạy cảm — khoá HS256 phải GIỐNG NHAU ở finora-user
   # (bên cấp) và payment/investment/loan (bên kiểm). Mặc định chỉ dùng cho máy dev.
   pin:
@@ -98,6 +116,15 @@ finora:
       sandbox-serial-number: ${VNPT_SMARTCA_SANDBOX_SERIAL_NUMBER:}
       connect-timeout: ${VNPT_SMARTCA_CONNECT_TIMEOUT:3s}
       read-timeout: ${VNPT_SMARTCA_READ_TIMEOUT:15s}
+    pades:
+      # R5/D13: hợp đồng nhiều bên mới ký PAdES-B-B ẩn, nhúng vào PDF theo incremental update. false chỉ là đường lùi
+      # vận hành (hợp đồng mới quay về bằng chứng tách rời); hợp đồng đã lập không đổi cách ký.
+      enabled: ${FINORA_SIGNATURE_PADES_ENABLED:true}
+      # Phiên SmartCA hết hạn sau khoảng 300 giây; quá thời gian này worker giải phóng lượt ký cho bên khác.
+      signing-session-timeout: ${FINORA_SIGNATURE_PADES_SESSION_TIMEOUT:10m}
+      worker-enabled: ${FINORA_SIGNATURE_PADES_WORKER_ENABLED:true}
+      worker-delay: ${FINORA_SIGNATURE_PADES_WORKER_DELAY:15000}
+      worker-batch-size: ${FINORA_SIGNATURE_PADES_WORKER_BATCH_SIZE:20}
   loan:
     # Version này được snapshot khi borrower submit để đối chiếu đúng nội dung đã xác nhận.
     pricing-disclosure-version: ${LOAN_PRICING_DISCLOSURE_VERSION:RATE_DISCLOSURE_V2}
@@ -116,9 +143,9 @@ finora:
         E: ${LOAN_GRADE_E_RATE_ADJUSTMENT:1.0000}
     contract:
       decision-policy-version: ${LOAN_DECISION_POLICY_VERSION:ADMIN_MANUAL_DECISION_V1}
-      terms-version: ${LOAN_TERMS_VERSION:LOAN_TERMS_V1}
-      # V2 thay chuỗi key=value kỹ thuật bằng văn bản tiếng Việt để borrower có thể đọc trước khi ký.
-      document-version: ${LOAN_CONTRACT_DOCUMENT_VERSION:CLICK_WRAP_TEXT_V2}
+      terms-version: ${LOAN_TERMS_VERSION:LOAN_TERMS_V2}
+      # V3 bổ sung chính sách trả trước 80/20 và cổng đồng thuận cơ cấu vào tài liệu người dùng ký.
+      document-version: ${LOAN_CONTRACT_DOCUMENT_VERSION:CLICK_WRAP_TEXT_V3}
       signature-window: ${LOAN_CONTRACT_SIGNATURE_WINDOW:7d}
       maximum-signature-window: ${LOAN_CONTRACT_MAXIMUM_SIGNATURE_WINDOW:30d}
       expiry-batch-size: ${LOAN_CONTRACT_EXPIRY_BATCH_SIZE:100}
@@ -145,6 +172,7 @@ finora:
       disbursement-completed-topic: ${PAYMENT_DISBURSEMENT_COMPLETED_TOPIC:finora.payment.disbursement-completed}
       disbursement-failed-topic: ${PAYMENT_DISBURSEMENT_FAILED_TOPIC:finora.payment.disbursement-failed}
       repayment-distributed-topic: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:finora.payment.repayment-distributed}
+      reschedule-consent-completed-topic: ${INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC:finora.investment.reschedule-consent-completed}
       publish-timeout: ${LOAN_KAFKA_PUBLISH_TIMEOUT:10s}
       # Chỉ event có publishable=true và route đúng type/version mới được relay.
       routes:
@@ -175,11 +203,33 @@ finora:
         - event-type: LoanRescheduled
           event-version: 1
           topic: ${LOAN_RESCHEDULED_TOPIC:finora.loan.rescheduled}
+        - event-type: LoanRescheduleConsentRequested
+          event-version: 1
+          topic: ${LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC:finora.loan.reschedule-consent-requested}
+        - event-type: LoanFundingCancelled
+          event-version: 1
+          topic: ${LOAN_FUNDING_CANCELLED_TOPIC:finora.loan.funding-cancelled}
+    # D5/LEGAL-LIMIT-01: policy demo, chưa phải hằng số pháp lý (NEEDS_PRIMARY_SOURCE). Tính dư nợ còn lại + hồ sơ
+    # đang xử lý + hồ sơ mới của một người vay.
+    borrower-exposure:
+      enabled: ${LOAN_BORROWER_EXPOSURE_ENABLED:true}
+      max-outstanding: ${LOAN_BORROWER_MAX_OUTSTANDING:100000000}
     disbursement:
       worker-delay: ${LOAN_DISBURSEMENT_WORKER_DELAY:5000}
+      max-attempts: ${LOAN_DISBURSEMENT_MAX_ATTEMPTS:3}
+      retry-backoff: ${LOAN_DISBURSEMENT_RETRY_BACKOFF:30s}
+      # Hết lease mà bước ghi Fineract chưa có kết quả (worker chết) thì worker khác nhận lại và reconcile theo externalId.
+      core-booking-lease: ${LOAN_DISBURSEMENT_CORE_BOOKING_LEASE:5m}
     servicing-sync:
       enabled: ${LOAN_SERVICING_SYNC_ENABLED:true}
       worker-delay: ${LOAN_SERVICING_SYNC_WORKER_DELAY:60000}
+    operations:
+      # D57/D25: health `fineractEndOfDay` DOWN khi LA_RINT/LA_ARAG không chạy thành công trong stale-after.
+      # Tài khoản Fineract của Loan cần quyền READ_SCHEDULER; provider booking mock thì kiểm tra không áp dụng.
+      fineract-eod:
+        enabled: ${LOAN_FINERACT_EOD_CHECK_ENABLED:true}
+        stale-after: ${LOAN_FINERACT_EOD_STALE_AFTER:26h}
+        refresh-interval: ${LOAN_FINERACT_EOD_REFRESH_INTERVAL:5m}
     reschedule:
       # Fail-closed: chỉ bật khi đã tạo reason code trong Fineract và điền ID bên dưới.
       worker-enabled: ${LOAN_RESCHEDULE_WORKER_ENABLED:false}
@@ -191,7 +241,15 @@ finora:
       maximum-retry-delay: ${LOAN_RESCHEDULE_MAXIMUM_RETRY_DELAY:15m}
       fineract-reason-id: ${FINERACT_RESCHEDULE_REASON_ID:}
       terms-version: ${LOAN_RESTRUCTURE_TERMS_VERSION:LOAN_RESTRUCTURE_TERMS_V1}
-      terms-text: "Tôi xác nhận lịch trả nợ hiện tại vẫn có hiệu lực cho đến khi FINORA phê duyệt và Apache Fineract xác nhận lịch cơ cấu mới."
+      terms-text: "Tôi xác nhận FINORA sẽ thẩm định đề nghị; nếu đạt, toàn bộ nhà đầu tư đang nắm Note phải đồng ý và Apache Fineract phải áp dụng thành công thì lịch mới mới có hiệu lực. Trong thời gian chờ, tôi vẫn thanh toán theo lịch hiện tại."
+  # Nguồn eKYC/tuổi người vay đọc lúc nộp hồ sơ (W2-KYC, D4): `user` chuyển tiếp token người vay sang finora-user;
+  # `mock` (VERIFIED, 30 tuổi) chỉ dùng cho test và stack E2E, không phải dữ liệu thật.
+  borrower-profile:
+    provider: ${FINORA_BORROWER_PROFILE_PROVIDER:user}
+  user:
+    base-url: ${USER_SERVICE_URL:http://localhost:8085}
+    connect-timeout: ${USER_CONNECT_TIMEOUT:2s}
+    read-timeout: ${USER_READ_TIMEOUT:3s}
   borrower-eligibility:
     minimum-age: ${BORROWER_MINIMUM_AGE:18}
     maximum-age: ${BORROWER_MAXIMUM_AGE:65}
@@ -208,6 +266,12 @@ finora:
       worker-delay: ${AI_WORKER_DELAY:5000}
       worker-enabled: ${AI_WORKER_ENABLED:true}
       processing-lease: ${AI_PROCESSING_LEASE:2m}
+      # Danh tính Loan khi gọi AI (D34): client_credentials của finora-loan-client, client role ai:credit:score.
+      # Secret chỉ đặt trong .env (docker/keycloak/add-service-clients.sh ghi vào); thiếu thì chấm điểm chờ retry.
+      service-account:
+        token-url: ${KEYCLOAK_TOKEN_URL:http://localhost:8180/realms/finora/protocol/openid-connect/token}
+        client-id: ${KEYCLOAK_LOAN_CLIENT_ID:finora-loan-client}
+        client-secret: ${KEYCLOAK_LOAN_CLIENT_SECRET:}
   fineract:
     # mock cho demo local; đổi thành fineract khi đã chốt office/payment type và dữ liệu Client.
     booking-provider: ${FINERACT_BOOKING_PROVIDER:mock}
@@ -218,8 +282,12 @@ finora:
     preview-client-external-id: ${FINERACT_PREVIEW_CLIENT_EXTERNAL_ID:FINORA-PREVIEW-CLIENT}
     connect-timeout: ${FINERACT_CONNECT_TIMEOUT:3s}
     read-timeout: ${FINERACT_READ_TIMEOUT:30s}
-    # V2 chỉ áp dụng cho Product/mapping tạo mới; hồ sơ V1 giữ configVersion snapshot riêng.
-    product-config-version: ${FINERACT_PRODUCT_CONFIG_VERSION:FINORA-FINERACT-V2}
+    # V4 (D15) áp dụng cho Product/mapping tạo mới: tính lại lãi hằng ngày. V3/V2/V1 giữ snapshot để đọc tương thích;
+    # Product đã đồng bộ không đổi version (chỉ Product DRAFT mới đồng bộ).
+    product-config-version: ${FINERACT_PRODUCT_CONFIG_VERSION:FINORA-FINERACT-V4}
+    # Chỉ đặt khi nhiều DB Loan dùng chung một Fineract (stack E2E cô lập đặt E2E): externalId/tên/shortName Product có
+    # tiền tố riêng để không đụng Product của môi trường khác. Để trống giữ nguyên định danh hiện hành.
+    product-namespace: ${FINERACT_PRODUCT_NAMESPACE:}
     max-attempts: ${FINERACT_MAX_ATTEMPTS:3}
     retry-backoff: ${FINERACT_RETRY_BACKOFF:30s}
     retry-batch-size: ${FINERACT_RETRY_BATCH_SIZE:20}

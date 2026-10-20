@@ -63,6 +63,10 @@ public class InvestmentNote {
     @Column(name = "interest_received", nullable = false, precision = 18, scale = 2)
     private BigDecimal interestReceived;
 
+    @Column(name = "prepayment_fee_received", nullable = false, precision = 18, scale = 2)
+    @Builder.Default
+    private BigDecimal prepaymentFeeReceived = BigDecimal.ZERO.setScale(2);
+
     @Column(name = "annual_interest_rate", nullable = false, precision = 7, scale = 4, updatable = false)
     private BigDecimal annualInterestRate;
 
@@ -101,14 +105,23 @@ public class InvestmentNote {
     private Instant updatedAt;
 
     public void applyRepayment(BigDecimal principal, BigDecimal interest, Instant paidAt) {
+        applyRepayment(principal, interest, BigDecimal.ZERO.setScale(2), paidAt);
+    }
+
+    public void applyRepayment(BigDecimal principal, BigDecimal interest,
+            BigDecimal prepaymentFee, Instant paidAt) {
         if (principal == null || interest == null || principal.signum() < 0 || interest.signum() < 0) {
             throw new IllegalArgumentException("Phân bổ repayment không hợp lệ");
+        }
+        if (prepaymentFee == null || prepaymentFee.signum() < 0) {
+            throw new IllegalArgumentException("Phân bổ phí trả trước không hợp lệ");
         }
         BigDecimal nextOutstanding = outstandingPrincipal.subtract(principal.setScale(2));
         if (nextOutstanding.signum() < 0) throw new IllegalArgumentException("Gốc trả vượt dư nợ Note");
         outstandingPrincipal = nextOutstanding;
         principalRepaid = principalRepaid.add(principal.setScale(2));
         interestReceived = interestReceived.add(interest.setScale(2));
+        prepaymentFeeReceived = prepaymentFeeReceived.add(prepaymentFee.setScale(2));
         if (outstandingPrincipal.signum() == 0) {
             status = NoteStatus.CLOSED;
             closedAt = paidAt;

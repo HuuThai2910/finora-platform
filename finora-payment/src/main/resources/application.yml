@@ -40,18 +40,43 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
-  data:
-    redis:
-      host: ${PAYMENT_REDIS_HOST:localhost}
-      port: ${PAYMENT_REDIS_PORT:6380}
-      password: ${PAYMENT_REDIS_PASSWORD:}
-      repositories:
-        enabled: false
 
 server:
   port: 8082
 
+management:
+  endpoint:
+    health:
+      # Ai cũng thấy tên và trạng thái từng thành phần; chi tiết chỉ hiện với token ROLE_ADMIN (W3E, D56).
+      show-components: always
+      show-details: when-authorized
+      roles: ADMIN
+      probes:
+        enabled: true
+      group:
+        # Liveness chỉ hỏi JVM còn chạy; dependency lỗi không được làm orchestrator khởi động lại Payment.
+        liveness:
+          include: livenessState
+        # Mọi thao tác tiền cần PostgreSQL. Kafka không vào đây: outbox giữ event trong DB khi broker tắt.
+        readiness:
+          include: readinessState,db
+        operations:
+          include: kafka
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
 finora:
+  # Múi giờ của ngày nghiệp vụ (ngày trả nợ, báo giá, mã đơn ZaloPay). Phải trùng múi giờ tenant Fineract.
+  business-time-zone: ${FINORA_BUSINESS_TIME_ZONE:Asia/Ho_Chi_Minh}
+  # Chỉ harness E2E đặt (Q12): dời đồng hồ Payment, ví dụ P31D, để kiểm khoản trả kỳ ghi đúng ngày đến hạn.
+  # Bị từ chối khi khởi động nếu provider giải ngân hoặc nạp tiền không phải mock.
+  e2e:
+    clock-offset: ${FINORA_E2E_CLOCK_OFFSET:PT0S}
+    # Drill E2E (Q13): giữ luồng ở một điểm để harness tắt JVM; cùng điều kiện với clock-offset.
+    pause-point: ${FINORA_E2E_PAUSE_POINT:}
+    pause-duration: ${FINORA_E2E_PAUSE_DURATION:PT0S}
   # Pin-token xác nhận thao tác nhạy cảm — khoá HS256 phải GIỐNG NHAU ở finora-user
   # (bên cấp) và payment/investment/loan (bên kiểm). Mặc định chỉ dùng cho máy dev.
   pin:
@@ -61,6 +86,33 @@ finora:
     scheduling-enabled: ${PAYMENT_SCHEDULING_ENABLED:true}
     disbursement:
       provider: ${PAYMENT_DISBURSEMENT_PROVIDER:${PAYMENT_PROVIDER:mock}}
+      max-attempts: ${PAYMENT_DISBURSEMENT_MAX_ATTEMPTS:3}
+      retry-backoff: ${PAYMENT_DISBURSEMENT_RETRY_BACKOFF:30s}
+      # Hết lease mà vẫn PROCESSING (worker chết) thì chuyển đối soát theo sagaId, không gọi chuyển tiền lại.
+      processing-lease: ${PAYMENT_DISBURSEMENT_PROCESSING_LEASE:2m}
+      reconciliation-interval: ${PAYMENT_DISBURSEMENT_RECONCILIATION_INTERVAL:1m}
+      reconciliation-max-attempts: ${PAYMENT_DISBURSEMENT_RECONCILIATION_MAX_ATTEMPTS:30}
+    # R4 (W3B): rút tiền về tài khoản ngân hàng. Policy demo Q4/D19 cấu hình được, không phải trích dẫn luật.
+    withdrawal:
+      minimum-amount: ${PAYMENT_WITHDRAWAL_MINIMUM_AMOUNT:50000}
+      daily-limit: ${PAYMENT_WITHDRAWAL_DAILY_LIMIT:50000000}
+      fee-amount: ${PAYMENT_WITHDRAWAL_FEE_AMOUNT:0}
+      # AES-256 base64 (32 byte) mã hóa số tài khoản (D44). Mặc định chỉ cho máy dev; staging/production bị cổng môi
+      # trường chặn (D37).
+      account-encryption-key: ${PAYMENT_ACCOUNT_ENCRYPTION_KEY:ZGV2LW9ubHktcGF5bWVudC1hY2NvdW50LWtleS0zMmI=}
+      processing-lease: ${PAYMENT_WITHDRAWAL_PROCESSING_LEASE:PT2M}
+      callback-timeout: ${PAYMENT_WITHDRAWAL_CALLBACK_TIMEOUT:PT2M}
+      reconciliation-interval: ${PAYMENT_WITHDRAWAL_RECONCILIATION_INTERVAL:PT30S}
+      reconciliation-max-attempts: ${PAYMENT_WITHDRAWAL_RECONCILIATION_MAX_ATTEMPTS:10}
+      max-submit-attempts: ${PAYMENT_WITHDRAWAL_MAX_SUBMIT_ATTEMPTS:3}
+    payout:
+      # Chỉ có mock; payout thật chờ legal review LEGAL-PAYMENT-01.
+      provider: ${PAYMENT_PAYOUT_PROVIDER:mock}
+      mock:
+        callback-url: ${PAYMENT_MOCK_PAYOUT_CALLBACK_URL:http://localhost:8082/api/v1/wallets/callbacks/mock-payout}
+        callback-secret: ${PAYMENT_MOCK_PAYOUT_CALLBACK_SECRET:dev-only-mock-payout-callback-secret}
+        callback-delay: ${PAYMENT_MOCK_PAYOUT_CALLBACK_DELAY:PT2S}
+        callback-enabled: ${PAYMENT_MOCK_PAYOUT_CALLBACK_ENABLED:true}
     top-up:
       provider: ${PAYMENT_TOPUP_PROVIDER:mock}
       minimum-amount: ${PAYMENT_TOPUP_MINIMUM_AMOUNT:10000}
@@ -82,16 +134,25 @@ finora:
     loan-disbursed-topic: ${LOAN_DISBURSED_TOPIC:finora.loan.disbursed}
     note-ownership-changed-topic: ${INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC:finora.investment.note-ownership-changed}
     repayment-distributed-topic: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:finora.payment.repayment-distributed}
+    # P5 (W3F, D77): khoản trả kỳ trước hạn được giữ tới ngày đến hạn (D16) và lúc người vay hủy nó; consumer Notification.
+    repayment-collected-topic: ${PAYMENT_REPAYMENT_COLLECTED_TOPIC:finora.payment.repayment-collected}
+    repayment-cancelled-topic: ${PAYMENT_REPAYMENT_CANCELLED_TOPIC:finora.payment.repayment-cancelled}
     servicing-group: ${PAYMENT_SERVICING_GROUP:payment-servicing}
+    kafka:
+      # B58 (D79): consumer lỗi hạ tầng thử lại lùi dần rồi vào <topic>.payment.DLT; contract sai vào DLT ngay.
+      dead-letter-suffix: ${PAYMENT_KAFKA_DLT_SUFFIX:.payment.DLT}
+      retry-initial-interval: ${PAYMENT_KAFKA_RETRY_INITIAL_INTERVAL:1s}
+      retry-max-interval: ${PAYMENT_KAFKA_RETRY_MAX_INTERVAL:30s}
+      retry-max-elapsed: ${PAYMENT_KAFKA_RETRY_MAX_ELAPSED:3m}
     repayment-worker-delay: ${PAYMENT_REPAYMENT_WORKER_DELAY:3000}
     reconciliation-worker-delay: ${PAYMENT_RECONCILIATION_WORKER_DELAY:30000}
     core-posting-stale-after: ${PAYMENT_CORE_POSTING_STALE_AFTER:1m}
+    # B32 (D28): admin chỉ ghi lại khoản trả nợ chờ đối soát sau khoảng này kể từ lần ghi core gần nhất.
+    core-repost-safe-after: ${PAYMENT_CORE_REPOST_SAFE_AFTER:15m}
     early-settlement:
-      policy-version: ${PAYMENT_EARLY_SETTLEMENT_POLICY_VERSION:VCB_REFERENCE_2024_V1}
+      # Tỷ lệ phí, mức tối thiểu và cách chia nằm trong biểu phí hợp đồng đã ký (EarlySettlementPolicyCatalog),
+      # không cấu hình bằng biến môi trường để không áp ngược cho khoản vay cũ (G-POLICY-W2).
       quote-ttl: ${PAYMENT_EARLY_SETTLEMENT_QUOTE_TTL:15m}
-      short-term-first-half-rate: ${PAYMENT_EARLY_SETTLEMENT_SHORT_RATE:0.005}
-      long-term-rate: ${PAYMENT_EARLY_SETTLEMENT_LONG_RATE:0.01}
-      minimum-fee: ${PAYMENT_EARLY_SETTLEMENT_MINIMUM_FEE:100000}
     fineract:
       base-url: ${FINERACT_BASE_URL:http://localhost:18443/fineract-provider/api/v1}
       tenant-id: ${FINERACT_TENANT_ID:default}
@@ -102,3 +163,5 @@ finora:
       read-timeout: ${FINERACT_READ_TIMEOUT:15s}
     worker-delay: ${PAYMENT_DISBURSEMENT_WORKER_DELAY:3000}
     outbox-delay: ${PAYMENT_OUTBOX_DELAY:3000}
+    # Thời gian tối đa chờ broker xác nhận một event; quá hạn thì thử lại sau, consumer chống trùng theo eventId.
+    outbox-publish-timeout: ${PAYMENT_OUTBOX_PUBLISH_TIMEOUT:10s}

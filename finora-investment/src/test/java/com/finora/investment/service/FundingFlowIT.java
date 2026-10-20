@@ -15,6 +15,10 @@ import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.messaging.event.InvestorSignatureRequestedEventData;
 import com.finora.investment.messaging.event.LoanContractActivatedEventData;
 import com.finora.investment.messaging.event.LoanDisbursedEventData;
+import com.finora.investment.messaging.event.LoanFundingCancelledEventData;
+import com.finora.investment.messaging.event.LoanFundingRequestedEventData;
+import com.finora.investment.messaging.event.LoanRescheduleConsentRequestedEventData;
+import com.finora.investment.service.messaging.LoanFundingCancelledHandler;
 import com.finora.common.enums.investment.OrderStatus;
 import com.finora.investment.client.PaymentClient;
 import com.finora.investment.client.impl.StubPaymentClient;
@@ -106,6 +110,12 @@ class FundingFlowIT {
     private LoanDisbursedEventHandler loanDisbursedEventHandler;
 
     @Autowired
+    private LoanFundingCancelledHandler loanFundingCancelledHandler;
+
+    @Autowired
+    private com.finora.investment.service.messaging.LoanFundingRequestedHandler loanFundingRequestedHandler;
+
+    @Autowired
     private InvestmentOrderRepository orderRepository;
 
     @Autowired
@@ -119,6 +129,18 @@ class FundingFlowIT {
 
     @Autowired
     private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PortfolioService portfolioService;
+
+    @Autowired
+    private com.finora.investment.service.impl.OrderIncidentService orderIncidentService;
+
+    @Autowired
+    private com.finora.investment.service.messaging.LoanRescheduleConsentRequestedHandler consentRequestedHandler;
+
+    @Autowired
+    private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     private static final AtomicInteger LOAN_SEQUENCE = new AtomicInteger(1000);
 
@@ -157,11 +179,11 @@ class FundingFlowIT {
         actAs("INVESTOR-LIST-A");
         MarketListingResponse listing = newListing("10000000.00", "1000000.00");
         fundingService.placeOrder(listing.listingId(), "key-list-a",
-                new PlaceOrderRequest(new BigDecimal("6000000.00")));
+                new PlaceOrderRequest(new BigDecimal("6000000.00"), "INVESTOR_RISK_V1"));
 
         actAs("INVESTOR-LIST-B");
         OrderResponse cancelled = fundingService.placeOrder(listing.listingId(), "key-list-b",
-                new PlaceOrderRequest(new BigDecimal("2000000.00")));
+                new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
         fundingService.cancelOrder(cancelled.orderReference());
 
         actAs("ADMIN-LIST", "ROLE_ADMIN");
@@ -249,11 +271,11 @@ class FundingFlowIT {
         MarketListingResponse listing = newListing("10000000.00", "1000000.00");
 
         fundingService.placeOrder(listing.listingId(), "key-a-1",
-                new PlaceOrderRequest(new BigDecimal("6000000.00")));
+                new PlaceOrderRequest(new BigDecimal("6000000.00"), "INVESTOR_RISK_V1"));
 
         actAs("INVESTOR-B");
         OrderResponse second = fundingService.placeOrder(listing.listingId(), "key-b-1",
-                new PlaceOrderRequest(new BigDecimal("4000000.00")));
+                new PlaceOrderRequest(new BigDecimal("4000000.00"), "INVESTOR_RISK_V1"));
 
         assertThat(second.status()).isEqualTo("COMMITTED");
 
@@ -290,7 +312,7 @@ class FundingFlowIT {
                     return fundingService.placeOrder(
                             listing.listingId(),
                             "key-concurrent-" + index,
-                            new PlaceOrderRequest(new BigDecimal("1000000.00"))
+                            new PlaceOrderRequest(new BigDecimal("1000000.00"), "INVESTOR_RISK_V1")
                     ).status();
                 } catch (RuntimeException e) {
                     // Hết chỗ là kết quả hợp lệ của cuộc đua, không phải lỗi hệ thống.
@@ -327,7 +349,7 @@ class FundingFlowIT {
         actAs("INVESTOR-IDEM");
         MarketListingResponse listing = newListing("10000000.00", "1000000.00");
 
-        PlaceOrderRequest request = new PlaceOrderRequest(new BigDecimal("2000000.00"));
+        PlaceOrderRequest request = new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1");
         OrderResponse first = fundingService.placeOrder(listing.listingId(), "key-dup", request);
         OrderResponse second = fundingService.placeOrder(listing.listingId(), "key-dup", request);
 
@@ -345,10 +367,10 @@ class FundingFlowIT {
         MarketListingResponse listing = newListing("10000000.00", "1000000.00");
 
         fundingService.placeOrder(listing.listingId(), "key-reuse",
-                new PlaceOrderRequest(new BigDecimal("1000000.00")));
+                new PlaceOrderRequest(new BigDecimal("1000000.00"), "INVESTOR_RISK_V1"));
 
         assertThatThrownBy(() -> fundingService.placeOrder(listing.listingId(), "key-reuse",
-                new PlaceOrderRequest(new BigDecimal("3000000.00"))))
+                new PlaceOrderRequest(new BigDecimal("3000000.00"), "INVESTOR_RISK_V1")))
                 .isInstanceOf(InvestmentDomainException.class)
                 .hasMessageContaining("idempotency");
     }
@@ -360,10 +382,10 @@ class FundingFlowIT {
         MarketListingResponse listing = newListing("10000000.00", "1000000.00");
 
         fundingService.placeOrder(listing.listingId(), "key-note-1",
-                new PlaceOrderRequest(new BigDecimal("6000000.00")));
+                new PlaceOrderRequest(new BigDecimal("6000000.00"), "INVESTOR_RISK_V1"));
         actAs("INVESTOR-NOTE-2");
         fundingService.placeOrder(listing.listingId(), "key-note-2",
-                new PlaceOrderRequest(new BigDecimal("4000000.00")));
+                new PlaceOrderRequest(new BigDecimal("4000000.00"), "INVESTOR_RISK_V1"));
 
         assertThat(noteIssuanceService.finalizeCommitments(listing.listingId())).isEqualTo(2);
 
@@ -389,7 +411,7 @@ class FundingFlowIT {
         actAs("INVESTOR-DISBURSE");
         MarketListingResponse listingResponse = newListing("3000000.00", "1000000.00");
         fundingService.placeOrder(listingResponse.listingId(), "key-disburse",
-                new PlaceOrderRequest(new BigDecimal("3000000.00")));
+                new PlaceOrderRequest(new BigDecimal("3000000.00"), "INVESTOR_RISK_V1"));
 
         var listing = listingRepository.findById(listingResponse.listingId()).orElseThrow();
         Instant now = Instant.parse("2026-09-27T10:00:00Z");
@@ -413,7 +435,8 @@ class FundingFlowIT {
         LoanDisbursedEventData event = new LoanDisbursedEventData(
                 sagaId, listing.getLoanId(), listing.getApplicationNumber(), contractNumber, listing.getId(),
                 "3000000.00", "VND", "MOCK-PAYMENT-1", 9001L,
-                "FINORA-FINERACT-V2", now.plusSeconds(2));
+                "FINORA-FINERACT-V2", now.plusSeconds(2), "LN-DISBURSE-" + listing.getLoanId(),
+                java.time.LocalDate.of(2027, 3, 27));
         loanDisbursedEventHandler.handle(eventId, now.plusSeconds(2), event);
         loanDisbursedEventHandler.handle(eventId, now.plusSeconds(2), event);
 
@@ -425,6 +448,150 @@ class FundingFlowIT {
         assertThat(commitmentRepository.findByListingIdAndStatus(
                 listing.getId(), CommitmentStatus.FINALIZED)).hasSize(1);
         assertThat(noteRepository.findByLoanIdAndStatus(listing.getLoanId(), NoteStatus.ACTIVE)).hasSize(3);
+        // B34: vị thế có ngày đáo hạn theo core ngay sau giải ngân, không phải chờ lần cơ cấu đầu tiên.
+        actAs("INVESTOR-DISBURSE");
+        assertThat(portfolioService.portfolio().positions()).singleElement()
+                .satisfies(position -> assertThat(position.maturityDate()).isEqualTo(java.time.LocalDate.of(2027, 3, 27)));
+    }
+
+    @Test
+    @DisplayName("LoanDisbursed đến trước event Contract vẫn phát hành Note; event Contract đến muộn không làm trạng thái lùi")
+    void loanDisbursedBeforeContractEventsStillIssuesNotesAndLateEventsDoNotRegress() {
+        actAs("INVESTOR-ORDER-INDEPENDENT");
+        MarketListingResponse listingResponse = newListing("3000000.00", "1000000.00");
+        fundingService.placeOrder(listingResponse.listingId(), "key-order-independent",
+                new PlaceOrderRequest(new BigDecimal("3000000.00"), "INVESTOR_RISK_V1"));
+        var listing = listingRepository.findById(listingResponse.listingId()).orElseThrow();
+        Instant now = Instant.parse("2026-10-17T03:00:00Z");
+        String contractNumber = "LC-ORDER-" + listing.getLoanId();
+        String documentHash = "d".repeat(64);
+
+        // Topic disbursed được xử lý trước hai topic Contract (khác topic nên Kafka không bảo đảm thứ tự).
+        loanDisbursedEventHandler.handle(UUID.randomUUID(), now, new LoanDisbursedEventData(
+                UUID.randomUUID(), listing.getLoanId(), listing.getApplicationNumber(), contractNumber, listing.getId(),
+                "3000000.00", "VND", "MOCK-PAYMENT-ORDER", 9101L, "FINORA-FINERACT-V3", now));
+
+        var disbursed = listingRepository.findById(listing.getId()).orElseThrow();
+        assertThat(disbursed.getContractNumber()).isEqualTo(contractNumber);
+        assertThat(disbursed.getContractStatus()).isEqualTo("EFFECTIVE");
+        assertThat(noteRepository.findByLoanIdAndStatus(listing.getLoanId(), NoteStatus.ACTIVE)).hasSize(3);
+
+        contractLifecycleEventHandler.handleSignatureRequested(UUID.randomUUID(), now.plusSeconds(1),
+                new InvestorSignatureRequestedEventData(
+                        listing.getLoanId(), listing.getApplicationNumber(), listing.getId(), contractNumber,
+                        documentHash, documentHash, listing.getAllocationVersion(), listing.getAllocationHash(),
+                        1, now.plusSeconds(3600)));
+        assertThat(listingRepository.findById(listing.getId()).orElseThrow().getContractStatus()).isEqualTo("EFFECTIVE");
+
+        contractLifecycleEventHandler.handleActivated(UUID.randomUUID(), now.plusSeconds(2),
+                new LoanContractActivatedEventData(
+                        listing.getLoanId(), listing.getApplicationNumber(), contractNumber, listing.getId(),
+                        documentHash, "e".repeat(64), listing.getAllocationVersion(), listing.getAllocationHash(),
+                        now.plusSeconds(2)));
+        var activated = listingRepository.findById(listing.getId()).orElseThrow();
+        assertThat(activated.getContractStatus()).isEqualTo("EFFECTIVE");
+        assertThat(activated.getContractReceiptHash()).isEqualTo("e".repeat(64));
+
+        // Tham chiếu Contract mâu thuẫn vẫn bị từ chối (fail closed).
+        assertThatThrownBy(() -> loanDisbursedEventHandler.handle(UUID.randomUUID(), now.plusSeconds(3),
+                new LoanDisbursedEventData(UUID.randomUUID(), listing.getLoanId(), listing.getApplicationNumber(),
+                        "LC-OTHER", listing.getId(), "3000000.00", "VND", "MOCK-PAYMENT-OTHER", 9102L,
+                        "FINORA-FINERACT-V3", now.plusSeconds(3))))
+                .isInstanceOf(InvestmentDomainException.class)
+                .extracting("code").isEqualTo("LOAN_DISBURSED_MISMATCH");
+    }
+
+    @Test
+    @DisplayName("Lệnh sơ cấp phải xác nhận đúng bản công bố rủi ro hiện hành và lưu lại version/thời điểm")
+    void primaryOrderRequiresCurrentRiskAcknowledgement() {
+        actAs("INVESTOR-RISK-ACK");
+        MarketListingResponse listing = newListing("3000000.00", "1000000.00");
+
+        assertThatThrownBy(() -> fundingService.placeOrder(listing.listingId(), "key-risk-missing",
+                new PlaceOrderRequest(new BigDecimal("1000000.00"))))
+                .isInstanceOf(InvestmentDomainException.class)
+                .extracting("code").isEqualTo("RISK_ACKNOWLEDGEMENT_REQUIRED");
+        assertThatThrownBy(() -> fundingService.placeOrder(listing.listingId(), "key-risk-old",
+                new PlaceOrderRequest(new BigDecimal("1000000.00"), "INVESTOR_RISK_V0")))
+                .isInstanceOf(InvestmentDomainException.class)
+                .extracting("code").isEqualTo("RISK_DISCLOSURE_OUTDATED");
+        // Hai lệnh bị từ chối không tạo bản ghi lệnh hay giữ tiền.
+        assertThat(orderRepository.findAll()).noneMatch(order -> "INVESTOR-RISK-ACK".equals(order.getInvestorId()));
+
+        OrderResponse accepted = fundingService.placeOrder(listing.listingId(), "key-risk-ok",
+                new PlaceOrderRequest(new BigDecimal("1000000.00"), "INVESTOR_RISK_V1"));
+        var stored = orderRepository.findByOrderReference(accepted.orderReference()).orElseThrow();
+        assertThat(stored.getRiskAcknowledgedVersion()).isEqualTo("INVESTOR_RISK_V1");
+        assertThat(stored.getRiskAcknowledgedAt()).isNotNull();
+
+        // Gửi lại cùng khóa của lệnh đã tạo là hỏi kết quả lệnh cũ: không đòi xác nhận lần nữa, không tạo lệnh mới.
+        OrderResponse replay = fundingService.placeOrder(listing.listingId(), "key-risk-ok",
+                new PlaceOrderRequest(new BigDecimal("1000000.00")));
+        assertThat(replay.orderReference()).isEqualTo(accepted.orderReference());
+    }
+
+    @Test
+    @DisplayName("Thao tác khóa vốn/phát hành Note của quản trị bị chặn khi khoản vay chưa giải ngân")
+    void adminRepairActionsRequireDisbursementEvidence() {
+        actAs("INVESTOR-ADMIN-GUARD");
+        MarketListingResponse listing = newListing("2000000.00", "1000000.00");
+        fundingService.placeOrder(listing.listingId(), "key-admin-guard",
+                new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
+
+        assertThatThrownBy(() -> noteIssuanceService.finalizeCommitmentsAfterDisbursement(listing.listingId()))
+                .isInstanceOf(InvestmentDomainException.class)
+                .extracting("code").isEqualTo("LISTING_NOT_DISBURSED");
+        assertThatThrownBy(() -> noteIssuanceService.activateNotesAfterDisbursement(listing.listingId()))
+                .isInstanceOf(InvestmentDomainException.class)
+                .extracting("code").isEqualTo("LISTING_NOT_DISBURSED");
+        // Tiền nhà đầu tư vẫn chỉ là khoản giữ: phần vốn còn ACTIVE nên bù trừ hủy gọi vốn vẫn hoạt động.
+        assertThat(commitmentRepository.findByListingIdAndStatus(listing.listingId(), CommitmentStatus.ACTIVE))
+                .hasSize(1);
+
+        // Sau khi Loan xác nhận giải ngân, thao tác sửa lỗi chạy được và gọi lại không phát hành Note thứ hai.
+        var stored = listingRepository.findById(listing.listingId()).orElseThrow();
+        Instant now = Instant.parse("2026-10-17T03:00:00Z");
+        loanDisbursedEventHandler.handle(UUID.randomUUID(), now, new LoanDisbursedEventData(
+                UUID.randomUUID(), stored.getLoanId(), stored.getApplicationNumber(), "LC-GUARD-" + stored.getLoanId(),
+                stored.getId(), "2000000.00", "VND", "MOCK-PAYMENT-GUARD", 9301L, "FINORA-FINERACT-V3", now));
+        assertThat(noteIssuanceService.finalizeCommitmentsAfterDisbursement(listing.listingId())).isZero();
+        assertThat(noteIssuanceService.activateNotesAfterDisbursement(listing.listingId())).isZero();
+        assertThat(noteRepository.findByLoanIdAndStatus(stored.getLoanId(), NoteStatus.ACTIVE)).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("Danh mục giữ khoản vay đã tất toán: không mất vị thế và tổng tiền đã nhận")
+    void portfolioKeepsSettledPositionsAndReceivedTotals() {
+        actAs("INVESTOR-SETTLED");
+        MarketListingResponse listingResponse = newListing("2000000.00", "1000000.00");
+        fundingService.placeOrder(listingResponse.listingId(), "key-settled",
+                new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
+        var listing = listingRepository.findById(listingResponse.listingId()).orElseThrow();
+        Instant now = Instant.parse("2026-10-17T03:00:00Z");
+        loanDisbursedEventHandler.handle(UUID.randomUUID(), now, new LoanDisbursedEventData(
+                UUID.randomUUID(), listing.getLoanId(), listing.getApplicationNumber(), "LC-SETTLED-" + listing.getLoanId(),
+                listing.getId(), "2000000.00", "VND", "MOCK-PAYMENT-SETTLED", 9201L, "FINORA-FINERACT-V3", now));
+        // Mô phỏng kết quả tất toán: gốc thu hết, Note đóng (luồng thật đi qua RepaymentDistributed).
+        noteRepository.findByLoanIdAndStatus(listing.getLoanId(), NoteStatus.ACTIVE).forEach(note -> {
+            note.setPrincipalRepaid(note.getPrincipalAmount());
+            note.setOutstandingPrincipal(BigDecimal.ZERO.setScale(2));
+            note.setInterestReceived(new BigDecimal("50000.00"));
+            note.setStatus(NoteStatus.CLOSED);
+            noteRepository.save(note);
+        });
+
+        actAs("INVESTOR-SETTLED");
+        var portfolio = portfolioService.portfolio();
+
+        assertThat(portfolio.activeNoteCount()).isZero();
+        assertThat(portfolio.positions()).singleElement().satisfies(position -> {
+            assertThat(position.loanId()).isEqualTo(listing.getLoanId());
+            assertThat(position.status()).isEqualTo("CLOSED");
+            assertThat(position.outstandingPrincipal()).isEqualTo("0.00");
+        });
+        assertThat(new BigDecimal(portfolio.principalRepaid())).isEqualByComparingTo("2000000.00");
+        assertThat(new BigDecimal(portfolio.interestReceived())).isEqualByComparingTo("100000.00");
+        assertThat(portfolio.weightedAverageRate()).isEqualByComparingTo("0.0000");
     }
 
     @Test
@@ -434,7 +601,7 @@ class FundingFlowIT {
         MarketListingResponse listing = newListing("3000000.00", "1000000.00");
 
         OrderResponse order = fundingService.placeOrder(listing.listingId(), "key-cancel",
-                new PlaceOrderRequest(new BigDecimal("3000000.00")));
+                new PlaceOrderRequest(new BigDecimal("3000000.00"), "INVESTOR_RISK_V1"));
 
         assertThat(listingRepository.findById(listing.listingId()).orElseThrow().getStatus())
                 .isEqualTo(ListingStatus.FULLY_FUNDED);
@@ -455,7 +622,7 @@ class FundingFlowIT {
         MarketListingResponse listing = newListing("2000000.00", "1000000.00");
 
         OrderResponse order = fundingService.placeOrder(listing.listingId(), "key-lock",
-                new PlaceOrderRequest(new BigDecimal("2000000.00")));
+                new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
         noteIssuanceService.finalizeCommitments(listing.listingId());
 
         assertThatThrownBy(() -> fundingService.cancelOrder(order.orderReference()))
@@ -473,7 +640,7 @@ class FundingFlowIT {
         MarketListingResponse listing = newListing("10000000.00", "1000000.00");
 
         assertThatThrownBy(() -> fundingService.placeOrder(listing.listingId(), "key-div",
-                new PlaceOrderRequest(new BigDecimal("1500000.00"))))
+                new PlaceOrderRequest(new BigDecimal("1500000.00"), "INVESTOR_RISK_V1")))
                 .isInstanceOf(InvestmentDomainException.class);
 
         assertThat(listingRepository.findById(listing.listingId()).orElseThrow()
@@ -488,15 +655,15 @@ class FundingFlowIT {
                 created.listingId());
 
         actAs("INVESTOR-REM-A");
-        fundingService.placeOrder(created.listingId(), "key-rem-a", new PlaceOrderRequest(new BigDecimal("9500000.00")));
+        fundingService.placeOrder(created.listingId(), "key-rem-a", new PlaceOrderRequest(new BigDecimal("9500000.00"), "INVESTOR_RISK_V1"));
 
         actAs("INVESTOR-REM-B");
         assertThatThrownBy(() -> fundingService.placeOrder(created.listingId(), "key-rem-b1",
-                new PlaceOrderRequest(new BigDecimal("400000.00"))))
+                new PlaceOrderRequest(new BigDecimal("400000.00"), "INVESTOR_RISK_V1")))
                 .isInstanceOf(InvestmentDomainException.class)
                 .extracting("code").isEqualTo("ORDER_BELOW_MINIMUM");
         OrderResponse last = fundingService.placeOrder(created.listingId(), "key-rem-b2",
-                new PlaceOrderRequest(new BigDecimal("500000.00")));
+                new PlaceOrderRequest(new BigDecimal("500000.00"), "INVESTOR_RISK_V1"));
 
         assertThat(last.status()).isEqualTo("COMMITTED");
         assertThat(listingRepository.findById(created.listingId()).orElseThrow().getStatus())
@@ -510,7 +677,7 @@ class FundingFlowIT {
         actAs("INVESTOR-EXP");
         BigDecimal before = stubPayment().availableBalance("INVESTOR-EXP");
         OrderResponse order = fundingService.placeOrder(created.listingId(), "key-exp",
-                new PlaceOrderRequest(new BigDecimal("3000000.00")));
+                new PlaceOrderRequest(new BigDecimal("3000000.00"), "INVESTOR_RISK_V1"));
         assertThat(stubPayment().availableBalance("INVESTOR-EXP")).isEqualByComparingTo(before.subtract(new BigDecimal("3000000")));
 
         jdbcTemplate.update("UPDATE market_listings SET funding_closes_at = now() - interval '1 minute' WHERE id = ?",
@@ -543,6 +710,207 @@ class FundingFlowIT {
     }
 
     @Test
+    @DisplayName("Hết hạn gọi vốn: LoanFundingExpired nêu mỗi nhà đầu tư bị hủy phần vốn đúng một lần (P6)")
+    void expiredListingNamesEveryInvestorWhoseCommitmentWasCancelledOnce() throws Exception {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        actAs("INVESTOR-EXP-B");
+        fundingService.placeOrder(created.listingId(), "key-exp-b",
+                new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
+        // Một nhà đầu tư hai lệnh: vẫn chỉ là một người nhận thông báo.
+        actAs("INVESTOR-EXP-A");
+        fundingService.placeOrder(created.listingId(), "key-exp-a1",
+                new PlaceOrderRequest(new BigDecimal("1000000.00"), "INVESTOR_RISK_V1"));
+        fundingService.placeOrder(created.listingId(), "key-exp-a2",
+                new PlaceOrderRequest(new BigDecimal("3000000.00"), "INVESTOR_RISK_V1"));
+        jdbcTemplate.update("UPDATE market_listings SET funding_closes_at = now() - interval '1 minute' WHERE id = ?",
+                created.listingId());
+        SecurityContextHolder.clearContext();
+
+        assertThat(listingService.closeExpiredListings(100)).isGreaterThanOrEqualTo(1);
+
+        String applicationNumber = listingRepository.findById(created.listingId()).orElseThrow().getApplicationNumber();
+        var expired = outboxRepository.findAll().stream()
+                .filter(event -> "LoanFundingExpired".equals(event.getEventType())
+                        && applicationNumber.equals(event.getAggregateId()))
+                .toList();
+        assertThat(expired).hasSize(1);
+        assertThat(expired.getFirst().getEventVersion()).isEqualTo(1);
+        com.fasterxml.jackson.databind.JsonNode data = objectMapper.readTree(expired.getFirst().getPayloadJson());
+        List<String> investorIds = new ArrayList<>();
+        data.path("investorIds").forEach(node -> investorIds.add(node.asText()));
+        assertThat(investorIds).containsExactly("INVESTOR-EXP-A", "INVESTOR-EXP-B");
+        assertThat(data.path("committedAmount").asText()).isEqualTo("6000000.00");
+        assertThat(commitmentRepository.findByListingIdAndStatus(created.listingId(), CommitmentStatus.CANCELLED))
+                .hasSize(3);
+        // Consumer Investment đọc bằng chính ObjectMapper này: field Loan/Payment bổ sung (P2–P4) bị bỏ qua.
+        assertThat(objectMapper.isEnabled(
+                com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)).isFalse();
+    }
+
+    @Test
+    @DisplayName("Mở phiếu cơ cấu: mời mỗi chủ phiếu đúng một lần, có push, Loan phát lại không mời lần hai (P7)")
+    void rescheduleConsentInvitesEachBallotHolderOnceWithPush() throws Exception {
+        MarketListingResponse listingResponse = newListing("3000000.00", "1000000.00");
+        actAs("INVESTOR-BALLOT-A");
+        fundingService.placeOrder(listingResponse.listingId(), "key-ballot-a",
+                new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
+        actAs("INVESTOR-BALLOT-B");
+        fundingService.placeOrder(listingResponse.listingId(), "key-ballot-b",
+                new PlaceOrderRequest(new BigDecimal("1000000.00"), "INVESTOR_RISK_V1"));
+        SecurityContextHolder.clearContext();
+        var listing = listingRepository.findById(listingResponse.listingId()).orElseThrow();
+        Instant now = Instant.parse("2026-10-17T03:00:00Z");
+        loanDisbursedEventHandler.handle(UUID.randomUUID(), now, new LoanDisbursedEventData(
+                UUID.randomUUID(), listing.getLoanId(), listing.getApplicationNumber(), "LC-BALLOT-" + listing.getLoanId(),
+                listing.getId(), "3000000.00", "VND", "MOCK-PAYMENT-BALLOT", 9201L, "FINORA-FINERACT-V4", now));
+        // Nhà đầu tư A giữ hai Note, B một Note: phiếu theo nhà đầu tư, không theo Note.
+        assertThat(noteRepository.findByLoanIdAndStatus(listing.getLoanId(), NoteStatus.ACTIVE)).hasSize(3);
+
+        UUID requestId = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        var consentRequested = new LoanRescheduleConsentRequestedEventData(requestId, listing.getLoanId(),
+                "LN-BALLOT-" + listing.getLoanId(), "TERM_EXTENSION", java.time.LocalDate.of(2026, 11, 17), null, 2,
+                java.time.LocalDate.of(2027, 4, 17), now.plusSeconds(60));
+        consentRequestedHandler.handle(eventId, now.plusSeconds(60), consentRequested);
+        // Kafka giao trùng và Loan phát lại cùng đề nghị với eventId mới: không mời lần hai.
+        consentRequestedHandler.handle(eventId, now.plusSeconds(61), consentRequested);
+        consentRequestedHandler.handle(UUID.randomUUID(), now.plusSeconds(62), consentRequested);
+
+        var invitations = outboxRepository.findAll().stream()
+                .filter(event -> "InvestorNoteServicingChanged".equals(event.getEventType())
+                        && listing.getLoanId().toString().equals(event.getAggregateId()))
+                .map(event -> readJson(event.getPayloadJson()))
+                .filter(json -> "RESCHEDULE_CONSENT_REQUESTED".equals(json.path("changeType").asText()))
+                .toList();
+        assertThat(invitations).singleElement().satisfies(invitation -> {
+            assertThat(invitation.path("loanApplicationId").asLong()).isEqualTo(listing.getLoanId());
+            assertThat(invitation.path("loanNumber").asText()).isEqualTo("LN-BALLOT-" + listing.getLoanId());
+            assertThat(invitation.path("externalPushRequired").asBoolean()).isTrue();
+            List<String> recipients = new ArrayList<>();
+            invitation.path("recipients").forEach(node -> {
+                recipients.add(node.path("investorId").asText());
+                // Phiếu gộp mọi Note của một người: không gắn Note, không mang số dư.
+                assertThat(node.hasNonNull("noteId")).isFalse();
+                assertThat(node.hasNonNull("amount")).isFalse();
+            });
+            assertThat(recipients).containsExactlyInAnyOrder("INVESTOR-BALLOT-A", "INVESTOR-BALLOT-B");
+        });
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode readJson(String payload) {
+        try {
+            return objectMapper.readTree(payload);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    @Test
+    @DisplayName("Đủ vốn nhưng Loan hủy (hợp đồng hết hạn): listing CANCELLED, worker trả tiền giữ đúng một lần")
+    void loanFundingCancellationReleasesHeldMoneyExactlyOnce() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        actAs("INVESTOR-CANCEL");
+        BigDecimal before = stubPayment().availableBalance("INVESTOR-CANCEL");
+        OrderResponse order = fundingService.placeOrder(created.listingId(), "key-cancel-funded",
+                new PlaceOrderRequest(new BigDecimal("10000000.00"), "INVESTOR_RISK_V1"));
+        SecurityContextHolder.clearContext();
+        var funded = listingRepository.findById(created.listingId()).orElseThrow();
+        assertThat(funded.getStatus()).isEqualTo(ListingStatus.FULLY_FUNDED);
+
+        UUID eventId = UUID.randomUUID();
+        LoanFundingCancelledEventData event = cancellationOf(funded, funded.getAllocationHash(), "CONTRACT_EXPIRED");
+        loanFundingCancelledHandler.handle(eventId, Instant.now(), event);
+        // Kafka giao trùng cùng eventId và một bản phát lại với eventId khác đều không hủy/nhả tiền lần hai.
+        loanFundingCancelledHandler.handle(eventId, Instant.now(), event);
+        loanFundingCancelledHandler.handle(UUID.randomUUID(), Instant.now(), event);
+
+        var cancelled = listingRepository.findById(created.listingId()).orElseThrow();
+        assertThat(cancelled.getStatus()).isEqualTo(ListingStatus.CANCELLED);
+        assertThat(cancelled.getCancellationReason()).isEqualTo("CONTRACT_EXPIRED");
+        assertThat(cancelled.getCancelledAt()).isNotNull();
+        assertThat(cancelled.getCommittedAmount()).isEqualByComparingTo("0.00");
+        assertThat(commitmentRepository.findByListingIdAndStatus(created.listingId(), CommitmentStatus.CANCELLED))
+                .hasSize(1);
+        var cancelledOrder = orderRepository.findByOrderReference(order.orderReference()).orElseThrow();
+        assertThat(cancelledOrder.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(cancelledOrder.getRejectedReasonCode()).isEqualTo("LOAN_FUNDING_CANCELLED");
+        // API market trả đúng mã lý do để app/web giải thích vì sao đợt gọi vốn bị hủy.
+        MarketListingResponse view = listingService.detail(created.listingId());
+        assertThat(view.status()).isEqualTo("CANCELLED");
+        assertThat(view.cancellationReason()).isEqualTo("CONTRACT_EXPIRED");
+        assertThat(view.cancelledAt()).isNotNull();
+
+        assertThat(fundingMaintenance.releasePendingHolds(100)).isGreaterThanOrEqualTo(1);
+        assertThat(stubPayment().availableBalance("INVESTOR-CANCEL")).isEqualByComparingTo(before);
+        assertThat(orderRepository.findReleasePending(org.springframework.data.domain.PageRequest.of(0, 100)))
+                .noneMatch(item -> item.getOrderReference().equals(order.orderReference()));
+    }
+
+    @Test
+    @DisplayName("Yêu cầu hủy không khớp allocation đã khóa bị từ chối, tiền vẫn được giữ")
+    void loanFundingCancellationRejectsMismatchedAllocation() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        actAs("INVESTOR-CANCEL-MISMATCH");
+        fundingService.placeOrder(created.listingId(), "key-cancel-mismatch",
+                new PlaceOrderRequest(new BigDecimal("10000000.00"), "INVESTOR_RISK_V1"));
+        SecurityContextHolder.clearContext();
+        var funded = listingRepository.findById(created.listingId()).orElseThrow();
+
+        assertThatThrownBy(() -> loanFundingCancelledHandler.handle(UUID.randomUUID(), Instant.now(),
+                cancellationOf(funded, "f".repeat(64), "CONTRACT_DECLINED")))
+                .isInstanceOf(InvestmentDomainException.class)
+                .extracting("code").isEqualTo("FUNDING_CANCELLATION_MISMATCH");
+        assertThat(listingRepository.findById(created.listingId()).orElseThrow().getStatus())
+                .isEqualTo(ListingStatus.FULLY_FUNDED);
+        assertThat(commitmentRepository.findByListingIdAndStatus(created.listingId(), CommitmentStatus.ACTIVE))
+                .hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Phần vốn đã khóa để giải ngân thì không được hủy gọi vốn (tránh trả tiền hai lần)")
+    void loanFundingCancellationRefusedAfterCommitmentsFinalized() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        actAs("INVESTOR-CANCEL-FINAL");
+        fundingService.placeOrder(created.listingId(), "key-cancel-final",
+                new PlaceOrderRequest(new BigDecimal("10000000.00"), "INVESTOR_RISK_V1"));
+        SecurityContextHolder.clearContext();
+        var funded = listingRepository.findById(created.listingId()).orElseThrow();
+        noteIssuanceService.finalizeCommitments(created.listingId());
+
+        assertThatThrownBy(() -> loanFundingCancelledHandler.handle(UUID.randomUUID(), Instant.now(),
+                cancellationOf(funded, funded.getAllocationHash(), "DISBURSEMENT_FAILED")))
+                .isInstanceOf(InvestmentDomainException.class)
+                .extracting("code").isEqualTo("FUNDING_ALREADY_DISBURSED");
+        assertThat(listingRepository.findById(created.listingId()).orElseThrow().getStatus())
+                .isEqualTo(ListingStatus.FULLY_FUNDED);
+    }
+
+    @Test
+    @DisplayName("LoanFundingRequested có mục đích gồm nhãn và 500 ký tự chi tiết vẫn tạo được listing")
+    void acceptsLongBorrowerPurposeFromLoan() {
+        long loanId = LOAN_SEQUENCE.incrementAndGet();
+        // Đúng cách Loan ghép: nhãn LoanPurpose + ": " + chi tiết người vay tự nhập (tối đa 500 ký tự).
+        String purpose = "Mục đích khác: " + "x".repeat(500);
+        loanFundingRequestedHandler.handle(UUID.randomUUID(), Instant.now(), new LoanFundingRequestedEventData(
+                loanId, "LA-TEST-" + loanId, 1, 1, "SP-01", purpose, null, "B", 700,
+                "10000000.00", "15.0000", 12, "ANNUITY", "LOAN_TERMS_V1", "a".repeat(64), "BORROWER-LONG"));
+
+        var listing = listingRepository.findAll().stream()
+                .filter(item -> item.getLoanId().equals(loanId)).findFirst().orElseThrow();
+        assertThat(listing.getPurpose()).isEqualTo(purpose);
+        assertThat(listing.getRegion()).isEqualTo("Không công bố");
+        assertThat(listing.getStatus()).isEqualTo(ListingStatus.OPEN);
+    }
+
+    private LoanFundingCancelledEventData cancellationOf(
+            com.finora.investment.domain.listing.MarketListing listing, String allocationHash, String reasonCode) {
+        return new LoanFundingCancelledEventData(
+                listing.getLoanId(), listing.getApplicationNumber(), listing.getId(), listing.getFundingRound(),
+                "LC-CANCEL-" + listing.getId(), listing.getAllocationVersion(), allocationHash,
+                reasonCode, Instant.now());
+    }
+
+    @Test
     @DisplayName("Lệnh kẹt chờ giữ tiền quá hạn được worker làm tiếp tới cam kết")
     void stalePendingOrderIsResumed() {
         MarketListingResponse created = newListing("10000000.00", "1000000.00");
@@ -560,6 +928,124 @@ class FundingFlowIT {
     }
 
     @Test
+    @DisplayName("R3: lệnh chờ mà Payment đã giữ tiền được chốt theo khoản giữ đó, không giữ lần hai")
+    void pendingOrderWhoseHoldExistsIsCommittedWithoutHoldingTwice() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        BigDecimal before = stubPayment().availableBalance("INVESTOR-R3-HELD");
+        var pending = orderTransactions.createPendingOrder(created.listingId(), "INVESTOR-R3-HELD",
+                "key-r3-held", "hash-r3-held", new PlaceOrderRequest(new BigDecimal("2000000.00")));
+        // Lần giữ tiền trước đã thành công ở Payment nhưng Investment mất kết quả.
+        assertThat(stubPayment().hold("INVESTOR-R3-HELD", new BigDecimal("2000000.00"), pending.getOrderReference())
+                .isSuccess()).isTrue();
+        pending.setUpdatedAt(Instant.now().minusSeconds(600));
+        orderRepository.save(pending);
+
+        assertThat(fundingMaintenance.resumeStalePendingOrders(100)).isGreaterThanOrEqualTo(1);
+
+        var committed = orderRepository.findById(pending.getId()).orElseThrow();
+        assertThat(committed.getStatus()).isEqualTo(OrderStatus.COMMITTED);
+        assertThat(committed.getPaymentHoldReference()).isEqualTo(pending.getOrderReference());
+        assertThat(stubPayment().availableBalance("INVESTOR-R3-HELD"))
+                .isEqualByComparingTo(before.subtract(new BigDecimal("2000000.00")));
+    }
+
+    @Test
+    @DisplayName("R3: lệnh chờ có khoản giữ đã được nhả bị từ chối, không cam kết trên khoản không còn tiền")
+    void pendingOrderWhoseHoldWasAlreadyReleasedIsRejectedNotCommitted() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        var pending = orderTransactions.createPendingOrder(created.listingId(), "INVESTOR-R3-RELEASED",
+                "key-r3-released", "hash-r3-released", new PlaceOrderRequest(new BigDecimal("2000000.00")));
+        stubPayment().hold("INVESTOR-R3-RELEASED", new BigDecimal("2000000.00"), pending.getOrderReference());
+        stubPayment().release(pending.getOrderReference(), pending.getOrderReference());
+        BigDecimal before = stubPayment().availableBalance("INVESTOR-R3-RELEASED");
+        pending.setUpdatedAt(Instant.now().minusSeconds(600));
+        orderRepository.save(pending);
+
+        fundingMaintenance.resumeStalePendingOrders(100);
+
+        var rejected = orderRepository.findById(pending.getId()).orElseThrow();
+        assertThat(rejected.getStatus()).isEqualTo(OrderStatus.REJECTED);
+        assertThat(rejected.getRejectedReasonCode()).isEqualTo("PAYMENT_HOLD_ALREADY_RELEASED");
+        assertThat(rejected.getPaymentReleasedAt()).isNotNull();
+        assertThat(listingRepository.findById(created.listingId()).orElseThrow().getCommittedAmount())
+                .isEqualByComparingTo("0.00");
+        assertThat(stubPayment().availableBalance("INVESTOR-R3-RELEASED")).isEqualByComparingTo(before);
+    }
+
+    @Test
+    @DisplayName("R3: người dùng hủy lệnh thì tiền giữ được nhả sau khi lệnh đã hủy xong")
+    void userCancelReleasesTheHoldAfterTheOrderIsCancelled() {
+        actAs("INVESTOR-R3-CANCEL");
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        BigDecimal before = stubPayment().availableBalance("INVESTOR-R3-CANCEL");
+        OrderResponse order = fundingService.placeOrder(created.listingId(), "key-r3-cancel",
+                new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
+
+        fundingService.cancelOrder(order.orderReference());
+
+        var cancelled = orderRepository.findByOrderReference(order.orderReference()).orElseThrow();
+        assertThat(cancelled.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(cancelled.getPaymentReleasedAt()).isNotNull();
+        assertThat(stubPayment().availableBalance("INVESTOR-R3-CANCEL")).isEqualByComparingTo(before);
+    }
+
+    @Test
+    @DisplayName("R3: Payment từ chối nhả chắc chắn thì dừng cho vận hành; admin hẹn thử lại thì worker nhả được")
+    void releaseThatPaymentRefusesStopsForOperationsAndCanBeRetried() {
+        actAs("INVESTOR-R3-BLOCKED");
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        BigDecimal before = stubPayment().availableBalance("INVESTOR-R3-BLOCKED");
+        OrderResponse order = fundingService.placeOrder(created.listingId(), "key-r3-blocked",
+                new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
+        stubPayment().failNextRelease("PAYMENT_HOLD_NOT_RELEASABLE", false);
+
+        fundingService.cancelOrder(order.orderReference());
+
+        var blocked = orderRepository.findByOrderReference(order.orderReference()).orElseThrow();
+        assertThat(blocked.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(blocked.getPaymentReleasedAt()).isNull();
+        assertThat(blocked.getReleaseBlockedAt()).isNotNull();
+        assertThat(blocked.getReleaseErrorCode()).isEqualTo("PAYMENT_HOLD_NOT_RELEASABLE");
+        // Worker không quét lệnh đã dừng; vận hành thấy lệnh trên màn sự cố.
+        assertThat(orderRepository.findReleaseDue(Instant.now(), org.springframework.data.domain.PageRequest.of(0, 100)))
+                .noneMatch(item -> item.getOrderReference().equals(order.orderReference()));
+        assertThat(orderIncidentService.list(0, 100).getContent()).anySatisfy(incident -> {
+            assertThat(incident.orderReference()).isEqualTo(order.orderReference());
+            assertThat(incident.issue()).isEqualTo("RELEASE_BLOCKED");
+        });
+
+        orderIncidentService.retry(order.orderReference());
+        assertThat(fundingMaintenance.releasePendingHolds(100)).isGreaterThanOrEqualTo(1);
+
+        assertThat(orderRepository.findByOrderReference(order.orderReference()).orElseThrow().getPaymentReleasedAt())
+                .isNotNull();
+        assertThat(stubPayment().availableBalance("INVESTOR-R3-BLOCKED")).isEqualByComparingTo(before);
+    }
+
+    @Test
+    @DisplayName("R3: lỗi tạm thời khi nhả tiền lùi lịch thử lại thay vì chặn hàng đợi")
+    void retryableReleaseFailureBacksOffInsteadOfBlockingTheQueue() {
+        actAs("INVESTOR-R3-BACKOFF");
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        OrderResponse order = fundingService.placeOrder(created.listingId(), "key-r3-backoff",
+                new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
+        stubPayment().failNextRelease("PAYMENT_UNAVAILABLE", true);
+
+        fundingService.cancelOrder(order.orderReference());
+
+        var waiting = orderRepository.findByOrderReference(order.orderReference()).orElseThrow();
+        assertThat(waiting.getPaymentReleasedAt()).isNull();
+        assertThat(waiting.getReleaseBlockedAt()).isNull();
+        assertThat(waiting.getReleaseAttemptCount()).isEqualTo(1);
+        assertThat(waiting.getReleaseNextAttemptAt()).isAfter(Instant.now());
+        assertThat(orderRepository.findReleaseDue(Instant.now(), org.springframework.data.domain.PageRequest.of(0, 100)))
+                .noneMatch(item -> item.getOrderReference().equals(order.orderReference()));
+        assertThat(orderRepository.findReleaseDue(Instant.now().plusSeconds(3600),
+                org.springframework.data.domain.PageRequest.of(0, 100)))
+                .anyMatch(item -> item.getOrderReference().equals(order.orderReference()));
+    }
+
+    @Test
     @DisplayName("Người vay không đặt vốn được vào khoản vay của chính mình")
     void borrowerCannotFundOwnLoan() {
         MarketListingResponse created = newListing("10000000.00", "1000000.00");
@@ -569,7 +1055,7 @@ class FundingFlowIT {
 
         actAs("BORROWER-SELF");
         assertThatThrownBy(() -> fundingService.placeOrder(created.listingId(), "key-self",
-                new PlaceOrderRequest(new BigDecimal("1000000.00"))))
+                new PlaceOrderRequest(new BigDecimal("1000000.00"), "INVESTOR_RISK_V1")))
                 .isInstanceOf(InvestmentDomainException.class)
                 .extracting("code").isEqualTo("SELF_FUNDING_FORBIDDEN");
     }

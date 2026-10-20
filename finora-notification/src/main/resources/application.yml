@@ -22,13 +22,24 @@ spring:
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
+      # Mỗi @KafkaListener khai báo group riêng (finora.notification.kafka.*-group); giá trị này chỉ là mặc định cũ.
       group-id: ${NOTIFICATION_SERVICING_GROUP:notification-investor-servicing}
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       enable-auto-commit: false
       auto-offset-reset: earliest
+    # Chỉ dùng để chuyển record lỗi sang DLT riêng của Notification (<topic>.notification.DLT).
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
     listener:
       ack-mode: record
+  task:
+    scheduling:
+      pool:
+        # Worker gửi push có thể chờ Expo tới read-timeout; luồng thứ hai giữ event chờ/receipt/nhắc lịch chạy đều.
+        size: ${NOTIFICATION_SCHEDULER_POOL_SIZE:2}
   security:
     oauth2:
       resourceserver:
@@ -58,7 +69,96 @@ spring:
 server:
   port: ${NOTIFICATION_PORT:8086}
 
+management:
+  health:
+    # Không mở kết nối SMTP mỗi lần health được gọi: email chỉ là kênh phụ, gửi lỗi không chặn thông báo trong app.
+    mail:
+      enabled: false
+  endpoint:
+    health:
+      # Ai cũng thấy tên và trạng thái từng thành phần; chi tiết chỉ hiện với token ROLE_ADMIN (W3E, D56).
+      show-components: always
+      show-details: when-authorized
+      roles: ADMIN
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        # Danh sách/đánh dấu đã đọc cần PostgreSQL. Kafka không vào đây: event chờ trong topic, consumer đọc tiếp offset.
+        readiness:
+          include: readinessState,db
+        operations:
+          include: kafka
+
 finora:
   notification:
+    business-time-zone: ${FINORA_BUSINESS_TIME_ZONE:Asia/Ho_Chi_Minh}
+    # false chỉ dùng trong test: tắt mọi worker nền (gửi push, receipt, event chờ, nhắc lịch).
+    workers-enabled: ${NOTIFICATION_WORKERS_ENABLED:true}
     kafka:
+      domain-group: ${NOTIFICATION_DOMAIN_EVENTS_GROUP:notification-domain-events}
+      investor-servicing-group: ${NOTIFICATION_SERVICING_GROUP:notification-investor-servicing}
+      dead-letter-suffix: ${NOTIFICATION_DLT_SUFFIX:.notification.DLT}
       note-servicing-changed-topic: ${INVESTMENT_NOTE_SERVICING_CHANGED_TOPIC:finora.investment.note-servicing-changed}
+      topics:
+        loan-funding-requested: ${LOAN_FUNDING_REQUESTED_TOPIC:finora.loan.funding-requested}
+        loan-fully-funded: ${INVESTMENT_FULLY_FUNDED_TOPIC:finora.investment.loan-fully-funded}
+        loan-funding-expired: ${INVESTMENT_FUNDING_EXPIRED_TOPIC:finora.investment.loan-funding-expired}
+        loan-funding-cancelled: ${LOAN_FUNDING_CANCELLED_TOPIC:finora.loan.funding-cancelled}
+        investor-signature-requested: ${LOAN_INVESTOR_SIGNATURE_REQUESTED_TOPIC:finora.loan.investor-signature-requested}
+        borrower-signature-requested: ${LOAN_BORROWER_SIGNATURE_REQUESTED_TOPIC:finora.loan.borrower-signature-requested}
+        loan-contract-activated: ${LOAN_CONTRACT_ACTIVATED_TOPIC:finora.loan.contract-activated}
+        loan-disbursed: ${LOAN_DISBURSED_TOPIC:finora.loan.disbursed}
+        repayment-distributed: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:finora.payment.repayment-distributed}
+        loan-delinquency-changed: ${LOAN_DELINQUENCY_CHANGED_TOPIC:finora.loan.delinquency-changed}
+        loan-settled: ${LOAN_SETTLED_TOPIC:finora.loan.settled}
+        loan-reschedule-consent-requested: ${LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC:finora.loan.reschedule-consent-requested}
+        loan-reschedule-consent-completed: ${INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC:finora.investment.reschedule-consent-completed}
+        loan-rescheduled: ${LOAN_RESCHEDULED_TOPIC:finora.loan.rescheduled}
+        withdrawal-completed: ${PAYMENT_WITHDRAWAL_COMPLETED_TOPIC:finora.payment.withdrawal-completed}
+        withdrawal-failed: ${PAYMENT_WITHDRAWAL_FAILED_TOPIC:finora.payment.withdrawal-failed}
+        # Đề xuất P5 (chưa có producer): chỉ được đọc khi bật nhắc lịch.
+        repayment-collected: ${PAYMENT_REPAYMENT_COLLECTED_TOPIC:finora.payment.repayment-collected}
+        repayment-cancelled: ${PAYMENT_REPAYMENT_CANCELLED_TOPIC:finora.payment.repayment-cancelled}
+    push:
+      # log = GIẢ LẬP (mặc định, chỉ ghi log, không tới thiết bị; staging/production từ chối khởi động);
+      # expo = gửi thật qua https://exp.host/--/api/v2/push/send; disabled = không tạo lần gửi push.
+      provider: ${NOTIFICATION_PUSH_PROVIDER:log}
+      batch-size: ${NOTIFICATION_PUSH_BATCH_SIZE:100}
+      max-attempts: ${NOTIFICATION_PUSH_MAX_ATTEMPTS:6}
+      retry-backoff: ${NOTIFICATION_PUSH_RETRY_BACKOFF:1m}
+      maximum-backoff: ${NOTIFICATION_PUSH_MAXIMUM_BACKOFF:1h}
+      sending-lease: ${NOTIFICATION_PUSH_SENDING_LEASE:2m}
+      receipt-delay: ${NOTIFICATION_PUSH_RECEIPT_DELAY:15m}
+      receipt-retry-interval: ${NOTIFICATION_PUSH_RECEIPT_RETRY_INTERVAL:1h}
+      receipt-max-checks: ${NOTIFICATION_PUSH_RECEIPT_MAX_CHECKS:6}
+      receipt-batch-size: ${NOTIFICATION_PUSH_RECEIPT_BATCH_SIZE:300}
+      max-event-age: ${NOTIFICATION_PUSH_MAX_EVENT_AGE:24h}
+      ttl: ${NOTIFICATION_PUSH_TTL:24h}
+      max-devices-per-user: ${NOTIFICATION_PUSH_MAX_DEVICES_PER_USER:5}
+      dispatch-delay: ${NOTIFICATION_PUSH_DISPATCH_DELAY:5000}
+      receipt-worker-delay: ${NOTIFICATION_PUSH_RECEIPT_WORKER_DELAY:60000}
+      quiet-hours:
+        enabled: ${NOTIFICATION_PUSH_QUIET_HOURS_ENABLED:true}
+        start: ${NOTIFICATION_PUSH_QUIET_HOURS_START:22:00}
+        end: ${NOTIFICATION_PUSH_QUIET_HOURS_END:07:00}
+      expo:
+        base-url: ${EXPO_PUSH_BASE_URL:https://exp.host/--/api/v2/push}
+        # Chỉ cần khi bật "enhanced push security" của Expo; secret, đặt trong .env, không commit.
+        access-token: ${EXPO_ACCESS_TOKEN:}
+        connect-timeout: ${EXPO_PUSH_CONNECT_TIMEOUT:3s}
+        read-timeout: ${EXPO_PUSH_READ_TIMEOUT:10s}
+    deferred:
+      retry-interval: ${NOTIFICATION_DEFERRED_RETRY_INTERVAL:30s}
+      max-interval: ${NOTIFICATION_DEFERRED_MAX_INTERVAL:30m}
+      max-wait: ${NOTIFICATION_DEFERRED_MAX_WAIT:24h}
+      batch-size: ${NOTIFICATION_DEFERRED_BATCH_SIZE:50}
+      worker-delay: ${NOTIFICATION_DEFERRED_WORKER_DELAY:30000}
+    due-reminder:
+      # D64: chỉ bật sau khi Payment phát RepaymentCollected/RepaymentCancelled (P5); thiếu hai event đó người vay
+      # đã trả trước kỳ (D16) vẫn bị nhắc.
+      enabled: ${NOTIFICATION_DUE_REMINDER_ENABLED:false}
+      offsets-days: ${NOTIFICATION_DUE_REMINDER_OFFSETS_DAYS:3,0}
+      batch-size: ${NOTIFICATION_DUE_REMINDER_BATCH_SIZE:200}
+      cron: ${NOTIFICATION_DUE_REMINDER_CRON:0 5 8-20 * * *}

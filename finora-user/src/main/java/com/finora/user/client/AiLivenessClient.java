@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
+import com.finora.common.security.service.ClientCredentialsTokenProvider;
 import com.finora.user.config.AiServiceProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +30,9 @@ import java.util.List;
  * làm phình dữ liệu 33% và giữ cả chuỗi lớn trong bộ nhớ. Timeout đọc 60 giây: AI chỉ phân tích một
  * video tại một thời điểm, request đến khi AI bận nhận 503 ngay chứ không xếp hàng.
  * <p>
+ * Gửi access token service account của finora-user (client role {@code ai:ekyc:ocr}, D34/D35) bằng
+ * {@link ClientCredentialsTokenProvider#bearerInterceptor()}: AI trả 401 thì token cũ bị bỏ để lần sau lấy mới.
+ * <p>
  * Không log nội dung part, embedding hay khung hình — chỉ mã trạng thái HTTP.
  */
 @Slf4j
@@ -42,10 +46,12 @@ public class AiLivenessClient {
     private final ObjectMapper objectMapper;
 
     @Autowired
-    public AiLivenessClient(RestClient.Builder builder, AiServiceProperties properties, ObjectMapper objectMapper) {
+    public AiLivenessClient(RestClient.Builder builder, AiServiceProperties properties, ObjectMapper objectMapper,
+            ClientCredentialsTokenProvider userServiceTokenProvider) {
         this(builder.clone()
                 .baseUrl(properties.getUrl())
                 .requestFactory(requestFactory(properties))
+                .requestInterceptor(userServiceTokenProvider.bearerInterceptor())
                 .build(), properties, objectMapper);
     }
 
@@ -82,7 +88,6 @@ public class AiLivenessClient {
         try {
             LivenessResult result = restClient.post()
                     .uri(PATH)
-                    .header(AiEkycClient.INTERNAL_TOKEN_HEADER, properties.internalTokenOrEmpty())
                     .contentType(MediaType.MULTIPART_FORM_DATA)
                     .body(body.build())
                     .retrieve()
@@ -93,8 +98,9 @@ public class AiLivenessClient {
             return result;
         } catch (RestClientResponseException e) {
             int status = e.getStatusCode().value();
-            if (status == 401) {
-                log.error("AI từ chối token nội bộ khi chấm liveness — kiểm tra AI_INTERNAL_TOKEN ở hai service");
+            if (status == 401 || status == 403) {
+                log.error("AI từ chối token service account khi chấm liveness (HTTP {}) — kiểm tra finora-user-client "
+                        + "có client role ai:ekyc:ocr", status);
             }
             boolean invalidInput = status == 400 || status == 413 || status == 422;
             throw new AiLivenessException("AI trả HTTP " + status + " khi chấm liveness", invalidInput, status);

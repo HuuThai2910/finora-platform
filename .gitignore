@@ -33,7 +33,9 @@ logs/
 docker/.env
 *.env.local
 
+# === E2E evidence, log và mật khẩu local sinh tự động ===
+docker/e2e/out/
+
 # === Docker volumes ===
 docker/mysql/data/
 docker/fabric-network/crypto-config/
-/finora-loan/plans/

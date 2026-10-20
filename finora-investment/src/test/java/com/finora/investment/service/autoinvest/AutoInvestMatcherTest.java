@@ -46,6 +46,7 @@ class AutoInvestMatcherTest {
     private static final Instant OPENED = ENABLED.plusSeconds(600);
     private static final Instant NOW = OPENED.plusSeconds(5);
     private static final Long LISTING_ID = 7L;
+    private static final String RISK_VERSION = "INVESTOR_RISK_V1";
 
     private final MarketListingRepository listingRepository = mock(MarketListingRepository.class);
     private final AutoInvestConfigRepository configRepository = mock(AutoInvestConfigRepository.class);
@@ -60,7 +61,9 @@ class AutoInvestMatcherTest {
     @BeforeEach
     void setUp() {
         matcher = new AutoInvestMatcher(listingRepository, configRepository, matchRepository,
-                orderRepository, fundingService, Clock.fixed(NOW, ZoneOffset.UTC));
+                orderRepository, fundingService,
+                new com.finora.investment.config.InvestorRiskDisclosureProperties(RISK_VERSION),
+                Clock.fixed(NOW, ZoneOffset.UTC));
         listing = MarketListing.builder()
                 .id(LISTING_ID)
                 .applicationNumber("LA-7")
@@ -86,6 +89,7 @@ class AutoInvestMatcherTest {
     private AutoInvestConfig config(String investorId, String amountPerLoan) {
         AutoInvestConfig config = AutoInvestConfig.create(investorId, ENABLED);
         config.update(true, List.of("A", "B"), new BigDecimal("15"), 18, new BigDecimal(amountPerLoan), ENABLED);
+        config.acknowledgeRisk(RISK_VERSION, ENABLED);
         return config;
     }
 
@@ -99,6 +103,28 @@ class AutoInvestMatcherTest {
 
     private OrderResponse rejected(String reference, String code) {
         return new OrderResponse(reference, LISTING_ID, "0", "REJECTED", null, code, "x", NOW);
+    }
+
+    @Test
+    @DisplayName("Quy tắc chưa xác nhận bản công bố hiện hành bị tạm dừng; lệnh tự động mang phiên bản xác nhận")
+    void pausesRulesWithoutTheCurrentRiskAcknowledgement() {
+        AutoInvestConfig stale = AutoInvestConfig.create("INV-STALE", ENABLED);
+        stale.update(true, List.of("A"), new BigDecimal("15"), 18, new BigDecimal("2000000"), ENABLED);
+        stale.acknowledgeRisk("INVESTOR_RISK_V0", ENABLED);
+        candidates(stale, config("INV-A", "2000000"));
+        when(fundingService.placeOrderFor(eq("INV-A"), anyLong(), anyString(), any()))
+                .thenReturn(committed("IO-A", "2000000.00"));
+
+        assertThat(matcher.processListing(LISTING_ID)).isTrue();
+
+        // Q5: không đặt lệnh thay nhà đầu tư khi bản công bố đã đổi sau lúc họ bật quy tắc.
+        verify(fundingService, never()).placeOrderFor(eq("INV-STALE"), anyLong(), anyString(), any());
+        assertThat(recorded).filteredOn(match -> match.getInvestorId().equals("INV-STALE"))
+                .singleElement().satisfies(match -> assertThat(match.getReason())
+                        .isEqualTo(AutoInvestMatcher.RISK_ACKNOWLEDGEMENT_OUTDATED));
+        ArgumentCaptor<PlaceOrderRequest> request = ArgumentCaptor.forClass(PlaceOrderRequest.class);
+        verify(fundingService).placeOrderFor(eq("INV-A"), eq(LISTING_ID), eq("AUTO-7"), request.capture());
+        assertThat(request.getValue().riskAcknowledgementVersion()).isEqualTo(RISK_VERSION);
     }
 
     @Test

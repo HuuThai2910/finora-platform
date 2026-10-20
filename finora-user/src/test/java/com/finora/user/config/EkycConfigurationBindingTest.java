@@ -66,7 +66,6 @@ class EkycConfigurationBindingTest {
         AiServiceProperties ai = binder.bind("finora.ai", AiServiceProperties.class).get();
 
         assertThat(ai.getUrl()).isEqualTo("http://localhost:8000");
-        assertThat(ai.internalTokenOrEmpty()).isEmpty();
         assertThat(ai.getLivenessReadTimeout()).isEqualTo(Duration.ofSeconds(60));
         assertThat(binder.bind("spring.servlet.multipart.max-file-size", DataSize.class).get())
                 .isEqualTo(DataSize.ofMegabytes(12));

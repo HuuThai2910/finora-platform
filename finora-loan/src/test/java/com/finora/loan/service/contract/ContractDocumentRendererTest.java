@@ -56,6 +56,10 @@ class ContractDocumentRendererTest {
                 .contains("Lãi suất cơ sở đã công bố: 15%/năm")
                 .contains("Lãi suất áp dụng cuối: 15%/năm")
                 .contains("Kỳ 1 — hạn 2026-09-20: gốc 4.000.000 đồng; lãi 500.000 đồng")
+                .contains("Không thu lãi của các tháng tương lai")
+                .contains("80% tổng phí được chia cho các nhà đầu tư")
+                .contains("toàn bộ nhà đầu tư đang nắm Note đồng ý")
+                .contains("Khoản vay từ 12 tháng trở xuống")
                 .contains("Phiên bản tài liệu: CLICK_WRAP_TEXT_V2")
                 .endsWith("\n");
     }

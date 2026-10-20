@@ -22,15 +22,19 @@ có trong danh mục, tắt hết luật. PUT thay TOÀN BỘ danh sách và ngu
 bất kỳ luật nào thì không luật nào được ghi.
 """
 
+import logging
 import re
 from itertools import pairwise
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
+from app.security import Caller, current_caller
 from app.services.credit.product_config import get_legal_limits, reload, save
 from app.services.credit.rule_engine import DIEM_TOI_DA_MOI_LUAT
 from app.services.credit.truong_du_lieu import DANH_MUC_TRUONG, mo_ta_danh_muc
+
+_audit_logger = logging.getLogger("finora.ai.audit")
 
 router = APIRouter()
 
@@ -214,7 +218,7 @@ def _kiem_tra_nguong_quyet_dinh(
 
 
 @router.put("/product", response_model=ProductConfigResponse)
-async def update_product_config(body: ProductConfigUpdate):
+async def update_product_config(body: ProductConfigUpdate, caller: Caller = Depends(current_caller)):
     """Cập nhật khoảng điểm AI, ngưỡng duyệt và trọng số. Legal limits không đổi."""
     _kiem_tra_bang_hang(body.grades)
     _kiem_tra_nguong_quyet_dinh(body.grades, body.approval_thresholds)
@@ -234,6 +238,8 @@ async def update_product_config(body: ProductConfigUpdate):
         current["model_weights"] = body.model_weights.model_dump()
 
     config = save(current)
+    # LEGAL-AI-01: cấu hình quyết định chấm điểm phải truy được ai đổi (chỉ ROLE_ADMIN tới được đây, D35).
+    _audit_logger.warning("Admin cập nhật cấu hình chấm điểm: actor=%s, phan=product", caller.subject)
     return ProductConfigResponse(**config)
 
 
@@ -454,11 +460,13 @@ async def get_rules_config():
 
 
 @router.put("/rules", response_model=RulesResponse)
-async def update_rules_config(body: RulesUpdate):
+async def update_rules_config(body: RulesUpdate, caller: Caller = Depends(current_caller)):
     """Thay toàn bộ bộ luật: thêm, sửa, xoá, sắp xếp, bật/tắt trong một lần lưu."""
     _kiem_tra_bo_luat(body.rules)
 
     current = reload()
     current["rules"] = [r.model_dump(exclude_none=True) for r in body.rules]
     save(current)
+    _audit_logger.warning("Admin cập nhật cấu hình chấm điểm: actor=%s, phan=rules, so_luat=%d",
+                          caller.subject, len(body.rules))
     return _dung_rules_response()

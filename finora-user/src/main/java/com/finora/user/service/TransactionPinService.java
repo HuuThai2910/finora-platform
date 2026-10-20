@@ -79,12 +79,13 @@ public class TransactionPinService {
     }
 
     @Transactional(noRollbackFor = BusinessException.class)
-    public PinTokenResponse verify(UUID keycloakUserId, String pin, PinScope scope, ClientInfo client) {
+    public PinTokenResponse verify(UUID keycloakUserId, String pin, PinScope scope, String requestKey,
+            ClientInfo client) {
         UserPin userPin = pinRepository.findForUpdate(keycloakUserId)
                 .orElseThrow(() -> new BusinessException(HttpStatus.CONFLICT, "PIN_NOT_SET",
                         "Bạn chưa tạo mã PIN giao dịch"));
         checkPin(userPin, pin, client);
-        PinTokenService.IssuedPinToken issued = pinTokenService.issue(keycloakUserId.toString(), scope);
+        PinTokenService.IssuedPinToken issued = pinTokenService.issue(keycloakUserId.toString(), scope, requestKey);
         return new PinTokenResponse(issued.token(), issued.expiresAt());
     }
 

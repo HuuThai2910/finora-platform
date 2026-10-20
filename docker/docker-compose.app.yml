@@ -18,7 +18,8 @@
 #   cùng thư mục). Realm `finora` đã có sẵn trong database Neon nên không import.
 # - Database của 6 service ở Neon. Riêng Fineract dùng PostgreSQL trên máy (5432),
 #   nên PostgreSQL đó phải đang chạy.
-# - Payment dùng chung Redis với User (giống cấu hình chạy local hiện tại).
+# - Redis chỉ phục vụ User (OTP, giới hạn đăng nhập); Payment không dùng Redis (B23).
+# - Healthcheck của service Java gọi /actuator/health/readiness (DB, Redis User), không chỉ kiểm cổng mở (W3E).
 #
 # Trước khi chạy: tắt các service đang chạy trong IntelliJ/terminal và các container
 # cũ (finora-kafka, finora-keycloak, finora-user-redis, finora-fineract) vì trùng cổng.
@@ -43,6 +44,14 @@ x-java-service: &java-service
 x-keycloak-jwt: &keycloak-jwt
   KEYCLOAK_ISSUER_URI: http://localhost:8180/realms/finora
   KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/finora/protocol/openid-connect/certs
+
+# Nhịp healthcheck chung của service Java; mỗi service tự khai báo `test` gọi /actuator/health/readiness trên cổng của
+# nó. Image JRE không có curl nên lệnh dùng /dev/tcp của bash; Tomcat trả "HTTP/1.1 200 " không kèm reason phrase.
+x-readiness-check: &readiness-check
+  interval: 10s
+  timeout: 5s
+  retries: 30
+  start_period: 60s
 
 services:
   # ============================ HẠ TẦNG ============================
@@ -256,10 +265,13 @@ services:
     restart: unless-stopped
     env_file: ../finora-ai/.env
     environment:
-      # Giá trị chung trong docker/.env cho cả ai và user để header nội bộ luôn khớp.
-      AI_INTERNAL_TOKEN: "${AI_INTERNAL_TOKEN:-}"
       USER_SERVICE_URL: http://user:8085
       KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/finora/protocol/openid-connect/token
+      # Client riêng của AI và kiểm token request tới AI (D34, D35).
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_AI_CLIENT_ID:-finora-ai-client}
+      KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_AI_CLIENT_SECRET:-}"
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_ISSUER_URI:-http://localhost:8180/realms/finora}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/finora/protocol/openid-connect/certs
       # Lần lấy token đầu tiên sau khi Keycloak khởi động mất ~3 giây (nạp dữ liệu từ
       # Neon); mặc định 3 giây sẽ làm hồ sơ đầu tiên bị chấm như không có CIC.
       USER_TIMEOUT_SECONDS: "10"
@@ -289,15 +301,14 @@ services:
       USER_REDIS_HOST: redis
       USER_REDIS_PORT: "6379"
       AI_SERVICE_URL: http://ai:8000
-      AI_INTERNAL_TOKEN: "${AI_INTERNAL_TOKEN:-}"
       # finora-user/.env trỏ localhost:9100 cho IntelliJ; trong mạng Docker phải gọi tên service.
       # Các khoá EKYC_* còn lại (bật/tắt, access key) lấy từ finora-user/.env.
       EKYC_S3_ENDPOINT: http://seaweedfs:8333
       # finora-notification không nằm trong compose này; chạy riêng trên máy thì vẫn gọi được.
       NOTIFICATION_SERVICE_URL: http://host.docker.internal:8086
-      # CIC chạy ở compose demo/host; task DB sẽ tự retry nếu service chưa sẵn sàng.
-      CIC_SERVICE_URL: ${CIC_SERVICE_URL:-http://host.docker.internal:9000}
-      USER_CIC_MAPPING_ENABLED: "${USER_CIC_MAPPING_ENABLED:-true}"
+      # CIC là dịch vụ Node đã deploy; task DB sẽ tự retry nếu endpoint chưa sẵn sàng.
+      CIC_SERVICE_URL: ${CIC_SERVICE_URL:-https://cic-service-node.vercel.app}
+      USER_CIC_MAPPING_ENABLED: "${USER_CIC_MAPPING_ENABLED:-false}"
       CIC_INTERNAL_API_KEY: "${CIC_INTERNAL_API_KEY:-}"
     ports:
       - "8085:8085"
@@ -307,11 +318,13 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8085'"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 60s
+      <<: *readiness-check
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8085;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
 
   payment:
     <<: *java-service
@@ -325,36 +338,40 @@ services:
     environment:
       <<: *keycloak-jwt
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      PAYMENT_REDIS_HOST: redis
-      PAYMENT_REDIS_PORT: "6379"
-      PAYMENT_REDIS_PASSWORD: ""
       FINERACT_BASE_URL: http://fineract:8443/fineract-provider/api/v1
       FINERACT_REPAYMENT_PAYMENT_TYPE_ID: ${FINERACT_REPAYMENT_PAYMENT_TYPE_ID:-1}
+      # Provider payout giả lập gọi lại chính Payment qua tên service trong mạng Docker (R4).
+      PAYMENT_MOCK_PAYOUT_CALLBACK_URL: http://payment:8082/api/v1/wallets/callbacks/mock-payout
       INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC: ${INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC:-finora.investment.note-ownership-changed}
       PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:-finora.payment.repayment-distributed}
       PAYMENT_SERVICING_GROUP: ${PAYMENT_SERVICING_GROUP:-payment-servicing}
       PAYMENT_REPAYMENT_WORKER_DELAY: ${PAYMENT_REPAYMENT_WORKER_DELAY:-3000}
       PAYMENT_RECONCILIATION_WORKER_DELAY: ${PAYMENT_RECONCILIATION_WORKER_DELAY:-30000}
-      PAYMENT_EARLY_SETTLEMENT_POLICY_VERSION: ${PAYMENT_EARLY_SETTLEMENT_POLICY_VERSION:-VCB_REFERENCE_2024_V1}
+      PAYMENT_EARLY_SETTLEMENT_POLICY_VERSION: ${PAYMENT_EARLY_SETTLEMENT_POLICY_VERSION:-AGRIBANK_REFERENCE_FINORA_2026_V2}
       PAYMENT_EARLY_SETTLEMENT_QUOTE_TTL: ${PAYMENT_EARLY_SETTLEMENT_QUOTE_TTL:-15m}
-      PAYMENT_EARLY_SETTLEMENT_SHORT_RATE: ${PAYMENT_EARLY_SETTLEMENT_SHORT_RATE:-0.005}
-      PAYMENT_EARLY_SETTLEMENT_LONG_RATE: ${PAYMENT_EARLY_SETTLEMENT_LONG_RATE:-0.01}
+      PAYMENT_EARLY_SETTLEMENT_SHORT_FIRST_RATE: ${PAYMENT_EARLY_SETTLEMENT_SHORT_FIRST_RATE:-0.01}
+      PAYMENT_EARLY_SETTLEMENT_SHORT_SECOND_RATE: ${PAYMENT_EARLY_SETTLEMENT_SHORT_SECOND_RATE:-0.005}
+      PAYMENT_EARLY_SETTLEMENT_SHORT_FIRST_END: ${PAYMENT_EARLY_SETTLEMENT_SHORT_FIRST_END:-0.50}
+      PAYMENT_EARLY_SETTLEMENT_SHORT_FREE_AFTER: ${PAYMENT_EARLY_SETTLEMENT_SHORT_FREE_AFTER:-0.70}
+      PAYMENT_EARLY_SETTLEMENT_MEDIUM_YEAR_ONE_RATE: ${PAYMENT_EARLY_SETTLEMENT_MEDIUM_YEAR_ONE_RATE:-0.02}
+      PAYMENT_EARLY_SETTLEMENT_MEDIUM_YEAR_TWO_RATE: ${PAYMENT_EARLY_SETTLEMENT_MEDIUM_YEAR_TWO_RATE:-0.015}
       PAYMENT_EARLY_SETTLEMENT_MINIMUM_FEE: ${PAYMENT_EARLY_SETTLEMENT_MINIMUM_FEE:-100000}
+      PAYMENT_EARLY_SETTLEMENT_INVESTOR_SHARE_RATE: ${PAYMENT_EARLY_SETTLEMENT_INVESTOR_SHARE_RATE:-0.80}
     ports:
       - "8082:8082"
     depends_on:
       kafka:
         condition: service_healthy
-      redis:
-        condition: service_healthy
       fineract:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8082'"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 60s
+      <<: *readiness-check
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8082;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
 
   investment:
     <<: *java-service
@@ -368,6 +385,8 @@ services:
     environment:
       <<: *keycloak-jwt
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC: ${LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC:-finora.loan.reschedule-consent-requested}
+      INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC: ${INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC:-finora.investment.reschedule-consent-completed}
       PAYMENT_SERVICE_URL: http://payment:8082/api/v1
       # Auto-Invest lấy token service account qua tên nội bộ; issuer vẫn là localhost:8180
       # nhờ KC_HOSTNAME_URL nên Payment chấp nhận token này.
@@ -380,11 +399,13 @@ services:
       kafka:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8084'"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 60s
+      <<: *readiness-check
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8084;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
 
   loan:
     <<: *java-service
@@ -397,16 +418,20 @@ services:
     env_file: ../finora-loan/.env
     environment:
       <<: *keycloak-jwt
-      # Profile `local` bật bản giả hồ sơ người vay — Loan chưa có provider nào khác.
       SPRING_PROFILES_ACTIVE: local
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       AI_SERVICE_URL: http://ai:8000
+      # eKYC người vay đọc từ User bằng token của người vay khi nộp hồ sơ (W2-KYC); `mock` chỉ cho test/E2E.
+      FINORA_BORROWER_PROFILE_PROVIDER: ${FINORA_BORROWER_PROFILE_PROVIDER:-user}
+      USER_SERVICE_URL: http://user:8085
       FINERACT_BASE_URL: http://fineract:8443/fineract-provider/api/v1
       FINERACT_BOOKING_PROVIDER: ${FINERACT_BOOKING_PROVIDER:-mock}
       FINERACT_OFFICE_ID: ${FINERACT_OFFICE_ID:-1}
       FINERACT_DISBURSEMENT_PAYMENT_TYPE_ID: ${FINERACT_DISBURSEMENT_PAYMENT_TYPE_ID:-1}
       FINERACT_CLIENT_LEGAL_FORM_ID: ${FINERACT_CLIENT_LEGAL_FORM_ID:-1}
       LOAN_DELINQUENCY_CHANGED_TOPIC: ${LOAN_DELINQUENCY_CHANGED_TOPIC:-finora.loan.delinquency-changed}
+      LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC: ${LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC:-finora.loan.reschedule-consent-requested}
+      INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC: ${INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC:-finora.investment.reschedule-consent-completed}
       LOAN_SERVICING_SYNC_ENABLED: ${LOAN_SERVICING_SYNC_ENABLED:-true}
       LOAN_SERVICING_SYNC_WORKER_DELAY: ${LOAN_SERVICING_SYNC_WORKER_DELAY:-60000}
     ports:
@@ -418,11 +443,13 @@ services:
       fineract:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8081'"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 60s
+      <<: *readiness-check
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8081;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
 
   gateway:
     <<: *java-service
@@ -444,11 +471,14 @@ services:
       - investment
       - ai
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
+      <<: *readiness-check
       start_period: 40s
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8080;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
 
 volumes:
   kafka-data:

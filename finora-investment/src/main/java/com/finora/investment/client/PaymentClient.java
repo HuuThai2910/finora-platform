@@ -1,6 +1,7 @@
 package com.finora.investment.client;
 
 import java.math.BigDecimal;
+import java.util.Optional;
 
 /**
  * Cổng giao tiếp với finora-payment cho việc giữ và nhả tiền.
@@ -15,8 +16,18 @@ public interface PaymentClient {
     PaymentHoldResult hold(String investorId, BigDecimal amount, String orderReference);
 
     /**
+     * Đọc khoản giữ của một mã lệnh mà không đổi gì (R3), để làm tiếp lệnh chờ giữ tiền mà không gửi lại lời gọi giữ tiền.
+     *
+     * @return rỗng khi Payment chưa từng giữ tiền cho mã lệnh này
+     * @throws PaymentCallException khi chưa đọc được Payment
+     */
+    Optional<PaymentHoldView> findHold(String orderReference);
+
+    /**
      * Nhả toàn bộ phần tiền còn đang giữ về ví khả dụng; phần đã thanh toán qua
      * {@link #settleFromHold} không bị ảnh hưởng.
+     *
+     * @throws PaymentCallException khi chưa nhả được; {@code retryable = false} nghĩa là thử lại không đổi được kết quả
      */
     void release(String holdReference, String orderReference);
 

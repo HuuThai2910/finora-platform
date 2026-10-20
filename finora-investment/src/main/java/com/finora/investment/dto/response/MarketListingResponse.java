@@ -35,6 +35,11 @@ public record MarketListingResponse(
         String status,
         String contractNumber,
         String contractStatus,
-        Instant fundingClosesAt
+        Instant fundingClosesAt,
+        // Chỉ có khi status = CANCELLED: mã lý do Loan gửi trong LoanFundingCancelled, không phải văn bản tự do.
+        Instant cancelledAt,
+        String cancellationReason,
+        // Có khi Loan đã xác nhận giải ngân (LoanDisbursed); trước mốc này tiền nhà đầu tư mới chỉ được giữ.
+        Instant disbursedAt
 ) {
 }

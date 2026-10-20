@@ -21,13 +21,18 @@ public record TopUpResponse(
         Instant completedAt,
         boolean mockCompletionAvailable
 ) {
-    public static TopUpResponse from(PaymentTopUp topUp) {
+    /**
+     * @param mockCompletionEnabled môi trường cho phép giả lập và provider nạp tiền đang là mock (D37); app chỉ hiện nút
+     *        "Giả lập thanh toán thành công" khi cờ trả về là {@code true}
+     */
+    public static TopUpResponse from(PaymentTopUp topUp, boolean mockCompletionEnabled, Instant now) {
         return new TopUpResponse(
                 topUp.getTopUpId(), topUp.getAmount(), topUp.getCurrency(), topUp.getProvider(),
                 topUp.getProviderOrderId(), topUp.getProviderReference(), topUp.getCheckoutUrl(),
                 topUp.getQrPayload(), topUp.getStatus().name(), topUp.getErrorCode(), topUp.getErrorDetail(),
                 topUp.getExpiresAt(), topUp.getCompletedAt(),
-                "MOCK".equals(topUp.getProvider())
-                        && topUp.getStatus() == com.finora.payment.domain.topup.TopUpStatus.AWAITING_PAYMENT);
+                mockCompletionEnabled && "MOCK".equals(topUp.getProvider())
+                        && topUp.getStatus() == com.finora.payment.domain.topup.TopUpStatus.AWAITING_PAYMENT
+                        && !topUp.isExpired(now));
     }
 }

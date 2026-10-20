@@ -2,6 +2,7 @@ package com.finora.loan.service.contract.impl;
 
 import com.finora.common.logging.TraceContext;
 import com.finora.loan.config.LoanContractProperties;
+import com.finora.loan.config.PadesSignatureProperties;
 import com.finora.loan.domain.application.ActorType;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.contract.LoanContract;
@@ -20,8 +21,10 @@ import com.finora.loan.repository.contract.LoanContractStatusHistoryRepository;
 import com.finora.loan.service.contract.ContractDocumentRenderer;
 import com.finora.loan.service.contract.ContractPdfArtifact;
 import com.finora.loan.service.contract.ContractPdfRenderer;
+import com.finora.loan.service.contract.ContractTextVersion;
 import com.finora.loan.service.contract.ContractNumberGenerator;
 import com.finora.loan.service.contract.LoanContractCreationService;
+import com.finora.loan.service.contract.LoanServicingContractTerms;
 import com.finora.loan.service.contract.FundedContractAllocation;
 import com.finora.loan.service.outbox.OutboxService;
 import com.finora.loan.support.HashingService;
@@ -46,6 +49,7 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
     private final ContractPdfRenderer pdfRenderer;
     private final HashingService hashingService;
     private final LoanContractProperties properties;
+    private final PadesSignatureProperties padesProperties;
     private final OutboxService outboxService;
 
     /**
@@ -68,29 +72,33 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
             return existing;
         }
         String contractNumber = numberGenerator.next();
+        // Văn bản theo cách tính lãi của sản phẩm core trên hồ sơ (Q3): V4 nhận điều 4 tính lãi theo ngày.
+        ContractTextVersion textVersion = ContractTextVersion.of(application, properties);
         String documentContent = documentRenderer.render(
                 contractNumber,
                 application,
                 finalSchedule,
-                properties.termsVersion(),
-                properties.documentVersion(),
+                textVersion.termsVersion(),
+                textVersion.documentVersion(),
                 expiresAt
         );
         ContractPdfArtifact pdf = pdfRenderer.renderSignable(
-                contractNumber, application, finalSchedule, properties.termsVersion(), expiresAt);
+                contractNumber, application, finalSchedule, textVersion.termsVersion(), expiresAt);
         LoanContract contract = LoanContract.create(
                 contractNumber,
                 application.getId(),
                 application.getBorrowerId(),
                 terms(application, finalSchedule),
-                properties.termsVersion(),
-                properties.documentVersion(),
+                textVersion.termsVersion(),
+                textVersion.documentVersion(),
                 documentContent,
                 hashingService.sha256Text(documentContent),
                 expiresAt,
                 actorId,
                 now
         );
+        // Văn bản vừa render in điều 4 với biểu phí này; Payment tính phí trả trước theo đúng giá trị lưu ở đây.
+        contract.recordEarlySettlementPolicy(LoanServicingContractTerms.EARLY_SETTLEMENT_POLICY_VERSION);
         contractRepository.saveAndFlush(contract);
         contractDocumentRepository.saveAndFlush(LoanContractDocument.create(
                 contract.getId(), pdf.artifactType(), pdf.documentVersion(), pdf.contentHash(),
@@ -153,17 +161,24 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
         }
         validateAllocations(application, allocations, allocationVersion, allocationHash);
         String contractNumber = numberGenerator.next();
+        ContractTextVersion textVersion = ContractTextVersion.of(application, properties);
+        // R5/D13: cách ký chốt lúc lập Contract; tắt PAdES chỉ ảnh hưởng hợp đồng mới, không đổi hợp đồng đang ký.
+        boolean pades = padesProperties.isEnabled();
         String documentContent = documentRenderer.renderFunded(
-                contractNumber, application, finalSchedule, properties.termsVersion(),
-                properties.documentVersion(), expiresAt, allocations, allocationVersion, allocationHash);
+                contractNumber, application, finalSchedule, textVersion.termsVersion(),
+                textVersion.documentVersion(), expiresAt, allocations, allocationVersion, allocationHash);
         ContractPdfArtifact pdf = pdfRenderer.renderFundedSignable(
-                contractNumber, application, finalSchedule, properties.termsVersion(),
-                expiresAt, allocations, allocationVersion, allocationHash);
+                contractNumber, application, finalSchedule, textVersion.termsVersion(),
+                expiresAt, allocations, allocationVersion, allocationHash, pades);
         LoanContract contract = LoanContract.create(
                 contractNumber, application.getId(), application.getBorrowerId(),
-                terms(application, finalSchedule), properties.termsVersion(), properties.documentVersion(),
+                terms(application, finalSchedule), textVersion.termsVersion(), textVersion.documentVersion(),
                 documentContent, hashingService.sha256Text(documentContent), expiresAt, actorId, now);
+        contract.recordEarlySettlementPolicy(LoanServicingContractTerms.EARLY_SETTLEMENT_POLICY_VERSION);
         contract.initializeMultiParty();
+        if (pades) {
+            contract.usePadesSignatures();
+        }
         contractRepository.saveAndFlush(contract);
         partyRepository.save(ContractParty.borrower(contract.getId(), application.getBorrowerId(), now));
         partyRepository.saveAll(allocations.stream()

@@ -7,14 +7,14 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 
 import java.util.List;
 
 /**
  * Client gọi bước đọc thẻ của {@code finora-ai}: {@code POST /api/v1/ai/ekyc/document} (hợp đồng
- * EKYC-002 mục 2.1). Route chỉ gọi nội bộ, phải kèm header {@value #INTERNAL_TOKEN_HEADER}; gateway
- * chặn mọi request từ ngoài vào {@code /api/v1/ai/ekyc/**}.
+ * EKYC-002 mục 2.1). Route chỉ nhận access token service account của finora-user (client role
+ * {@code ai:ekyc:ocr}, D34/D35) do {@link ServiceAccountFeignConfig} gắn; gateway chặn mọi request từ ngoài
+ * vào {@code /api/v1/ai/ekyc/**}.
  * <p>
  * AI đọc hai mặt thẻ theo thứ tự nguồn hỏng-thì-lộ (QR, MRZ có check digit, cấu trúc số định danh;
  * AI chỉ điền chỗ trống) và trả bằng chứng kỹ thuật kèm {@code decision}. Luật nghiệp vụ — hết hạn,
@@ -22,20 +22,18 @@ import java.util.List;
  * <p>
  * DTO dùng tên camelCase trong Java và {@link JsonNaming snake_case} trên dây để khớp FastAPI; đổi
  * chiến lược đặt tên sẽ làm lệch hợp đồng giữa hai service. Lỗi HTTP được Feign ném thành
- * {@code FeignException} (422 ảnh không hợp lệ, 401 sai token, 503 AI bận).
+ * {@code FeignException} (422 ảnh không hợp lệ, 401/403 token service account, 503 AI bận).
  */
 @FeignClient(
-        name = "ai-ekyc-service",
-        url = "${finora.ai.url:http://localhost:8000}"
+    name = "ai-ekyc-service",
+    url = "${finora.ai.url:http://localhost:8000}",
+    // AI chỉ nhận OCR từ service account có client role ai:ekyc:ocr (D34, D35).
+    configuration = ServiceAccountFeignConfig.class
 )
 public interface AiEkycClient {
 
-    String INTERNAL_TOKEN_HEADER = "X-Internal-Token";
-
     @PostMapping("/api/v1/ai/ekyc/document")
-    DocumentResult analyzeDocument(
-            @RequestHeader(INTERNAL_TOKEN_HEADER) String internalToken,
-            @RequestBody DocumentRequest request);
+    DocumentResult analyzeDocument(@RequestBody DocumentRequest request);
 
     // --- DTOs ---
 

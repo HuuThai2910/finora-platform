@@ -26,7 +26,7 @@ public class CreditScoringOrchestrator {
     public void processApplication(Long applicationId) {
         LoanApplication application = stateService.startEligibility(applicationId);
         BorrowerEligibilityCheck eligibility = eligibilityService.evaluate(
-                application.getId(), application.getBorrowerId());
+                application.getId(), application.getBorrowerId(), application.getKycSnapshot());
         Long assessmentId = stateService.applyEligibility(eligibility);
         if (assessmentId != null) {
             executeAssessment(assessmentId);

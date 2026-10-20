@@ -1,5 +1,6 @@
 package com.finora.payment.controller;
 
+import com.finora.common.security.ratelimit.RateLimited;
 import com.finora.common.dto.BaseResponse;
 import com.finora.payment.dto.request.CreateTopUpRequest;
 import com.finora.payment.dto.request.ZaloPayCallbackRequest;
@@ -44,6 +45,8 @@ public class WalletController {
         return walletQueryService.currentStatement();
     }
 
+    // Mỗi lệnh nạp tạo một đơn ở provider (ZaloPay) (D40): 10 lệnh/giờ mỗi người dùng.
+    @RateLimited(value = "topup.create", limit = 10, window = "PT1H")
     @PostMapping("/me/top-ups")
     public TopUpResponse createTopUp(
             @RequestHeader("Idempotency-Key") String idempotencyKey,

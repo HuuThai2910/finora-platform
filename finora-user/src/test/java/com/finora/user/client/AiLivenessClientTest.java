@@ -21,7 +21,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
@@ -51,15 +51,15 @@ class AiLivenessClientTest {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://ai.test");
         server = MockRestServiceServer.bindTo(builder).build();
         AiServiceProperties properties = new AiServiceProperties();
-        properties.setInternalToken("noi-bo");
         client = new AiLivenessClient(builder.build(), properties, EkycTestData.objectMapper());
     }
 
     @Test
-    void sendsSpecAndVideoAsMultipartWithInternalToken() {
+    void sendsSpecAndVideoAsMultipart() {
+        // Token service account do bearerInterceptor của ClientCredentialsTokenProvider gắn (finora-common có test).
         server.expect(requestTo("http://ai.test/api/v1/ai/ekyc/liveness"))
                 .andExpect(method(HttpMethod.POST))
-                .andExpect(header("X-Internal-Token", "noi-bo"))
+                .andExpect(headerDoesNotExist("X-Internal-Token"))
                 .andExpect(request -> {
                     MockClientHttpRequest mock = (MockClientHttpRequest) request;
                     assertThat(mock.getHeaders().getContentType().isCompatibleWith(MediaType.MULTIPART_FORM_DATA)).isTrue();

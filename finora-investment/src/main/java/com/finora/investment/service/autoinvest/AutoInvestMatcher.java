@@ -47,6 +47,8 @@ public class AutoInvestMatcher {
     public static final String INSUFFICIENT_FUNDS = "INSUFFICIENT_FUNDS";
     public static final String LISTING_FULL = "LISTING_FULL";
     public static final String LISTING_CLOSED = "LISTING_CLOSED";
+    /** Quy tắc chưa xác nhận bản công bố rủi ro hiện hành (Q5): tạm dừng, không đặt lệnh. */
+    public static final String RISK_ACKNOWLEDGEMENT_OUTDATED = "RISK_ACKNOWLEDGEMENT_OUTDATED";
 
     private static final Set<OrderStatus> LIVE_ORDER_STATUSES =
             Set.of(OrderStatus.PENDING_FUNDS, OrderStatus.COMMITTED);
@@ -61,6 +63,7 @@ public class AutoInvestMatcher {
     private final AutoInvestMatchRepository matchRepository;
     private final InvestmentOrderRepository orderRepository;
     private final FundingService fundingService;
+    private final com.finora.investment.config.InvestorRiskDisclosureProperties riskDisclosure;
     private final Clock clock;
 
     public static String idempotencyKey(Long listingId) {
@@ -88,6 +91,12 @@ public class AutoInvestMatcher {
         for (AutoInvestConfig config : candidates) {
             if (!config.accepts(listing.getCreditGrade(), listing.getAnnualInterestRate(),
                     listing.getTermMonths(), listing.getFundingOpenedAt())) {
+                continue;
+            }
+            // Q5: quy tắc chưa xác nhận bản công bố rủi ro hiện hành thì tạm dừng; ghi lý do để nhà đầu tư thấy.
+            if (!config.acknowledgedFor(riskDisclosure.version())) {
+                record(AutoInvestMatch.skipped(config.getInvestorId(), listingId, RISK_ACKNOWLEDGEMENT_OUTDATED, null,
+                        clock.instant()));
                 continue;
             }
             // Đọc lại mỗi vòng: lệnh vừa chốt và lệnh đặt tay song song đều làm vốn còn lại giảm.
@@ -140,7 +149,9 @@ public class AutoInvestMatcher {
 
         OrderResponse order;
         try {
-            order = fundingService.placeOrderFor(investorId, listingId, key, new PlaceOrderRequest(amount));
+            // Lệnh mang phiên bản xác nhận của quy tắc: đó là căn cứ để worker được đặt lệnh thay nhà đầu tư.
+            order = fundingService.placeOrderFor(investorId, listingId, key,
+                    new PlaceOrderRequest(amount, config.getRiskAcknowledgedVersion()));
         } catch (InvestmentDomainException failure) {
             if ("PAYMENT_UNAVAILABLE".equals(failure.getCode())) {
                 log.warn("Auto-Invest dừng vì Payment không phản hồi: listingId={}", listingId);

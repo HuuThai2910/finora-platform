@@ -81,7 +81,9 @@ public class LoanApplicationMapper {
                 application.getInvestmentListingId(),
                 application.getFundedAmount(),
                 application.getFundingCompletedAt(),
-                application.getFundingExpiredAt()
+                application.getFundingExpiredAt(),
+                application.getFundingCancelledAt(),
+                application.getFundingCancelReason()
         );
     }
 

@@ -1,11 +1,14 @@
 package com.finora.investment.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.finora.common.enums.investment.ListingStatus;
 import com.finora.investment.domain.autoinvest.AutoInvestMatch;
 import com.finora.investment.dto.request.CreateListingRequest;
 import com.finora.investment.dto.request.UpdateAutoInvestRequest;
+import com.finora.investment.exception.InvestmentDomainException;
+import com.finora.investment.repository.InvestmentOrderRepository;
 import com.finora.investment.dto.response.AutoInvestMatchResponse;
 import com.finora.investment.dto.response.MarketListingResponse;
 import com.finora.investment.repository.AutoInvestMatchRepository;
@@ -73,6 +76,9 @@ class AutoInvestFlowIT {
     @Autowired
     private InvestmentCommitmentRepository commitmentRepository;
 
+    @Autowired
+    private InvestmentOrderRepository orderRepository;
+
     private void actAs(String userId, String role) {
         Jwt jwt = Jwt.withTokenValue("test-token")
                 .header("alg", "none")
@@ -93,7 +99,7 @@ class AutoInvestFlowIT {
     private void enableAutoInvest(String investorId, String grade, String amountPerLoan) {
         actAs(investorId, "ROLE_INVESTOR");
         autoInvestService.saveMyConfig(new UpdateAutoInvestRequest(
-                true, List.of(grade), new BigDecimal("12"), 24, new BigDecimal(amountPerLoan)));
+                true, List.of(grade), new BigDecimal("12"), 24, new BigDecimal(amountPerLoan), "INVESTOR_RISK_V1"));
     }
 
     private MarketListingResponse openListing(String target, String grade) {
@@ -152,6 +158,45 @@ class AutoInvestFlowIT {
             assertThat(item.amount()).isEqualTo("4000000");
             assertThat(item.applicationNumber()).startsWith("LA-AUTO-");
         });
+    }
+
+    @Test
+    @DisplayName("Bật Auto-Invest phải xác nhận đúng bản công bố rủi ro; lệnh tự động ghi phiên bản đó (Q5)")
+    void enablingRequiresTheCurrentRiskAcknowledgementAndOrdersCarryIt() {
+        actAs("AUTO-ACK", "ROLE_INVESTOR");
+        assertThatThrownBy(() -> autoInvestService.saveMyConfig(new UpdateAutoInvestRequest(
+                true, List.of("D"), new BigDecimal("12"), 24, new BigDecimal("2000000"), null)))
+                .isInstanceOfSatisfying(InvestmentDomainException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("RISK_ACKNOWLEDGEMENT_REQUIRED"));
+        assertThatThrownBy(() -> autoInvestService.saveMyConfig(new UpdateAutoInvestRequest(
+                true, List.of("D"), new BigDecimal("12"), 24, new BigDecimal("2000000"), "INVESTOR_RISK_V0")))
+                .isInstanceOfSatisfying(InvestmentDomainException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("RISK_DISCLOSURE_OUTDATED"));
+        // Tắt quy tắc không cần xác nhận.
+        assertThat(autoInvestService.saveMyConfig(new UpdateAutoInvestRequest(
+                false, List.of("D"), new BigDecimal("12"), 24, new BigDecimal("2000000"), null)).enabled()).isFalse();
+
+        enableAutoInvest("AUTO-ACK", "D", "2000000");
+        actAs("AUTO-ACK", "ROLE_INVESTOR");
+        var saved = autoInvestService.myConfig();
+        assertThat(saved.riskAcknowledgedVersion()).isEqualTo("INVESTOR_RISK_V1");
+        assertThat(saved.riskDisclosureVersion()).isEqualTo("INVESTOR_RISK_V1");
+        assertThat(saved.pausedForRiskAcknowledgement()).isFalse();
+        // Lưu lại quy tắc đang bật (app không hiện câu xác nhận): giữ thời điểm đã xác nhận, không ghi đè bằng chứng.
+        var resaved = autoInvestService.saveMyConfig(new UpdateAutoInvestRequest(
+                true, List.of("D"), new BigDecimal("12"), 24, new BigDecimal("2000000"), "INVESTOR_RISK_V1"));
+        assertThat(resaved.riskAcknowledgedAt()).isEqualTo(saved.riskAcknowledgedAt());
+        MarketListingResponse listing = openListing("10000000.00", "D");
+        SecurityContextHolder.clearContext();
+
+        assertThat(matcher.processListing(listing.listingId())).isTrue();
+
+        assertThat(orderRepository.findAll().stream()
+                .filter(order -> order.getListingId().equals(listing.listingId())))
+                .singleElement().satisfies(order -> {
+                    assertThat(order.getRiskAcknowledgedVersion()).isEqualTo("INVESTOR_RISK_V1");
+                    assertThat(order.getRiskAcknowledgedAt()).isNotNull();
+                });
     }
 
     @Test

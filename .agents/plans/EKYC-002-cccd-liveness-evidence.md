@@ -33,7 +33,7 @@
 ## 2. Hợp đồng `finora-ai` (chỉ gọi nội bộ)
 
 ### 2.0 Chung
-- Mọi route `/api/v1/ai/ekyc/*` kiểm header `X-Internal-Token` so với env `AI_INTERNAL_TOKEN` (so sánh hằng thời gian). Env rỗng → chế độ dev, chấp nhận và log WARNING một lần lúc khởi động. Sai → `401 {"detail":"INTERNAL_TOKEN_INVALID"}`.
+- Mọi route `/api/v1/ai/ekyc/*` cần access token service account của `finora-user` (`finora-user-client`, client role `ai:ekyc:ocr`; W3A D34/D35, quyền gắn ở `main.py`). Thiếu/sai token `401 AI_UNAUTHENTICATED`, thiếu quyền `403 AI_FORBIDDEN`. Bản đầu dùng header `X-Internal-Token`; đã bỏ khi gộp `main` (mục 10.9).
 - **Xoá** `/api/v1/ai/ekyc/ocr` cùng schema/test cũ.
 - Handler là `def` (không `async def`) để FastAPI chạy trong threadpool, không chặn `/credit`, `/health`.
 - Một phân tích nặng (document hoặc liveness) tại một thời điểm: `threading.Semaphore(1)` không chờ; bận → `503`, header `Retry-After: 3`, body `{"detail":"BUSY"}`.
@@ -407,7 +407,7 @@ Vòng đời attempt: `IN_PROGRESS → VERIFIED | MANUAL_REVIEW | ABANDONED`; `M
 - Cấu hình `finora.ekyc.storage.*`: `enabled` (`EKYC_EVIDENCE_ENABLED`, mặc định `false`), `endpoint` (`EKYC_S3_ENDPOINT`), `region` (`EKYC_S3_REGION`, `us-east-1`), `bucket` (`EKYC_S3_BUCKET`, `finora-ekyc`), `path-style` (`EKYC_S3_PATH_STYLE`, `false`), `access-key`/`secret-key` (`EKYC_S3_ACCESS_KEY`/`EKYC_S3_SECRET_KEY`), `env` (`EKYC_S3_ENV`, `dev`), `retention-days` (`EKYC_EVIDENCE_RETENTION_DAYS`, 30).
 - Key: `ekyc/{env}/{userProfileId}/{attemptPublicId}/{file}` — file: `cccd-front.jpg`, `cccd-back.jpg`, `liveness-{n}.mp4|mov`, `liveness-frame-{label}-{n}.jpg`, `still-{n}.jpg`, `result.json`. Không PII trong key/metadata.
 - **SeaweedFS local** (thay MinIO ngày 16/10: repo MinIO đã archive, image `minio/minio`, `minio/mc` và binary dl.min.io không còn tải được): `docker/docker-compose.yml` (và `docker-compose.app.yml`) profile `ekyc` thêm `seaweedfs` (`chrislusf/seaweedfs:4.48`, Apache-2.0; `server -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -s3.encryptVolumeData -master.volumeSizeLimitMB=64`; S3 chỉ ở `127.0.0.1:9100` — **không** dùng 9000 vì trùng cic-service; volume `seaweedfs-data`) + `seaweedfs-init` (`amazon/aws-cli:2.38.1`, tài khoản admin): tạo bucket (bỏ qua nếu đã có), `put-bucket-lifecycle-configuration` lọc theo tag (`pending` 1 ngày, `final` `EKYC_EVIDENCE_RETENTION_DAYS`) — SeaweedFS nhận nhưng chưa chắc thực thi, chỉ là lớp phòng thủ thêm. `s3.json` sinh lúc khởi động từ env: `ekyc-admin` (`SEAWEEDFS_ADMIN_ACCESS_KEY/SECRET_KEY`, Admin) và `finora-user` (`EKYC_S3_ACCESS_KEY/SECRET_KEY`, chỉ `Read/Write/List/Tagging:finora-ekyc`). Mã hoá khi lưu bằng `-s3.encryptVolumeData` (bỏ `MINIO_KMS_SECRET_KEY`); ẩn danh bị từ chối vì đã khai báo identities. finora-user từ IntelliJ: `EKYC_S3_ENDPOINT=http://localhost:9100`, trong compose `http://seaweedfs:8333`; `EKYC_S3_PATH_STYLE=true`, `EKYC_S3_REGION=us-east-1`. Biến trong `docker/.env.example`.
-- **Không** thêm kho S3 local vào compose Azure (`C:\Users\PC\Desktop\Data\Đồ Án\deploy\docker-compose.azure.yml`); ở đó chỉ thêm `AI_INTERNAL_TOKEN` cho ai + user và `EKYC_EVIDENCE_ENABLED=false` cho user. Không deploy.
+- **Không** thêm kho S3 local vào compose Azure (`C:\Users\PC\Desktop\Data\Đồ Án\deploy\docker-compose.azure.yml`); ở đó chỉ thêm `EKYC_EVIDENCE_ENABLED=false` cho user (User → AI dùng service account, mục 10.9). Không deploy.
 
 ## 6. Gateway
 - Servlet filter (`OncePerRequestFilter`, `@Order(Ordered.HIGHEST_PRECEDENCE)`) trả `404 {"code":"RESOURCE_NOT_FOUND","message":"Không tìm thấy tài nguyên"}` cho mọi path bắt đầu `/api/v1/ai/ekyc/` (không phân biệt hoa thường, đã chuẩn hoá `//`, `/./`). `/api/v1/ai/credit/**` vẫn đi qua. Có unit test.
@@ -491,7 +491,7 @@ còn mọi thay đổi DB nằm trong khối `TransactionTemplate` ngắn; các 
 
 | Endpoint | Router | Service | Module xử lý |
 |---|---|---|---|
-| `POST /api/v1/ai/ekyc/document` | `app/api/ekyc_router.py` (`def`, kiểm `X-Internal-Token`, semaphore 1 → `503 BUSY` + `Retry-After: 3`) | `app/services/ekyc/service.py` | `image_io` (magic bytes, giải mã) → `card_warp` (tìm thẻ, nắn phẳng) → `quality` (Laplacian, loá, sáng) → `qr_reader` (zxing-cpp, góc phần tư, ×2, sửa mojibake từ byte thô) → `mrz` + `tesseract_ocr` (TD1 VN, check digit 7-3-1, sửa ký tự nhầm) → `id_rules` (+ `data/province_codes.json`) → `front_id_ocr` (gắn hai mặt) → `gemini_extractor` (chỉ crop đã che chân dung, chế độ `EKYC_GEMINI_MODE`) → `face.extract_portrait` (YuNet + SFace) → `fusion.decide` |
+| `POST /api/v1/ai/ekyc/document` | `app/api/ekyc_router.py` (`def`, quyền `ai:ekyc:ocr` gắn ở `main.py` (D35), semaphore 1 → `503 BUSY` + `Retry-After: 3`) | `app/services/ekyc/service.py` | `image_io` (magic bytes, giải mã) → `card_warp` (tìm thẻ, nắn phẳng) → `quality` (Laplacian, loá, sáng) → `qr_reader` (zxing-cpp, góc phần tư, ×2, sửa mojibake từ byte thô) → `mrz` + `tesseract_ocr` (TD1 VN, check digit 7-3-1, sửa ký tự nhầm) → `id_rules` (+ `data/province_codes.json`) → `front_id_ocr` (gắn hai mặt) → `gemini_extractor` (chỉ crop đã che chân dung, chế độ `EKYC_GEMINI_MODE`) → `face.extract_portrait` (YuNet + SFace) → `fusion.decide` |
 | `POST /api/v1/ai/ekyc/liveness` | như trên (multipart: `spec`, `video` hoặc `frames`) | như trên | `liveness_video` (đọc video, lấy mẫu ~10 khung/giây, thử xoay 90/180/270° nếu gần như không thấy mặt, tỉ số r/p, sự kiện có trễ, khớp **chặt** chuỗi + khoảng cách, cùng người, so mặt theo vùng HIGH/GRAY/LOW, khung bằng chứng) |
 
 - Ngưỡng: `app/ml/ekyc/thresholds.py`, phiên bản `doc-2026-10-placeholder` / `liveness-2026-10-placeholder`; ghi đè qua env thì phiên bản thêm `+env-<hash>`. Chiều quay đầu theo nền tảng: `EKYC_LIVENESS_YAW_INVERT_IOS` / `_ANDROID`, mặc định theo `EKYC_LIVENESS_YAW_INVERT`.
@@ -524,4 +524,20 @@ Chạy thật cả backend trên máy dev, không Docker, không Keycloak, khôn
 - Chạy thử trên điện thoại thật qua Expo Go (Android + iPhone): chụp thẻ thật, quay liveness thật (luồng PASS chưa thể kiểm bằng video tổng hợp), xác định chiều quay đầu theo nền tảng.
 - Build `docker/Dockerfile.ai` và đo MRZ bằng Tesseract trên ảnh thẻ thật (máy dev chưa có Tesseract; đường MRZ mới kiểm trên chuỗi).
 - Thu dữ liệu tình nguyện viên, chạy `scripts/ekyc_calibrate.py` / `ekyc_eval_cccd.py`, thay các ngưỡng tạm.
-- Đặt `AI_INTERNAL_TOKEN` trong `deploy/.env` trước khi deploy; tạo bucket S3 rồi bật `EKYC_EVIDENCE_ENABLED`.
+- Deploy: `finora-user` cần secret của `finora-user-client` có client role `ai:ekyc:ocr` (mục 10.9); tạo bucket S3 rồi bật `EKYC_EVIDENCE_ENABLED`.
+
+### 10.9 Gộp `main` ngày 2026-10-20
+
+`main` (Wave 3, W3A) đã đặt xác thực cho mọi router của AI trước khi nhánh này gộp vào, nên bản gộp theo W3A:
+
+- User gọi `/api/v1/ai/ekyc/document` và `/liveness` bằng access token service account `finora-user-client` (client role
+  `ai:ekyc:ocr`, D34). `AiEkycClient` (Feign) dùng `ServiceAccountFeignConfig`; `AiLivenessClient` (RestClient) gắn
+  `ClientCredentialsTokenProvider.bearerInterceptor()`, AI trả 401 thì token cũ bị bỏ để lần sau lấy mới. AI kiểm quyền ở
+  `main.py` (`require_any(EKYC_OCR)`, D35).
+- Bỏ `X-Internal-Token`, `AI_INTERNAL_TOKEN`, `require_internal_token` và chế độ dev "token rỗng thì nhận hết" của bản
+  đầu; test bảo mật của AI (`tests/test_security.py`) đổi route đã xoá `/ekyc/ocr` sang `/ekyc/document` và kiểm thêm
+  `/liveness`.
+- Giữ `InternalAiRouteBlockingFilter` (Gateway trả 404 cho `/api/v1/ai/ekyc/**` từ ngoài) làm lớp chặn thứ hai.
+- `POST /api/v1/users/profile/ekyc-verify` chịu thêm giới hạn chung của D40 (`@RateLimited` 5 lần/10 phút, `429
+  RATE_LIMITED` kèm `Retry-After`) ngoài giới hạn 10 giây của mục 3.
+- Ánh xạ CIC dùng ID hồ sơ `user_profiles.id` làm `borrowerId` (B26 của `main`).

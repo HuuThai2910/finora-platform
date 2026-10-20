@@ -59,9 +59,12 @@ public class LoanStatisticsRepository {
      * (số sản phẩm × số giá trị DPD khác nhau), không tăng theo số khoản vay.
      */
     public List<OutstandingByProductDpdRow> sumOutstandingByProductAndDpd() {
+        // Nhóm của đợt quá hạn đang mở (D29) đọc từ hồ sơ thu hồi; mỗi khoản vay có tối đa một hồ sơ OPEN
+        // (uq_collection_one_open_per_loan) nên LEFT JOIN không nhân dòng.
         return jdbc.query("""
                 SELECT a.loan_product_id,
                        p.days_past_due,
+                       c.debt_group AS episode_debt_group,
                        COUNT(*) AS loans,
                        COALESCE(SUM(p.principal_outstanding), 0) AS principal_outstanding,
                        COALESCE(SUM(p.total_outstanding), 0) AS total_outstanding,
@@ -70,12 +73,14 @@ public class LoanStatisticsRepository {
                 FROM finora_loans l
                 JOIN loan_servicing_projections p ON p.finora_loan_id = l.id
                 JOIN loan_applications a ON a.id = l.loan_application_id
+                LEFT JOIN loan_collection_cases c ON c.finora_loan_id = l.id AND c.status = 'OPEN'
                 WHERE l.closed_at IS NULL AND l.status <> :settled
-                GROUP BY a.loan_product_id, p.days_past_due
+                GROUP BY a.loan_product_id, p.days_past_due, c.debt_group
                 """, outstandingParams(), (rs, i) -> new OutstandingByProductDpdRow(
                 rs.getLong("loan_product_id"), rs.getInt("days_past_due"), rs.getLong("loans"),
                 rs.getBigDecimal("principal_outstanding"), rs.getBigDecimal("total_outstanding"),
-                rs.getBigDecimal("overdue_amount"), rs.getLong("stale_projections")));
+                rs.getBigDecimal("overdue_amount"), rs.getLong("stale_projections"),
+                rs.getObject("episode_debt_group", Integer.class)));
     }
 
     public List<OutstandingByGradeRow> sumOutstandingByCreditGrade() {
@@ -277,9 +282,17 @@ public class LoanStatisticsRepository {
 
     public record ApplicationStatusRow(String status, String fundingStatus, long total) {}
 
+    /** @param episodeDebtGroup nhóm của đợt quá hạn đang mở (D29); {@code null} khi khoản vay không có hồ sơ thu hồi mở */
     public record OutstandingByProductDpdRow(long productId, int daysPastDue, long loans,
             BigDecimal principalOutstanding, BigDecimal totalOutstanding, BigDecimal overdueAmount,
-            long staleProjections) {}
+            long staleProjections, Integer episodeDebtGroup) {
+
+        public OutstandingByProductDpdRow(long productId, int daysPastDue, long loans, BigDecimal principalOutstanding,
+                BigDecimal totalOutstanding, BigDecimal overdueAmount, long staleProjections) {
+            this(productId, daysPastDue, loans, principalOutstanding, totalOutstanding, overdueAmount, staleProjections,
+                    null);
+        }
+    }
 
     public record OutstandingByGradeRow(String grade, long loans, BigDecimal principalOutstanding) {}
 

@@ -1,6 +1,5 @@
 package com.finora.loan.service.servicing;
 
-import com.finora.loan.domain.servicing.DebtGroup;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.loan.domain.messaging.ProcessedEvent;
@@ -51,13 +50,13 @@ public class RepaymentDistributedHandler {
         var projection = projections.findByFinoraLoanIdForUpdate(loan.getId())
                 .orElseThrow(() -> new IllegalStateException("Khoản vay thiếu servicing projection"));
         int previousDpd = projection.getDaysPastDue();
-        int previousGroup = DebtGroup.fromDaysPastDue(previousDpd);
         projection.applyRepayment(money(data.principalAmount()), money(data.interestAmount()),
                 money(data.feeAmount()), money(data.penaltyAmount()), money(data.outstandingPrincipal()),
                 money(data.outstandingInterest()), money(data.outstandingFee()),
                 money(data.outstandingPenalty()), money(data.totalOutstanding()), money(data.overdueAmount()),
                 data.nextDueDate(), money(data.nextDueAmount()), data.completedAt());
-        collectionCases.apply(loan, projection, data.completedAt());
+        CollectionCaseService.DebtGroupChange groups =
+                collectionCases.apply(loan, projection, previousDpd, data.completedAt());
         boolean settledNow = money(data.totalOutstanding()).signum() == 0
                 && loan.getStatus() != com.finora.loan.domain.servicing.FinoraLoanStatus.SETTLED;
         if (settledNow) {
@@ -73,7 +72,7 @@ public class RepaymentDistributedHandler {
                     "LoanDelinquencyChanged", 1, new LoanDelinquencyChangedEventData(
                             loan.getLoanApplicationId(), loan.getLoanNumber(), loan.getBorrowerId(),
                             loan.getFineractLoanId(), previousDpd, currentDpd,
-                            previousGroup, DebtGroup.fromDaysPastDue(currentDpd),
+                            groups.previous(), groups.current(),
                             projection.getOverdueAmount().toPlainString(), projection.getOverdueSince(),
                             projection.getTotalOutstanding().toPlainString(), data.completedAt()));
         }

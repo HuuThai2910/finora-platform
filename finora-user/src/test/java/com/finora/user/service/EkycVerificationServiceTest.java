@@ -9,7 +9,6 @@ import com.finora.user.client.AiEkycClient;
 import com.finora.user.client.AiEkycClient.DocumentResult;
 import com.finora.user.client.AiEkycClient.Portrait;
 import com.finora.user.client.AiEkycClient.RetakeHint;
-import com.finora.user.config.AiServiceProperties;
 import com.finora.user.domain.CicMappingTask;
 import com.finora.user.domain.EkycAttempt;
 import com.finora.user.domain.EkycAttemptStatus;
@@ -114,10 +113,8 @@ class EkycVerificationServiceTest {
         EkycIdentityService identityService = new EkycIdentityService(userProfileRepository, EkycTestData.cryptoProperties());
         EkycAttemptService attemptService = new EkycAttemptService(attemptRepository, evidenceRepository,
                 cicMappingTaskRepository, identityService, objectMapper);
-        AiServiceProperties aiProperties = new AiServiceProperties();
-        aiProperties.setInternalToken("internal-token");
         return new EkycVerificationService(userProfileRepository, attemptRepository, evidenceRepository, aiEkycClient,
-                aiProperties, rateLimitService, counterStore, draftStore, consentService, evidenceService,
+                rateLimitService, counterStore, draftStore, consentService, evidenceService,
                 attemptService, identityService, new EkycResultFile(objectMapper), sessionCleanup, claimPublisher,
                 EkycTestData.transactionTemplate(), clock);
     }
@@ -143,7 +140,7 @@ class EkycVerificationServiceTest {
         }
 
         private void givenAiReturns(DocumentResult result) {
-            when(aiEkycClient.analyzeDocument(eq("internal-token"), any())).thenReturn(result);
+            when(aiEkycClient.analyzeDocument(any())).thenReturn(result);
         }
 
         private final AtomicReference<EkycAttempt> savedAttempt = new AtomicReference<>();
@@ -167,7 +164,7 @@ class EkycVerificationServiceTest {
 
             assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
             assertThat(result.status()).isEqualTo(EkycStatus.VERIFIED);
-            verify(aiEkycClient, never()).analyzeDocument(any(), any());
+            verify(aiEkycClient, never()).analyzeDocument(any());
         }
 
         @Test
@@ -200,7 +197,7 @@ class EkycVerificationServiceTest {
 
             assertThat(result.resultCode()).isEqualTo(EkycResultCode.STORAGE_UNAVAILABLE);
             verify(rateLimitService, never()).tryAcquireVerifySlot(any());
-            verify(aiEkycClient, never()).analyzeDocument(any(), any());
+            verify(aiEkycClient, never()).analyzeDocument(any());
         }
 
         @Test
@@ -224,13 +221,13 @@ class EkycVerificationServiceTest {
             EkycResultResponse result = service().verify(USER_ID, request());
 
             assertThat(result.resultCode()).isEqualTo(EkycResultCode.RATE_LIMITED);
-            verify(aiEkycClient, never()).analyzeDocument(any(), any());
+            verify(aiEkycClient, never()).analyzeDocument(any());
         }
 
         @Test
         void aiConnectionErrorReturnsAiUnavailableAndGivesBackTheSlot() {
             givenReadyForAi();
-            when(aiEkycClient.analyzeDocument(any(), any())).thenThrow(new RuntimeException("connection refused"));
+            when(aiEkycClient.analyzeDocument(any())).thenThrow(new RuntimeException("connection refused"));
 
             EkycResultResponse result = service().verify(USER_ID, request());
 
@@ -242,7 +239,7 @@ class EkycVerificationServiceTest {
         @Test
         void aiBusy503ReturnsAiUnavailableAndGivesBackTheSlot() {
             givenReadyForAi();
-            when(aiEkycClient.analyzeDocument(any(), any())).thenThrow(feignError(503));
+            when(aiEkycClient.analyzeDocument(any())).thenThrow(feignError(503));
 
             EkycResultResponse result = service().verify(USER_ID, request());
 
@@ -253,7 +250,7 @@ class EkycVerificationServiceTest {
         @Test
         void aiRejectingTheImageIsOcrFailedAndKeepsTheSlot() {
             givenReadyForAi();
-            when(aiEkycClient.analyzeDocument(any(), any())).thenThrow(feignError(422));
+            when(aiEkycClient.analyzeDocument(any())).thenThrow(feignError(422));
 
             EkycResultResponse result = service().verify(USER_ID, request());
 
@@ -278,7 +275,7 @@ class EkycVerificationServiceTest {
             assertThat(result.message()).isEqualTo(result.retake().get(0).message());
             assertThat(result.nextStep()).isEqualTo(EkycNextStep.NONE);
             ArgumentCaptor<AiEkycClient.DocumentRequest> sent = ArgumentCaptor.forClass(AiEkycClient.DocumentRequest.class);
-            verify(aiEkycClient).analyzeDocument(eq("internal-token"), sent.capture());
+            verify(aiEkycClient).analyzeDocument(sent.capture());
             assertThat(sent.getValue().retakeCount()).isEqualTo(1);
             assertThat(sent.getValue().qrSide()).isEqualTo("FRONT");
             assertThat(sent.getValue().frontSource()).isEqualTo("IN_APP_CAMERA");

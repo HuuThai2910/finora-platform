@@ -158,7 +158,7 @@ public class AdminLoanStatisticsService {
         long stale = 0;
         BigDecimal totalOutstanding = BigDecimal.ZERO;
         for (OutstandingByProductDpdRow row : outstandingRows) {
-            int group = DebtGroup.fromDaysPastDue(row.daysPastDue());
+            int group = DebtGroup.withinEpisode(row.episodeDebtGroup(), row.daysPastDue());
             boolean npl = DebtGroup.isNonPerforming(group);
             all.add(row.loans(), row.principalOutstanding(), row.overdueAmount(), npl);
             byGroup.get(group).add(row.loans(), row.principalOutstanding(), row.overdueAmount(), npl);
@@ -301,7 +301,7 @@ public class AdminLoanStatisticsService {
         for (LoanServicingHistory history : histories) {
             LoanServicingHistory.Position position = history.positionAt(asOf);
             if (position == null || position.principalOutstanding().signum() <= 0) continue;
-            int group = DebtGroup.fromDaysPastDue(position.daysPastDue());
+            int group = history.debtGroupAt(asOf);
             boolean npl = DebtGroup.isNonPerforming(group);
             all.add(1, position.principalOutstanding(), BigDecimal.ZERO, npl);
             byGroup.get(group).add(1, position.principalOutstanding(), BigDecimal.ZERO, npl);

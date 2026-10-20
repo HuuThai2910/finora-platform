@@ -1,9 +1,11 @@
 package com.finora.loan.integration.ai.client;
 
+import com.fasterxml.jackson.core.JacksonException;
 import com.finora.loan.config.AiCreditProperties;
 import com.finora.loan.integration.ai.contract.AiCreditScoreRequest;
 import com.finora.loan.integration.ai.contract.AiCreditScoreResponse;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.concurrent.TimeoutException;
 import lombok.extern.slf4j.Slf4j;
@@ -100,7 +102,8 @@ public class AiCreditScoringHttpClient implements AiCreditScoringGateway {
         }
         if (cause instanceof RestClientResponseException responseException) {
             HttpStatusCode status = responseException.getStatusCode();
-            boolean retryable = status.value() == 429 || status.is5xxServerError();
+            // 401: token service account hết hạn hoặc Keycloak đổi khóa; interceptor đã bỏ token cũ nên lần sau lấy mới.
+            boolean retryable = status.value() == 401 || status.value() == 429 || status.is5xxServerError();
             return new AiCreditIntegrationException(
                     retryable ? "AI_TEMPORARY_ERROR" : "AI_REQUEST_REJECTED",
                     "AI Service từ chối request với HTTP " + status.value(),
@@ -116,7 +119,9 @@ public class AiCreditScoringHttpClient implements AiCreditScoringGateway {
             return new AiCreditIntegrationException(
                     "AI_CIRCUIT_OPEN", "Tạm dừng gọi AI vì dependency đang lỗi", true, cause);
         }
-        if (cause instanceof ResourceAccessException) {
+        if (cause instanceof ResourceAccessException || connectionLost(throwable)) {
+            // Lỗi đọc phản hồi của POST đến dưới dạng RestClientException chứ không phải ResourceAccessException
+            // (B42); chấm điểm không đổi dữ liệu nên gọi lại an toàn.
             return new AiCreditIntegrationException(
                     "AI_UNAVAILABLE", "Không thể kết nối AI Service", true, cause);
         }
@@ -124,6 +129,20 @@ public class AiCreditScoringHttpClient implements AiCreditScoringGateway {
                 throwable.getClass().getName(), cause.getClass().getName());
         return new AiCreditIntegrationException(
                 "AI_UNEXPECTED_ERROR", "Lỗi không xác định khi gọi AI Service", false, cause);
+    }
+
+    private static boolean connectionLost(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof IOException && !(current instanceof JacksonException)) {
+                return true;
+            }
+            if (current.getCause() == current) {
+                break;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private Throwable knownCause(Throwable throwable) {

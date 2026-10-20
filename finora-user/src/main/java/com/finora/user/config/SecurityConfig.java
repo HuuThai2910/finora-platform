@@ -59,8 +59,8 @@ public class SecurityConfig {
                         ).permitAll()
                         // Swagger UI và OpenAPI docs
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
-                        // Actuator health check cho monitoring/k8s
-                        .requestMatchers("/actuator/health").permitAll()
+                        // Actuator health check cho monitoring/k8s (gồm nhóm liveness/readiness, W3E)
+                        .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         // Mọi endpoint còn lại yêu cầu xác thực
                         .anyRequest().authenticated()
                 )

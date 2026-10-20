@@ -133,6 +133,11 @@ public class PaymentTopUp {
         this.updatedAt = Objects.requireNonNull(now, "now");
     }
 
+    /** Hết hạn thanh toán do provider đặt; chưa có hạn (mock cũ, lệnh chờ provider) thì chưa hết hạn. */
+    public boolean isExpired(Instant now) {
+        return expiresAt != null && !expiresAt.isAfter(now);
+    }
+
     public boolean complete(String providerReference, Instant now) {
         if (status == TopUpStatus.COMPLETED) {
             if (!Objects.equals(this.providerReference, providerReference)) {
