@@ -40,7 +40,8 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
  * <p>Lỗi cũ: vốn chờ giải ngân được suy từ "commitment chưa có Note ACTIVE của chính tôi", nên
  * khi Note đã bán hết trên chợ, đã CLOSED hoặc chuyển DEFAULTED thì số vốn đã giải ngân từ lâu
  * lại hiện thành "chờ giải ngân". Note DEFAULTED cũng biến mất khỏi danh mục. Repository là mock:
- * test kiểm cách service ghép số, còn câu truy vấn được kiểm khi chạy thật.</p>
+ * test kiểm cách service ghép số, còn câu truy vấn được kiểm khi chạy thật. Danh mục theo R3-W2: giữ
+ * vị thế CLOSED/DEFAULTED, vốn đang đầu tư gồm cả dư nợ nợ xấu (FundingFlowIT kiểm phần CLOSED với DB).</p>
  */
 @ExtendWith(MockitoExtension.class)
 class PortfolioServiceImplTest {
@@ -49,7 +50,8 @@ class PortfolioServiceImplTest {
     private static final Instant NOW = Instant.parse("2026-10-15T03:00:00Z");
     private static final List<CommitmentStatus> LIVE_COMMITMENTS =
             List.of(CommitmentStatus.ACTIVE, CommitmentStatus.FINALIZED);
-    private static final List<NoteStatus> HELD_NOTES = List.of(NoteStatus.ACTIVE, NoteStatus.DEFAULTED);
+    private static final List<NoteStatus> PORTFOLIO_NOTES =
+            List.of(NoteStatus.ACTIVE, NoteStatus.DEFAULTED, NoteStatus.CLOSED);
 
     @Mock
     private InvestmentCommitmentRepository commitmentRepository;
@@ -87,7 +89,7 @@ class PortfolioServiceImplTest {
         when(commitmentRepository.findByInvestorIdAndStatusIn(INVESTOR, LIVE_COMMITMENTS)).thenReturn(List.of(
                 commitment(11, CommitmentStatus.ACTIVE, "2000000.00"),
                 commitment(12, CommitmentStatus.FINALIZED, "3000000.00")));
-        when(noteRepository.findByInvestorIdAndStatusIn(INVESTOR, HELD_NOTES)).thenReturn(List.of(
+        when(noteRepository.findByInvestorIdAndStatusIn(INVESTOR, PORTFOLIO_NOTES)).thenReturn(List.of(
                 note(1, 99, 101, NoteStatus.ACTIVE, "1000000.00", "10000.00", "14.0000")));
         when(noteRepository.findCommitmentIdsWithNotes(List.of(11L, 12L))).thenReturn(List.of());
 
@@ -108,7 +110,7 @@ class PortfolioServiceImplTest {
         // commitment vẫn FINALIZED. Cách cũ cộng lại 2 triệu này thành "chờ giải ngân".
         when(commitmentRepository.findByInvestorIdAndStatusIn(INVESTOR, LIVE_COMMITMENTS)).thenReturn(List.of(
                 commitment(21, CommitmentStatus.FINALIZED, "2000000.00")));
-        when(noteRepository.findByInvestorIdAndStatusIn(INVESTOR, HELD_NOTES)).thenReturn(List.of());
+        when(noteRepository.findByInvestorIdAndStatusIn(INVESTOR, PORTFOLIO_NOTES)).thenReturn(List.of());
         when(noteRepository.findCommitmentIdsWithNotes(List.of(21L))).thenReturn(List.of(21L));
 
         PortfolioResponse portfolio = service.portfolio();
@@ -120,12 +122,14 @@ class PortfolioServiceImplTest {
     }
 
     @Test
-    void noteDaDongThiVonChoBangKhongVaKhongHienViThe() {
-        // Commitment 31 có Note đã CLOSED (thu hồi đủ gốc), commitment 32 còn Note ACTIVE.
+    void noteDaDongThiVonChoBangKhongVaViTheGiuNhanDaTatToan() {
+        // Commitment 31 có Note đã CLOSED (thu hồi đủ gốc), commitment 32 còn Note ACTIVE. Vị thế CLOSED vẫn
+        // nằm trong danh mục để giữ lịch sử gốc/lãi (R3-W2, B16) nhưng không thành "chờ giải ngân".
         when(commitmentRepository.findByInvestorIdAndStatusIn(INVESTOR, LIVE_COMMITMENTS)).thenReturn(List.of(
                 commitment(31, CommitmentStatus.FINALIZED, "1000000.00"),
                 commitment(32, CommitmentStatus.FINALIZED, "1000000.00")));
-        when(noteRepository.findByInvestorIdAndStatusIn(INVESTOR, HELD_NOTES)).thenReturn(List.of(
+        when(noteRepository.findByInvestorIdAndStatusIn(INVESTOR, PORTFOLIO_NOTES)).thenReturn(List.of(
+                note(1, 31, 301, NoteStatus.CLOSED, "0.00", "90000.00", "14.0000"),
                 note(2, 32, 302, NoteStatus.ACTIVE, "600000.00", "30000.00", "12.0000")));
         when(noteRepository.findCommitmentIdsWithNotes(List.of(31L, 32L))).thenReturn(List.of(31L, 32L));
 
@@ -133,16 +137,21 @@ class PortfolioServiceImplTest {
 
         assertThat(portfolio.pendingAmount()).isEqualTo("0.00");
         assertThat(portfolio.investedAmount()).isEqualTo("600000.00");
-        assertThat(portfolio.positions()).extracting(PortfolioPositionResponse::loanId).containsExactly(302L);
+        assertThat(portfolio.positions()).extracting(PortfolioPositionResponse::loanId).containsExactly(301L, 302L);
+        assertThat(portfolio.positions()).extracting(PortfolioPositionResponse::status)
+                .containsExactly("CLOSED", "ACTIVE");
         assertThat(portfolio.activeNoteCount()).isEqualTo(1);
+        // Lãi suất bình quân chỉ tính phần còn sinh lãi.
+        assertThat(portfolio.weightedAverageRate()).isEqualByComparingTo("12.0000");
+        assertThat(portfolio.defaultedPositionCount()).isZero();
     }
 
     @Test
-    void noteVoNoHienTrongDanhMucTachKhoiVonDangDauTuVaKhongTinhVaoVonCho() {
+    void noteVoNoHienTrongDanhMucNeuRiengPhanNoXauVaKhongTinhVaoVonCho() {
         when(commitmentRepository.findByInvestorIdAndStatusIn(INVESTOR, LIVE_COMMITMENTS)).thenReturn(List.of(
                 commitment(41, CommitmentStatus.FINALIZED, "2000000.00"),
                 commitment(42, CommitmentStatus.FINALIZED, "1000000.00")));
-        when(noteRepository.findByInvestorIdAndStatusIn(INVESTOR, HELD_NOTES)).thenReturn(List.of(
+        when(noteRepository.findByInvestorIdAndStatusIn(INVESTOR, PORTFOLIO_NOTES)).thenReturn(List.of(
                 note(3, 41, 401, NoteStatus.DEFAULTED, "800000.00", "50000.00", "15.0000"),
                 note(4, 41, 401, NoteStatus.DEFAULTED, "800000.00", "50000.00", "15.0000"),
                 note(5, 42, 402, NoteStatus.ACTIVE, "1000000.00", "20000.00", "12.0000")));
@@ -154,8 +163,9 @@ class PortfolioServiceImplTest {
         PortfolioResponse portfolio = service.portfolio();
 
         assertThat(portfolio.pendingAmount()).isEqualTo("0.00");
-        // Dư nợ tách hai phần: nợ xấu không lẫn vào "vốn đang đầu tư" và lãi suất bình quân.
-        assertThat(portfolio.investedAmount()).isEqualTo("1000000.00");
+        // Vốn đang đầu tư gồm cả dư nợ của khoản nợ xấu (tiền chưa thu hồi, R3-W2); phần nợ xấu nêu riêng ở
+        // defaultedAmount và không kéo lãi suất bình quân.
+        assertThat(portfolio.investedAmount()).isEqualTo("2600000.00");
         assertThat(portfolio.defaultedAmount()).isEqualTo("1600000.00");
         assertThat(portfolio.weightedAverageRate()).isEqualByComparingTo("12.0000");
         // Tiền đã nhận là tiền thật đã về ví nên cộng trên mọi vị thế, kể cả vị thế nợ xấu.
@@ -163,7 +173,8 @@ class PortfolioServiceImplTest {
         assertThat(portfolio.interestReceived()).isEqualTo("120000.00");
         assertThat(portfolio.totalReceived()).isEqualTo("520000.00");
         assertThat(portfolio.activeNoteCount()).isEqualTo(1);
-        assertThat(portfolio.positionCount()).isEqualTo(1);
+        // Số vị thế đếm mọi khoản trong danh mục, kể cả khoản nợ xấu.
+        assertThat(portfolio.positionCount()).isEqualTo(2);
         assertThat(portfolio.defaultedNoteCount()).isEqualTo(2);
         assertThat(portfolio.defaultedPositionCount()).isEqualTo(1);
 
@@ -180,7 +191,7 @@ class PortfolioServiceImplTest {
     @Test
     void chuaCamKetGiThiKhongGuiTruyVanInRong() {
         when(commitmentRepository.findByInvestorIdAndStatusIn(INVESTOR, LIVE_COMMITMENTS)).thenReturn(List.of());
-        when(noteRepository.findByInvestorIdAndStatusIn(INVESTOR, HELD_NOTES)).thenReturn(List.of());
+        when(noteRepository.findByInvestorIdAndStatusIn(INVESTOR, PORTFOLIO_NOTES)).thenReturn(List.of());
 
         PortfolioResponse portfolio = service.portfolio();
 

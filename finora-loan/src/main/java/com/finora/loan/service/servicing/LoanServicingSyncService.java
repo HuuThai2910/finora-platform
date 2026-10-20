@@ -1,6 +1,5 @@
 package com.finora.loan.service.servicing;
 
-import com.finora.loan.domain.servicing.DebtGroup;
 import com.finora.loan.domain.servicing.FinoraLoan;
 import com.finora.loan.domain.servicing.FinoraLoanStatus;
 import com.finora.loan.domain.servicing.LoanServicingProjection;
@@ -69,7 +68,6 @@ public class LoanServicingSyncService {
         LoanServicingProjection projection = projections.findByFinoraLoanIdForUpdate(loanId)
                 .orElseThrow(() -> new IllegalStateException("Khoản vay thiếu servicing projection"));
         int previousDpd = projection.getDaysPastDue();
-        int previousGroup = DebtGroup.fromDaysPastDue(previousDpd);
         var now = clock.instant();
         List<String> mismatches = reconciliation.inspect(loan, snapshot, now).stream()
                 .map(Enum::name).toList();
@@ -78,7 +76,7 @@ public class LoanServicingSyncService {
             return mismatches;
         }
         projection.applyCoreSnapshot(snapshot, now);
-        collectionCases.apply(loan, projection, now);
+        CollectionCaseService.DebtGroupChange groups = collectionCases.apply(loan, projection, previousDpd, now);
         if (snapshot.totalOutstanding().signum() == 0) {
             loan.settle(now);
             outbox.recordForPublication("FinoraLoan", loan.getId().toString(),
@@ -86,13 +84,12 @@ public class LoanServicingSyncService {
                             loan.getLoanApplicationId(), loan.getLoanNumber(), loan.getContractNumber(),
                             loan.getBorrowerId(), loan.getFineractLoanId(), now));
         }
-        int currentGroup = DebtGroup.fromDaysPastDue(projection.getDaysPastDue());
         if (previousDpd != projection.getDaysPastDue()) {
             outbox.recordForPublication("FinoraLoan", loan.getId().toString(),
                     "LoanDelinquencyChanged", 1, new LoanDelinquencyChangedEventData(
                             loan.getLoanApplicationId(), loan.getLoanNumber(), loan.getBorrowerId(),
                             loan.getFineractLoanId(), previousDpd, projection.getDaysPastDue(),
-                            previousGroup, currentGroup, projection.getOverdueAmount().toPlainString(),
+                            groups.previous(), groups.current(), projection.getOverdueAmount().toPlainString(),
                             projection.getOverdueSince(), projection.getTotalOutstanding().toPlainString(), now));
         }
         return List.of();

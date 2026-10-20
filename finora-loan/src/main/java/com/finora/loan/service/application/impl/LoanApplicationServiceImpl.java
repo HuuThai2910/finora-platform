@@ -4,12 +4,14 @@ import com.finora.common.exception.ResourceNotFoundException;
 import com.finora.common.security.SecurityUtils;
 import com.finora.loan.config.LoanPricingDisclosureProperties;
 import com.finora.loan.domain.application.ActorType;
+import com.finora.loan.domain.application.BorrowerKycSnapshot;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.application.LoanApplicationStatus;
 import com.finora.loan.domain.application.LoanApplicationStatusHistory;
 import com.finora.loan.domain.application.LoanPurpose;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
 import com.finora.loan.domain.product.RepaymentMethod;
+import com.finora.loan.domain.scoring.BorrowerKycStatus;
 import com.finora.loan.dto.application.request.CreateLoanApplicationRequest;
 import com.finora.loan.dto.application.request.WithdrawLoanApplicationRequest;
 import com.finora.loan.dto.application.request.ConfirmLoanTermsRequest;
@@ -23,11 +25,15 @@ import com.finora.loan.integration.fineract.client.FineractIntegrationException;
 import com.finora.loan.integration.fineract.client.FineractScheduleGateway;
 import com.finora.loan.integration.fineract.contract.ScheduleCalculationRequest;
 import com.finora.loan.integration.fineract.contract.ScheduleCalculationResult;
+import com.finora.loan.integration.profile.contract.BorrowerProfileResult;
+import com.finora.loan.integration.profile.provider.BorrowerProfileProvider;
+import com.finora.loan.integration.profile.provider.BorrowerProfileUnavailableException;
 import com.finora.loan.mapper.application.LoanApplicationMapper;
 import com.finora.loan.repository.application.LoanApplicationRepository;
 import com.finora.loan.repository.application.LoanApplicationStatusHistoryRepository;
 import com.finora.loan.service.application.ApplicationPersistResult;
 import com.finora.loan.service.application.ApplicationSubmissionContext;
+import com.finora.loan.service.application.BorrowerKycSnapshots;
 import com.finora.loan.service.application.LoanApplicationService;
 import com.finora.loan.service.application.LoanApplicationSubmissionStateService;
 import com.finora.loan.service.application.LoanTermsConfirmationService;
@@ -60,6 +66,7 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
     private final LoanTermsConfirmationService termsConfirmationService;
     private final HashingService hashingService;
     private final LoanPricingDisclosureProperties disclosureProperties;
+    private final BorrowerProfileProvider profileProvider;
     private final Clock clock;
 
     /**
@@ -81,6 +88,9 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
         if (existing != null) {
             return existingResponse(existing, requestHash);
         }
+
+        // Chỉ người vay đã xác minh eKYC được nộp (D4); kiểm trước Fineract để không tính lịch cho hồ sơ không được nhận.
+        BorrowerKycSnapshot kycSnapshot = requireVerifiedBorrower(borrowerId);
 
         // Chụp Product/mapping trước khi ra mạng; bước persist sẽ khóa và kiểm tra lại để chống Product đổi giữa chừng.
         ApplicationSubmissionContext context = submissionState.prepareContext(request);
@@ -118,7 +128,8 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
                     disclosureProperties.pricingDisclosureVersion(),
                     request,
                     context,
-                    schedule
+                    schedule,
+                    kycSnapshot
             );
             log.info("Đã nộp hồ sơ vay: applicationNumber={}, productId={}, borrowerId={}",
                     result.application().getApplicationNumber(), request.loanProductId(), borrowerId);
@@ -129,6 +140,30 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
                     .orElseThrow(() -> exception);
             return existingResponse(raced, requestHash);
         }
+    }
+
+    /**
+     * Đọc eKYC của người vay ngoài transaction (provider {@code user} chuyển tiếp token của chính request) và chặn người
+     * chưa {@code VERIFIED}. Nguồn không trả lời thì báo tạm thời không nộp được, không đoán trạng thái.
+     */
+    private BorrowerKycSnapshot requireVerifiedBorrower(String borrowerId) {
+        BorrowerProfileResult profile;
+        try {
+            profile = profileProvider.getBorrowerProfile(borrowerId, LocalDate.now(clock));
+        } catch (BorrowerProfileUnavailableException exception) {
+            log.warn("Chưa đọc được eKYC khi nộp hồ sơ: borrowerId={}, reason={}", borrowerId, exception.getReason());
+            throw LoanBusinessException.serviceUnavailable(
+                    "USER_PROFILE_UNAVAILABLE",
+                    "Chưa kiểm tra được trạng thái xác minh danh tính. Vui lòng thử lại sau"
+            );
+        }
+        if (profile.kycStatus() != BorrowerKycStatus.VERIFIED) {
+            throw LoanBusinessException.conflict(
+                    "BORROWER_KYC_REQUIRED",
+                    "Bạn cần hoàn tất xác minh eKYC trước khi nộp hồ sơ vay"
+            );
+        }
+        return BorrowerKycSnapshots.from(profile);
     }
 
     /** Rút hồ sơ đang SUBMITTED; thay đổi trạng thái và history cùng transaction. */

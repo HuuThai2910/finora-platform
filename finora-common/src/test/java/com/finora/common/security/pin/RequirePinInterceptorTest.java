@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class RequirePinInterceptorTest {
 
     private static final String USER = "2a4d1e6c-0000-4000-8000-000000000001";
+    private static final String KEY = "idem-order-7c1d";
 
     private final PinTokenService tokens = new PinTokenService(
             "test-pin-token-secret-at-least-32-bytes!", Duration.ofMinutes(3), Clock.systemUTC());
@@ -60,15 +61,40 @@ class RequirePinInterceptorTest {
     @Test
     void guardedEndpointWithMatchingTokenPasses() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader(PinTokenService.HEADER_NAME, tokens.issue(USER, PinScope.ORDER).token());
+        request.addHeader(PinTokenService.HEADER_NAME, tokens.issue(USER, PinScope.ORDER, KEY).token());
+        request.addHeader(PinTokenService.REQUEST_KEY_HEADER, KEY);
 
         assertThat(interceptor.preHandle(request, new MockHttpServletResponse(), handler("placeOrder"))).isTrue();
     }
 
     @Test
+    void guardedEndpointWithoutIdempotencyKeyRejected() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(PinTokenService.HEADER_NAME, tokens.issue(USER, PinScope.ORDER, KEY).token());
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, new MockHttpServletResponse(),
+                handler("placeOrder")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code").isEqualTo("IDEMPOTENCY_KEY_REQUIRED");
+    }
+
+    @Test
+    void tokenReplayedOnAnotherActionRejected() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(PinTokenService.HEADER_NAME, tokens.issue(USER, PinScope.ORDER, KEY).token());
+        request.addHeader(PinTokenService.REQUEST_KEY_HEADER, "idem-order-another");
+
+        assertThatThrownBy(() -> interceptor.preHandle(request, new MockHttpServletResponse(),
+                handler("placeOrder")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code").isEqualTo("PIN_TOKEN_INVALID");
+    }
+
+    @Test
     void guardedEndpointWithTokenForAnotherScopeRejected() {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader(PinTokenService.HEADER_NAME, tokens.issue(USER, PinScope.INVEST).token());
+        request.addHeader(PinTokenService.HEADER_NAME, tokens.issue(USER, PinScope.INVEST, KEY).token());
+        request.addHeader(PinTokenService.REQUEST_KEY_HEADER, KEY);
 
         assertThatThrownBy(() -> interceptor.preHandle(request, new MockHttpServletResponse(),
                 handler("placeOrder")))

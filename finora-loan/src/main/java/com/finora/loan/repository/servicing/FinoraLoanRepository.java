@@ -26,6 +26,16 @@ public interface FinoraLoanRepository extends JpaRepository<FinoraLoan, Long> {
 
     Page<FinoraLoan> findByBorrowerIdOrderByDisbursedAtDesc(String borrowerId, Pageable pageable);
 
+    /** Gốc còn lại theo projection Fineract của các khoản đang phục vụ của người vay. */
+    @Query("""
+            select coalesce(sum(projection.principalOutstanding), 0)
+            from FinoraLoan loan, LoanServicingProjection projection
+            where projection.finoraLoanId = loan.id and loan.borrowerId = :borrowerId and loan.status in :statuses
+            """)
+    java.math.BigDecimal sumOutstandingPrincipal(
+            @Param("borrowerId") String borrowerId,
+            @Param("statuses") List<com.finora.loan.domain.servicing.FinoraLoanStatus> statuses);
+
     @Query("""
             select loan.id from FinoraLoan loan, LoanServicingProjection projection
             where projection.finoraLoanId = loan.id and loan.status in :statuses

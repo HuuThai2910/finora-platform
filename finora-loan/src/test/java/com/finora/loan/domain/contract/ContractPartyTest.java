@@ -65,6 +65,23 @@ class ContractPartyTest {
                 .hasMessageContaining("không khớp");
     }
 
+    @Test
+    void systemExpiresOnlyAnOpenSmartCaSessionSoTheInvestorCanSignAgain() {
+        ContractParty party = lender();
+        assertThat(party.expireDigitalSignatureSession(NOW)).isFalse();
+        party.beginDigitalSignature(
+                TRANSACTION, DOCUMENT, "INV-KEY-001", REQUEST_HASH, ACTOR, NOW);
+
+        assertThat(party.expireDigitalSignatureSession(NOW.plusSeconds(700))).isTrue();
+
+        assertThat(party.getStatus()).isEqualTo(ContractPartyStatus.PENDING_SIGNATURE);
+        assertThat(party.getSignatureTransactionId()).isNull();
+        assertThat(party.getIdempotencyKey()).isNull();
+        // Phiên đã đóng: lần ký mới có transaction mới.
+        assertThat(party.beginDigitalSignature(
+                "FINORA-INV-TX-002", DOCUMENT, "INV-KEY-002", REQUEST_HASH, ACTOR, NOW.plusSeconds(800))).isTrue();
+    }
+
     private ContractParty lender() {
         return ContractParty.lender(
                 10L, 101L, ACTOR, new BigDecimal("1000000.00"),

@@ -1,5 +1,5 @@
 """
-Công cụ test xác thực: sinh khóa RSA, ký token giống Keycloak, JWKS giả, mã nội bộ.
+Công cụ test xác thực của trợ lý: sinh khóa RSA, ký token giống Keycloak, JWKS giả.
 
 Không gọi Keycloak thật: test phải chạy được trên máy vừa clone, không cần docker. Khóa
 RSA sinh một lần cho cả phiên test vì sinh khóa 2048 bit mất khoảng 50 ms.
@@ -19,7 +19,6 @@ from app.services.auth.keycloak_jwt import KeycloakJwtVerifier
 ISSUER_LOCAL = "http://localhost:8180/realms/finora"
 JWKS_URL_TEST = "http://keycloak.test/realms/finora/protocol/openid-connect/certs"
 KID_TEST = "khoa-test"
-INTERNAL_TOKEN_TEST = "ma-noi-bo-test-0123456789"
 
 
 @lru_cache(maxsize=1)
@@ -98,21 +97,6 @@ def make_verifier(
     issuers: tuple[str, ...] = (ISSUER_LOCAL,), jwks_client: FakeJwksClient | None = None
 ) -> KeycloakJwtVerifier:
     return KeycloakJwtVerifier(JWKS_URL_TEST, issuers, jwks_client=jwks_client or FakeJwksClient())
-
-
-def use_test_verifier(monkeypatch: pytest.MonkeyPatch, verifier: KeycloakJwtVerifier | None = None) -> KeycloakJwtVerifier:
-    """Cho `app.api.deps` dùng verifier test thay cho verifier đọc env (gọi Keycloak thật)."""
-    from app.api import deps
-
-    chon = verifier or make_verifier()
-    monkeypatch.setattr(deps, "get_verifier", lambda: chon)
-    return chon
-
-
-def internal_headers(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
-    """Đặt `AI_INTERNAL_TOKEN` cho tiến trình test và trả header Loan sẽ gửi."""
-    monkeypatch.setenv("AI_INTERNAL_TOKEN", INTERNAL_TOKEN_TEST)
-    return {"X-Internal-Token": INTERNAL_TOKEN_TEST}
 
 
 def bearer(token: str) -> dict[str, str]:

@@ -10,7 +10,7 @@ FINORA là nền tảng cho vay ngang hàng (Peer-to-Peer Lending) được xây
 |---------|------|-----------|-------|
 | `finora-gateway` | 8080 | Spring Cloud Gateway | Định tuyến API |
 | `finora-loan` | 8081 | Spring Boot + PostgreSQL | Vòng đời khoản vay |
-| `finora-payment` | 8082 | Spring Boot + PostgreSQL + Redis | Ví, Giải ngân Saga |
+| `finora-payment` | 8082 | Spring Boot + PostgreSQL | Ví, Giải ngân Saga |
 | `finora-blockchain` | 8083 | Spring Boot + PostgreSQL + Fabric SDK | Sổ cái phân tán |
 | `finora-investment` | 8084 | Spring Boot + PostgreSQL | Sàn khớp lệnh P2P |
 | `finora-user` | 8085 | Spring Boot + PostgreSQL | Quản lý User, eKYC |

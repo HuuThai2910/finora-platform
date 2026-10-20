@@ -55,6 +55,27 @@ public class InvestmentLoanServicingState {
         updatedAt = now;
     }
 
+    /** B34: vị thế có ngày đáo hạn ngay khi giải ngân, không phải chờ tới lần cơ cấu đầu tiên. */
+    public static InvestmentLoanServicingState disbursed(Long applicationId, String loanNumber,
+            LocalDate maturityDate, Instant now) {
+        InvestmentLoanServicingState value = new InvestmentLoanServicingState();
+        value.loanApplicationId = applicationId;
+        value.loanNumber = loanNumber;
+        value.status = "ACTIVE";
+        value.initializeRisk();
+        value.maturityDate = maturityDate;
+        value.createdAt = now;
+        value.updatedAt = now;
+        return value;
+    }
+
+    /** Ghi ngày đáo hạn lúc giải ngân khi chưa có; ngày do cơ cấu đặt (đến sau) luôn được giữ. */
+    public void initializeMaturity(LocalDate value, Instant now) {
+        if (maturityDate != null || lastRescheduleRequestId != null || value == null) return;
+        maturityDate = value;
+        updatedAt = now;
+    }
+
     public static InvestmentLoanServicingState settled(Long applicationId, String loanNumber,
             Instant settledAt, Instant now) {
         InvestmentLoanServicingState value = new InvestmentLoanServicingState();

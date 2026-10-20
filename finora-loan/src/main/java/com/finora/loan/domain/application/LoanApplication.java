@@ -70,6 +70,10 @@ public class LoanApplication {
     @Embedded
     private ApplicantFinancialSnapshot financialSnapshot;
 
+    /** eKYC và tuổi chụp lúc nộp (W2-KYC); {@code null} với hồ sơ nộp trước Loan V29. */
+    @Embedded
+    private BorrowerKycSnapshot kycSnapshot;
+
     @Column(name = "product_code_snapshot", nullable = false, length = 50, updatable = false)
     private String productCodeSnapshot;
 
@@ -263,6 +267,12 @@ public class LoanApplication {
     @Column(name = "funding_expired_at")
     private Instant fundingExpiredAt;
 
+    @Column(name = "funding_cancelled_at")
+    private Instant fundingCancelledAt;
+
+    @Column(name = "funding_cancel_reason", length = 40)
+    private String fundingCancelReason;
+
     @Version
     @Column(nullable = false)
     private Long version;
@@ -337,6 +347,21 @@ public class LoanApplication {
         application.createdAt = now;
         application.updatedAt = now;
         return application;
+    }
+
+    /**
+     * Gắn snapshot eKYC trước lần insert đầu tiên (cột không cho update). Chỉ người vay đã {@code VERIFIED} được nộp hồ
+     * sơ (D4); service đã chặn trước khi gọi Fineract, kiểm lại ở đây để không đường ghi nào bỏ qua được bất biến này.
+     */
+    public void attachKycSnapshot(BorrowerKycSnapshot snapshot) {
+        if (kycSnapshot != null || id != null) {
+            throw new IllegalStateException("Snapshot eKYC chỉ gắn một lần trước khi lưu hồ sơ");
+        }
+        Objects.requireNonNull(snapshot, "kycSnapshot");
+        if (snapshot.getKycStatus() != com.finora.loan.domain.scoring.BorrowerKycStatus.VERIFIED) {
+            throw LoanDomainException.conflict("BORROWER_KYC_REQUIRED", "Người vay chưa hoàn tất xác minh eKYC");
+        }
+        kycSnapshot = snapshot;
     }
 
     /** Snapshot được insert sau Application để lấy identity ID nhưng vẫn trong cùng local transaction. */
@@ -693,6 +718,32 @@ public class LoanApplication {
         fundingStatus = LoanFundingStatus.EXPIRED;
         investmentListingId = listingId;
         fundingExpiredAt = expiredAt;
+        updatedBy = requireText(actorId, "actorId");
+        updatedAt = now;
+        return true;
+    }
+
+    /**
+     * Hủy đợt gọi vốn đã đủ vốn khi khoản vay chắc chắn không được giải ngân. Chỉ nhận từ
+     * {@code FULLY_FUNDED}: allocation đã khóa nên Investment cần một tín hiệu nghiệp vụ để trả tiền
+     * đang giữ. Gọi lại khi đã hủy trả {@code false} để hai luồng (hết hạn ký và giải ngân lỗi) không
+     * phát event bồi hoàn lần hai.
+     *
+     * @return {@code true} nếu trạng thái vừa đổi và cần ghi outbox
+     */
+    public boolean markFundingCancelled(String reasonCode, String actorId, Instant now) {
+        String normalizedReason = requireText(reasonCode, "reasonCode");
+        if (fundingStatus == LoanFundingStatus.CANCELLED) {
+            return false;
+        }
+        if (fundingStatus != LoanFundingStatus.FULLY_FUNDED) {
+            throw LoanDomainException.conflict(
+                    "LOAN_FUNDING_NOT_FULLY_FUNDED",
+                    "Chỉ đợt gọi vốn đã đủ vốn mới có tiền giữ cần hủy");
+        }
+        fundingStatus = LoanFundingStatus.CANCELLED;
+        fundingCancelledAt = Objects.requireNonNull(now, "now");
+        fundingCancelReason = normalizedReason;
         updatedBy = requireText(actorId, "actorId");
         updatedAt = now;
         return true;

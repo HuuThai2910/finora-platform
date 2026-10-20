@@ -1,6 +1,7 @@
 package com.finora.loan.dto.contract.response;
 
 import com.finora.loan.domain.contract.ContractDeclineReasonCode;
+import com.finora.loan.domain.contract.ContractSignatureProfile;
 import com.finora.loan.domain.contract.LoanContractStatus;
 import com.finora.loan.domain.contract.SignatureMethod;
 import com.finora.loan.domain.contract.SignatureProviderType;
@@ -57,6 +58,9 @@ public record LoanContractDetailResponse(
         Instant disbursedAt,
         Long version,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        ContractSignatureProfile signatureProfile,
+        LoanContractSignedPdfResponse signedPdfDocument,
+        LoanContractPdfResponse receiptDocument
 ) {
 }

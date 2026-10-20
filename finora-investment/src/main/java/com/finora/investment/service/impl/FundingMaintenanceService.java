@@ -1,5 +1,6 @@
 package com.finora.investment.service.impl;
 
+import com.finora.investment.client.PaymentCallException;
 import com.finora.investment.client.PaymentClient;
 import com.finora.investment.domain.order.InvestmentOrder;
 import com.finora.investment.exception.InvestmentDomainException;
@@ -8,6 +9,7 @@ import com.finora.investment.service.FundingService;
 import com.finora.investment.service.OrderTransactionService;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
@@ -60,16 +62,19 @@ public class FundingMaintenanceService {
      */
     public int resumeStalePendingOrders(int batchSize) {
         int resolved = 0;
-        var before = clock.instant().minus(pendingFundsTimeout);
-        for (InvestmentOrder order : orderRepository.findStalePending(before, PageRequest.of(0, batchSize))) {
+        Instant now = clock.instant();
+        var before = now.minus(pendingFundsTimeout);
+        for (InvestmentOrder order : orderRepository.findPendingDue(before, now, PageRequest.of(0, batchSize))) {
             try {
                 fundingService.resumePendingOrder(order.getId());
                 resolved++;
             } catch (InvestmentDomainException failure) {
-                // PAYMENT_UNAVAILABLE: Payment vẫn chưa trả lời, lần quét sau thử lại.
+                // PAYMENT_UNAVAILABLE: Payment vẫn chưa trả lời; lùi lượt sau để lệnh lỗi không chặn lệnh khác (R3).
+                transactions.recordPendingFailure(order.getId(), now);
                 log.warn("Chưa đối soát được lệnh chờ giữ tiền: orderReference={}, code={}",
                         order.getOrderReference(), failure.getCode());
             } catch (RuntimeException failure) {
+                transactions.recordPendingFailure(order.getId(), now);
                 log.error("Lỗi khi đối soát lệnh chờ giữ tiền: orderReference={}, exceptionType={}",
                         order.getOrderReference(), failure.getClass().getName());
             }
@@ -80,10 +85,24 @@ public class FundingMaintenanceService {
     /** Nhả khoản giữ của lệnh đã kết thúc; Payment idempotent theo mã lệnh nên gọi lại an toàn. */
     public int releasePendingHolds(int batchSize) {
         int released = 0;
-        for (InvestmentOrder order : orderRepository.findReleasePending(PageRequest.of(0, batchSize))) {
+        Instant now = clock.instant();
+        for (InvestmentOrder order : orderRepository.findReleaseDue(now, PageRequest.of(0, batchSize))) {
             try {
                 paymentClient.release(order.getPaymentHoldReference(), order.getOrderReference());
+            } catch (PaymentCallException failure) {
+                // Lỗi chắc chắn (khoản giữ đã vào giải ngân, không tìm thấy, lệch mã lệnh) thì dừng cho vận hành; còn lại
+                // thử lại theo lịch lùi dần (R3).
+                transactions.recordReleaseFailure(order.getId(), failure.getCode(), failure.isRetryable(), now);
+                if (failure.isRetryable()) {
+                    log.warn("Chưa nhả được tiền giữ của lệnh đặt vốn: orderReference={}, code={}",
+                            order.getOrderReference(), failure.getCode());
+                } else {
+                    log.error("Dừng nhả tiền giữ, cần vận hành kiểm tra: orderReference={}, code={}",
+                            order.getOrderReference(), failure.getCode());
+                }
+                continue;
             } catch (RuntimeException failure) {
+                transactions.recordReleaseFailure(order.getId(), "PAYMENT_UNAVAILABLE", true, now);
                 log.warn("Chưa nhả được tiền giữ của lệnh đặt vốn: orderReference={}, exceptionType={}",
                         order.getOrderReference(), failure.getClass().getName());
                 continue;

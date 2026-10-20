@@ -48,6 +48,8 @@ public class SecurityConfig {
                         // Probe của hạ tầng phải gọi được khi chưa có token.
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        // Metric vận hành (số sự cố, hàng đợi) chỉ cho quản trị viên (W3E).
+                        .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )

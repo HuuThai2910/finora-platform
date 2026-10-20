@@ -118,6 +118,7 @@ def test_doc_enum_bo_tham_so_va_comment():
         "REQUESTED",
         "FULLY_FUNDED",
         "EXPIRED",
+        "CANCELLED",
     ]
 
 

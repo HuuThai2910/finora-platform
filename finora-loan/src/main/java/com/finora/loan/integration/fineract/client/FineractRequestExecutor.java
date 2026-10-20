@@ -1,10 +1,12 @@
 package com.finora.loan.integration.fineract.client;
 
+import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.loan.config.FineractProperties;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -111,6 +113,15 @@ public class FineractRequestExecutor {
             return new FineractIntegrationException(
                     "FINERACT_UNAVAILABLE", "Không thể kết nối Apache Fineract", true, resourceAccess);
         }
+        // RestClient chỉ bọc lỗi I/O lúc gửi request thành ResourceAccessException; bị reset hoặc đóng giữa chừng khi
+        // đang chờ phản hồi của POST đến dưới dạng RestClientException (drill Q13, B42). Request có thể đã tới Fineract,
+        // nên xử lý như timeout thay vì dừng hẳn.
+        IOException connectionLoss = findConnectionLoss(throwable);
+        if (connectionLoss != null) {
+            return new FineractIntegrationException(
+                    "FINERACT_CONNECTION_LOST", "Mất kết nối với Apache Fineract khi đang chờ phản hồi",
+                    true, connectionLoss);
+        }
         Throwable cause = deepestCause(throwable);
         log.error("Không ánh xạ được lỗi Fineract: exceptionType={}, rootCauseType={}",
                 throwable.getClass().getName(), cause.getClass().getName());
@@ -123,6 +134,21 @@ public class FineractRequestExecutor {
         return timeLimiterTimeout != null
                 ? timeLimiterTimeout
                 : findCause(throwable, SocketTimeoutException.class);
+    }
+
+    /** Lỗi tầng kết nối trong cause chain; lỗi đọc JSON (Jackson cũng là IOException) không tính. */
+    private IOException findConnectionLoss(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof IOException io && !(current instanceof JacksonException)) {
+                return io;
+            }
+            if (current.getCause() == current) {
+                break;
+            }
+            current = current.getCause();
+        }
+        return null;
     }
 
     private <T extends Throwable> T findCause(Throwable throwable, Class<T> expectedType) {

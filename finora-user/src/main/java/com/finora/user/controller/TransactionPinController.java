@@ -49,7 +49,7 @@ public class TransactionPinController {
     @PostMapping("/verify")
     public PinTokenResponse verify(@Valid @RequestBody VerifyPinRequest request, HttpServletRequest http) {
         return pinService.verify(SecurityUtils.getCurrentKeycloakUserId(),
-                request.getPin(), request.getScope(), client(http));
+                request.getPin(), request.getScope(), request.getRequestKey(), client(http));
     }
 
     @PutMapping

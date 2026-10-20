@@ -1,0 +1,44 @@
+# Bản dành cho repository finora-web: chép nguyên file thành finora-web/.github/workflows/ci.yml.
+# Sau khi chép, file trong finora-web là nguồn chuẩn; bản này chỉ để duyệt cùng W3E (D55).
+#
+# CI của finora-web (Q14, D19). Cài đúng lockfile rồi build như script `npm run build` (tsc kiểm kiểu + vite build).
+# Không cần secret: build không gọi API, biến VITE_* chỉ là cấu hình địa chỉ và để trống thì dùng mặc định của mã nguồn.
+# Action pin theo commit SHA (tag ghi ở comment); nâng version thì chọn bản đã phát hành ít nhất hai tuần.
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/**"
+      - "fix/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (npm ci + npm run build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Node.js 22
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Cài dependency theo lockfile
+        run: npm ci
+      - name: Kiểm kiểu và build
+        run: npm run build

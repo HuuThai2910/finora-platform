@@ -72,10 +72,20 @@
             <groupId>org.springframework.kafka</groupId>
             <artifactId>spring-kafka</artifactId>
         </dependency>
+        <!-- B58: broker Kafka trong JVM để chứng minh consumer Payment thử lại có giới hạn rồi vào <topic>.payment.DLT. -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-redis</artifactId>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka-test</artifactId>
+            <scope>test</scope>
         </dependency>
+        <!-- Chờ consumer bất đồng bộ bằng polling có timeout thay vì Thread.sleep (version theo Spring Boot BOM). -->
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- B23 (W3E): đã gỡ spring-boot-starter-data-redis. Payment không dùng Redis: idempotency, hold, hạn mức
+             và hàng đợi worker đều nằm trong PostgreSQL. Thêm lại chỉ khi có use case thật và health readiness tương ứng. -->
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>

@@ -52,6 +52,7 @@ public class AdminLoanDecisionMapper {
         );
     }
 
+    /** {@code contractNumber} là {@code null} khi hồ sơ chưa có Contract. */
     public AdminLoanReviewDetailResponse toDetail(
             LoanApplication application,
             ScheduleCalculationSnapshot initialSchedule,
@@ -59,9 +60,11 @@ public class AdminLoanDecisionMapper {
             BorrowerEligibilityCheck eligibility,
             BorrowerCreditProfile creditProfile,
             CreditScoringAssessment assessment,
-            List<LoanApplicationHistoryResponse> recentHistory
+            List<LoanApplicationHistoryResponse> recentHistory,
+            String contractNumber
     ) {
         return new AdminLoanReviewDetailResponse(
+                application.getId(),
                 application.getApplicationNumber(),
                 application.getBorrowerId(),
                 application.getStatus(),
@@ -90,7 +93,8 @@ public class AdminLoanDecisionMapper {
                 application.getTermsExpiresAt(),
                 application.getSubmittedAt(),
                 application.getAdminDecidedBy(),
-                application.getAdminDecidedAt()
+                application.getAdminDecidedAt(),
+                contractNumber
         );
     }
 

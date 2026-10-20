@@ -358,8 +358,11 @@ def _vi_the(vi_the: dict[str, Any]) -> dict[str, Any]:
 
 
 def _tinh_trang_vi_the(vi_the: dict[str, Any]) -> str:
-    """Cụm chữ cho cột "Tình trạng" của thẻ: nợ xấu, rồi quá hạn, rồi đúng hạn."""
+    """Cụm chữ cho cột "Tình trạng" của thẻ: nợ xấu, rồi đã tất toán, rồi quá hạn, rồi đúng hạn."""
     so_ngay = _so_dem(vi_the.get("daysPastDue"))
+    if vi_the.get("status") == "CLOSED":
+        # Danh mục giữ vị thế đã thu hồi đủ gốc (R3-W2) để không mất lịch sử; không gọi là "Đúng hạn".
+        return dich_trang_thai("note", "CLOSED")
     if vi_the.get("status") == "DEFAULTED":
         nhom = vi_the.get("debtGroup")
         return f"Nợ xấu, nhóm {nhom}" if isinstance(nhom, int) and not isinstance(nhom, bool) else "Nợ xấu"
@@ -383,9 +386,10 @@ async def _danh_muc_cua_toi(client: FinoraApiClient, _params: NoParams) -> ToolR
         so_note_xau = sum(_so_dem(item.get("noteCount")) for item in no_xau)
         so_khoan_xau = len(no_xau)
     von_cho = _tien(data.get("pendingAmount"))
-    # Khoản nợ xấu rồi quá hạn lên đầu vì đó là điều nhà đầu tư cần biết trước. Đây là thứ tự đọc,
-    # không phải xếp hạng khoản tốt/xấu để mua bán.
+    # Khoản nợ xấu rồi quá hạn lên đầu vì đó là điều nhà đầu tư cần biết trước; khoản đã tất toán xuống
+    # cuối. Đây là thứ tự đọc, không phải xếp hạng khoản tốt/xấu để mua bán.
     sap_xep = sorted(vi_the, key=lambda item: (item.get("status") != "DEFAULTED",
+                                               item.get("status") == "CLOSED",
                                                -_so_dem(item.get("daysPastDue")),
                                                _so_dem(item.get("loanId"))))
     hien = sap_xep[:_TOI_DA_DONG]

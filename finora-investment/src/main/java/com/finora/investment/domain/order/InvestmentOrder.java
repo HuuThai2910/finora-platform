@@ -74,6 +74,33 @@ public class InvestmentOrder {
     @Column(name = "rejected_reason_detail", length = 500)
     private String rejectedReasonDetail;
 
+    /** Phiên bản công bố rủi ro nhà đầu tư đã xác nhận trước lệnh sơ cấp; trống với lệnh cũ/Auto-Invest. */
+    @Column(name = "risk_acknowledged_version", length = 50)
+    private String riskAcknowledgedVersion;
+
+    @Column(name = "risk_acknowledged_at")
+    private Instant riskAcknowledgedAt;
+
+    /** R3: số lần làm tiếp lệnh chờ giữ tiền chưa có kết quả, và lượt thử kế tiếp (lùi dần). */
+    @Column(name = "pending_attempt_count", nullable = false)
+    private int pendingAttemptCount;
+
+    @Column(name = "pending_next_attempt_at")
+    private Instant pendingNextAttemptAt;
+
+    /** R3: số lần nhả khoản giữ lỗi, lượt thử kế tiếp, mã lỗi gần nhất; dừng hẳn khi Payment trả lỗi chắc chắn. */
+    @Column(name = "release_attempt_count", nullable = false)
+    private int releaseAttemptCount;
+
+    @Column(name = "release_next_attempt_at")
+    private Instant releaseNextAttemptAt;
+
+    @Column(name = "release_error_code", length = 80)
+    private String releaseErrorCode;
+
+    @Column(name = "release_blocked_at")
+    private Instant releaseBlockedAt;
+
     @Version
     @Column(nullable = false)
     private Long version;

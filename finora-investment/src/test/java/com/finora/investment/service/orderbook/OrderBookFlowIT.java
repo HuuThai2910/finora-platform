@@ -171,7 +171,7 @@ class OrderBookFlowIT {
         notesByInvestor.forEach((investor, notes) -> {
             actAs(investor);
             fundingService.placeOrder(listing.listingId(), "fund-" + loanId + "-" + investor,
-                    new PlaceOrderRequest(new BigDecimal(notes).multiply(new BigDecimal("1000000.00"))));
+                    new PlaceOrderRequest(new BigDecimal(notes).multiply(new BigDecimal("1000000.00")), "INVESTOR_RISK_V1"));
         });
         noteIssuanceService.finalizeCommitments(listing.listingId());
         assertThat(noteIssuanceService.activateNotes(listing.listingId())).isEqualTo(total);

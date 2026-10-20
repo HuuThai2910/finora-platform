@@ -36,7 +36,6 @@ BIEN_TRO_LY = {
     "INVESTMENT_SERVICE_URL",
     "USER_SERVICE_URL",
     "NOTIFICATION_SERVICE_URL",
-    "AI_INTERNAL_TOKEN",
 }
 
 # Biến chứa khóa/bí mật: trong file mẫu phải để trống.
@@ -47,7 +46,6 @@ BIEN_BI_MAT = (
     "OPENROUTER_API_KEY",
     "GEMINI_API_KEY",
     "ASSISTANT_HASH_SALT",
-    "AI_INTERNAL_TOKEN",
 )
 
 

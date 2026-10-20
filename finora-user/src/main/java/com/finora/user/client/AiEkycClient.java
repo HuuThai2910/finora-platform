@@ -17,7 +17,9 @@ import org.springframework.web.bind.annotation.RequestBody;
  */
 @FeignClient(
     name = "ai-ekyc-service",
-    url = "${finora.ai.url:http://localhost:8000}"
+    url = "${finora.ai.url:http://localhost:8000}",
+    // AI chỉ nhận OCR từ service account có client role ai:ekyc:ocr (D34, D35).
+    configuration = ServiceAccountFeignConfig.class
 )
 public interface AiEkycClient {
 

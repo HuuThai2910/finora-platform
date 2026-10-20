@@ -34,10 +34,11 @@ switch ($Scope) {
         $requiredSecrets += @('LOAN_POSTGRES_ADMIN_PASSWORD', 'LOAN_DB_PASSWORD')
     }
     'Payment' {
+        # Payment khong dung Redis (B23, W3E): chi con PostgreSQL rieng.
         $profiles += 'payment'
-        $infraServices += @('payment-postgres', 'payment-redis')
-        $healthServices += @('payment-postgres', 'payment-redis')
-        $requiredSecrets += @('PAYMENT_POSTGRES_ADMIN_PASSWORD', 'PAYMENT_DB_PASSWORD', 'PAYMENT_REDIS_PASSWORD')
+        $infraServices += 'payment-postgres'
+        $healthServices += 'payment-postgres'
+        $requiredSecrets += @('PAYMENT_POSTGRES_ADMIN_PASSWORD', 'PAYMENT_DB_PASSWORD')
     }
     'Blockchain' {
         $profiles += 'blockchain'
@@ -59,11 +60,11 @@ switch ($Scope) {
     }
     'All' {
         $profiles += @('loan', 'payment', 'blockchain', 'user', 'investment')
-        $infraServices += @('loan-postgres', 'payment-postgres', 'payment-redis', 'blockchain-postgres', 'user-redis', 'investment-postgres')
-        $healthServices += @('loan-postgres', 'payment-postgres', 'payment-redis', 'blockchain-postgres', 'user-redis', 'investment-postgres')
+        $infraServices += @('loan-postgres', 'payment-postgres', 'blockchain-postgres', 'user-redis', 'investment-postgres')
+        $healthServices += @('loan-postgres', 'payment-postgres', 'blockchain-postgres', 'user-redis', 'investment-postgres')
         $requiredSecrets += @(
             'LOAN_POSTGRES_ADMIN_PASSWORD', 'LOAN_DB_PASSWORD',
-            'PAYMENT_POSTGRES_ADMIN_PASSWORD', 'PAYMENT_DB_PASSWORD', 'PAYMENT_REDIS_PASSWORD',
+            'PAYMENT_POSTGRES_ADMIN_PASSWORD', 'PAYMENT_DB_PASSWORD',
             'BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD', 'BLOCKCHAIN_DB_PASSWORD',
             'INVESTMENT_POSTGRES_ADMIN_PASSWORD', 'INVESTMENT_DB_PASSWORD'
         )

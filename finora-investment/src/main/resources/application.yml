@@ -49,6 +49,29 @@ spring:
 server:
   port: 8084
 
+management:
+  endpoint:
+    health:
+      # Ai cũng thấy tên và trạng thái từng thành phần; chi tiết chỉ hiện với token ROLE_ADMIN (W3E, D56).
+      show-components: always
+      show-details: when-authorized
+      roles: ADMIN
+      probes:
+        enabled: true
+      group:
+        # Liveness chỉ hỏi JVM còn chạy; dependency lỗi không được làm orchestrator khởi động lại Investment.
+        liveness:
+          include: livenessState
+        # Sàn, lệnh và Note đều cần PostgreSQL. Kafka không vào đây: outbox giữ event trong DB khi broker tắt.
+        readiness:
+          include: readinessState,db
+        operations:
+          include: kafka
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
 logging:
   level:
     com.finora.investment: INFO
@@ -63,6 +86,9 @@ finora:
     # Chặn đặt lệnh/bật Auto-Invest khi token chưa có claim ekyc_status=VERIFIED. Realm đang chạy
     # phải có mapper ekyc-status (docker/keycloak/add-ekyc-claim-mapper.sh) rồi đăng nhập lại.
     require-ekyc: ${INVESTMENT_REQUIRE_EKYC:true}
+    # D6/LEGAL-DISCLOSURE-02: version công bố rủi ro nhà đầu tư phải xác nhận trước lệnh sơ cấp; đổi nội dung thì tăng version.
+    risk-disclosure:
+      version: ${INVESTMENT_RISK_DISCLOSURE_VERSION:INVESTOR_RISK_V1}
     payment:
       mode: ${INVESTMENT_PAYMENT_MODE:http}
       base-url: ${PAYMENT_SERVICE_URL:http://localhost:8082/api/v1}
@@ -96,6 +122,7 @@ finora:
       batch-size: ${INVESTMENT_AUTO_INVEST_BATCH_SIZE:20}
     kafka:
       funding-requested-topic: ${LOAN_FUNDING_REQUESTED_TOPIC:finora.loan.funding-requested}
+      funding-cancelled-topic: ${LOAN_FUNDING_CANCELLED_TOPIC:finora.loan.funding-cancelled}
       fully-funded-topic: ${INVESTMENT_FULLY_FUNDED_TOPIC:finora.investment.loan-fully-funded}
       funding-expired-topic: ${INVESTMENT_FUNDING_EXPIRED_TOPIC:finora.investment.loan-funding-expired}
       investor-signature-requested-topic: ${LOAN_INVESTOR_SIGNATURE_REQUESTED_TOPIC:finora.loan.investor-signature-requested}
@@ -103,6 +130,8 @@ finora:
       loan-disbursed-topic: ${LOAN_DISBURSED_TOPIC:finora.loan.disbursed}
       note-ownership-changed-topic: ${INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC:finora.investment.note-ownership-changed}
       note-servicing-changed-topic: ${INVESTMENT_NOTE_SERVICING_CHANGED_TOPIC:finora.investment.note-servicing-changed}
+      reschedule-consent-requested-topic: ${LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC:finora.loan.reschedule-consent-requested}
+      reschedule-consent-completed-topic: ${INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC:finora.investment.reschedule-consent-completed}
       repayment-distributed-topic: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:finora.payment.repayment-distributed}
       loan-settled-topic: ${LOAN_SETTLED_TOPIC:finora.loan.settled}
       loan-rescheduled-topic: ${LOAN_RESCHEDULED_TOPIC:finora.loan.rescheduled}

@@ -31,7 +31,6 @@ from app.ml.credit.explainer import (
 from app.ml.credit.features import FEATURE_NAMES, TARGET_COLS
 from app.ml.credit.predictor import COT_DIEN_MEDIAN, BoDuDoan
 from app.ml.shared.model_registry import luu_mo_hinh
-from auth.jwt_factory import internal_headers
 
 PHIEN_BAN = "0.0.1-test"
 DUONG_DAN = "/api/v1/ai/credit/explain"
@@ -297,8 +296,7 @@ class TestEndpointExplain:
 
         # Không gọi cache_clear() sau yield: monkeypatch đã thay `lay_bo_du_doan`
         # bằng lambda (không có cache_clear) và tự khôi phục bản gốc khi test xong.
-        # /explain chỉ nhận Loan hoặc admin: gửi mã nội bộ như Loan.
-        yield TestClient(main.app, headers=internal_headers(monkeypatch))
+        yield TestClient(main.app)
 
     def test_tra_200_va_du_hai_nua_giai_thich(self, client):
         r = client.post(DUONG_DAN, json=_ho_so())
@@ -354,8 +352,6 @@ class TestEndpointExplain:
         credit_router.lay_bo_du_doan.cache_clear()
         monkeypatch.setattr(credit_router, "lay_bo_du_doan", _no_)
 
-        r = TestClient(main.app, headers=internal_headers(monkeypatch)).post(
-            DUONG_DAN, json=_ho_so()
-        )
+        r = TestClient(main.app).post(DUONG_DAN, json=_ho_so())
         assert r.status_code == 503
         assert r.json()["detail"]["code"] == "MODEL_NOT_AVAILABLE"

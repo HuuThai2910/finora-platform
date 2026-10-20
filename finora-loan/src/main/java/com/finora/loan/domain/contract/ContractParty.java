@@ -242,6 +242,22 @@ public class ContractParty {
     /** Cho phép thử lại sau khi người dùng từ chối/hủy giao dịch trên SmartCA. */
     public void resetRejectedDigitalSignature(String actorId, Instant now) {
         requireOwner(actorId);
+        clearDigitalSignatureAttempt(now);
+    }
+
+    /**
+     * Worker đóng phiên SmartCA quá hạn mà nhà đầu tư không quay lại kiểm tra; nhà đầu tư ký lại bằng yêu cầu mới.
+     * Trả {@code false} khi bên này không còn đang ký số.
+     */
+    public boolean expireDigitalSignatureSession(Instant now) {
+        if (status != ContractPartyStatus.SIGNING) {
+            return false;
+        }
+        clearDigitalSignatureAttempt(now);
+        return true;
+    }
+
+    private void clearDigitalSignatureAttempt(Instant now) {
         if (status != ContractPartyStatus.SIGNING) {
             return;
         }

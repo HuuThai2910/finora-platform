@@ -156,6 +156,11 @@ _GOI_VON: dict[str, _TrangThai] = {
         "Hết thời hạn gọi vốn mà chưa đủ vốn nên không lập hợp đồng cho đợt này; tiền giữ của "
         "nhà đầu tư được trả lại ví.",
     ),
+    "CANCELLED": (
+        "Đã hủy sau khi đủ vốn",
+        "Khoản vay đã đủ vốn nhưng sẽ không được giải ngân (hợp đồng bị từ chối hoặc hết hạn ký, hoặc giải "
+        "ngân thất bại khi tiền chưa chuyển); phần vốn của nhà đầu tư bị hủy và tiền đang giữ được trả lại ví.",
+    ),
 }
 
 # finora-loan/.../domain/application/TermsConfirmationStatus.java
@@ -263,6 +268,16 @@ _THU_HOI: dict[str, _TrangThai] = {
 # trên hệ thống lõi là việc nội bộ nên người dùng chỉ cần biết "đang áp dụng lịch mới".
 _CO_CAU: dict[str, _TrangThai] = {
     "PENDING_REVIEW": ("Chờ thẩm định", "Yêu cầu cơ cấu đang chờ chuyên viên xem xét."),
+    "PENDING_INVESTOR_CONSENT": (
+        "Chờ nhà đầu tư đồng ý",
+        "Quản trị đã duyệt yêu cầu cơ cấu; các nhà đầu tư đang nắm Note của khoản vay đang cho ý kiến. Lịch "
+        "trả mới chỉ được áp dụng khi tất cả cùng đồng ý.",
+    ),
+    "INVESTOR_REJECTED": (
+        "Nhà đầu tư không đồng ý",
+        "Không phải mọi nhà đầu tư đang nắm Note đều đồng ý nên yêu cầu cơ cấu không được áp dụng; lịch trả "
+        "cũ giữ nguyên.",
+    ),
     "REJECTED": ("Đã từ chối", "Yêu cầu cơ cấu không được duyệt; lịch trả cũ giữ nguyên."),
     "CREATE_PENDING": ("Đã duyệt, chờ áp dụng", "Yêu cầu đã được duyệt; hệ thống sắp tạo lịch trả mới."),
     "CREATING": ("Đang áp dụng lịch mới", "Hệ thống lõi đang tạo lịch trả mới."),

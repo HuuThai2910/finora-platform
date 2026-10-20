@@ -144,8 +144,9 @@ Thêm từng biến bằng bảng Environment variables của IntelliJ; không d
 PAYMENT_DB_URL=jdbc:postgresql://<payment-host>/neondb?sslmode=require
 PAYMENT_DB_USERNAME=<default role từ Connect của finora-payment>
 PAYMENT_DB_PASSWORD=<password Neon>
-PAYMENT_REDIS_PASSWORD=<password Redis local/deploy>
 ```
+
+Payment không dùng Redis (B23): không cần `PAYMENT_REDIS_*`.
 
 ### Blockchain
 
@@ -255,7 +256,7 @@ Copy-Item docker/.env.example docker/.env
 docker compose --env-file docker/.env -f docker/docker-compose.yml --profile loan up -d loan-postgres
 
 # Payment
-docker compose --env-file docker/.env -f docker/docker-compose.yml --profile payment up -d payment-postgres payment-redis
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile payment up -d payment-postgres
 
 # Blockchain
 docker compose --env-file docker/.env -f docker/docker-compose.yml --profile blockchain up -d blockchain-postgres

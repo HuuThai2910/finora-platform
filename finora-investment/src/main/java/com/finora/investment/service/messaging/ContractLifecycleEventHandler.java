@@ -44,8 +44,13 @@ public class ContractLifecycleEventHandler {
             throw InvestmentDomainException.conflict(
                     "CONTRACT_REFERENCE_MISMATCH", "Listing đã gắn với Contract khác");
         }
+        requireSameDocument(listing, data.documentHash());
         listing.setContractNumber(data.contractNumber());
-        listing.setContractStatus("PENDING_LENDER_SIGNATURES");
+        // Ba topic Contract/giải ngân không bảo đảm thứ tự giữa nhau: event yêu cầu ký đến muộn sau khi Contract đã
+        // hiệu lực hoặc đã giải ngân thì chỉ bổ sung tham chiếu, không đưa trạng thái lùi về chờ ký.
+        if (!"EFFECTIVE".equals(listing.getContractStatus()) && listing.getDisbursedAt() == null) {
+            listing.setContractStatus("PENDING_LENDER_SIGNATURES");
+        }
         listing.setContractDocumentHash(data.documentHash());
         listing.setUpdatedBy("SYSTEM-LOAN-EVENT");
         listing.setUpdatedAt(clock.instant());
@@ -71,11 +76,16 @@ public class ContractLifecycleEventHandler {
         MarketListing listing = lockedListing(data.listingId());
         requireSnapshot(listing, data.loanApplicationId(), data.applicationNumber(),
                 data.allocationVersion(), data.allocationHash());
-        if (!data.contractNumber().equals(listing.getContractNumber())
-                || !data.documentHash().equals(listing.getContractDocumentHash())) {
+        // Event kích hoạt có thể đến trước event yêu cầu ký (khác topic): khi listing chưa gắn Contract thì nhận tham
+        // chiếu từ chính event của Loan (SoR Contract); đã gắn mà khác Contract/hash là dữ liệu mâu thuẫn thật.
+        if ((listing.getContractNumber() != null && !data.contractNumber().equals(listing.getContractNumber()))
+                || (listing.getContractDocumentHash() != null
+                        && !data.documentHash().equals(listing.getContractDocumentHash()))) {
             throw InvestmentDomainException.conflict(
                     "CONTRACT_ACTIVATION_MISMATCH", "Contract kích hoạt không khớp projection đã nhận");
         }
+        listing.setContractNumber(data.contractNumber());
+        listing.setContractDocumentHash(data.documentHash());
         listing.setContractStatus("EFFECTIVE");
         listing.setContractReceiptHash(data.pdfReceiptHash());
         listing.setContractActivatedAt(data.activatedAt());
@@ -85,6 +95,13 @@ public class ContractLifecycleEventHandler {
         processedEventRepository.saveAndFlush(ProcessedEvent.create(
                 eventId, "LoanContractActivated", 1, "finora-loan",
                 data.contractNumber(), occurredAt, clock.instant()));
+    }
+
+    private static void requireSameDocument(MarketListing listing, String documentHash) {
+        if (listing.getContractDocumentHash() != null && !listing.getContractDocumentHash().equals(documentHash)) {
+            throw InvestmentDomainException.conflict(
+                    "CONTRACT_DOCUMENT_MISMATCH", "Listing đã gắn với văn bản Contract khác");
+        }
     }
 
     private MarketListing lockedListing(Long listingId) {

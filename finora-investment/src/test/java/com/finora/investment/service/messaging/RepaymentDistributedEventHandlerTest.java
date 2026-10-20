@@ -81,13 +81,14 @@ class RepaymentDistributedEventHandlerTest {
         first.setInvestorId("buyer");
         when(transfers.existsByNoteIdAndSellerId(1L, "seller")).thenReturn(true);
 
-        handler.handle(UUID.randomUUID(), NOW, event(allocation(1L, "seller", "100.00", "10.00")));
+        handler.handle(UUID.randomUUID(), NOW,
+                event(allocation(1L, "seller", "100.00", "10.00", "2.00")));
 
         ArgumentCaptor<NoteRepaymentRedirect> redirect = ArgumentCaptor.forClass(NoteRepaymentRedirect.class);
         verify(redirects).save(redirect.capture());
         assertThat(redirect.getValue().getFromInvestorId()).isEqualTo("seller");
         assertThat(redirect.getValue().getToInvestorId()).isEqualTo("buyer");
-        assertThat(redirect.getValue().getAmount()).isEqualByComparingTo("110.00");
+        assertThat(redirect.getValue().getAmount()).isEqualByComparingTo("112.00");
         assertThat(redirect.getValue().getRedirectReference()).isEqualTo("REPAY-REDIRECT:" + REPAYMENT_ID + ":1");
 
         ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
@@ -96,6 +97,9 @@ class RepaymentDistributedEventHandlerTest {
         assertThat(((InvestorServicingNotificationEventData) payload.getValue()).recipients())
                 .extracting(InvestorServicingNotificationEventData.Recipient::investorId)
                 .containsExactly("buyer");
+        assertThat(((InvestorServicingNotificationEventData) payload.getValue()).recipients())
+                .extracting(InvestorServicingNotificationEventData.Recipient::amount)
+                .containsExactly("112.00");
     }
 
     @Test
@@ -120,18 +124,27 @@ class RepaymentDistributedEventHandlerTest {
 
     private RepaymentDistributedEventData.NoteAllocation allocation(
             Long noteId, String investorId, String principal, String interest) {
-        return new RepaymentDistributedEventData.NoteAllocation(noteId, "NOTE-" + noteId, investorId, principal, interest);
+        return allocation(noteId, investorId, principal, interest, "0.00");
+    }
+
+    private RepaymentDistributedEventData.NoteAllocation allocation(
+            Long noteId, String investorId, String principal, String interest, String prepaymentFee) {
+        return new RepaymentDistributedEventData.NoteAllocation(
+                noteId, "NOTE-" + noteId, investorId, principal, interest, prepaymentFee);
     }
 
     private RepaymentDistributedEventData event(RepaymentDistributedEventData.NoteAllocation... allocations) {
         BigDecimal principal = BigDecimal.ZERO.setScale(2);
         BigDecimal interest = BigDecimal.ZERO.setScale(2);
+        BigDecimal prepaymentFee = BigDecimal.ZERO.setScale(2);
         for (var allocation : allocations) {
             principal = principal.add(new BigDecimal(allocation.principalAmount()));
             interest = interest.add(new BigDecimal(allocation.interestAmount()));
+            prepaymentFee = prepaymentFee.add(new BigDecimal(allocation.prepaymentFeeAmount()));
         }
-        return new RepaymentDistributedEventData(REPAYMENT_ID, "RP-42", "SCHEDULED", null, "0.00",
-                10L, 20L, 30L, principal.add(interest).toPlainString(), principal.toPlainString(),
+        return new RepaymentDistributedEventData(REPAYMENT_ID, "RP-42", "SCHEDULED", null,
+                prepaymentFee.toPlainString(), prepaymentFee.toPlainString(), "0.00",
+                10L, 20L, 30L, principal.add(interest).add(prepaymentFee).toPlainString(), principal.toPlainString(),
                 interest.toPlainString(), "0.00", "0.00", "0", "0", "0", "0", "0", "0", "VND",
                 null, null, null, NOW, List.of(allocations));
     }

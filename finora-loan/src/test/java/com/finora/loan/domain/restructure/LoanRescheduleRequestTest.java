@@ -18,7 +18,11 @@ class LoanRescheduleRequestTest {
         LoanRescheduleRequest request = extension();
 
         assertThat(request.claim(NOW, Duration.ofMinutes(2))).isNull();
-        request.approve("admin", "Đã thẩm định", "decision-1", NOW);
+        request.approveForInvestorConsent("admin", "Đã thẩm định", "decision-1", NOW);
+
+        assertThat(request.claim(NOW, Duration.ofMinutes(2))).isNull();
+        assertThat(request.getStatus()).isEqualTo(LoanRescheduleStatus.PENDING_INVESTOR_CONSENT);
+        request.investorsApproved(NOW);
 
         assertThat(request.claim(NOW, Duration.ofMinutes(2))).isEqualTo(LoanRescheduleStep.CREATE);
         assertThat(request.getStatus()).isEqualTo(LoanRescheduleStatus.CREATING);
@@ -28,7 +32,8 @@ class LoanRescheduleRequestTest {
     @Test
     void staleCreateIsOnlyTakenOverAfterLeaseAndReconcilesBeforeRetry() {
         LoanRescheduleRequest request = extension();
-        request.approve("admin", null, "decision-1", NOW);
+        request.approveForInvestorConsent("admin", null, "decision-1", NOW);
+        request.investorsApproved(NOW);
         request.claim(NOW, Duration.ofMinutes(2));
 
         assertThat(request.claim(NOW.plusSeconds(119), Duration.ofMinutes(2))).isNull();
@@ -39,7 +44,8 @@ class LoanRescheduleRequestTest {
     @Test
     void retryMovesToManualReviewAtConfiguredLimit() {
         LoanRescheduleRequest request = extension();
-        request.approve("admin", null, "decision-1", NOW);
+        request.approveForInvestorConsent("admin", null, "decision-1", NOW);
+        request.investorsApproved(NOW);
         request.claim(NOW, Duration.ofMinutes(2));
 
         request.fail("FINERACT_TIMEOUT", true, 1, NOW.plusSeconds(30), NOW);

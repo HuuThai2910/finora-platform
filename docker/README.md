@@ -18,17 +18,58 @@ Docker Compose giữ PostgreSQL riêng từng service để làm việc khi mấ
 | `fineract` | `finora-fineract-postgres` | `15432` | `fineract-postgres-data` |
 | `fineract` | `finora-fineract` | `18443` | không lưu DB trong app container |
 | `ai` | `finora-ai` | `8000` | model v17 nằm trong image, không có database |
-| `payment` | `finora-payment-postgres` | `15434` | `payment-postgres-data` |
-| `payment` | `finora-payment-redis` | `6380` | `payment-redis-data` |
+| `payment` | `finora-payment-postgres` | `15434` | `payment-postgres-data` (Payment không dùng Redis, B23) |
 | `blockchain` | `finora-blockchain-postgres` | `15435` | `blockchain-postgres-data` |
+| `fabric` | `finora-fabric-orderer`, `finora-fabric-peer0-org1/org2`, `finora-fabric-ccaas-org1/org2` | `7051` (gateway peer0.org1) | `fabric-orderer-data`, `fabric-peer0-org1-data`, `fabric-peer0-org2-data`; dựng bằng [`fabric-network/`](fabric-network/README.md) |
 | `user` | `finora-user-redis` | `6381` | `user-redis-data` |
 | `investment` | `finora-investment-postgres` | `15437` | `investment-postgres-data` |
 | `core` | `finora-keycloak` | `8180` | `keycloak-import` (file realm đã render) |
-| `demo` | `finora-user` + Keycloak + Redis + AI + CIC | `8085`, `8180`, `6381`, `8000`, `9000` | Database User/Keycloak/CIC nằm ngoài Compose |
+| `demo` | Kafka + `finora-user` + Keycloak + Redis + AI | `9092`, `8085`, `8180`, `6381`, `8000` | Database User/Keycloak nằm ngoài Compose; CIC là Node đã deploy qua `CIC_SERVICE_URL` |
 | `mail` | `finora-mailpit` | `8025` UI, `1025` SMTP | không lưu trữ lâu dài (tối đa 500 thư) |
 
 Database PostgreSQL của Keycloak và `finora-user` không nằm trong Compose; chúng có thể
 chạy trên máy host hoặc Neon. Container Keycloak vẫn chạy trong Docker. Xem mục 4.0 và 4.1.
+
+## 1b. Chạy toàn bộ service trong Docker với DB Neon (profile `apps`)
+
+Thay cho việc mở IntelliJ: sáu service Java (Loan, Payment, Investment, Notification, Blockchain, Gateway) chạy trong
+container `eclipse-temurin:21-jre` bằng **jar đã build sẵn**, không build image. Mỗi service đọc `.env` của module (DB Neon
+như khi chạy IntelliJ); Compose chỉ đổi địa chỉ `localhost` trong `.env` (Kafka, Keycloak, Fineract, AI, User, Payment) sang
+tên service trong mạng Docker. Blockchain dùng container `blockchain-postgres` (chưa có DB Neon), ledger MOCK, listener và
+worker bật (ghi lên Fabric local khi đặt `BLOCKCHAIN_PROOF_PROVIDER=HYPERLEDGER_FABRIC`, mục dưới); Fineract dùng `fineract-postgres`.
+
+```powershell
+# Build jar một lần trước lần bật đầu tiên
+mvn -B -ntp -pl finora-loan,finora-payment,finora-investment,finora-notification,finora-blockchain,finora-gateway -am package -DskipTests
+# Bật hạ tầng + sáu service (Kafka, Keycloak, User, AI, Fineract, DB Blockchain/Fineract, rồi các app)
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps up -d
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps ps
+# Sửa code một service: dừng container trước (container giữ khóa file jar, Maven không ghi đè được), build, bật lại
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps stop loan
+mvn -B -ntp -pl finora-loan -am package -DskipTests
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps up -d loan
+```
+
+- Mọi lệnh `docker compose` của profile `apps` phải có đủ bốn profile như trên: chỉ `--profile apps` thì Compose báo
+  `depends on undefined service "kafka": invalid compose project` (Kafka, Keycloak ở profile `demo`, DB Blockchain ở
+  `blockchain`). Tắt riêng sáu service app, giữ hạ tầng: `... stop loan payment investment notification blockchain gateway`.
+
+- Cần `BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD` và `BLOCKCHAIN_DB_PASSWORD` trong `docker/.env` (container DB khởi tạo bằng các giá
+  trị này ở lần đầu).
+- **Mặc định giả lập để test UI (D85)**, ghi đè `.env` của module: Loan ký `MOCK` và coi người vay đã eKYC (`mock`),
+  Investment tắt kiểm eKYC nhà đầu tư và worker Auto-Invest. Đổi bằng `APPS_SIGNATURE_PROVIDER`,
+  `APPS_BORROWER_PROFILE_PROVIDER`, `APPS_INVESTMENT_REQUIRE_EKYC`, `APPS_INVESTMENT_AUTO_INVEST_ENABLED` trong `docker/.env`
+  rồi `up -d loan investment` (tạo lại container; `restart` giữ biến cũ). Ký SmartCA UAT ngay trong container Loan:
+  `APPS_SIGNATURE_PROVIDER=VNPT_SMART_CA`, thông tin `VNPT_SMARTCA_*` đọc từ `finora-loan/.env`; không cần IntelliJ vì
+  SmartCA không gọi ngược vào Loan.
+- **Fabric thật (D86):** `powershell -ExecutionPolicy Bypass -File docker/fabric-network/fabric-network.ps1 -Action Up`
+  (dựng mạng hai tổ chức, kiểm RAM, thêm khoảng 200–400 MB), đặt `BLOCKCHAIN_PROOF_PROVIDER=HYPERLEDGER_FABRIC` trong
+  `docker/.env` rồi `up -d blockchain`. Container Blockchain nối peer qua mạng Docker và đọc danh tính trong
+  `docker/fabric-network` (mount chỉ đọc). Xong: xóa biến, `up -d blockchain`, rồi `fabric-network.ps1 -Action Down`.
+- Muốn debug một service bằng IntelliJ: `docker stop finora-<service>` rồi chạy service đó trong IntelliJ (trùng cổng nếu không
+  dừng container).
+- Lần đầu chạy code mới, Flyway áp migration còn thiếu lên DB Neon (dùng chung với cả nhóm); migration đã áp không gỡ được.
+- Các ca cần dời đồng hồ (quá hạn, nợ xấu) vẫn dùng launcher E2E với `-Database local` (`docs/testing/E2E-VERTICAL-SLICE.md`).
 
 ## 2. Chuẩn bị Docker offline một lần
 
@@ -80,7 +121,7 @@ docker compose --env-file docker/.env -f docker/docker-compose.yml --profile loa
 
 ## 4. Các scope khác
 
-### Chạy bộ tích hợp User + Keycloak + AI + CIC
+### Chạy bộ tích hợp User + Keycloak + AI
 
 Compose chuẩn dùng profile `demo`; không cần file compose thứ hai:
 
@@ -94,11 +135,15 @@ Trước khi chạy, cập nhật `docker/.env` theo `docker/.env.example`:
 - `KEYCLOAK_DB_URL` là JDBC URL đầy đủ của database Keycloak; Neon cần
   hậu tố `?sslmode=require`.
 - `USER_DB_URL`, `USER_DB_USERNAME`, `USER_DB_PASSWORD` trỏ tới database User.
-- `CIC_DB_URL`, `CIC_DB_USERNAME`, `CIC_DB_PASSWORD` trỏ tới database CIC.
+- `CIC_SERVICE_URL` trỏ tới CIC Node đã deploy, mặc định
+  `https://cic-service-node.vercel.app/`; Compose không còn build CIC Java cũ.
 - `CIC_INTERNAL_API_KEY` bảo vệ API nội bộ tạo mapping borrowerId–CCCD; phải dùng cùng giá trị
   ở client nội bộ gọi CIC và không commit secret thật.
-- `USER_CIC_MAPPING_ENABLED=true` bật worker User. Sau eKYC, User tự đăng ký mapping vào CIC;
-  CIC tạm tắt thì task nằm trong PostgreSQL User và retry, không làm eKYC thất bại.
+- `USER_CIC_MAPPING_ENABLED` (mặc định `false`, B70) bật worker User. Sau eKYC, User tự đăng ký mapping
+  `borrowerId ↔ CCCD` vào CIC; CIC tạm tắt thì task nằm trong PostgreSQL User và retry, không làm eKYC thất bại.
+  Chỉ bật khi CIC đích lưu mapping riêng tư, ví dụ CIC Node chạy local cho E2E. Bản CIC Node deploy trên Vercel là
+  mock công khai: API đọc hồ sơ/nhật ký không xác thực, dữ liệu nằm trong Blob `public`, tra một CCCD lạ là lưu hồ sơ
+  mới kèm nhật ký. Không eKYC hay tra cứu bằng CCCD thật khi FINORA trỏ tới bản này.
 - `KEYCLOAK_CLIENT_SECRET` phải đúng client `finora-user-client` trong realm đang dùng.
 - `FINORA_AES_SECRET` và `FINORA_HMAC_SECRET` phải đúng với dữ liệu User hiện có.
 - `GEMINI_API_KEY` chỉ bắt buộc khi test OCR/eKYC.
@@ -107,17 +152,15 @@ Health:
 
 ```text
 Keycloak: http://localhost:8180/realms/finora/.well-known/openid-configuration
-User:     http://localhost:8085/actuator/health
+User:     http://localhost:8085/actuator/health/readiness   (liveness: /actuator/health/liveness)
 AI:       http://localhost:8000/health
-CIC:      http://localhost:9000/actuator/health
+CIC:      https://cic-service-node.vercel.app/
 ```
 
-Compose build CIC từ repository ngang cấp `../cic-service` và AI gọi qua DNS nội bộ
-`http://cic:9000`. CIC sở hữu Flyway/database riêng; AI chỉ gọi REST và không đọc DB CIC.
-CIC đồng thời consume `finora.loan.delinquency-changed` qua group
-`cic-loan-delinquency`; Compose tự dùng broker nội bộ `kafka:29092`.
-User gọi CIC qua DNS nội bộ `http://cic:9000`; hai container phải nhận cùng
-`CIC_INTERNAL_API_KEY`. Migration User V4 tự backfill task cho hồ sơ `VERIFIED` cũ.
+AI và User chỉ gọi CIC qua REST bằng `CIC_SERVICE_URL`, không đọc database CIC.
+`CIC_INTERNAL_API_KEY` vẫn phải khớp với cấu hình endpoint nội bộ của bản Node khi bật
+đồng bộ borrower mapping. Migration User V4 tự backfill task cho hồ sơ `VERIFIED` cũ;
+endpoint tạm lỗi thì task được giữ trong PostgreSQL User để retry.
 
 ### Chạy AI v17 cho LN-007
 
@@ -181,7 +224,7 @@ Loan chạy từ IntelliJ dùng URL trên theo mặc định. Loan chạy trong 
 cần `FINERACT_BASE_URL=http://fineract:8443/fineract-provider/api/v1`.
 
 ```powershell
-# Payment PostgreSQL + Redis
+# Payment PostgreSQL
 powershell -ExecutionPolicy Bypass -File docker/smoke-infra.ps1 -Scope Payment -KeepRunning
 
 # Blockchain PostgreSQL
@@ -205,7 +248,10 @@ Blockchain: jdbc:postgresql://localhost:15435/finora_blockchain
 Investment: jdbc:postgresql://localhost:15437/finora_investment
 ```
 
-Smoke script luôn thêm profile `core` để kiểm tra Kafka/Keycloak. Nếu chỉ cần database Loan hằng ngày, dùng lệnh `docker compose ... loan-postgres` ở mục 3 để không bật core.
+Smoke script luôn thêm profile `core` để kiểm tra Keycloak; profile `core` không có Kafka nên smoke này
+không chứng minh broker sẵn sàng. Kafka nằm ở profile `kafka`/`demo` và được kiểm tra trong runbook
+[`docs/testing/E2E-VERTICAL-SLICE.md`](../docs/testing/E2E-VERTICAL-SLICE.md). Nếu chỉ cần database Loan hằng
+ngày, dùng lệnh `docker compose ... loan-postgres` ở mục 3 để không bật core.
 
 Không có `-KeepRunning`, script sẽ dừng và xóa container của đúng scope sau smoke nhưng giữ volume. `-Stop` dùng để dừng scope đã chọn.
 
@@ -382,17 +428,15 @@ Lỗi gửi email: ... lỗi=Couldn't connect to host                   -> sai M
 
 ## 5. Chạy Loan application bằng container
 
+Loan chạy trong container qua profile `apps` (mục 1b) cùng năm service còn lại và đọc DB từ `finora-loan/.env` (Neon dev).
+Bật hoặc tạo lại riêng Loan:
+
 ```powershell
-docker compose --env-file docker/.env -f docker/docker-compose.yml --profile loan --profile apps up -d --build loan
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps up -d loan
 ```
 
-Trong Docker network:
-
-```text
-jdbc:postgresql://loan-postgres:5432/finora_loan
-```
-
-Postman gọi `http://localhost:8081`. DBeaver kết nối `localhost:15433`.
+Postman gọi `http://localhost:8081`. PostgreSQL offline `loan-postgres` (profile `loan`, mục 6, DBeaver `localhost:15433`)
+chỉ dùng khi chạy Loan ngoài container với `LOAN_DB_URL` trỏ cổng đó.
 
 ## 6. DBeaver cho PostgreSQL Loan offline
 

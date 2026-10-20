@@ -56,6 +56,16 @@ public class AutoInvestConfig {
     @Column(name = "enabled_at")
     private Instant enabledAt;
 
+    /**
+     * Phiên bản công bố rủi ro nhà đầu tư xác nhận khi bật quy tắc (Q5, LEGAL-DISCLOSURE-02). Khác bản hiện hành thì quy
+     * tắc tạm dừng: worker không đặt lệnh thay nhà đầu tư cho tới khi nhà đầu tư đọc và xác nhận lại.
+     */
+    @Column(name = "risk_acknowledged_version", length = 50)
+    private String riskAcknowledgedVersion;
+
+    @Column(name = "risk_acknowledged_at")
+    private Instant riskAcknowledgedAt;
+
     @Version
     @Column(nullable = false)
     private Long version;
@@ -89,6 +99,18 @@ public class AutoInvestConfig {
         this.maxTermMonths = maxTermMonths;
         this.amountPerLoan = amountPerLoan.setScale(2, RoundingMode.DOWN);
         this.updatedAt = now;
+    }
+
+    /** Ghi xác nhận công bố rủi ro của lần bật hoặc lưu quy tắc đang bật. */
+    public void acknowledgeRisk(String version, Instant now) {
+        this.riskAcknowledgedVersion = version;
+        this.riskAcknowledgedAt = now;
+        this.updatedAt = now;
+    }
+
+    /** Quy tắc chỉ được đặt lệnh thay nhà đầu tư khi đã xác nhận đúng bản công bố rủi ro đang hiệu lực. */
+    public boolean acknowledgedFor(String currentVersion) {
+        return riskAcknowledgedVersion != null && riskAcknowledgedVersion.equals(currentVersion);
     }
 
     public Set<String> gradeSet() {

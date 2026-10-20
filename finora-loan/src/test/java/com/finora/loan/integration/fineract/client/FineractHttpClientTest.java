@@ -1,6 +1,10 @@
 package com.finora.loan.integration.fineract.client;
 
+import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.UncheckedIOException;
+import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletionException;
@@ -10,6 +14,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClientException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -37,6 +42,37 @@ class FineractHttpClientTest {
         assertThat(result.getCode()).isEqualTo("FINERACT_TIMEOUT");
         assertThat(result.isRetryable()).isTrue();
         assertThat(result.getCause()).isInstanceOf(SocketTimeoutException.class);
+    }
+
+    @Test
+    void shouldMapConnectionResetWhileReadingPostResponseAsRetryable() {
+        // RestClient + SimpleClientHttpRequestFactory: lỗi đọc phản hồi của POST đến dưới dạng RestClientException bọc
+        // UncheckedIOException, không phải ResourceAccessException (drill Q13 FineractRequestLost, B42).
+        SocketException reset = new SocketException("Connection reset");
+        FineractIntegrationException result = executor.mapException(new RestClientException(
+                "Error while extracting response", new UncheckedIOException(reset)));
+
+        assertThat(result.getCode()).isEqualTo("FINERACT_CONNECTION_LOST");
+        assertThat(result.isRetryable()).isTrue();
+        assertThat(result.getCause()).isSameAs(reset);
+    }
+
+    @Test
+    void shouldMapLostPostResponseTimeoutAsTimeout() {
+        FineractIntegrationException result = executor.mapException(new RestClientException(
+                "Error while extracting response", new SocketTimeoutException("Read timed out")));
+
+        assertThat(result.getCode()).isEqualTo("FINERACT_TIMEOUT");
+        assertThat(result.isRetryable()).isTrue();
+    }
+
+    @Test
+    void shouldKeepMalformedFineractJsonNonRetryable() {
+        FineractIntegrationException result = executor.mapException(new RestClientException(
+                "Error while extracting response", new JsonParseException((JsonParser) null, "Unexpected character")));
+
+        assertThat(result.getCode()).isEqualTo("FINERACT_UNEXPECTED_ERROR");
+        assertThat(result.isRetryable()).isFalse();
     }
 
     @Test

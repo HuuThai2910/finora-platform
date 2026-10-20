@@ -1,0 +1,15 @@
+# B44 (finora-remaining-work-plan mục 3b): 10 test AI đỏ từ trước W3A vì cấu hình luật trong
+# finora-ai/config/product_config.json và payload TestRouterV14 lệch test. Đổi bên nào cũng đổi điểm tín dụng đang chạy,
+# nên Hải quyết cấu hình nào là chuẩn. Workflow CI bỏ chọn đúng các node id dưới đây khỏi cổng chặn và chạy riêng chúng ở
+# bước báo trạng thái (không chặn). Sửa xong test nào thì xóa dòng đó; hết dòng thì xóa file và bước báo trạng thái.
+# Baseline đo ngày 2026-10-17 trên ca9efa2: 10 failed, 379 passed.
+tests/credit/test_cic_integration.py::TestRouterV14::test_khong_co_so_cccd_cic_data_la_none
+tests/credit/test_cic_integration.py::TestRouterV14::test_co_so_cccd_forward_cic_data
+tests/credit/test_cic_integration.py::TestRouterV14::test_cic_none_fail_open
+tests/credit/test_cic_integration.py::TestRouterV14::test_request_co_fineract_fields
+tests/credit/test_config_rules_api.py::TestLuuCauHinhHopLe::test_xoa_luat_mac_dinh
+tests/credit/test_rule_engine.py::TestBoLuat::test_bo_luat_mac_dinh_dung_thu_tu
+tests/credit/test_rule_engine.py::TestCharacterCreditSeeking::test_cac_bac_diem[4-0]
+tests/credit/test_rule_engine.py::TestCharacterCreditSeeking::test_cac_bac_diem[15-0]
+tests/credit/test_rule_engine.py::TestRuleTrace::test_trace_co_du_moi_luat
+tests/credit/test_rule_engine.py::TestLuatTuCauHinh::test_xoa_luat_mac_dinh_duoc

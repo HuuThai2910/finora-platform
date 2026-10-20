@@ -36,7 +36,6 @@ import com.finora.loan.service.pricing.RiskBasedPricingService;
 import com.finora.loan.support.HashingService;
 import java.time.Clock;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -217,7 +216,8 @@ public class CreditScoringStateService {
                         pricing.finalAnnualInterestRate(),
                         application.getRepaymentMethodSnapshot(),
                         application.getCoreConfigVersionSnapshot(),
-                        application.getSubmittedAt().atZone(ZoneOffset.UTC).toLocalDate(),
+                        // Ngày nộp hồ sơ theo ngày nghiệp vụ (zone của clock), cùng lịch ngày với Fineract.
+                        application.getSubmittedAt().atZone(clock.getZone()).toLocalDate(),
                         application.getExpectedDisbursementDate()
                 ),
                 true

@@ -109,7 +109,7 @@ public class LoanRescheduleRequest {
         return value;
     }
 
-    public void approve(String actorId, String comment, String decisionKey, Instant now) {
+    public void approveForInvestorConsent(String actorId, String comment, String decisionKey, Instant now) {
         if (status != LoanRescheduleStatus.PENDING_REVIEW) {
             throw new IllegalStateException("Yêu cầu không còn chờ duyệt");
         }
@@ -117,8 +117,26 @@ public class LoanRescheduleRequest {
         decisionComment = optionalText(comment, 500);
         decisionIdempotencyKey = requireText(decisionKey, "decisionKey", 150);
         decidedAt = now;
+        status = LoanRescheduleStatus.PENDING_INVESTOR_CONSENT;
+        nextAttemptAt = null;
+        updatedAt = now;
+    }
+
+    public void investorsApproved(Instant now) {
+        if (status != LoanRescheduleStatus.PENDING_INVESTOR_CONSENT) {
+            throw new IllegalStateException("Yêu cầu không còn chờ nhà đầu tư đồng ý");
+        }
         status = LoanRescheduleStatus.CREATE_PENDING;
         nextAttemptAt = now;
+        updatedAt = now;
+    }
+
+    public void investorsRejected(Instant now) {
+        if (status != LoanRescheduleStatus.PENDING_INVESTOR_CONSENT) {
+            throw new IllegalStateException("Yêu cầu không còn chờ nhà đầu tư đồng ý");
+        }
+        status = LoanRescheduleStatus.INVESTOR_REJECTED;
+        nextAttemptAt = null;
         updatedAt = now;
     }
 

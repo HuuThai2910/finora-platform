@@ -1,5 +1,13 @@
 # Luồng kiểm thử đầy đủ trước khi tích hợp UI
 
+> **Trạng thái tài liệu (2026-10-17): SUPERSEDED cho kiểm thử liên service.** Hướng dẫn dưới đây mô tả lát
+> Loan đơn lẻ trước khi có gọi vốn nhiều bên và chưa phản ánh xác thực hiện hành: Loan đã bắt buộc JWT
+> Keycloak (`/api/v1/admin/**` cần `ROLE_ADMIN`), ký hợp đồng cần `X-Pin-Token` scope `SIGN_CONTRACT`, và
+> Contract chỉ được tạo sau `LoanFullyFunded` từ Investment. Postman collection đi kèm cũng không gửi
+> `Authorization`/`X-Pin-Token`. Dùng runbook tự động
+> [`docs/testing/E2E-VERTICAL-SLICE.md`](../../docs/testing/E2E-VERTICAL-SLICE.md) cho luồng từ đăng ký tới
+> một kỳ trả nợ. Tài liệu này chỉ còn giá trị tham khảo cho Product/Fineract preview.
+
 ## 1. Mục tiêu
 
 Tài liệu này hướng dẫn kiểm thử một vertical slice đang có thật trong Loan Service:

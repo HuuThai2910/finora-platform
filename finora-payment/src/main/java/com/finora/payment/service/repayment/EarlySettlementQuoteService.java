@@ -7,6 +7,7 @@ import com.finora.payment.domain.repayment.EarlySettlementQuote;
 import com.finora.payment.domain.servicing.PaymentLoanAccount;
 import com.finora.payment.dto.response.EarlySettlementQuoteResponse;
 import com.finora.payment.integration.fineract.EarlySettlementCoreQuote;
+import com.finora.payment.integration.fineract.FineractQuoteErrors;
 import com.finora.payment.integration.fineract.RepaymentCoreGateway;
 import com.finora.payment.repository.repayment.EarlySettlementQuoteRepository;
 import com.finora.payment.repository.servicing.PaymentLoanAccountRepository;
@@ -24,6 +25,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class EarlySettlementQuoteService {
     private final PaymentLoanAccountRepository loanAccounts;
     private final EarlySettlementQuoteRepository quotes;
+    private final RepaymentInFlightGuard inFlight;
     private final RepaymentCoreGateway fineract;
     private final EarlySettlementFeeCalculator feeCalculator;
     private final EarlySettlementPolicyProperties policy;
@@ -35,8 +37,10 @@ public class EarlySettlementQuoteService {
         QuotePreparation preparation = transactionTemplate.execute(status -> prepare(loanApplicationId, borrowerId));
         if (preparation == null) throw new IllegalStateException("Không chuẩn bị được báo giá tất toán");
         LocalDate today = LocalDate.now(clock);
-        EarlySettlementCoreQuote core = fineract.earlySettlementQuote(preparation.fineractLoanId(), today);
-        EarlySettlementFeeCalculator.Fee fee = feeCalculator.calculate(core);
+        EarlySettlementCoreQuote core = FineractQuoteErrors.read(
+                () -> fineract.earlySettlementQuote(preparation.fineractLoanId(), today));
+        // Biểu phí của chính hợp đồng (snapshot trên tài khoản), không phải biểu phí đang áp cho hợp đồng mới.
+        EarlySettlementFeeCalculator.Fee fee = feeCalculator.calculate(preparation.policyVersion(), core);
         var now = clock.instant();
         EarlySettlementQuote saved = transactionTemplate.execute(status -> {
             PaymentLoanAccount account = requireActiveAccount(loanApplicationId, borrowerId);
@@ -45,7 +49,8 @@ public class EarlySettlementQuoteService {
                         "Khoản vay đã thay đổi trong lúc lập báo giá");
             }
             return quotes.save(EarlySettlementQuote.create(account, core, fee.rate(), fee.amount(),
-                    fee.policyVersion(), now.plus(policy.quoteTtl()), now));
+                    fee.investorShare(), fee.finoraShare(), fee.policyVersion(),
+                    now.plus(policy.quoteTtl()), now));
         });
         if (saved == null) throw new IllegalStateException("Không lưu được báo giá tất toán");
         return EarlySettlementQuoteResponse.from(saved, now);
@@ -65,7 +70,10 @@ public class EarlySettlementQuoteService {
 
     private QuotePreparation prepare(Long applicationId, String borrowerId) {
         PaymentLoanAccount account = requireActiveAccount(applicationId, borrowerId);
-        return new QuotePreparation(account.getFineractLoanId());
+        // D17: core V1–V3 báo giá tất toán gồm cả lãi các tháng tương lai (B29), không cho tự tất toán.
+        SelfServicePrepaymentPolicy.requireDailyInterestCore(account);
+        inFlight.requireNoneBeforeQuote(applicationId);
+        return new QuotePreparation(account.getFineractLoanId(), account.getEarlySettlementPolicyVersion());
     }
 
     private PaymentLoanAccount requireActiveAccount(Long applicationId, String borrowerId) {
@@ -83,5 +91,5 @@ public class EarlySettlementQuoteService {
         return account;
     }
 
-    private record QuotePreparation(Long fineractLoanId) {}
+    private record QuotePreparation(Long fineractLoanId, String policyVersion) {}
 }

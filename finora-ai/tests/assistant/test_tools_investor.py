@@ -299,6 +299,20 @@ class TestDanhMucCuaToi:
         assert result.facts["du_no_khoan_no_xau"] == tien_vnd(Decimal("7000000"))
 
     @pytest.mark.asyncio
+    async def test_vi_the_da_tat_toan_ghi_ro_va_xep_sau_khoan_dang_tra(self):
+        # Từ R3-W2 (main) danh mục giữ vị thế CLOSED để không mất lịch sử gốc/lãi đã nhận.
+        routes = {PORTFOLIO: (200, _danh_muc(positions=[
+            _vi_the(11, status="CLOSED", outstanding="0.00"),
+            _vi_the(12),
+        ]))}
+
+        result = await run_tool(_spec("danh_muc_cua_toi"), {}, routes)
+
+        assert [item["ma_khoan"] for item in result.facts["vi_the"]] == ["12", "11"]
+        assert result.facts["vi_the"][1]["trang_thai_note"] == dich_trang_thai("note", "CLOSED")
+        assert [row[-1] for row in result.cards[1].rows] == ["Đúng hạn", "Đã tất toán"]
+
+    @pytest.mark.asyncio
     async def test_danh_muc_trong(self):
         result = await run_tool(_spec("danh_muc_cua_toi"), {}, {PORTFOLIO: (200, _danh_muc(pending="0.00"))})
 

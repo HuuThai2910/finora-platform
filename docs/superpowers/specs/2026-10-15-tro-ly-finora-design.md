@@ -830,3 +830,25 @@ Concurrency: một worker uvicorn; bộ đếm `ProviderBudget`/`UserRateLimiter
 - (fix-2) Không có LLM, câu lạc đề không có dấu hiệu dữ liệu cá nhân vẫn đi C2 và có thể nhận một đoạn kiến thức khớp vài chữ chung (BM25 không tách được: "eKYC là gì?" 13,3 điểm đúng, câu làm thơ 13,9 điểm sai); câu "Vì sao tôi phải nhập mã PIN khi ký hợp đồng?" vẫn bị từ khóa "ký hợp đồng" của gợi ý hợp đồng chiếm (C1 chạy trước C2).
 - Bộ đánh giá `template` còn 24 ca chưa đạt, đa số là ca cần LLM (ngoài phạm vi, chèn lệnh, câu chính sách tự do); một số là định tuyến
   C1 còn chiếm câu định nghĩa ("Tỷ lệ nợ xấu NPL được tính như thế nào?" khớp "nợ xấu" của gợi ý KPI, QT-CS-05).
+
+## 21. Gộp `main` ngày 2026-10-20
+
+`main` (Wave 2–3) đã tự làm ba việc mà mục 14 dự kiến làm trong nhánh này. Khi gộp, bản của `main` được giữ; các phần dưới đây
+thay cho mục 14.1, 14.2 và các dòng tương ứng ở mục 16, 19, 20:
+
+- Xác thực `finora-ai` (W3A, D34–D35): mọi router trừ `/health` và `/assistant` kiểm JWT bằng `app/security.py` theo quyền gắn ở
+  `main.py`: `/credit/explain` cần client role `ai:credit:score` (Loan dùng service account `finora-loan-client`) hoặc
+  `ROLE_ADMIN`; `/config/*` (cả GET) chỉ `ROLE_ADMIN`, PUT ghi log người sửa; `/ekyc/ocr` cần `ai:ekyc:ocr`; `/fraud/detect` cần
+  `ROLE_ADMIN`. Lỗi trả `401 AI_UNAUTHENTICATED`/`403 AI_FORBIDDEN`. Đã bỏ `X-Internal-Token`, `AI_INTERNAL_TOKEN`,
+  `app/api/deps.py` (`require_principal`, `require_admin`, `require_internal_or_admin`) cùng test của chúng; Loan bỏ
+  `AiCreditProperties.internalToken` và mã lỗi `AI_INTERNAL_AUTH_REJECTED` (401 từ AI nay là lỗi tạm, lần sau lấy token mới).
+  Trợ lý vẫn kiểm JWT bằng `app/services/auth/keycloak_jwt.py` (`KEYCLOAK_JWKS_URL`, `KEYCLOAK_ISSUERS`) vì phải giữ token
+  của người hỏi để relay, mã lỗi `ASSISTANT_*` không đổi.
+- Gateway: `UpstreamHttpClientConfig` của `main` (B43, D33) đã ép HTTP/1.1 nên `ProxyHttpClientConfig` bị bỏ; để cả hai thì có
+  hai bean `ClientHttpRequestFactory`.
+- Danh mục nhà đầu tư theo R3-W2 của `main`: danh mục giữ vị thế `CLOSED` và `DEFAULTED`, `investedAmount` gồm dư nợ của
+  khoản nợ xấu, `positionCount` đếm mọi vị thế, lãi suất bình quân và `activeNoteCount` chỉ tính Note `ACTIVE`,
+  `totalReceived` cộng cả `prepaymentFeeReceived`. Nhánh này thêm `defaultedAmount` (một phần của `investedAmount`),
+  `defaultedNoteCount`, `defaultedPositionCount` và cách tính `pendingAmount` theo commitment chưa có Note (mục 14.2).
+  Thẻ danh mục của trợ lý ghi "Đã tất toán" cho vị thế `CLOSED`.
+- Luồng trợ lý trong `.agents/rules/08-cross-service-flows.md` đổi số thành F11 vì F10 đã là rút tiền (W3B).

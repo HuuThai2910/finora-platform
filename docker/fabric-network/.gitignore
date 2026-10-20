@@ -1,0 +1,4 @@
+# Sinh bởi network.sh: khóa riêng, chứng thư, genesis block, package chaincode và core.yaml của peer.
+# Không bao giờ commit (crypto-config/ cũng đã nằm trong .gitignore gốc).
+crypto-config/
+build/

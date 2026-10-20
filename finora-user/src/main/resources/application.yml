@@ -51,6 +51,23 @@ spring:
 server:
   port: 8085
 
+management:
+  endpoint:
+    health:
+      # Ai cũng thấy tên và trạng thái từng thành phần; chi tiết chỉ hiện với token ROLE_ADMIN (W3E, D56).
+      show-components: always
+      show-details: when-authorized
+      roles: ADMIN
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        # Mọi API cần PostgreSQL; đăng ký/đăng nhập (OTP, giới hạn dò mật khẩu) cần Redis riêng của User.
+        # Keycloak dùng chung mọi service nên không vào readiness: Keycloak tắt sẽ rút mọi service khỏi traffic cùng lúc.
+        readiness:
+          include: readinessState,db,redis
+
 # Keycloak Admin Client — tạo user, gán role, đổi mật khẩu
 keycloak:
   admin:

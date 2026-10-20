@@ -1,3 +1,37 @@
+# Profile `apps`: sáu service Java (Loan, Payment, Investment, Notification, Blockchain, Gateway) chạy bằng jar đã build
+# (`mvn -pl <module> -am package -DskipTests`), không build image. Mỗi service đọc `.env` của module (DB Neon như khi chạy
+# IntelliJ); Compose chỉ đổi các địa chỉ `localhost` trong `.env` sang tên service trong mạng Docker. Lệnh compose của profile
+# này cần đủ `--profile demo --profile fineract --profile blockchain --profile apps` (Kafka, Keycloak, DB Blockchain ở profile
+# khác). Sửa code thì `stop <service>` trước (container giữ khóa file jar trên Windows), build lại jar rồi `up -d <service>`;
+# muốn debug một service bằng IntelliJ thì dừng container của nó trước.
+x-finora-app: &finora-app
+  image: eclipse-temurin:21-jre-jammy
+  profiles: ["apps"]
+  restart: unless-stopped
+  working_dir: /app
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  networks:
+    - finora-network
+
+# Issuer trong JWT là địa chỉ công khai (localhost:8180) còn JWKS/token lấy qua tên nội bộ `keycloak`.
+x-finora-app-network: &finora-app-network
+  KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8180}/realms/${KEYCLOAK_REALM:-finora}
+  KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM:-finora}/protocol/openid-connect/certs
+  KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/${KEYCLOAK_REALM:-finora}/protocol/openid-connect/token
+  FINERACT_BASE_URL: http://fineract:8443/fineract-provider/api/v1
+  AI_SERVICE_URL: http://ai:8000
+  USER_SERVICE_URL: http://user:8085
+  PAYMENT_SERVICE_URL: http://payment:8082/api/v1
+
+# Healthcheck gọi readiness (W3E); image JRE không có curl nên dùng /dev/tcp của bash.
+x-finora-app-ready: &finora-app-ready
+  interval: 10s
+  timeout: 5s
+  retries: 30
+  start_period: 90s
+
 services:
   # ============ CORE INFRASTRUCTURE ============
   # Kafka chạy KRaft một node cho local/demo. App chạy trong IntelliJ dùng
@@ -43,6 +77,10 @@ services:
     environment:
       KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_CLIENT_SECRET}"
       KEYCLOAK_INVESTMENT_CLIENT_SECRET: "${KEYCLOAK_INVESTMENT_CLIENT_SECRET}"
+      # Client service account của Loan/AI (D34). Chưa có thì render secret ngẫu nhiên để Keycloak vẫn khởi động;
+      # docker/keycloak/add-service-clients.sh đặt secret thật và ghi vào .env.
+      KEYCLOAK_LOAN_CLIENT_SECRET: "${KEYCLOAK_LOAN_CLIENT_SECRET:-}"
+      KEYCLOAK_AI_CLIENT_SECRET: "${KEYCLOAK_AI_CLIENT_SECRET:-}"
     command:
       - sh
       - -c
@@ -56,7 +94,14 @@ services:
           echo "Thieu KEYCLOAK_INVESTMENT_CLIENT_SECRET trong docker/.env" >&2
           exit 1
         fi
-        sed -e "s|__KEYCLOAK_CLIENT_SECRET__|$$KEYCLOAK_CLIENT_SECRET|g"             -e "s|__KEYCLOAK_INVESTMENT_CLIENT_SECRET__|$$KEYCLOAK_INVESTMENT_CLIENT_SECRET|g"             /template/realm-finora.json > /import/realm-finora.json
+        LOAN_SECRET="$$KEYCLOAK_LOAN_CLIENT_SECRET"
+        AI_SECRET="$$KEYCLOAK_AI_CLIENT_SECRET"
+        if [ -z "$$LOAN_SECRET" ] || [ -z "$$AI_SECRET" ]; then
+          echo "Chua co KEYCLOAK_LOAN_CLIENT_SECRET/KEYCLOAK_AI_CLIENT_SECRET: chay docker/keycloak/add-service-clients.sh" >&2
+        fi
+        [ -n "$$LOAN_SECRET" ] || LOAN_SECRET="$$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 43)"
+        [ -n "$$AI_SECRET" ] || AI_SECRET="$$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 43)"
+        sed -e "s|__KEYCLOAK_CLIENT_SECRET__|$$KEYCLOAK_CLIENT_SECRET|g"             -e "s|__KEYCLOAK_INVESTMENT_CLIENT_SECRET__|$$KEYCLOAK_INVESTMENT_CLIENT_SECRET|g"             -e "s|__KEYCLOAK_LOAN_CLIENT_SECRET__|$$LOAN_SECRET|g"             -e "s|__KEYCLOAK_AI_CLIENT_SECRET__|$$AI_SECRET|g"             /template/realm-finora.json > /import/realm-finora.json
         echo "Da render /import/realm-finora.json"
     volumes:
       - ./keycloak/template:/template:ro
@@ -134,6 +179,26 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    networks:
+      - finora-network
+
+  # ============ E2E FAULT INJECTION (Q13) ============
+  # Chỉ bật bằng profile e2e-faults: proxy TCP giữa Payment và Fineract để harness E2E tiêm lỗi mạng (mất phản hồi,
+  # mất request). Launcher tạo proxy fineract-payment (cổng 18444 → fineract:8443) khi chạy với -WithToxiproxy.
+  toxiproxy:
+    profiles: ["e2e-faults"]
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    restart: unless-stopped
+    container_name: finora-toxiproxy
+    ports:
+      - "127.0.0.1:${TOXIPROXY_API_HOST_PORT:-8474}:8474"
+      - "127.0.0.1:${TOXIPROXY_FINERACT_HOST_PORT:-18444}:18444"
+    healthcheck:
+      test: ["CMD", "/toxiproxy-cli", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
     networks:
       - finora-network
 
@@ -254,21 +319,22 @@ services:
     restart: unless-stopped
     container_name: finora-ai
     environment:
-      CIC_SERVICE_URL: ${CIC_SERVICE_URL:-http://cic:9000}
+      CIC_SERVICE_URL: ${CIC_SERVICE_URL:-https://cic-service-node.vercel.app}
       USER_SERVICE_URL: ${AI_USER_SERVICE_URL:-http://user:8085}
       KEYCLOAK_TOKEN_URL: ${AI_KEYCLOAK_TOKEN_URL:-http://keycloak:8080/realms/finora/protocol/openid-connect/token}
-      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-finora-user-client}
-      KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_CLIENT_SECRET}"
+      # Client riêng của AI (D34): chỉ đọc hồ sơ User, không còn giữ secret finora-user-client (quản trị Keycloak).
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_AI_CLIENT_ID:-finora-ai-client}
+      KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_AI_CLIENT_SECRET:-}"
+      # Kiểm access token của request tới AI (D35): issuer cố định theo KC_HOSTNAME_URL, JWKS qua mạng Docker.
+      KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8180}/realms/${KEYCLOAK_REALM:-finora}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM:-finora}/protocol/openid-connect/certs
+      FINORA_ENVIRONMENT: ${FINORA_ENVIRONMENT:-local}
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
-      # Kiểm JWT người gọi: issuer theo KEYCLOAK_PUBLIC_URL giống KC_HOSTNAME_URL của Keycloak.
-      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/finora/protocol/openid-connect/certs
-      KEYCLOAK_ISSUERS: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8180}/realms/finora
-      AI_INTERNAL_TOKEN: "${AI_INTERNAL_TOKEN:-}"
+      # Trợ lý FINORA tự kiểm JWT của người hỏi (app/services/auth/): cùng JWKS và issuer với hai biến D35 ở trên.
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/${KEYCLOAK_REALM:-finora}/protocol/openid-connect/certs
+      KEYCLOAK_ISSUERS: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8180}/realms/${KEYCLOAK_REALM:-finora}
     ports:
       - "127.0.0.1:${AI_HOST_PORT:-8000}:8000"
-    depends_on:
-      cic:
-        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -282,7 +348,9 @@ services:
     networks:
       - finora-network
 
-  # ============ PAYMENT OWNED DATABASE AND CACHE ============
+  # ============ PAYMENT OWNED DATABASE ============
+  # Payment không dùng Redis (B23, W3E): đã gỡ container payment-redis. Khai báo volume `payment-redis-data` ở cuối file
+  # không còn service nào dùng (Compose không tạo volume không được tham chiếu); xóa được ở lần sửa danh sách volume sau.
   payment-postgres:
     profiles: ["payment"]
     image: postgres:17.5-alpine
@@ -306,26 +374,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
-    networks:
-      - finora-network
-
-  payment-redis:
-    profiles: ["payment"]
-    image: redis:7-alpine
-    container_name: finora-payment-redis
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${PAYMENT_REDIS_PASSWORD}"]
-    environment:
-      PAYMENT_REDIS_PASSWORD: "${PAYMENT_REDIS_PASSWORD}"
-    ports:
-      - "127.0.0.1:${PAYMENT_REDIS_HOST_PORT:-6380}:6379"
-    volumes:
-      - payment-redis-data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$${PAYMENT_REDIS_PASSWORD}\" redis-cli ping | grep PONG >/dev/null"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
     networks:
       - finora-network
 
@@ -356,6 +404,200 @@ services:
     networks:
       - finora-network
 
+  # ============ HYPERLEDGER FABRIC LOCAL (R6, W3D) ============
+  # Profile fabric: 1 orderer Raft + peer0 của Org1 (FINORA) và Org2 (kiểm toán), LevelDB, chaincode finora-ledger
+  # dạng CCaaS (không mount docker.sock). Mặc định FINORA vẫn dùng ledger MOCK; bật bằng launcher E2E -WithFabric hoặc
+  # docker/fabric-network/fabric-network.ps1 -Action Up. Crypto/genesis/package sinh vào thư mục git-ignore.
+  # Chỉ gateway của peer0.org1 mở ra 127.0.0.1 cho finora-blockchain chạy trên host.
+  fabric-orderer:
+    profiles: ["fabric"]
+    image: ghcr.io/hyperledger/fabric-orderer:2.5.16
+    restart: unless-stopped
+    container_name: finora-fabric-orderer
+    mem_limit: 256m
+    environment:
+      FABRIC_LOGGING_SPEC: INFO
+      ORDERER_GENERAL_LISTENADDRESS: 0.0.0.0
+      ORDERER_GENERAL_LISTENPORT: "7050"
+      ORDERER_GENERAL_LOCALMSPID: OrdererMSP
+      ORDERER_GENERAL_LOCALMSPDIR: /var/hyperledger/orderer/msp
+      ORDERER_GENERAL_TLS_ENABLED: "true"
+      ORDERER_GENERAL_TLS_PRIVATEKEY: /var/hyperledger/orderer/tls/server.key
+      ORDERER_GENERAL_TLS_CERTIFICATE: /var/hyperledger/orderer/tls/server.crt
+      ORDERER_GENERAL_TLS_ROOTCAS: "[/var/hyperledger/orderer/tls/ca.crt]"
+      ORDERER_GENERAL_CLUSTER_CLIENTCERTIFICATE: /var/hyperledger/orderer/tls/server.crt
+      ORDERER_GENERAL_CLUSTER_CLIENTPRIVATEKEY: /var/hyperledger/orderer/tls/server.key
+      ORDERER_GENERAL_CLUSTER_ROOTCAS: "[/var/hyperledger/orderer/tls/ca.crt]"
+      # Channel participation API: không có system channel, orderer join finora-channel bằng osnadmin.
+      ORDERER_GENERAL_BOOTSTRAPMETHOD: none
+      ORDERER_CHANNELPARTICIPATION_ENABLED: "true"
+      ORDERER_ADMIN_TLS_ENABLED: "true"
+      ORDERER_ADMIN_TLS_CERTIFICATE: /var/hyperledger/orderer/tls/server.crt
+      ORDERER_ADMIN_TLS_PRIVATEKEY: /var/hyperledger/orderer/tls/server.key
+      ORDERER_ADMIN_TLS_ROOTCAS: "[/var/hyperledger/orderer/tls/ca.crt]"
+      ORDERER_ADMIN_TLS_CLIENTROOTCAS: "[/var/hyperledger/orderer/tls/ca.crt]"
+      ORDERER_ADMIN_LISTENADDRESS: 0.0.0.0:7053
+      ORDERER_OPERATIONS_LISTENADDRESS: 0.0.0.0:9443
+      ORDERER_METRICS_PROVIDER: disabled
+    volumes:
+      - ./fabric-network/crypto-config/ordererOrganizations/finora.local/orderers/orderer.finora.local/msp:/var/hyperledger/orderer/msp:ro
+      - ./fabric-network/crypto-config/ordererOrganizations/finora.local/orderers/orderer.finora.local/tls:/var/hyperledger/orderer/tls:ro
+      - fabric-orderer-data:/var/hyperledger/production/orderer
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/9443;
+          printf 'GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200 '"
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    networks:
+      finora-network:
+        aliases:
+          - orderer.finora.local
+
+  fabric-peer0-org1:
+    profiles: ["fabric"]
+    image: ghcr.io/hyperledger/fabric-peer:2.5.16
+    restart: unless-stopped
+    container_name: finora-fabric-peer0-org1
+    mem_limit: 384m
+    environment: &fabric-peer-common
+      FABRIC_LOGGING_SPEC: INFO
+      # core.yaml của chính image nhưng bỏ vm.endpoint (sinh bởi network.sh generate): chỉ dùng builder ccaas.
+      FABRIC_CFG_PATH: /var/hyperledger/peercfg
+      CORE_PEER_ID: peer0.org1.finora.local
+      CORE_PEER_ADDRESS: peer0.org1.finora.local:7051
+      CORE_PEER_LISTENADDRESS: 0.0.0.0:7051
+      CORE_PEER_CHAINCODEADDRESS: peer0.org1.finora.local:7052
+      CORE_PEER_CHAINCODELISTENADDRESS: 0.0.0.0:7052
+      CORE_PEER_GOSSIP_BOOTSTRAP: peer0.org1.finora.local:7051
+      CORE_PEER_GOSSIP_EXTERNALENDPOINT: peer0.org1.finora.local:7051
+      CORE_PEER_LOCALMSPID: Org1MSP
+      CORE_PEER_MSPCONFIGPATH: /var/hyperledger/peer/msp
+      CORE_PEER_TLS_ENABLED: "true"
+      CORE_PEER_TLS_CERT_FILE: /var/hyperledger/peer/tls/server.crt
+      CORE_PEER_TLS_KEY_FILE: /var/hyperledger/peer/tls/server.key
+      CORE_PEER_TLS_ROOTCERT_FILE: /var/hyperledger/peer/tls/ca.crt
+      CORE_PEER_PROFILE_ENABLED: "false"
+      CORE_LEDGER_STATE_STATEDATABASE: goleveldb
+      CORE_OPERATIONS_LISTENADDRESS: 0.0.0.0:9444
+      CORE_METRICS_PROVIDER: disabled
+      CORE_CHAINCODE_EXECUTETIMEOUT: 60s
+      CHAINCODE_AS_A_SERVICE_BUILDER_CONFIG: '{"peername":"peer0org1"}'
+    volumes:
+      - ./fabric-network/crypto-config/peerOrganizations/org1.finora.local/peers/peer0.org1.finora.local/msp:/var/hyperledger/peer/msp:ro
+      - ./fabric-network/crypto-config/peerOrganizations/org1.finora.local/peers/peer0.org1.finora.local/tls:/var/hyperledger/peer/tls:ro
+      - ./fabric-network/build/peercfg:/var/hyperledger/peercfg:ro
+      - fabric-peer0-org1-data:/var/hyperledger/production
+    ports:
+      - "127.0.0.1:${FABRIC_PEER0_ORG1_HOST_PORT:-7051}:7051"
+    depends_on:
+      fabric-orderer:
+        condition: service_healthy
+    healthcheck: &fabric-peer-health
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/9444;
+          printf 'GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200 '"
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    networks:
+      finora-network:
+        aliases:
+          - peer0.org1.finora.local
+
+  fabric-peer0-org2:
+    profiles: ["fabric"]
+    image: ghcr.io/hyperledger/fabric-peer:2.5.16
+    restart: unless-stopped
+    container_name: finora-fabric-peer0-org2
+    mem_limit: 384m
+    environment:
+      <<: *fabric-peer-common
+      CORE_PEER_ID: peer0.org2.finora.local
+      CORE_PEER_ADDRESS: peer0.org2.finora.local:9051
+      CORE_PEER_LISTENADDRESS: 0.0.0.0:9051
+      CORE_PEER_CHAINCODEADDRESS: peer0.org2.finora.local:9052
+      CORE_PEER_CHAINCODELISTENADDRESS: 0.0.0.0:9052
+      CORE_PEER_GOSSIP_BOOTSTRAP: peer0.org2.finora.local:9051
+      CORE_PEER_GOSSIP_EXTERNALENDPOINT: peer0.org2.finora.local:9051
+      CORE_PEER_LOCALMSPID: Org2MSP
+      CHAINCODE_AS_A_SERVICE_BUILDER_CONFIG: '{"peername":"peer0org2"}'
+    volumes:
+      - ./fabric-network/crypto-config/peerOrganizations/org2.finora.local/peers/peer0.org2.finora.local/msp:/var/hyperledger/peer/msp:ro
+      - ./fabric-network/crypto-config/peerOrganizations/org2.finora.local/peers/peer0.org2.finora.local/tls:/var/hyperledger/peer/tls:ro
+      - ./fabric-network/build/peercfg:/var/hyperledger/peercfg:ro
+      - fabric-peer0-org2-data:/var/hyperledger/production
+    depends_on:
+      fabric-orderer:
+        condition: service_healthy
+    healthcheck: *fabric-peer-health
+    networks:
+      finora-network:
+        aliases:
+          - peer0.org2.finora.local
+
+  # Mỗi tổ chức chạy chaincode riêng của mình; peer gọi tới theo connection.json trong package CCaaS.
+  fabric-ccaas-org1:
+    profiles: ["fabric"]
+    build:
+      context: ./fabric-network/chaincode/finora-ledger
+    image: finora/fabric-ledger-ccaas:1.0.0
+    restart: unless-stopped
+    container_name: finora-fabric-ccaas-org1
+    mem_limit: 64m
+    environment:
+      CHAINCODE_SERVER_ADDRESS: 0.0.0.0:9999
+      CHAINCODE_ID_FILE: /var/hyperledger/ccaas/package-id
+      FINORA_PROOF_WRITER_MSPIDS: Org1MSP
+    volumes:
+      - ./fabric-network/build/chaincode:/var/hyperledger/ccaas:ro
+    networks:
+      finora-network:
+        aliases:
+          - peer0org1-finora-ledger
+
+  fabric-ccaas-org2:
+    profiles: ["fabric"]
+    image: finora/fabric-ledger-ccaas:1.0.0
+    restart: unless-stopped
+    container_name: finora-fabric-ccaas-org2
+    mem_limit: 64m
+    environment:
+      CHAINCODE_SERVER_ADDRESS: 0.0.0.0:9999
+      CHAINCODE_ID_FILE: /var/hyperledger/ccaas/package-id
+      FINORA_PROOF_WRITER_MSPIDS: Org1MSP
+    volumes:
+      - ./fabric-network/build/chaincode:/var/hyperledger/ccaas:ro
+    depends_on:
+      - fabric-ccaas-org1
+    networks:
+      finora-network:
+        aliases:
+          - peer0org2-finora-ledger
+
+  # Công cụ một lần (profile fabric-tools): cryptogen/configtxgen/osnadmin/peer CLI chạy network.sh.
+  fabric-tools:
+    profiles: ["fabric-tools"]
+    image: ghcr.io/hyperledger/fabric-tools:2.5.16
+    entrypoint: ["/bin/bash", "/work/scripts/network.sh"]
+    working_dir: /work
+    environment:
+      FABRIC_CFG_PATH: /etc/hyperledger/fabric
+      FABRIC_LOGGING_SPEC: WARN
+    volumes:
+      - ./fabric-network:/work
+    networks:
+      - finora-network
+
   # ============ USER OWNED CACHE (PostgreSQL nam tren host) ============
   user-redis:
     profiles: ["user", "demo"]
@@ -378,42 +620,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
-    networks:
-      - finora-network
-
-  # ============ CIC MOCK SERVICE ============
-  # Source nam o repo ngang cap voi finora-platform. CIC dung database Neon
-  # rieng va Flyway cua chinh service; AI chi goi REST, khong doc DB CIC.
-  cic:
-    profiles: ["demo"]
-    build:
-      context: ../../cic-service
-      dockerfile: Dockerfile
-    image: finora/cic:demo
-    restart: unless-stopped
-    container_name: finora-cic
-    environment:
-      SPRING_DATASOURCE_URL: "${CIC_DB_URL}"
-      SPRING_DATASOURCE_USERNAME: "${CIC_DB_USERNAME}"
-      SPRING_DATASOURCE_PASSWORD: "${CIC_DB_PASSWORD}"
-      CIC_PORT: "9000"
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      CIC_KAFKA_CONSUMER_ENABLED: "${CIC_KAFKA_CONSUMER_ENABLED:-true}"
-      CIC_LOAN_DELINQUENCY_GROUP: "${CIC_LOAN_DELINQUENCY_GROUP:-cic-loan-delinquency}"
-      LOAN_DELINQUENCY_CHANGED_TOPIC: "${LOAN_DELINQUENCY_CHANGED_TOPIC:-finora.loan.delinquency-changed}"
-      CIC_INTERNAL_API_KEY: "${CIC_INTERNAL_API_KEY}"
-      TZ: Asia/Ho_Chi_Minh
-    ports:
-      - "127.0.0.1:${CIC_HOST_PORT:-9000}:9000"
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000'"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 60s
-    depends_on:
-      kafka:
-        condition: service_healthy
     networks:
       - finora-network
 
@@ -447,8 +653,8 @@ services:
       KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM:-finora}/protocol/openid-connect/certs
       AI_SERVICE_URL: http://ai:8000
       NOTIFICATION_SERVICE_URL: ${NOTIFICATION_SERVICE_URL:-http://host.docker.internal:8086}
-      CIC_SERVICE_URL: http://cic:9000
-      USER_CIC_MAPPING_ENABLED: "${USER_CIC_MAPPING_ENABLED:-true}"
+      CIC_SERVICE_URL: ${CIC_SERVICE_URL:-https://cic-service-node.vercel.app}
+      USER_CIC_MAPPING_ENABLED: "${USER_CIC_MAPPING_ENABLED:-false}"
       CIC_INTERNAL_API_KEY: "${CIC_INTERNAL_API_KEY}"
       FINORA_AES_SECRET: "${FINORA_AES_SECRET}"
       FINORA_HMAC_SECRET: "${FINORA_HMAC_SECRET}"
@@ -463,11 +669,15 @@ services:
         condition: service_healthy
       user-redis:
         condition: service_healthy
-      cic:
-        condition: service_healthy
     healthcheck:
-      # eclipse-temurin jammy co bash; /dev/tcp la tinh nang cua bash, khong phai dash.
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8085'"]
+      # Readiness của actuator (PostgreSQL + Redis User), không chỉ kiểm cổng mở (W3E, D56). Image JRE không có curl
+      # nên gửi HTTP bằng /dev/tcp của bash (eclipse-temurin jammy có bash). Tomcat trả "HTTP/1.1 200 " không reason.
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8085;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
       interval: 10s
       timeout: 5s
       retries: 20
@@ -529,38 +739,185 @@ services:
     networks:
       - finora-network
 
-  # ============ APPLICATION SAMPLE ============
+  # ============ APPLICATIONS (profile apps) ============
   loan:
-    profiles: ["apps"]
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.java-service
-      args:
-        SERVICE_MODULE: finora-loan
-    image: finora/loan:local
+    <<: *finora-app
     container_name: finora-loan
+    command: ["java", "-Xmx320m", "-XX:+UseSerialGC", "-jar", "/app/app.jar"]
+    volumes:
+      - ../finora-loan/target/finora-loan-1.0.0-SNAPSHOT.jar:/app/app.jar:ro
+    env_file: ../finora-loan/.env
     environment:
-      LOAN_DB_URL: jdbc:postgresql://loan-postgres:5432/${LOAN_DB_NAME:-finora_loan}
-      LOAN_DB_USERNAME: ${LOAN_DB_USERNAME:-finora_loan}
-      LOAN_DB_PASSWORD: "${LOAN_DB_PASSWORD}"
-      FINERACT_BASE_URL: http://fineract:8443/fineract-provider/api/v1
-      FINERACT_API_USERNAME: ${FINERACT_API_USERNAME:-mifos}
-      FINERACT_API_PASSWORD: "${FINERACT_API_PASSWORD:-password}"
-      FINERACT_PREVIEW_CLIENT_EXTERNAL_ID: ${FINERACT_PREVIEW_CLIENT_EXTERNAL_ID:-FINORA-PREVIEW-CLIENT}
-      FINERACT_BOOKING_PROVIDER: ${FINERACT_BOOKING_PROVIDER:-mock}
-      FINERACT_OFFICE_ID: ${FINERACT_OFFICE_ID:-1}
-      FINERACT_DISBURSEMENT_PAYMENT_TYPE_ID: ${FINERACT_DISBURSEMENT_PAYMENT_TYPE_ID:-1}
-      FINERACT_CLIENT_LEGAL_FORM_ID: ${FINERACT_CLIENT_LEGAL_FORM_ID:-1}
-      AI_SERVICE_URL: http://ai:8000
-      AI_INTERNAL_TOKEN: "${AI_INTERNAL_TOKEN:-}"
+      <<: *finora-app-network
       SPRING_PROFILES_ACTIVE: local
+      # D85: mặc định giả lập như stack E2E để test UI bằng tài khoản không eKYC, ghi đè `.env` của module. Đổi trong
+      # docker/.env rồi `up -d loan`: APPS_SIGNATURE_PROVIDER=VNPT_SMART_CA ký SmartCA UAT (VNPT_SMARTCA_* lấy từ
+      # finora-loan/.env), APPS_BORROWER_PROFILE_PROVIDER=user đọc eKYC thật của User.
+      FINORA_SIGNATURE_PROVIDER: ${APPS_SIGNATURE_PROVIDER:-MOCK}
+      FINORA_BORROWER_PROFILE_PROVIDER: ${APPS_BORROWER_PROFILE_PROVIDER:-mock}
     ports:
-      - "127.0.0.1:${LOAN_HOST_PORT:-8081}:8081"
+      - "8081:8081"
     depends_on:
-      loan-postgres:
+      kafka:
         condition: service_healthy
-    networks:
-      - finora-network
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      <<: *finora-app-ready
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8081;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+  payment:
+    <<: *finora-app
+    container_name: finora-payment
+    command: ["java", "-Xmx256m", "-XX:+UseSerialGC", "-jar", "/app/app.jar"]
+    volumes:
+      - ../finora-payment/target/finora-payment-1.0.0-SNAPSHOT.jar:/app/app.jar:ro
+    env_file: ../finora-payment/.env
+    environment:
+      <<: *finora-app-network
+      # Provider payout giả lập gọi lại chính Payment qua tên service (W3B).
+      PAYMENT_MOCK_PAYOUT_CALLBACK_URL: http://payment:8082/api/v1/wallets/callbacks/mock-payout
+    ports:
+      - "8082:8082"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      <<: *finora-app-ready
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8082;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+  investment:
+    <<: *finora-app
+    container_name: finora-investment
+    command: ["java", "-Xmx256m", "-XX:+UseSerialGC", "-jar", "/app/app.jar"]
+    volumes:
+      - ../finora-investment/target/finora-investment-1.0.0-SNAPSHOT.jar:/app/app.jar:ro
+    env_file: ../finora-investment/.env
+    environment:
+      <<: *finora-app-network
+      # D85: nhà đầu tư test không eKYC vẫn đầu tư được; Auto-Invest tắt để quy tắc có sẵn trên Neon không tự góp vốn
+      # rồi thành bên phải ký. Đổi bằng APPS_INVESTMENT_REQUIRE_EKYC / APPS_INVESTMENT_AUTO_INVEST_ENABLED.
+      INVESTMENT_REQUIRE_EKYC: ${APPS_INVESTMENT_REQUIRE_EKYC:-false}
+      INVESTMENT_AUTO_INVEST_ENABLED: ${APPS_INVESTMENT_AUTO_INVEST_ENABLED:-false}
+    ports:
+      - "8084:8084"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      <<: *finora-app-ready
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8084;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+  notification:
+    <<: *finora-app
+    container_name: finora-notification
+    command: ["java", "-Xmx192m", "-XX:+UseSerialGC", "-jar", "/app/app.jar"]
+    volumes:
+      - ../finora-notification/target/finora-notification-1.0.0-SNAPSHOT.jar:/app/app.jar:ro
+    env_file: ../finora-notification/.env
+    environment:
+      <<: *finora-app-network
+      # Máy chủ mail (Mailpit hoặc SMTP) chạy trên máy: `.env` ghi localhost.
+      MAIL_HOST: host.docker.internal
+    ports:
+      - "8086:8086"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      <<: *finora-app-ready
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8086;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+  blockchain:
+    <<: *finora-app
+    container_name: finora-blockchain
+    # 256m như launcher -WithFabric: gRPC/Netty của Fabric Gateway cần thêm bộ nhớ so với ledger MOCK.
+    command: ["java", "-Xmx256m", "-XX:+UseSerialGC", "-jar", "/app/app.jar"]
+    volumes:
+      - ../finora-blockchain/target/finora-blockchain-1.0.0-SNAPSHOT.jar:/app/app.jar:ro
+      # Danh tính Fabric do docker/fabric-network/fabric-network.ps1 sinh (git-ignore); chỉ được đọc khi provider là Fabric.
+      - ./fabric-network:/fabric-network:ro
+    environment:
+      <<: *finora-app-network
+      BLOCKCHAIN_DB_URL: jdbc:postgresql://blockchain-postgres:5432/${BLOCKCHAIN_DB_NAME:-finora_blockchain}
+      BLOCKCHAIN_DB_USERNAME: ${BLOCKCHAIN_DB_USERNAME:-finora_blockchain}
+      BLOCKCHAIN_DB_PASSWORD: "${BLOCKCHAIN_DB_PASSWORD}"
+      # Blockchain không có .env; mặc định listener/worker tắt nên bật ở đây để proof được tạo (ledger MOCK, R6).
+      BLOCKCHAIN_KAFKA_LISTENER_ENABLED: "true"
+      BLOCKCHAIN_PROOF_WORKER_ENABLED: "true"
+      BLOCKCHAIN_PROOF_PROVIDER: ${BLOCKCHAIN_PROOF_PROVIDER:-MOCK}
+      # D86: BLOCKCHAIN_PROOF_PROVIDER=HYPERLEDGER_FABRIC trong docker/.env ghi proof lên mạng Fabric local (dựng trước bằng
+      # fabric-network.ps1 -Action Up). Peer cùng mạng finora-network qua alias đúng tên chứng thư TLS; job đối soát tự bỏ
+      # qua khi provider là MOCK.
+      BLOCKCHAIN_PROOF_RECONCILIATION_ENABLED: "true"
+      FABRIC_PEER_ENDPOINT: peer0.org1.finora.local:7051
+      FABRIC_CERT_PATH: /fabric-network/crypto-config/peerOrganizations/org1.finora.local/users/User1@org1.finora.local/msp/signcerts/User1@org1.finora.local-cert.pem
+      FABRIC_KEY_PATH: /fabric-network/crypto-config/peerOrganizations/org1.finora.local/users/User1@org1.finora.local/msp/keystore/priv_sk
+      FABRIC_TLS_CERT_PATH: /fabric-network/crypto-config/peerOrganizations/org1.finora.local/peers/peer0.org1.finora.local/tls/ca.crt
+    ports:
+      - "8083:8083"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      blockchain-postgres:
+        condition: service_healthy
+    healthcheck:
+      <<: *finora-app-ready
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8083;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+  gateway:
+    <<: *finora-app
+    container_name: finora-gateway
+    command: ["java", "-Xmx160m", "-XX:+UseSerialGC", "-jar", "/app/app.jar"]
+    volumes:
+      - ../finora-gateway/target/finora-gateway-1.0.0-SNAPSHOT.jar:/app/app.jar:ro
+    environment:
+      # application-docker.yml trỏ route tới tên service trong mạng Docker (user, ai, loan, payment, ...).
+      SPRING_PROFILES_ACTIVE: docker
+    ports:
+      - "8080:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      <<: *finora-app-ready
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8080;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
 
 volumes:
   kafka-data:
@@ -569,6 +926,9 @@ volumes:
   fineract-postgres-data:
   payment-postgres-data:
   blockchain-postgres-data:
+  fabric-orderer-data:
+  fabric-peer0-org1-data:
+  fabric-peer0-org2-data:
   payment-redis-data:
   user-redis-data:
   investment-postgres-data:

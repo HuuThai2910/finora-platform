@@ -16,6 +16,8 @@ import org.springframework.data.repository.query.Param;
 public interface DisbursementSagaRepository extends JpaRepository<DisbursementSaga, Long> {
     Optional<DisbursementSaga> findByLoanApplicationId(Long loanApplicationId);
     Optional<DisbursementSaga> findByContractNumber(String contractNumber);
+    org.springframework.data.domain.Page<DisbursementSaga> findByStatusOrderByUpdatedAtAscIdAsc(
+            DisbursementSagaStatus status, org.springframework.data.domain.Pageable pageable);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select saga from DisbursementSaga saga where saga.sagaId = :sagaId")
     Optional<DisbursementSaga> findBySagaIdForUpdate(@Param("sagaId") UUID sagaId);

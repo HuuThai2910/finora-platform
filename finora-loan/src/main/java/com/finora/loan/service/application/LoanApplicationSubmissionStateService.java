@@ -5,6 +5,7 @@ import com.finora.loan.domain.application.ActorType;
 import com.finora.loan.domain.application.ApplicantFinancialSnapshot;
 import com.finora.loan.domain.application.EducationLevel;
 import com.finora.loan.domain.application.HomeOwnership;
+import com.finora.loan.domain.application.BorrowerKycSnapshot;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.application.LoanApplicationStatus;
 import com.finora.loan.domain.application.LoanApplicationStatusHistory;
@@ -38,6 +39,7 @@ public class LoanApplicationSubmissionStateService {
     private final FineractProductMappingRepository mappingRepository;
     private final ScheduleCalculationSnapshotRepository calculationRepository;
     private final ApplicationNumberGenerator numberGenerator;
+    private final BorrowerExposureService exposureService;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -78,7 +80,8 @@ public class LoanApplicationSubmissionStateService {
             String disclosureVersion,
             CreateLoanApplicationRequest request,
             ApplicationSubmissionContext expected,
-            ScheduleCalculationResult scheduleResult
+            ScheduleCalculationResult scheduleResult,
+            BorrowerKycSnapshot kycSnapshot
     ) {
         // Write lock ngăn update/deactivate/sync Product xen vào lúc đối chiếu snapshot vừa tính từ Fineract.
         LoanProduct product = productRepository.findByIdForSubmit(request.loanProductId())
@@ -93,6 +96,8 @@ public class LoanApplicationSubmissionStateService {
             );
         }
         FineractProductMapping mapping = mapping(product.getCurrentCoreMappingId());
+        // Kiểm hạn mức dư nợ trong cùng transaction ghi hồ sơ, sau khóa advisory theo người vay (D5, LEGAL-LIMIT-01).
+        exposureService.requireWithinLimit(borrowerId, request.requestedAmount());
         Instant now = Instant.now(clock);
         // Dữ liệu tự khai được đóng băng tại thời điểm submit để lần chấm điểm sau có thể tái hiện chính xác.
         ApplicantFinancialSnapshot financialSnapshot = ApplicantFinancialSnapshot.capture(
@@ -120,6 +125,8 @@ public class LoanApplicationSubmissionStateService {
                 disclosureVersion,
                 now
         );
+        // eKYC chụp lúc nộp đi cùng hồ sơ trong một lần insert; worker chấm điểm đọc lại bản này (W2-KYC).
+        application.attachKycSnapshot(kycSnapshot);
         applicationRepository.saveAndFlush(application);
         // Lưu schedule riêng vì payload nhiều kỳ; Application chỉ giữ ID tham chiếu snapshot đã sử dụng.
         ScheduleCalculationSnapshot calculation = ScheduleCalculationSnapshot.submission(

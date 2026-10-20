@@ -135,7 +135,7 @@ class OrderBookStreamIT {
                             uri("/api/v1/investments/order-books/" + listingId + "/orders"))
                     .header("Authorization", "Bearer OBS-SELLER")
                     .header(PinTokenService.HEADER_NAME,
-                            pinTokenService.issue("OBS-SELLER", PinScope.ORDER).token())
+                            pinTokenService.issue("OBS-SELLER", PinScope.ORDER, "stream-ask-1").token())
                     .header("Idempotency-Key", "stream-ask-1")
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(
@@ -184,7 +184,7 @@ class OrderBookStreamIT {
                 .build());
         actAs("OBS-SELLER", "ROLE_INVESTOR");
         fundingService.placeOrder(listing.listingId(), "obs-fund",
-                new PlaceOrderRequest(new BigDecimal("3000000.00")));
+                new PlaceOrderRequest(new BigDecimal("3000000.00"), "INVESTOR_RISK_V1"));
         noteIssuanceService.finalizeCommitments(listing.listingId());
         noteIssuanceService.activateNotes(listing.listingId());
         SecurityContextHolder.clearContext();

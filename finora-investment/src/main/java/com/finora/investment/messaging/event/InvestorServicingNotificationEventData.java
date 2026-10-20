@@ -21,7 +21,7 @@ public record InvestorServicingNotificationEventData(
         List<Recipient> recipients
 ) {
     /**
-     * @param amount phần tiền (gốc + lãi) Note này vừa nhận; chỉ có ở REPAYMENT_CREDITED và
+     * @param amount phần tiền (gốc + lãi + phần phí trả trước nếu có) Note này vừa nhận; chỉ có ở REPAYMENT_CREDITED và
      *               EARLY_SETTLEMENT, các loại khác để null. Notification cộng theo nhà đầu tư để
      *               mỗi người thấy đúng phần của mình thay vì tổng của cả khoản vay.
      */

@@ -5,9 +5,14 @@ import com.finora.investment.dto.response.FundingSettingsResponse;
 import com.finora.investment.dto.response.ListingInvestorResponse;
 import com.finora.investment.dto.response.MarketListingResponse;
 import com.finora.investment.dto.response.NoteResponse;
+import com.finora.investment.dto.response.OrderIncidentResponse;
 import com.finora.investment.service.MarketListingService;
 import com.finora.investment.service.FundingSettingsService;
 import com.finora.investment.service.NoteIssuanceService;
+import com.finora.investment.service.impl.OrderIncidentService;
+import com.finora.common.dto.PageResponse;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +24,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -33,6 +39,7 @@ public class InvestmentAdminController {
     private final MarketListingService listingService;
     private final NoteIssuanceService noteIssuanceService;
     private final FundingSettingsService settingsService;
+    private final OrderIncidentService orderIncidentService;
 
     /**
      * Ai đã góp vốn vào khoản vay này.
@@ -64,21 +71,38 @@ public class InvestmentAdminController {
         return settingsService.update(request);
     }
 
-    /** Khóa toàn bộ phần vốn của khoản vay trước khi giải ngân. */
+    /** Sửa lỗi: khóa phần vốn của khoản vay đã giải ngân (Loan đã phát LoanDisbursed). */
     @PostMapping("/listings/{listingId}/finalize")
     public Map<String, Object> finalizeCommitments(@PathVariable Long listingId) {
-        return Map.of("finalizedCount", noteIssuanceService.finalizeCommitments(listingId));
+        return Map.of("finalizedCount", noteIssuanceService.finalizeCommitmentsAfterDisbursement(listingId));
     }
 
-    /** Xé nhỏ phần vốn đã khóa thành các Note. */
+    /** Sửa lỗi: phát hành Note còn thiếu cho khoản vay đã giải ngân. */
     @PostMapping("/listings/{listingId}/activate-notes")
     public Map<String, Object> activateNotes(@PathVariable Long listingId) {
-        return Map.of("issuedNoteCount", noteIssuanceService.activateNotes(listingId));
+        return Map.of("issuedNoteCount", noteIssuanceService.activateNotesAfterDisbursement(listingId));
     }
 
     @GetMapping("/commitments/{commitmentId}/notes")
     public List<NoteResponse> notes(@PathVariable Long commitmentId) {
         return noteIssuanceService.notesOfCommitment(commitmentId);
+    }
+
+    /**
+     * R3: lệnh góp vốn chưa khớp với ví ở Payment (chờ giữ tiền thử lại nhiều lần, chưa nhả được tiền giữ, hoặc nhả bị dừng
+     * vì Payment trả lỗi chắc chắn).
+     */
+    @GetMapping("/order-incidents")
+    public PageResponse<OrderIncidentResponse> orderIncidents(
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+        return orderIncidentService.list(page, size);
+    }
+
+    /** R3: hẹn worker thử lại ngay lệnh đang dừng hoặc đang lùi lịch, sau khi vận hành đã xử lý nguyên nhân. */
+    @PostMapping("/order-incidents/{orderReference}/retry")
+    public OrderIncidentResponse retryOrderIncident(@PathVariable String orderReference) {
+        return orderIncidentService.retry(orderReference);
     }
 
     @PostMapping("/listings/close-expired")

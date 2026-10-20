@@ -80,6 +80,26 @@ public class HoldTransferService {
         return HoldResponse.from(hold);
     }
 
+    /**
+     * R3: đọc khoản giữ theo mã lệnh mà không đổi gì, để Investment đối chiếu lệnh chờ giữ tiền trước khi gửi lại lời gọi
+     * giữ tiền. Service account của Investment đọc được mọi khoản; nhà đầu tư chỉ đọc khoản của mình, khoản của người khác
+     * trả 404 như không tồn tại.
+     */
+    @Transactional(readOnly = true)
+    public HoldResponse findByOrderReference(String orderReference) {
+        PaymentHold hold = holdRepository.findByOrderReference(orderReference)
+                .orElseThrow(HoldTransferService::holdNotFound);
+        if (!SecurityUtils.hasRole(ON_BEHALF_AUTHORITY)) {
+            requireInvestor();
+            if (!hold.getOwnerId().equals(SecurityUtils.getCurrentUserId())) throw holdNotFound();
+        }
+        return HoldResponse.from(hold);
+    }
+
+    private static BusinessException holdNotFound() {
+        return new BusinessException(HttpStatus.NOT_FOUND, "PAYMENT_HOLD_NOT_FOUND", "Không tìm thấy khoản tiền giữ");
+    }
+
     @Transactional
     public HoldResponse release(String holdReference, String orderReference) {
         boolean onBehalf = SecurityUtils.hasRole(ON_BEHALF_AUTHORITY);
@@ -96,7 +116,19 @@ public class HoldTransferService {
         String actorId = onBehalf ? hold.getOwnerId() : userActorId;
         // Chỉ nhả phần còn giữ: phần đã thanh toán cho người bán Note (settle) đã rời ví người mua.
         BigDecimal remaining = hold.remainingAmount();
-        if (!hold.release(actorId, clock.instant())) return HoldResponse.from(hold);
+        boolean released;
+        try {
+            released = hold.release(actorId, clock.instant());
+        } catch (IllegalStateException exception) {
+            // Khoản giữ đã vào giải ngân (CAPTURE_PENDING/CAPTURED): trả mã nghiệp vụ để Investment dừng thử lại và báo
+            // vận hành, thay vì 500 khiến worker nhả lặp mãi.
+            throw new BusinessException(HttpStatus.CONFLICT, "PAYMENT_HOLD_NOT_RELEASABLE",
+                    "Khoản tiền giữ ở trạng thái " + hold.getStatus() + ", không nhả được");
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "PAYMENT_OWNER_MISMATCH",
+                    "Không được thao tác ví của người dùng khác");
+        }
+        if (!released) return HoldResponse.from(hold);
         if (remaining.signum() > 0) {
             ledgerPostingService.post(new LedgerPostingCommand(
                     "RELEASE:" + holdReference, LedgerTransactionType.RELEASE,

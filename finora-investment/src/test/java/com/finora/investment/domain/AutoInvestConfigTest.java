@@ -11,6 +11,20 @@ import org.junit.jupiter.api.Test;
 
 class AutoInvestConfigTest {
 
+    @Test
+    @DisplayName("Quy tắc chỉ hợp lệ với đúng phiên bản công bố rủi ro đã xác nhận (Q5)")
+    void riskAcknowledgementMustMatchTheCurrentDisclosure() {
+        Instant now = Instant.parse("2026-10-17T03:00:00Z");
+        AutoInvestConfig config = AutoInvestConfig.create("INV-1", now);
+
+        assertThat(config.acknowledgedFor("INVESTOR_RISK_V1")).isFalse();
+        config.acknowledgeRisk("INVESTOR_RISK_V1", now);
+        assertThat(config.acknowledgedFor("INVESTOR_RISK_V1")).isTrue();
+        assertThat(config.getRiskAcknowledgedAt()).isEqualTo(now);
+        // Đổi nội dung công bố (tăng version) thì quy tắc tạm dừng tới khi xác nhận lại.
+        assertThat(config.acknowledgedFor("INVESTOR_RISK_V2")).isFalse();
+    }
+
     private static final Instant T0 = Instant.parse("2026-09-30T08:00:00Z");
 
     private AutoInvestConfig enabledConfig() {

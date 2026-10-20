@@ -58,6 +58,21 @@
             <version>1.0.10</version>
         </dependency>
 
+        <!--
+            R5/D13: dựng CMS SignedData (PAdES-B-B) và chứng thư demo cho chữ ký nhúng PDF. Ghim đúng phiên bản;
+            PDFBox 2.0.24 (đi kèm openhtmltopdf) chỉ khai báo BouncyCastle là optional nên không có bản trùng.
+        -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+            <version>1.78.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
+            <version>1.78.1</version>
+        </dependency>
+
         <!-- Spring Boot 3.2 chưa có structured logging JSON tích hợp sẵn. -->
         <dependency>
             <groupId>net.logstash.logback</groupId>

@@ -1,8 +1,10 @@
 package com.finora.payment.integration.fineract;
 
+import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.finora.payment.config.PaymentFineractProperties;
 import com.finora.payment.domain.repayment.PaymentRepayment;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -34,13 +36,18 @@ public class FineractRepaymentGateway implements RepaymentCoreGateway {
     public ScheduledRepaymentCoreQuote scheduledRepaymentQuote(Long fineractLoanId) {
         try {
             JsonNode template = get("/loans/%d/transactions/template?command=repayment".formatted(fineractLoanId));
-            BigDecimal amount = money(template.path("total"), "amount");
+            // Fineract 1.15 trả nghĩa vụ của kỳ kế tiếp ở field `amount` cấp gốc của template
+            // (cùng principal/interest/fee/penaltyPortion); template không có object `total`.
+            // Đọc sai chỗ sẽ ra 0 và chặn toàn bộ lượt trả kỳ thường.
+            BigDecimal amount = money(template, "amount");
             if (amount.signum() <= 0) {
                 throw new FineractRepaymentException("FINERACT_NO_SCHEDULED_DUE",
                         "Khoản vay không có nghĩa vụ đến hạn để thanh toán", false, null);
             }
-            JsonNode loan = get("/loans/%d".formatted(fineractLoanId));
-            return new ScheduledRepaymentCoreQuote(amount, money(loan.path("summary"), "totalOverdue"));
+            JsonNode loan = get("/loans/%d?associations=repaymentSchedule".formatted(fineractLoanId));
+            // Ngày đến hạn của kỳ mà khoản này thanh toán: Payment giữ khoản trả sớm tới đúng ngày đó (D16).
+            return new ScheduledRepaymentCoreQuote(amount, money(loan.path("summary"), "totalOverdue"),
+                    nextDue(loan.path("repaymentSchedule").path("periods")).date());
         } catch (FineractRepaymentException exception) {
             throw exception;
         } catch (RestClientResponseException exception) {
@@ -115,7 +122,8 @@ public class FineractRepaymentGateway implements RepaymentCoreGateway {
             LocalDate maturity = date(loan.path("timeline").path("expectedMaturityDate"),
                     "expectedMaturityDate");
             NextDue nextDue = nextDue(loan.path("repaymentSchedule").path("periods"));
-            return new PartialPrepaymentCoreSnapshot(transactionDate, money(due.path("total"), "amount"),
+            // `scheduledDue` là nghĩa vụ Fineract yêu cầu xử lý cùng giao dịch, lấy cùng nguồn với kỳ thường.
+            return new PartialPrepaymentCoreSnapshot(transactionDate, money(due, "amount"),
                     money(payoff, "amount"), money(loan.path("summary"), "principalOutstanding"),
                     nextDue.date(), nextDue.amount(), termMonths(loan, disbursed, maturity),
                     disbursed, maturity);
@@ -141,30 +149,58 @@ public class FineractRepaymentGateway implements RepaymentCoreGateway {
         body.put("paymentTypeId", properties.repaymentPaymentTypeId());
         body.put("externalId", command.repaymentReference());
         body.put("note", "FINORA repayment " + command.repaymentReference());
+        long transactionId;
         try {
             JsonNode created = client.post()
                     .uri("/loans/{loanId}/transactions?command=repayment", command.fineractLoanId())
                     .headers(headers -> headers.setBasicAuth(properties.username(), properties.password()))
                     .contentType(MediaType.APPLICATION_JSON).body(body).retrieve().body(JsonNode.class);
-            long transactionId = created == null ? 0 : created.path("resourceId").asLong();
-            if (transactionId <= 0) throw new FineractRepaymentException("FINERACT_RESPONSE_INVALID",
-                    "Fineract không trả resourceId cho repayment", true, null);
+            transactionId = created == null ? 0 : created.path("resourceId").asLong();
+        } catch (RestClientResponseException exception) {
+            // 4xx: Fineract kiểm tra nghiệp vụ và từ chối, chưa ghi gì nên được hoàn tiền. 5xx (hoặc proxy timeout) không
+            // chứng minh giao dịch đã rollback, nên phải đối soát theo externalId thay vì hoàn tiền.
+            if (exception.getStatusCode().is4xxClientError()) {
+                // Fineract 1.15 trả 403 `error.msg.loan.repayment.duplicate.externalId` khi externalId đã có giao dịch
+                // (kiểm trên Fineract local ngày 2026-10-17). Giao dịch của chính lệnh này đã vào core: không được hoàn
+                // tiền, phải đối soát theo externalId (B32).
+                if (exception.getResponseBodyAsString().contains("duplicate.externalId")) {
+                    throw new FineractRepaymentException("FINERACT_REPAYMENT_DUPLICATE_EXTERNAL_ID",
+                            "Fineract đã có repayment với externalId này; đối soát thay vì hoàn tiền", true, exception);
+                }
+                throw new FineractRepaymentException("FINERACT_REPAYMENT_REJECTED",
+                        "Fineract từ chối repayment với HTTP " + exception.getStatusCode().value(), false, exception);
+            }
+            throw new FineractRepaymentException("FINERACT_REPAYMENT_OUTCOME_UNKNOWN",
+                    "Fineract lỗi HTTP " + exception.getStatusCode().value()
+                            + " khi ghi repayment; phải đối soát theo externalId", true, exception);
+        } catch (ResourceAccessException exception) {
+            throw new FineractRepaymentException("FINERACT_REPAYMENT_OUTCOME_UNKNOWN",
+                    "Mất kết nối khi ghi repayment; phải đối soát trước khi thử lại", true, exception);
+        } catch (RuntimeException exception) {
+            // RestClient chỉ bọc lỗi I/O lúc gửi request thành ResourceAccessException. Mất phản hồi hoặc bị reset sau
+            // khi POST đã gửi đi đến dưới dạng RestClientException (drill Q13 qua Toxiproxy, B42): kết quả chưa biết như
+            // timeout, ghi đúng mã để vận hành đối soát theo externalId.
+            if (connectionLost(exception)) {
+                throw new FineractRepaymentException("FINERACT_REPAYMENT_OUTCOME_UNKNOWN",
+                        "Mất kết nối khi chờ Fineract trả lời repayment; phải đối soát trước khi thử lại", true,
+                        exception);
+            }
+            throw new FineractRepaymentException("FINERACT_REPAYMENT_UNEXPECTED",
+                    "Không hoàn tất được repayment trên Fineract", true, exception);
+        }
+        if (transactionId <= 0) throw new FineractRepaymentException("FINERACT_RESPONSE_INVALID",
+                "Fineract không trả resourceId cho repayment", true, null);
+        try {
             JsonNode transaction = get("/loans/%d/transactions/%d"
                     .formatted(command.fineractLoanId(), transactionId));
             JsonNode loan = get("/loans/%d?associations=repaymentSchedule"
                     .formatted(command.fineractLoanId()));
             return map(transactionId, transaction, loan);
-        } catch (FineractRepaymentException exception) {
-            throw exception;
-        } catch (RestClientResponseException exception) {
-            throw new FineractRepaymentException("FINERACT_REPAYMENT_REJECTED",
-                    "Fineract từ chối repayment với HTTP " + exception.getStatusCode().value(), false, exception);
-        } catch (ResourceAccessException exception) {
-            throw new FineractRepaymentException("FINERACT_REPAYMENT_OUTCOME_UNKNOWN",
-                    "Mất kết nối khi ghi repayment; phải đối soát trước khi thử lại", true, exception);
         } catch (RuntimeException exception) {
-            throw new FineractRepaymentException("FINERACT_REPAYMENT_UNEXPECTED",
-                    "Không hoàn tất được repayment trên Fineract", true, exception);
+            // POST đã trả resourceId nên core ĐÃ ghi repayment; lỗi chỉ nằm ở bước đọc breakdown. Hoàn tiền lúc này sẽ
+            // làm ledger lệch Fineract, nên chuyển sang đối soát theo externalId.
+            throw new FineractRepaymentException("FINERACT_REPAYMENT_POSTED_READ_FAILED",
+                    "Fineract đã ghi repayment nhưng chưa đọc được breakdown; đối soát theo externalId", true, exception);
         }
     }
 
@@ -176,8 +212,10 @@ public class FineractRepaymentGateway implements RepaymentCoreGateway {
             JsonNode transactions = loan.path("transactions");
             if (!transactions.isArray()) return Optional.empty();
             for (JsonNode transaction : transactions) {
+                // Fineract 1.15 đánh dấu giao dịch đã đảo bằng `manuallyReversed`. Giao dịch đã đảo không
+                // còn ghi nợ vào core nên không được coi là repayment đã ghi để tiếp tục chia tiền.
                 if (repaymentReference.equals(transaction.path("externalId").asText())
-                        && !transaction.path("reversed").asBoolean(false)) {
+                        && !transaction.path("manuallyReversed").asBoolean(false)) {
                     long transactionId = transaction.path("id").asLong();
                     if (transactionId <= 0) throw new FineractRepaymentException("FINERACT_RESPONSE_INVALID",
                             "Transaction đối soát không có id", true, null);
@@ -195,6 +233,16 @@ public class FineractRepaymentGateway implements RepaymentCoreGateway {
             throw new FineractRepaymentException("FINERACT_RECONCILIATION_UNEXPECTED",
                     "Không hoàn tất được đối soát repayment", true, exception);
         }
+    }
+
+    /** Lỗi tầng kết nối trong cause chain (timeout, reset, đóng giữa chừng); lỗi đọc JSON không tính. */
+    private static boolean connectionLost(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof IOException && !(current instanceof JacksonException)) return true;
+            current = current.getCause() == current ? null : current.getCause();
+        }
+        return false;
     }
 
     private JsonNode get(String uri) {

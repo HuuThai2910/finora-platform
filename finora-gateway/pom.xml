@@ -19,6 +19,11 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-gateway-mvc</artifactId>
         </dependency>
+        <!-- Liveness/readiness cho hạ tầng (W3E). Gateway không có DB nên readiness chỉ là trạng thái tiến trình. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

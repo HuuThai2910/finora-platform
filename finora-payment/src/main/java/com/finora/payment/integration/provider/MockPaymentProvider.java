@@ -1,5 +1,6 @@
 package com.finora.payment.integration.provider;
 import java.math.BigDecimal;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -16,5 +17,10 @@ public class MockPaymentProvider implements PaymentProvider{
   if("permanent-failure".equalsIgnoreCase(outcome))
    return PaymentProviderResult.failure("MOCK_REJECTED","Lỗi mock cuối cùng",false);
   return PaymentProviderResult.success("MOCK-"+sagaId);
+ }
+ /** Mock xử lý tất định theo sagaId nên tra cứu trả đúng kết quả lần gọi trước; lỗi tạm thời coi như chưa biết. */
+ @Override public Optional<PaymentProviderResult> lookup(UUID sagaId){
+  if("retryable-failure".equalsIgnoreCase(outcome))return Optional.empty();
+  return Optional.of(disburse(sagaId,null,null,null));
  }
 }

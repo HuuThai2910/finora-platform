@@ -11,6 +11,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/** Hộp thư trong app của người đang đăng nhập; người nhận luôn lấy từ JWT, không nhận từ request. */
 @Service
 @RequiredArgsConstructor
 public class InAppNotificationQueryService {
@@ -34,5 +35,11 @@ public class InAppNotificationQueryService {
     public void markRead(UUID id) {
         repository.findByIdAndRecipientId(id, SecurityUtils.getCurrentUserId())
                 .ifPresent(value -> value.markRead(clock.instant()));
+    }
+
+    /** Một câu UPDATE cho mọi tin chưa đọc, thay cho việc app gọi {@code /{id}/read} từng tin. */
+    @Transactional
+    public int markAllRead() {
+        return repository.markAllRead(SecurityUtils.getCurrentUserId(), clock.instant());
     }
 }

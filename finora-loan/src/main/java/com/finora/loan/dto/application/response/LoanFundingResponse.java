@@ -14,6 +14,10 @@ public record LoanFundingResponse(
         BigDecimal fundedAmount,
         Instant fullyFundedAt,
         /** Có giá trị khi {@code status = EXPIRED}: đợt gọi vốn hết hạn mà chưa đủ vốn. */
-        Instant expiredAt
+        Instant expiredAt,
+        /** Có giá trị khi {@code status = CANCELLED}: đã đủ vốn nhưng không giải ngân, tiền giữ được trả lại. */
+        Instant cancelledAt,
+        /** {@code CONTRACT_DECLINED}, {@code CONTRACT_EXPIRED} hoặc {@code DISBURSEMENT_FAILED}. */
+        String cancelReason
 ) {
 }

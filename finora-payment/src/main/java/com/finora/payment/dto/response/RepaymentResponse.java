@@ -8,22 +8,29 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
+/**
+ * @param transactionDate ngày Payment thu tiền từ ví người vay
+ * @param postOn          ngày khoản tiền được ghi vào sổ nợ Fineract khi khác ngày thu (trả kỳ trước hạn, D16);
+ *                        {@code null} là ghi ngay
+ */
 public record RepaymentResponse(UUID repaymentId, Long loanApplicationId, PaymentRepaymentType repaymentType,
         UUID quoteId, UUID partialPrepaymentQuoteId, BigDecimal amount, BigDecimal coreAmount, BigDecimal platformFee,
+        BigDecimal investorFeeShare, BigDecimal finoraFeeShare,
         String currency, LocalDate transactionDate, PaymentRepaymentStatus status,
         Long fineractTransactionId, BigDecimal principalAmount, BigDecimal interestAmount,
         BigDecimal feeAmount, BigDecimal penaltyAmount, BigDecimal outstandingPrincipal,
         BigDecimal outstandingInterest, BigDecimal outstandingFee, BigDecimal outstandingPenalty,
         BigDecimal totalOutstanding, BigDecimal overdueAmount,
-        LocalDate nextDueDate, BigDecimal nextDueAmount, String errorCode, Instant completedAt) {
+        LocalDate nextDueDate, BigDecimal nextDueAmount, String errorCode, Instant completedAt, LocalDate postOn) {
     public static RepaymentResponse from(PaymentRepayment value) {
         return new RepaymentResponse(value.getRepaymentId(), value.getLoanApplicationId(), value.getRepaymentType(),
                 value.getQuoteId(), value.getPartialPrepaymentQuoteId(), value.getAmount(), value.getCoreAmount(), value.getPlatformFee(),
+                value.getInvestorFeeShare(), value.getFinoraFeeShare(),
                 value.getCurrency(), value.getTransactionDate(), value.getStatus(), value.getFineractTransactionId(),
                 value.getPrincipalAmount(), value.getInterestAmount(), value.getFeeAmount(), value.getPenaltyAmount(),
                 value.getOutstandingPrincipal(), value.getOutstandingInterest(), value.getOutstandingFee(),
                 value.getOutstandingPenalty(), value.getTotalOutstanding(), value.getOverdueAmount(),
                 value.getNextDueDate(), value.getNextDueAmount(),
-                value.getErrorCode(), value.getCompletedAt());
+                value.getErrorCode(), value.getCompletedAt(), value.getPostOn());
     }
 }

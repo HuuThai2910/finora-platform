@@ -35,6 +35,7 @@ public class RepaymentDistributedEventHandler {
         if (processed.existsByEventId(eventId)) return;
         BigDecimal principalTotal = BigDecimal.ZERO.setScale(2);
         BigDecimal interestTotal = BigDecimal.ZERO.setScale(2);
+        BigDecimal prepaymentFeeTotal = BigDecimal.ZERO.setScale(2);
         for (RepaymentDistributedEventData.NoteAllocation allocation : data.allocations()) {
             var note = notes.findByIdForUpdate(allocation.noteId()).orElseThrow(() ->
                     InvestmentDomainException.notFound("NOTE_NOT_FOUND", "Không tìm thấy Note trong phân bổ repayment"));
@@ -44,16 +45,19 @@ public class RepaymentDistributedEventHandler {
             }
             BigDecimal principal = new BigDecimal(allocation.principalAmount()).setScale(2);
             BigDecimal interest = new BigDecimal(allocation.interestAmount()).setScale(2);
-            note.applyRepayment(principal, interest, data.completedAt());
+            BigDecimal prepaymentFee = money(allocation.prepaymentFeeAmount());
+            note.applyRepayment(principal, interest, prepaymentFee, data.completedAt());
             if (!note.getInvestorId().equals(allocation.investorId())) {
                 redirectToCurrentOwner(data.repaymentId(), note.getId(), allocation.investorId(),
-                        note.getInvestorId(), principal.add(interest));
+                        note.getInvestorId(), principal.add(interest).add(prepaymentFee));
             }
             principalTotal = principalTotal.add(principal);
             interestTotal = interestTotal.add(interest);
+            prepaymentFeeTotal = prepaymentFeeTotal.add(prepaymentFee);
         }
         if (principalTotal.compareTo(new BigDecimal(data.principalAmount())) != 0
-                || interestTotal.compareTo(new BigDecimal(data.interestAmount())) != 0) {
+                || interestTotal.compareTo(new BigDecimal(data.interestAmount())) != 0
+                || prepaymentFeeTotal.compareTo(money(data.investorFeeShare())) != 0) {
             throw InvestmentDomainException.conflict("REPAYMENT_ALLOCATION_UNBALANCED",
                     "Tổng phân bổ Note không khớp breakdown Payment/Fineract");
         }
@@ -68,6 +72,7 @@ public class RepaymentDistributedEventHandler {
                 .map(item -> new InvestorServicingNotificationEventData.Recipient(
                         item.noteId(), item.noteNumber(), currentOwners.getOrDefault(item.noteId(), item.investorId()),
                         new BigDecimal(item.principalAmount()).add(new BigDecimal(item.interestAmount()))
+                                .add(money(item.prepaymentFeeAmount()))
                                 .setScale(2).toPlainString()))
                 .distinct().toList();
         if (!recipients.isEmpty()) {
@@ -106,5 +111,9 @@ public class RepaymentDistributedEventHandler {
                 repaymentId, noteId, paidTo, currentOwner, amount, clock.instant()));
         log.warn("Repayment chia cho chủ cũ của Note, ghi khoản chuyển lại: repaymentId={}, noteId={}",
                 repaymentId, noteId);
+    }
+
+    private BigDecimal money(String value) {
+        return value == null ? BigDecimal.ZERO.setScale(2) : new BigDecimal(value).setScale(2);
     }
 }

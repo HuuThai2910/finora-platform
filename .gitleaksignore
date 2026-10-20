@@ -1,0 +1,15 @@
+# False positive của gitleaks đã kiểm bằng tay (W3E, 2026-10-17). Định dạng: <commit>:<file>:<rule>:<line>.
+# Chỉ thêm dòng sau khi xác nhận giá trị không phải secret; secret thật phải thu hồi/đổi khóa, không đưa vào đây.
+# Hằng khóa idempotency trong unit test (chuỗi giả, không ký hay mở được gì).
+ca9efa251389f5b27846baa910ea3a1271424466:finora-common/src/test/java/com/finora/common/security/pin/PinTokenServiceTest.java:generic-api-key:19
+# URL JDBC tới container database của Keycloak trong compose cũ bị nhận nhầm là API key.
+e6ce295112f875c85ecbb80899e84296b15ccf3b:docker/docker-compose.yml:generic-api-key:77
+# Dòng roadmap mô tả hợp đồng API eKYC (OCR, khuôn mặt, chống giả mạo) bị nhận nhầm là API key.
+9321dba3ee00b047a7cba3633f4234f58755e43b:.agents/plans/finora-team-roadmap.md:generic-api-key:98
+# W3B (D44): khóa mã hóa số tài khoản mặc định chỉ dùng máy dev; FinoraEnvironmentConfig từ chối khởi động ở
+# staging/production khi còn khóa này (D37). Môi trường thật đặt PAYMENT_ACCOUNT_ENCRYPTION_KEY riêng.
+ba9e65432e0300f0ab1986b1b4fb42e6b8aeb684:finora-payment/src/main/java/com/finora/payment/config/PaymentSimulatedSettings.java:generic-api-key:14
+# R7: token push giả và mã băm giả trong unit test của Notification (không phải token Expo thật).
+1897f4a8396da9e8872f9190df728970fac39bc9:finora-notification/src/test/java/com/finora/notification/service/push/PushTokensTest.java:generic-api-key:35
+# W3C: khai báo record chứa tham số kiểu khóa riêng trong test PAdES; khóa sinh lúc chạy test, không commit khóa nào.
+738d79c4a45a7fa845560591c298e574d2ef25fd:finora-loan/src/test/java/com/finora/loan/service/contract/pades/PadesTestSigners.java:generic-api-key:33

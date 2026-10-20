@@ -102,6 +102,41 @@ class HoldTransferServiceOnBehalfTest {
     }
 
     @Test
+    @DisplayName("R3: service account đọc khoản giữ theo mã lệnh mà không đổi gì; nhà đầu tư khác thấy 404")
+    void holdLookupByOrderReferenceIsReadOnlyAndHiddenFromOtherInvestors() {
+        PaymentHold hold = PaymentHold.create(UUID.randomUUID(), "HOLD-L", "IO-L", wallet,
+                new BigDecimal("2000000.00"), NOW);
+        when(holdRepository.findByOrderReference("IO-L")).thenReturn(Optional.of(hold));
+        actAs("service-account-finora-investment-client", null, HoldTransferService.ON_BEHALF_AUTHORITY);
+
+        HoldResponse response = service.findByOrderReference("IO-L");
+
+        assertThat(response.holdReference()).isEqualTo("HOLD-L");
+        assertThat(response.status()).isEqualTo("HELD");
+        verify(ledgerPostingService, never()).post(any());
+
+        actAs("kc-2", "INV-002", "ROLE_INVESTOR");
+        assertThatThrownBy(() -> service.findByOrderReference("IO-L"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("PAYMENT_HOLD_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("R3: nhả khoản giữ đã vào giải ngân trả 409 PAYMENT_HOLD_NOT_RELEASABLE, không 500")
+    void releasingAHoldReservedForDisbursementIsAConflictNotAServerError() {
+        PaymentHold hold = PaymentHold.create(UUID.randomUUID(), "HOLD-C", "IO-C", wallet,
+                new BigDecimal("2000000.00"), NOW);
+        hold.reserveCapture("SAGA-1", NOW);
+        when(holdRepository.findByHoldReferenceForUpdate("HOLD-C")).thenReturn(Optional.of(hold));
+        actAs("service-account-finora-investment-client", null, HoldTransferService.ON_BEHALF_AUTHORITY);
+
+        assertThatThrownBy(() -> service.release("HOLD-C", "IO-C"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("PAYMENT_HOLD_NOT_RELEASABLE"));
+        verify(ledgerPostingService, never()).post(any());
+    }
+
+    @Test
     @DisplayName("Service account on_behalf nhả tiền giữ của nhà đầu tư")
     void serviceAccountReleasesForOwner() {
         PaymentHold hold = PaymentHold.create(UUID.randomUUID(), "HOLD-X", "IO-3", wallet,

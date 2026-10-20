@@ -1,11 +1,14 @@
 package com.finora.user.controller;
 
+import com.finora.common.security.ratelimit.RateLimited;
 import com.finora.common.dto.BaseResponse;
 import com.finora.common.security.SecurityUtils;
 import com.finora.user.dto.request.EkycVerifyRequest;
 import com.finora.user.dto.response.EkycResultResponse;
+import com.finora.user.dto.response.KycSummaryResponse;
 import com.finora.user.dto.response.UserProfileResponse;
 import com.finora.user.service.EkycVerificationService;
+import com.finora.user.service.KycSummaryService;
 import com.finora.user.service.UserProfileService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -31,12 +34,23 @@ public class UserProfileController {
 
     private final UserProfileService userProfileService;
     private final EkycVerificationService ekycVerificationService;
+    private final KycSummaryService kycSummaryService;
 
     @GetMapping("/me")
     @PreAuthorize("hasAuthority('user:profile:read')")
     public ResponseEntity<UserProfileResponse> getMyProfile() {
         UUID keycloakUserId = SecurityUtils.getCurrentKeycloakUserId();
         return ResponseEntity.ok(userProfileService.getMyProfile(keycloakUserId));
+    }
+
+    /**
+     * Tóm tắt eKYC của chính người dùng (W2-KYC). Loan gọi bằng token của người vay lúc nộp hồ sơ để chặn người chưa
+     * xác minh danh tính; chỉ có trạng thái và tuổi, không có dữ liệu định danh.
+     */
+    @GetMapping("/me/kyc-summary")
+    @PreAuthorize("hasAuthority('user:profile:read')")
+    public ResponseEntity<KycSummaryResponse> getMyKycSummary() {
+        return ResponseEntity.ok(kycSummaryService.summaryOf(SecurityUtils.getCurrentKeycloakUserId()));
     }
 
     // ── eKYC — Xác minh giấy tờ ────────────────────────────────────
@@ -49,6 +63,8 @@ public class UserProfileController {
      */
     @PostMapping("/profile/ekyc-verify")
     @PreAuthorize("hasAuthority('user:cccd:scan')")
+    // Mỗi lần quét gọi Gemini có tính phí (D40): 5 lần/10 phút mỗi người dùng.
+    @RateLimited(value = "ekyc.ocr", limit = 5, window = "PT10M")
     public BaseResponse<EkycResultResponse> verifyEkyc(
             @Valid @RequestBody EkycVerifyRequest request) {
 

@@ -3,12 +3,16 @@ package com.finora.investment.client.impl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.common.security.SecurityUtils;
+import com.finora.investment.client.PaymentCallException;
 import com.finora.investment.client.PaymentClient;
 import com.finora.investment.client.PaymentHoldResult;
+import com.finora.investment.client.PaymentHoldView;
 import com.finora.investment.client.PaymentTransferResult;
 import com.finora.investment.client.ServiceTokenProvider;
 import java.math.BigDecimal;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -37,11 +41,17 @@ public class RestPaymentClient implements PaymentClient {
                     .headers(this::authorize)
                     .body(Map.of("investorId", investorId, "amount", amount, "orderReference", orderReference))
                     .retrieve().body(HoldBody.class);
-            return response == null
-                    ? PaymentHoldResult.unavailable("Payment không trả kết quả giữ tiền")
-                    : PaymentHoldResult.ok(response.holdReference());
+            if (response == null) return PaymentHoldResult.unavailable("Payment không trả kết quả giữ tiền");
+            // R3: Payment trả lại khoản giữ cũ của mã lệnh dù trạng thái nào. Chỉ HELD mới là tiền đang được giữ cho lệnh.
+            if (response.status() == null || "HELD".equals(response.status())) {
+                return PaymentHoldResult.ok(response.holdReference());
+            }
+            if ("RELEASED".equals(response.status())) return PaymentHoldResult.alreadyReleased(response.holdReference());
+            return PaymentHoldResult.notHeld(response.holdReference(), response.status());
         } catch (RestClientResponseException exception) {
-            if (exception.getStatusCode().is4xxClientError()) {
+            // R3: chỉ lỗi nghiệp vụ là kết luận chắc chắn. Token, quyền, route, giới hạn tần suất (401/403/404/408/429)
+            // không chứng minh Payment chưa giữ tiền ở lần gọi trước, nên để lệnh chờ và đối soát lại.
+            if (DEFINITIVE_HOLD_REJECTIONS.contains(exception.getStatusCode().value())) {
                 return PaymentHoldResult.rejected(errorCode(exception), errorMessage(exception));
             }
             return PaymentHoldResult.unavailable("Payment tạm thời không phản hồi");
@@ -51,13 +61,45 @@ public class RestPaymentClient implements PaymentClient {
     }
 
     @Override
+    public Optional<PaymentHoldView> findHold(String orderReference) {
+        try {
+            HoldBody response = client().get().uri(builder -> builder
+                            .path("/transactions/holds")
+                            .queryParam("orderReference", orderReference)
+                            .build())
+                    .headers(this::authorize)
+                    .retrieve().body(HoldBody.class);
+            if (response == null) throw new PaymentCallException("PAYMENT_UNAVAILABLE", "Payment không trả khoản giữ", true, null);
+            return Optional.of(new PaymentHoldView(response.holdReference(), response.amount(), response.status()));
+        } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().value() == 404 && "PAYMENT_HOLD_NOT_FOUND".equals(errorCode(exception))) {
+                return Optional.empty();
+            }
+            throw new PaymentCallException(errorCode(exception), "Chưa đọc được khoản giữ ở Payment", true, exception);
+        } catch (PaymentCallException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw new PaymentCallException("PAYMENT_UNAVAILABLE", "Không kết nối được Payment Service", true, exception);
+        }
+    }
+
+    @Override
     public void release(String holdReference, String orderReference) {
-        client().post().uri(builder -> builder
-                        .path("/transactions/holds/{holdReference}/release")
-                        .queryParam("orderReference", orderReference)
-                        .build(holdReference))
-                .headers(this::authorize)
-                .retrieve().toBodilessEntity();
+        try {
+            client().post().uri(builder -> builder
+                            .path("/transactions/holds/{holdReference}/release")
+                            .queryParam("orderReference", orderReference)
+                            .build(holdReference))
+                    .headers(this::authorize)
+                    .retrieve().toBodilessEntity();
+        } catch (RestClientResponseException exception) {
+            String code = errorCode(exception);
+            // Khoản giữ đã vào giải ngân, không tồn tại hoặc lệch mã lệnh/chủ: thử lại không đổi được kết quả (R3).
+            boolean definitive = DEFINITIVE_RELEASE_FAILURES.contains(code);
+            throw new PaymentCallException(code, "Payment chưa nhả khoản giữ " + holdReference, !definitive, exception);
+        } catch (RuntimeException exception) {
+            throw new PaymentCallException("PAYMENT_UNAVAILABLE", "Không kết nối được Payment Service", true, exception);
+        }
     }
 
     /**
@@ -159,6 +201,12 @@ public class RestPaymentClient implements PaymentClient {
         }
     }
 
-    private record HoldBody(String holdReference) {}
+    /** Lỗi nghiệp vụ của lời gọi giữ tiền: số dư, dữ liệu không hợp lệ, mã lệnh đã dùng với nội dung khác. */
+    private static final Set<Integer> DEFINITIVE_HOLD_REJECTIONS = Set.of(400, 409, 422);
+
+    private static final Set<String> DEFINITIVE_RELEASE_FAILURES = Set.of(
+            "PAYMENT_HOLD_NOT_RELEASABLE", "PAYMENT_HOLD_NOT_FOUND", "PAYMENT_HOLD_ORDER_MISMATCH", "PAYMENT_OWNER_MISMATCH");
+
+    private record HoldBody(String holdReference, BigDecimal amount, String status) {}
     private record TransferBody(String paymentReference) {}
 }

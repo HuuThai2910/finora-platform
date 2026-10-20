@@ -18,12 +18,23 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CoreProductSyncStateServiceTest {
+
+    @Test
+    void productExternalIdKeepsTheSharedFormatAndPrefixesAnIsolatedNamespace() {
+        assertThat(CoreProductSyncStateService.productExternalId("", 1L, 1L)).isEqualTo("FINORA-LP-1-V1");
+        assertThat(CoreProductSyncStateService.productExternalId(null, 12L, 2L)).isEqualTo("FINORA-LP-12-V2");
+        assertThat(CoreProductSyncStateService.productExternalId("E2E", 1L, 1L)).isEqualTo("FINORA-E2E-LP-1-V1");
+        assertThat(FineractProperties.normalizeNamespace(" e2e ")).isEqualTo("E2E");
+        assertThatThrownBy(() -> FineractProperties.normalizeNamespace("E2E-LOCAL"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 
     @Test
     void shouldNotStartSecondExecutionWhileProcessingLeaseIsActive() {
