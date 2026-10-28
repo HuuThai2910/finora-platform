@@ -320,7 +320,7 @@ function Assert-Infrastructure {
         }
     }
     Assert-UserImageCurrent
-    Start-LocalPostgres -Service 'blockchain-postgres' -Container 'finora-blockchain-postgres' -Profile 'blockchain' `
+    Start-LocalPostgres -Service 'blockchain-postgres' -Container 'finora-blockchain-postgres' -Profile 'blockchain-local-db' `
         -SecretNames @('BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD', 'BLOCKCHAIN_DB_PASSWORD')
     if ($Database -eq 'local') {
         foreach ($db in $localDatabases.Values) {

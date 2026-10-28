@@ -1,5 +1,6 @@
 package com.finora.loan.integration.fineract.mapper;
 
+import com.finora.loan.domain.product.RepaymentMethod;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,15 +19,21 @@ final class FineractAllocationPolicy {
 
     private FineractAllocationPolicy() {}
 
-    static String strategy(String configVersion) {
+    static String strategy(String configVersion, RepaymentMethod repaymentMethod) {
+        if (repaymentMethod == null) {
+            throw new IllegalArgumentException("repaymentMethod không được trống");
+        }
         String value = normalize(configVersion);
-        if (value.endsWith("V1")) return STANDARD;
+        // Fineract 1.15 dùng engine EMI cho lịch PROGRESSIVE, vì vậy dù gửi
+        // amortizationType=0 thì phần gốc vẫn tăng. Gốc trả đều phải dùng lịch
+        // CUMULATIVE/standard; lãi V4 vẫn được tính lại theo ngày ở cấu hình riêng.
+        if (repaymentMethod == RepaymentMethod.EQUAL_PRINCIPAL || value.endsWith("V1")) return STANDARD;
         if (value.endsWith("V2") || value.endsWith("V3") || value.endsWith("V4")) return ADVANCED;
         throw new IllegalArgumentException("FINERACT_PRODUCT_CONFIG_VERSION không được hỗ trợ: " + configVersion);
     }
 
-    static boolean advanced(String configVersion) {
-        return ADVANCED.equals(strategy(configVersion));
+    static boolean advanced(String configVersion, RepaymentMethod repaymentMethod) {
+        return ADVANCED.equals(strategy(configVersion, repaymentMethod));
     }
 
     static List<Map<String, Object>> paymentAllocation(String configVersion) {
@@ -62,6 +69,17 @@ final class FineractAllocationPolicy {
      */
     static boolean interestRecalculation(String configVersion) {
         return normalize(configVersion).endsWith("V4");
+    }
+
+    /**
+     * Progressive điều chỉnh kỳ cuối; Cumulative gốc trả đều dùng giảm số kỳ.
+     * Fineract không cho phương án 4 trên lịch Cumulative.
+     */
+    static int rescheduleStrategyMethod(RepaymentMethod repaymentMethod) {
+        if (repaymentMethod == null) {
+            throw new IllegalArgumentException("repaymentMethod không được trống");
+        }
+        return repaymentMethod == RepaymentMethod.EQUAL_PRINCIPAL ? 2 : 4;
     }
 
     /**

@@ -98,16 +98,18 @@ Keycloak không dùng chung database/credential với User Service dù cùng thu
 
 PostgreSQL của Blockchain chỉ lưu submission state, transaction/block reference, payload hash và reconciliation metadata. Không lưu private key, certificate, tài liệu gốc hoặc PII đầy đủ.
 
-## 5. Tạo project cho Fineract
+## 5. Tạo database cho Fineract và Blockchain
 
-Tạo project `finora-fineract` riêng, sau đó tạo hai database mà Fineract yêu cầu:
+Thiết kế production ưu tiên project/credential riêng. Với môi trường demo hiện tại, ba database dưới đây có thể cùng nằm
+trong một Neon Project đã có, nhưng vẫn là ba database tách biệt và không service nào được đọc bảng của service khác:
 
 ```text
 fineract_tenants
 fineract_default
+finora_blockchain
 ```
 
-Tạo database bằng giao diện Neon và chọn default role của project làm owner; không cần tự tạo role phụ trong giai đoạn khóa luận một owner. Cùng username/password này được dùng cho metadata DB và tenant DB, nhưng tuyệt đối không dùng credential của Loan.
+Tạo database bằng giao diện Neon và chọn default role của project làm owner; không cần tự tạo role phụ trong giai đoạn khóa luận một owner. Cùng username/password được dùng cho ba DB trong cấu hình demo này, nhưng tuyệt đối không dùng credential của Loan ở project khác.
 
 Không chạy Flyway của FINORA vào hai database này. Apache Fineract tự quản lý schema bằng Liquibase. Cấu hình managed sau này phải ánh xạ:
 
@@ -117,7 +119,9 @@ FINERACT_DEFAULT_TENANTDB_NAME -> fineract_default
 FINERACT_DEFAULT_TENANTDB_IDENTIFIER -> default
 ```
 
-Host, role, password, tenant master password và SSL parameters chỉ đặt trong secret store. Trước khi dùng Neon cho Fineract, P0-C05 local phải smoke pass để không debug đồng thời adapter, Liquibase và network managed.
+Host, role, password, tenant master password và SSL parameters chỉ đặt trong secret store hoặc `docker/.env` bị Git ignore.
+Container chạy dài hạn dùng direct endpoint; `sslmode=require` là bắt buộc. Fineract tự quản lý hai schema bằng Liquibase,
+còn Blockchain chạy Flyway chỉ trên `finora_blockchain`.
 
 Free plan hiện có 0,5 GB cho toàn project, vì vậy `fineract_tenants` và `fineract_default` cùng chia sẻ quota này. Sau khi bootstrap phải đo dung lượng thực; nếu gần giới hạn thì nâng gói hoặc chuyển riêng Fineract sang PostgreSQL managed có dung lượng phù hợp, không chia một tenant core ra nhiều project để lách quota.
 
@@ -259,7 +263,10 @@ docker compose --env-file docker/.env -f docker/docker-compose.yml --profile loa
 docker compose --env-file docker/.env -f docker/docker-compose.yml --profile payment up -d payment-postgres
 
 # Blockchain
-docker compose --env-file docker/.env -f docker/docker-compose.yml --profile blockchain up -d blockchain-postgres
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile blockchain-local-db up -d blockchain-postgres
+
+# Fineract
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile fineract-local-db up -d fineract-postgres
 
 # User
 docker compose --env-file docker/.env -f docker/docker-compose.yml --profile user up -d user-postgres

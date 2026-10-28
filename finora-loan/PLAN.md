@@ -5,6 +5,7 @@
 - **Owner:** Thái
 - **Module:** `finora-loan`
 - **Tài liệu thiết kế tổng thể duy nhất:** [`plans/LOAN-SERVICE-DESIGN.md`](plans/LOAN-SERVICE-DESIGN.md)
+- **Bản AS-IS xuyên Loan–Payment–Fineract–Fabric:** [`FINORA-CORE-BUSINESS-AND-DATA-FLOW.md`](../docs/architecture/FINORA-CORE-BUSINESS-AND-DATA-FLOW.md)
 - **Roadmap nhóm:** [`../.agents/plans/finora-team-roadmap.md`](../.agents/plans/finora-team-roadmap.md)
 - **Ranh giới service:** [`../.agents/rules/07-service-boundaries.md`](../.agents/rules/07-service-boundaries.md)
 - **Luồng liên service:** [`../.agents/rules/08-cross-service-flows.md`](../.agents/rules/08-cross-service-flows.md)

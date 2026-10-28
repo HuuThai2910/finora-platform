@@ -1,5 +1,6 @@
 package com.finora.loan.integration.fineract.client;
 
+import com.finora.loan.domain.product.RepaymentMethod;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -9,7 +10,8 @@ public interface CoreLoanBookingGateway {
 
     record CoreLoanBookingCommand(Long loanApplicationId, String contractNumber, String borrowerId,
             Long productId, BigDecimal principal, Integer termMonths, BigDecimal annualRate,
-            String coreConfigVersion, LocalDate disbursementDate, String paymentReference) {}
+            RepaymentMethod repaymentMethod, String coreConfigVersion, LocalDate disbursementDate,
+            String paymentReference) {}
     /**
      * Kết quả ghi khoản vay vào core. Ba ngày/số tiền dưới đây đọc từ cùng một lần đọc khoản vay của Fineract (B34, P3);
      * {@code null} khi core không trả (gateway giả lập). FINORA không tự tính lịch.

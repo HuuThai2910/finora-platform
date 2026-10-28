@@ -619,7 +619,10 @@ Ranh giới trách nhiệm đã được khóa thêm bằng architecture test:
 - Fineract được tách thành `FineractProductHttpClient`, `FineractScheduleHttpClient` và
   `FineractRequestExecutor`; mỗi adapter chỉ chịu một nhóm endpoint, executor dùng chung resilience/error mapping.
 - Mã Fineract cho `ANNUITY/EQUAL_PRINCIPAL`, dư nợ giảm dần và chu kỳ tính lãi được tập trung tại
-  `FineractRepaymentPolicy`. MVP giữ `interestType=0`, `interestCalculationPeriodType=1`, không thêm Flat.
+  `FineractRepaymentPolicy`. `ANNUITY` V2–V4 dùng `PROGRESSIVE`/Advanced; `EQUAL_PRINCIPAL` dùng
+  `CUMULATIVE`/Standard vì Fineract 1.15 vẫn tạo EMI gốc tăng dần nếu ghép `amortizationType=0` với
+  `PROGRESSIVE`. V4 tính lãi theo ngày (`interestCalculationPeriodType=0`), V1–V3 theo kỳ trả nợ
+  (`interestCalculationPeriodType=1`); mọi phiên bản giữ dư nợ giảm dần và không thêm Flat.
 - Durable command Fineract dùng processing lease. Worker quét cả `PENDING`, retry đến hạn và
   `PROCESSING` mất lease để không mắc kẹt sau khi instance dừng giữa external call.
 - Hash idempotency dùng JSON canonical; response Fineract thiếu field tiền/ngày bắt buộc bị coi là

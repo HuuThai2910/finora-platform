@@ -207,6 +207,33 @@ class FineractPayloadMapperTest {
     }
 
     @Test
+    void shouldCreateV4EqualPrincipalProductWithCumulativeScheduleAndStandardStrategy() {
+        FineractProductConfiguration equalPrincipal = new FineractProductConfiguration(
+                2L, 1L, "BUSINESS_EQUAL_PRINCIPAL", "Vay kinh doanh gốc trả đều",
+                new BigDecimal("10000000"), new BigDecimal("100000000"),
+                6, 24, new BigDecimal("12.0000"), RepaymentMethod.EQUAL_PRINCIPAL,
+                "FINORA-LP-2-V1", "FINORA-FINERACT-V4");
+
+        var productPayload = productMapper.toCreateProductPayload(equalPrincipal);
+        var schedulePayload = scheduleMapper.toSchedulePayload(new ScheduleCalculationRequest(
+                2L, 2002L, new BigDecimal("50000000"), 12, new BigDecimal("12"),
+                RepaymentMethod.EQUAL_PRINCIPAL, "FINORA-FINERACT-V4",
+                LocalDate.of(2026, 10, 25), LocalDate.of(2026, 11, 1)), 2001L);
+
+        assertThat(productPayload)
+                .containsEntry("amortizationType", 0)
+                .containsEntry("transactionProcessingStrategyCode", "mifos-standard-strategy")
+                .containsEntry("isInterestRecalculationEnabled", true)
+                .containsEntry("interestCalculationPeriodType", 0)
+                .containsEntry("rescheduleStrategyMethod", 2)
+                .doesNotContainKeys("loanScheduleType", "paymentAllocation");
+        assertThat(schedulePayload)
+                .containsEntry("amortizationType", 0)
+                .containsEntry("transactionProcessingStrategyCode", "mifos-standard-strategy")
+                .containsEntry("interestCalculationPeriodType", 0);
+    }
+
+    @Test
     void scheduleRequestUsesTheSameInterestCalculationAsTheProductVersion() {
         var v4 = scheduleMapper.toSchedulePayload(new ScheduleCalculationRequest(
                 1L, 1001L, new BigDecimal("10000000"), 6, new BigDecimal("12"),
@@ -226,6 +253,7 @@ class FineractPayloadMapperTest {
     void shouldRejectReconciledV4ProductWhenInterestRecalculationIsOff() throws Exception {
         String json = """
                 {
+                  "amortizationType": {"id": 1},
                   "transactionProcessingStrategyCode": "advanced-payment-allocation-strategy",
                   "loanScheduleType": {"code": "loanScheduleType.progressive", "value": "Progressive"},
                   "isInterestRecalculationEnabled": RECALC,
@@ -239,17 +267,19 @@ class FineractPayloadMapperTest {
 
         // Product cùng externalId nhưng tắt tính lại lãi sẽ thu lãi tương lai: không được tái sử dụng.
         assertThatThrownBy(() -> productMapper.validateReconciledProduct(
-                objectMapper.readTree(json.replace("RECALC", "false")), "FINORA-FINERACT-V4"))
+                objectMapper.readTree(json.replace("RECALC", "false")), "FINORA-FINERACT-V4",
+                RepaymentMethod.ANNUITY))
                 .isInstanceOf(FineractIntegrationException.class)
                 .hasMessageContaining("tính lại lãi");
         productMapper.validateReconciledProduct(objectMapper.readTree(json.replace("RECALC", "true")),
-                "FINORA-FINERACT-V4");
+                "FINORA-FINERACT-V4", RepaymentMethod.ANNUITY);
     }
 
     @Test
     void shouldAcceptReconciledV2ProductOnlyWhenAdvancedAllocationIsIntact() throws Exception {
         JsonNode product = objectMapper.readTree("""
                 {
+                  "amortizationType": {"id": 1},
                   "transactionProcessingStrategyCode": "advanced-payment-allocation-strategy",
                   "loanScheduleType": {"code": "loanScheduleType.progressive", "value": "Progressive"},
                   "paymentAllocation": [{
@@ -260,13 +290,14 @@ class FineractPayloadMapperTest {
                 }
                 """);
 
-        productMapper.validateReconciledProduct(product, "FINORA-FINERACT-V2");
+        productMapper.validateReconciledProduct(product, "FINORA-FINERACT-V2", RepaymentMethod.ANNUITY);
     }
 
     @Test
     void shouldAcceptReconciledV3ProductOnlyWithNextInstallmentRule() throws Exception {
         JsonNode product = objectMapper.readTree("""
                 {
+                  "amortizationType": {"id": 1},
                   "transactionProcessingStrategyCode": "advanced-payment-allocation-strategy",
                   "loanScheduleType": {"code": "loanScheduleType.progressive", "value": "Progressive"},
                   "paymentAllocation": [{
@@ -277,13 +308,14 @@ class FineractPayloadMapperTest {
                 }
                 """);
 
-        productMapper.validateReconciledProduct(product, "FINORA-FINERACT-V3");
+        productMapper.validateReconciledProduct(product, "FINORA-FINERACT-V3", RepaymentMethod.ANNUITY);
     }
 
     @Test
     void shouldRejectReconciledV2ProductWithCumulativeSchedule() throws Exception {
         JsonNode product = objectMapper.readTree("""
                 {
+                  "amortizationType": {"id": 1},
                   "transactionProcessingStrategyCode": "advanced-payment-allocation-strategy",
                   "loanScheduleType": {"code": "loanScheduleType.cumulative", "value": "Cumulative"},
                   "paymentAllocation": [{
@@ -295,9 +327,41 @@ class FineractPayloadMapperTest {
                 """);
 
         assertThatThrownBy(() -> productMapper.validateReconciledProduct(
-                product, "FINORA-FINERACT-V2"))
+                product, "FINORA-FINERACT-V2", RepaymentMethod.ANNUITY))
                 .isInstanceOf(FineractIntegrationException.class)
                 .hasMessageContaining("PROGRESSIVE");
+    }
+
+    @Test
+    void shouldRejectOldProgressiveProductForEqualPrincipalReconciliation() throws Exception {
+        JsonNode oldProduct = objectMapper.readTree("""
+                {
+                  "amortizationType": {"id": 0},
+                  "transactionProcessingStrategyCode": "advanced-payment-allocation-strategy",
+                  "loanScheduleType": {"code": "loanScheduleType.progressive", "value": "Progressive"},
+                  "isInterestRecalculationEnabled": true
+                }
+                """);
+
+        assertThatThrownBy(() -> productMapper.validateReconciledProduct(
+                oldProduct, "FINORA-FINERACT-V4", RepaymentMethod.EQUAL_PRINCIPAL))
+                .isInstanceOf(FineractIntegrationException.class)
+                .hasMessageContaining("transaction strategy");
+    }
+
+    @Test
+    void shouldAcceptCumulativeV4ProductForEqualPrincipalReconciliation() throws Exception {
+        JsonNode product = objectMapper.readTree("""
+                {
+                  "amortizationType": {"id": 0},
+                  "transactionProcessingStrategyCode": "mifos-standard-strategy",
+                  "loanScheduleType": {"code": "loanScheduleType.cumulative", "value": "Cumulative"},
+                  "isInterestRecalculationEnabled": true
+                }
+                """);
+
+        productMapper.validateReconciledProduct(
+                product, "FINORA-FINERACT-V4", RepaymentMethod.EQUAL_PRINCIPAL);
     }
 
     @Test

@@ -1,6 +1,7 @@
 # Kế hoạch FINORA Blockchain Service
 
 - **Owner:** Thái
+- **Bản AS-IS xuyên Loan–Payment–Fineract–Fabric:** [`FINORA-CORE-BUSINESS-AND-DATA-FLOW.md`](../docs/architecture/FINORA-CORE-BUSINESS-AND-DATA-FLOW.md)
 - **Roadmap:** [finora-team-roadmap.md](../.agents/plans/finora-team-roadmap.md)
 - **Cross-service flow:** [F08](../.agents/rules/08-cross-service-flows.md#f08--audit-blockchain-và-đối-chiếu)
 - **Pháp lý/dữ liệu:** [`LEGAL-CONTRACT-01`, `LEGAL-DATA-01`](../docs/LEGAL-COMPLIANCE.md)

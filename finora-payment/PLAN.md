@@ -1,6 +1,7 @@
 # Kế hoạch FINORA Payment Service
 
 - **Owner:** Thái
+- **Bản AS-IS xuyên Loan–Payment–Fineract–Fabric:** [`FINORA-CORE-BUSINESS-AND-DATA-FLOW.md`](../docs/architecture/FINORA-CORE-BUSINESS-AND-DATA-FLOW.md)
 - **Roadmap:** [finora-team-roadmap.md](../.agents/plans/finora-team-roadmap.md)
 - **Boundary:** [Payment](../.agents/rules/07-service-boundaries.md#payment-service)
 - **Pháp lý:** [`LEGAL-PAYMENT-01`](../docs/LEGAL-COMPLIANCE.md)

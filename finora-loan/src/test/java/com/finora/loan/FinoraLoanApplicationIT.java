@@ -158,7 +158,7 @@ class FinoraLoanApplicationIT {
                         "BORROWER-001"
                 )
         );
-        when(productGateway.findProductByExternalId(anyString(), anyString())).thenReturn(Optional.empty());
+        when(productGateway.findProductByExternalId(any())).thenReturn(Optional.empty());
         when(productGateway.createProduct(any(), anyString()))
                 .thenAnswer(invocation -> new FineractProductCreationResult(fineractIds.incrementAndGet(), "{}"));
         when(scheduleGateway.calculateSchedule(any()))

@@ -71,7 +71,7 @@ public class CoreProductSyncServiceImpl implements CoreProductSyncService {
     private FineractProductCreationResult createOrReconcile(ProductSyncExecution execution) {
         String externalId = execution.configuration().externalId();
         Optional<FineractProductCreationResult> existing = gateway.findProductByExternalId(
-                externalId, execution.configuration().configVersion());
+                execution.configuration());
         if (existing.isPresent()) {
             log.info("Đã đối chiếu Product tồn tại trên Fineract: commandId={}, productId={}, fineractProductId={}",
                     execution.commandId(), execution.configuration().loanProductId(), existing.get().resourceId());
@@ -83,7 +83,7 @@ public class CoreProductSyncServiceImpl implements CoreProductSyncService {
         } catch (FineractIntegrationException createFailure) {
             try {
                 Optional<FineractProductCreationResult> created = gateway.findProductByExternalId(
-                        externalId, execution.configuration().configVersion());
+                        execution.configuration());
                 if (created.isPresent()) {
                     log.warn("POST Product không có kết quả chắc chắn nhưng đối chiếu đã tìm thấy Product: "
                                     + "commandId={}, productId={}, fineractProductId={}, originalCode={}",

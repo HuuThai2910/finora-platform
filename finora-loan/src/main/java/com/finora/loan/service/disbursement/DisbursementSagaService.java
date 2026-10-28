@@ -126,7 +126,8 @@ public class DisbursementSagaService {
         return new CoreBookingWork(saga.getSagaId(), saga.getAttemptCount(), new CoreLoanBookingGateway.CoreLoanBookingCommand(
                 application.getId(), contract.getContractNumber(), application.getBorrowerId(),
                 application.getFineractProductIdSnapshot(), contract.getPrincipalAmount(), contract.getTermMonths(),
-                contract.getAnnualInterestRate(), application.getCoreConfigVersionSnapshot(),
+                contract.getAnnualInterestRate(), application.getRepaymentMethodSnapshot(),
+                application.getCoreConfigVersionSnapshot(),
                 contract.getExpectedDisbursementDate(), saga.getPaymentReference()));
     }
 

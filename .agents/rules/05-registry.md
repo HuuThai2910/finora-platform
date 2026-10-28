@@ -7,7 +7,7 @@ Thay đổi giá trị trong bảng MUST cập nhật cấu hình, tài liệu l
 | `finora-gateway`              |                                 8080 | Không có DB                                                                                                                                                   |
 | `finora-loan`                 |                                 8081 | PostgreSQL/Neon Project `finora-loan`, DB `neondb`, default role của project                                                                                  |
 | `finora-payment`              |                                 8082 | PostgreSQL/Neon Project `finora-payment`, DB `neondb`, default role của project                                                                               |
-| `finora-blockchain`           |                                 8083 | PostgreSQL/Neon Project `finora-blockchain`, DB `neondb`, default role của project; Fabric channel `finora-channel`, chaincode `finora-ledger`, MSP `Org1MSP` |
+| `finora-blockchain`           |                                 8083 | PostgreSQL/Neon DB `finora_blockchain` (direct endpoint trong demo hiện tại); Fabric channel `finora-channel`, chaincode `finora-ledger`, MSP `Org1MSP` |
 | `finora-investment`           |                                 8084 | PostgreSQL/Neon Project `finora-investment`, DB `neondb`, default role của project                                                                            |
 | `finora-user`                 |                                 8085 | PostgreSQL/Neon Project `finora-user`, DB `neondb`, default role của project                                                                                  |
 | `finora-notification`         |                                 8086 | PostgreSQL/Neon DB riêng; in-app delivery + REST/JWT + Kafka consumer; SMTP internal                                                                            |
@@ -22,7 +22,7 @@ Thay đổi giá trị trong bảng MUST cập nhật cấu hình, tài liệu l
 | Investment PostgreSQL offline |        15437 host local; 5432 nội bộ | PostgreSQL 17, `investment-postgres`, volume/user riêng                                                                                                       |
 | Notification PostgreSQL offline |      15438 host local; 5432 nội bộ | PostgreSQL 17, `notification-postgres`, volume/user riêng                                                                                                     |
 | Apache Fineract 1.15.0        |   18443 host local; 8443 nội bộ HTTP | Tenant `default`; API prefix `/fineract-provider/api/v1`                                                                                                      |
-| Fineract PostgreSQL           |        15432 host local; 5432 nội bộ | PostgreSQL 18.3 riêng; `fineract_tenants`, `fineract_default`                                                                                                 |
+| Fineract PostgreSQL           | Neon direct `5432`                    | `fineract_tenants`, `fineract_default`; Liquibase do Fineract quản lý; Docker `15432` chỉ là fallback `fineract-local-db`                                    |
 | Mailpit (tùy chọn, dev)       |  8025 UI; 1025 SMTP (host local)     | Mail server local bắt thư để test; không lưu trữ lâu dài, không gửi ra Internet                                                                               |
 
 Realm role Keycloak hiện có: `ROLE_BORROWER`, `ROLE_INVESTOR`, `ROLE_ADMIN` — khớp enum `UserRole`
@@ -123,14 +123,14 @@ nhận ngày 2026-10-04. Loan V2 50 triệu và repayment thật 5 triệu đã 
 và `REAMORTIZATION` trên 6 kỳ; Kafka broker local cũng đã publish/consume envelope v1. Chưa có
 MinIO. Fabric network/chaincode local có từ W3D (2026-10-17, bảng trên). Mail local dùng Mailpit (profile `mail`), thay cho MailHog.
 
-## Phân bổ dự kiến — chưa phải thành phần đang chạy
+## Phân bổ managed hiện tại
 
 | Thành phần                |              Port dự kiến | Storage/định danh             | Trạng thái                               |
 | ------------------------- | ------------------------: | ----------------------------- | ---------------------------------------- |
-| Fineract managed database | Endpoint qua secret store | Neon/PostgreSQL Project riêng | `PLANNED`; local fixture phải pass trước |
+| Fineract managed database | Direct endpoint qua secret store | Neon/PostgreSQL, DB `fineract_tenants` + `fineract_default` | `ACTIVE` từ 2026-10-25; local fixture/volume chỉ còn fallback |
 
-Fineract 1.15 dùng PostgreSQL; fixture release 1.15.0 được pin PostgreSQL 18.3. Fineract và Loan MUST dùng Project/database/credential/lifecycle riêng dù cùng dùng PostgreSQL.
+Fineract 1.15 dùng PostgreSQL; fixture release 1.15.0 được pin PostgreSQL 18.3. Fineract và Loan MUST dùng database/credential/lifecycle riêng dù cùng dùng PostgreSQL. Môi trường demo 2026-10-25 đặt hai DB Fineract và `finora_blockchain` trong cùng Neon Project/default role theo yêu cầu vận hành; production thật phải tách runtime role hoặc project để giảm blast radius.
 
 Port host local có thể override bằng environment để tránh xung đột máy cá nhân; port nội bộ/service contract trong Docker không đổi. Mọi override dùng chung phải được ghi trong `docker/.env` và không commit file này.
 
-Mỗi service MUST chỉ dùng endpoint/database/credential thuộc storage của mình (`loan-postgres`, `payment-postgres`, `blockchain-postgres`, `user-postgres`, `investment-postgres`, `user-redis`). Không dùng chung Neon Project hoặc lấy connection string project khác. Trong môi trường Neon khóa luận một owner, mỗi service MAY dùng default role do đúng project đó cấp để giảm cấu hình; trước production thật MUST tạo runtime role giới hạn quyền. Docker fallback và Keycloak PostgreSQL vẫn MUST dùng runtime role không có superuser.
+Mỗi service MUST chỉ đọc/ghi database thuộc storage của mình (`loan-postgres`, `payment-postgres`, `blockchain-postgres`, `user-postgres`, `investment-postgres`, `user-redis`). Không được đổi tên DB trong URL để truy cập dữ liệu service khác. Môi trường demo khóa luận MAY đặt nhiều database tách biệt trong cùng Neon Project/default role khi được owner chấp thuận rõ; trước production thật MUST tách project hoặc runtime role giới hạn quyền theo service. Docker fallback và Keycloak PostgreSQL vẫn MUST dùng runtime role không có superuser.

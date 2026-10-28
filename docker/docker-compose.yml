@@ -1,8 +1,8 @@
 # Profile `apps`: sáu service Java (Loan, Payment, Investment, Notification, Blockchain, Gateway) chạy bằng jar đã build
 # (`mvn -pl <module> -am package -DskipTests`), không build image. Mỗi service đọc `.env` của module (DB Neon như khi chạy
 # IntelliJ); Compose chỉ đổi các địa chỉ `localhost` trong `.env` sang tên service trong mạng Docker. Lệnh compose của profile
-# này cần đủ `--profile demo --profile fineract --profile blockchain --profile apps` (Kafka, Keycloak, DB Blockchain ở profile
-# khác). Sửa code thì `stop <service>` trước (container giữ khóa file jar trên Windows), build lại jar rồi `up -d <service>`;
+# này cần đủ `--profile demo --profile fineract --profile apps` (Kafka, Keycloak, User/AI và Fineract; Fineract/Blockchain
+# dùng Neon). Sửa code thì `stop <service>` trước (container giữ khóa file jar trên Windows), build lại jar rồi `up -d <service>`;
 # muốn debug một service bằng IntelliJ thì dừng container của nó trước.
 x-finora-app: &finora-app
   image: eclipse-temurin:21-jre-jammy
@@ -232,10 +232,10 @@ services:
 
   # ============ APACHE FINERACT CORE BANKING FIXTURE ============
   fineract-postgres:
-    profiles: ["fineract"]
+    # Chỉ bật thủ công khi cần fallback offline. Luồng chạy hằng ngày dùng hai DB Neon.
+    profiles: ["fineract-local-db"]
     image: postgres:18.3
-    # Sau lần khởi tạo đầu, container tự chạy lại khi Docker Desktop khởi động.
-    restart: unless-stopped
+    restart: "no"
     container_name: finora-fineract-postgres
     environment:
       POSTGRES_DB: postgres
@@ -267,26 +267,22 @@ services:
       context: ./fineract
       dockerfile: Dockerfile
     image: finora/fineract:1.15.0
-    # Fineract chỉ tự chạy sau khi PostgreSQL riêng của nó healthy.
     restart: unless-stopped
     container_name: finora-fineract
-    depends_on:
-      fineract-postgres:
-        condition: service_healthy
     environment:
       FINERACT_HIKARI_DRIVER_SOURCE_CLASS_NAME: org.postgresql.Driver
-      FINERACT_HIKARI_JDBC_URL: jdbc:postgresql://fineract-postgres:5432/fineract_tenants
-      FINERACT_HIKARI_USERNAME: ${FINERACT_DB_USERNAME:-fineract}
+      FINERACT_HIKARI_JDBC_URL: "jdbc:postgresql://${FINERACT_DB_HOST}:${FINERACT_DB_PORT:-5432}/${FINERACT_TENANTS_DB_NAME:-fineract_tenants}?sslmode=${FINERACT_DB_SSLMODE:-require}"
+      FINERACT_HIKARI_USERNAME: "${FINERACT_DB_USERNAME}"
       FINERACT_HIKARI_PASSWORD: "${FINERACT_DB_PASSWORD}"
-      FINERACT_DEFAULT_TENANTDB_HOSTNAME: fineract-postgres
-      FINERACT_DEFAULT_TENANTDB_PORT: 5432
-      FINERACT_DEFAULT_TENANTDB_UID: ${FINERACT_DB_USERNAME:-fineract}
+      FINERACT_DEFAULT_TENANTDB_HOSTNAME: "${FINERACT_DB_HOST}"
+      FINERACT_DEFAULT_TENANTDB_PORT: "${FINERACT_DB_PORT:-5432}"
+      FINERACT_DEFAULT_TENANTDB_UID: "${FINERACT_DB_USERNAME}"
       FINERACT_DEFAULT_TENANTDB_PWD: "${FINERACT_DB_PASSWORD}"
-      FINERACT_DEFAULT_TENANTDB_CONN_PARAMS: ""
+      FINERACT_DEFAULT_TENANTDB_CONN_PARAMS: "sslmode=${FINERACT_DB_SSLMODE:-require}"
       FINERACT_DEFAULT_TENANTDB_TIMEZONE: Asia/Ho_Chi_Minh
       FINERACT_DEFAULT_TENANTDB_IDENTIFIER: default
-      FINERACT_DEFAULT_TENANTDB_NAME: fineract_default
-      FINERACT_DEFAULT_TENANTDB_DESCRIPTION: FINORA Local Tenant
+      FINERACT_DEFAULT_TENANTDB_NAME: "${FINERACT_DEFAULT_DB_NAME:-fineract_default}"
+      FINERACT_DEFAULT_TENANTDB_DESCRIPTION: FINORA Neon Tenant
       FINERACT_DEFAULT_MASTER_PASSWORD: "${FINERACT_DEFAULT_MASTER_PASSWORD:-fineract}"
       FINERACT_SERVER_SSL_ENABLED: "false"
       FINERACT_SERVER_PORT: 8443
@@ -304,8 +300,9 @@ services:
       test: ["CMD", "/usr/local/bin/finora-fineract-readiness"]
       interval: 15s
       timeout: 20s
-      retries: 40
-      start_period: 180s
+      # Neon trống lần đầu có hơn 1.800 change-set; direct SSL có thể cần 10–15 phút.
+      retries: 80
+      start_period: 300s
     networks:
       - finora-network
 
@@ -376,8 +373,10 @@ services:
 
   # ============ BLOCKCHAIN OWNED DATABASE (OFFLINE FALLBACK) ============
   blockchain-postgres:
-    profiles: ["blockchain"]
+    # Chỉ bật thủ công khi cần fallback offline. Blockchain hằng ngày dùng Neon.
+    profiles: ["blockchain-local-db"]
     image: postgres:17.5-alpine
+    restart: "no"
     container_name: finora-blockchain-postgres
     environment:
       POSTGRES_DB: ${BLOCKCHAIN_DB_NAME:-finora_blockchain}
@@ -862,8 +861,8 @@ services:
       - ./fabric-network:/fabric-network:ro
     environment:
       <<: *finora-app-network
-      BLOCKCHAIN_DB_URL: jdbc:postgresql://blockchain-postgres:5432/${BLOCKCHAIN_DB_NAME:-finora_blockchain}
-      BLOCKCHAIN_DB_USERNAME: ${BLOCKCHAIN_DB_USERNAME:-finora_blockchain}
+      BLOCKCHAIN_DB_URL: "${BLOCKCHAIN_DB_URL}"
+      BLOCKCHAIN_DB_USERNAME: "${BLOCKCHAIN_DB_USERNAME}"
       BLOCKCHAIN_DB_PASSWORD: "${BLOCKCHAIN_DB_PASSWORD}"
       # Blockchain không có .env; mặc định listener/worker tắt nên bật ở đây để proof được tạo (ledger MOCK, R6).
       BLOCKCHAIN_KAFKA_LISTENER_ENABLED: "true"
@@ -881,8 +880,6 @@ services:
       - "8083:8083"
     depends_on:
       kafka:
-        condition: service_healthy
-      blockchain-postgres:
         condition: service_healthy
     healthcheck:
       <<: *finora-app-ready

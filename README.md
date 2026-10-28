@@ -17,6 +17,10 @@ FINORA là nền tảng cho vay ngang hàng (Peer-to-Peer Lending) được xây
 | `finora-notification` | 8086 | Spring Boot + Kafka | Thông báo SMS/Email |
 | `finora-ai` | 8000 | Python FastAPI | AI Credit Scoring, eKYC |
 
+Tài liệu tổng hợp phần core do Thái phụ trách — từ nghiệp vụ tới API/event, hàm xử lý, transaction,
+database, Fineract và Fabric — nằm tại
+[FINORA-CORE-BUSINESS-AND-DATA-FLOW.md](docs/architecture/FINORA-CORE-BUSINESS-AND-DATA-FLOW.md).
+
 ## 🚀 Khởi chạy
 
 ### 1. Chuẩn bị database

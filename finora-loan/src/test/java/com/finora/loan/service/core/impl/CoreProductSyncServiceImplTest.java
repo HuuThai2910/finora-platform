@@ -55,7 +55,7 @@ class CoreProductSyncServiceImplTest {
     @Test
     void shouldReconcileExistingProductWithoutAnotherPost() {
         FineractProductCreationResult existing = new FineractProductCreationResult(101L, "{}");
-        when(gateway.findProductByExternalId(EXTERNAL_ID, "FINORA-FINERACT-V1"))
+        when(gateway.findProductByExternalId(execution.configuration()))
                 .thenReturn(Optional.of(existing));
 
         service.execute(COMMAND_ID);
@@ -67,7 +67,7 @@ class CoreProductSyncServiceImplTest {
     @Test
     void shouldCompleteWhenPostTimesOutButReconciliationFindsCreatedProduct() {
         FineractProductCreationResult created = new FineractProductCreationResult(102L, "{}");
-        when(gateway.findProductByExternalId(EXTERNAL_ID, "FINORA-FINERACT-V1"))
+        when(gateway.findProductByExternalId(execution.configuration()))
                 .thenReturn(Optional.empty(), Optional.of(created));
         when(gateway.createProduct(execution.configuration(), execution.idempotencyKey()))
                 .thenThrow(new FineractIntegrationException(

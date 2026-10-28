@@ -2,6 +2,7 @@ package com.finora.loan.integration.fineract.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.finora.loan.config.FineractProperties;
+import com.finora.loan.domain.product.RepaymentMethod;
 import com.finora.loan.integration.fineract.client.FineractIntegrationException;
 import com.finora.loan.integration.fineract.contract.FineractProductConfiguration;
 import com.finora.loan.integration.fineract.contract.FineractProductCreationResult;
@@ -48,8 +49,9 @@ public class FineractProductPayloadMapper {
         payload.put("interestType", repaymentPolicy.interestType());
         payload.put("interestCalculationPeriodType",
                 repaymentPolicy.interestCalculationPeriodType(source.configVersion()));
-        payload.put("transactionProcessingStrategyCode", FineractAllocationPolicy.strategy(source.configVersion()));
-        if (FineractAllocationPolicy.advanced(source.configVersion())) {
+        payload.put("transactionProcessingStrategyCode",
+                FineractAllocationPolicy.strategy(source.configVersion(), source.repaymentMethod()));
+        if (FineractAllocationPolicy.advanced(source.configVersion(), source.repaymentMethod())) {
             // Fineract 1.15 chỉ cho phép Advanced Payment Allocation trên lịch PROGRESSIVE.
             // Nếu bỏ field này, Product vẫn tạo được ở dạng CUMULATIVE nhưng mọi Loan V2 sẽ bị
             // từ chối khi apply, nên phải snapshot cùng strategy ngay từ lúc tạo Product.
@@ -61,9 +63,10 @@ public class FineractProductPayloadMapper {
         payload.put("isInterestRecalculationEnabled", recalculation);
         if (recalculation) {
             // V4 (D15): lãi theo dư nợ thực tế, mốc tính lãi hằng ngày, không cộng dồn lãi vào gốc. Tất toán tính lãi
-            // đến đúng ngày tất toán; trả thêm gốc thì Fineract điều chỉnh kỳ cuối thay vì thu lãi các kỳ tương lai.
+            // đến đúng ngày tất toán; trả thêm gốc giảm số kỳ với gốc trả đều, còn Progressive điều chỉnh kỳ cuối.
             payload.put("interestRecalculationCompoundingMethod", 0);
-            payload.put("rescheduleStrategyMethod", 4);
+            payload.put("rescheduleStrategyMethod",
+                    FineractAllocationPolicy.rescheduleStrategyMethod(source.repaymentMethod()));
             payload.put("recalculationRestFrequencyType", 2);
             payload.put("recalculationRestFrequencyInterval", 1);
             payload.put("preClosureInterestCalculationStrategy", 1);
@@ -112,25 +115,37 @@ public class FineractProductPayloadMapper {
      * Retry chỉ được tái sử dụng Product nếu cấu hình bất biến vẫn đúng với version FINORA.
      * External ID đúng nhưng strategy/lịch sai sẽ làm mọi Loan V2 bị từ chối hoặc phân bổ sai.
      */
-    public void validateReconciledProduct(JsonNode product, String configVersion) {
+    public void validateReconciledProduct(
+            JsonNode product,
+            String configVersion,
+            RepaymentMethod repaymentMethod
+    ) {
         if (product == null || !product.isObject()) {
             throw contractMismatch("Fineract không trả chi tiết Product hợp lệ khi đối chiếu");
         }
-        String expectedStrategy = FineractAllocationPolicy.strategy(configVersion);
+        int expectedAmortization = repaymentPolicy.amortizationType(repaymentMethod);
+        if (product.path("amortizationType").path("id").asInt(-1) != expectedAmortization) {
+            throw contractMismatch("Product Fineract tồn tại nhưng cách phân bổ gốc không khớp "
+                    + repaymentMethod);
+        }
+        String expectedStrategy = FineractAllocationPolicy.strategy(configVersion, repaymentMethod);
         if (!matchesExact(product.path("transactionProcessingStrategyCode"), expectedStrategy)) {
             throw contractMismatch("Product Fineract tồn tại nhưng transaction strategy không khớp "
                     + configVersion);
         }
-        if (!FineractAllocationPolicy.advanced(configVersion)) {
-            return;
-        }
-        if (!matchesEnum(product.path("loanScheduleType"), "PROGRESSIVE")) {
-            throw contractMismatch("Product Fineract V2 tồn tại nhưng loanScheduleType không phải PROGRESSIVE");
+        boolean advanced = FineractAllocationPolicy.advanced(configVersion, repaymentMethod);
+        String expectedSchedule = advanced ? "PROGRESSIVE" : "CUMULATIVE";
+        if (!matchesEnum(product.path("loanScheduleType"), expectedSchedule)) {
+            throw contractMismatch("Product Fineract tồn tại nhưng loanScheduleType không phải "
+                    + expectedSchedule);
         }
         boolean expectedRecalculation = FineractAllocationPolicy.interestRecalculation(configVersion);
         if (product.path("isInterestRecalculationEnabled").asBoolean(false) != expectedRecalculation) {
             // Product V4 tắt tính lại lãi sẽ thu lãi tương lai khi trả trước/tất toán (B28/B29): không tái sử dụng.
             throw contractMismatch("Product Fineract tồn tại nhưng cờ tính lại lãi không khớp " + configVersion);
+        }
+        if (!advanced) {
+            return;
         }
         String expectedFutureRule = FineractAllocationPolicy.futureInstallmentAllocationRule(configVersion);
         JsonNode allocations = product.path("paymentAllocation");

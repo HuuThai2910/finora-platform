@@ -30,6 +30,8 @@ import org.testcontainers.utility.DockerImageName;
         "finora.ai.credit.worker-enabled=false",
         "finora.loan.contract.expiry-worker-enabled=false",
         "finora.loan.servicing-sync.enabled=false",
+        // Khóa provider mock trong chính test; không để FINERACT_BOOKING_PROVIDER của máy local làm đổi kỳ vọng.
+        "finora.fineract.booking-provider=mock",
         "spring.kafka.listener.auto-startup=false",
         "finora.loan.outbox.publisher-delay=3600000",
         // Cổng 1 từ chối kết nối ngay: kết quả Kafka health không phụ thuộc máy có broker local hay không.

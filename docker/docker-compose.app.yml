@@ -16,8 +16,7 @@
 #   thành tên service trong mạng Docker.
 # - Keycloak lấy thông tin database từ docker/.env (Compose tự nạp vì file này nằm
 #   cùng thư mục). Realm `finora` đã có sẵn trong database Neon nên không import.
-# - Database của 6 service ở Neon. Riêng Fineract dùng PostgreSQL trên máy (5432),
-#   nên PostgreSQL đó phải đang chạy.
+# - Database của 6 service và hai database Fineract đều ở Neon; không cần PostgreSQL local.
 # - Redis chỉ phục vụ User (OTP, giới hạn đăng nhập); Payment không dùng Redis (B23).
 # - Healthcheck của service Java gọi /actuator/health/readiness (DB, Redis User), không chỉ kiểm cổng mở (W3E).
 #
@@ -130,9 +129,8 @@ services:
     networks:
       - finora
 
-  # Apache Fineract (core banking của Loan). Dùng lại database fineract_tenants /
-  # fineract_default trên PostgreSQL của máy (cổng 5432), giống container cũ, nên
-  # không mất dữ liệu đã có. Tài khoản lấy từ docker/.env.
+  # Apache Fineract (core banking của Loan) dùng hai database Neon riêng:
+  # fineract_tenants giữ metadata tenant, fineract_default giữ dữ liệu lending.
   fineract:
     build:
       context: ./fineract
@@ -143,18 +141,18 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       FINERACT_HIKARI_DRIVER_SOURCE_CLASS_NAME: org.postgresql.Driver
-      FINERACT_HIKARI_JDBC_URL: jdbc:postgresql://host.docker.internal:5432/fineract_tenants
-      FINERACT_HIKARI_USERNAME: "${FINERACT_DB_USERNAME:-fineract}"
+      FINERACT_HIKARI_JDBC_URL: "jdbc:postgresql://${FINERACT_DB_HOST}:${FINERACT_DB_PORT:-5432}/${FINERACT_TENANTS_DB_NAME:-fineract_tenants}?sslmode=${FINERACT_DB_SSLMODE:-require}"
+      FINERACT_HIKARI_USERNAME: "${FINERACT_DB_USERNAME}"
       FINERACT_HIKARI_PASSWORD: "${FINERACT_DB_PASSWORD}"
-      FINERACT_DEFAULT_TENANTDB_HOSTNAME: host.docker.internal
-      FINERACT_DEFAULT_TENANTDB_PORT: "5432"
-      FINERACT_DEFAULT_TENANTDB_UID: "${FINERACT_DB_USERNAME:-fineract}"
+      FINERACT_DEFAULT_TENANTDB_HOSTNAME: "${FINERACT_DB_HOST}"
+      FINERACT_DEFAULT_TENANTDB_PORT: "${FINERACT_DB_PORT:-5432}"
+      FINERACT_DEFAULT_TENANTDB_UID: "${FINERACT_DB_USERNAME}"
       FINERACT_DEFAULT_TENANTDB_PWD: "${FINERACT_DB_PASSWORD}"
-      FINERACT_DEFAULT_TENANTDB_CONN_PARAMS: ""
+      FINERACT_DEFAULT_TENANTDB_CONN_PARAMS: "sslmode=${FINERACT_DB_SSLMODE:-require}"
       FINERACT_DEFAULT_TENANTDB_TIMEZONE: Asia/Ho_Chi_Minh
       FINERACT_DEFAULT_TENANTDB_IDENTIFIER: default
-      FINERACT_DEFAULT_TENANTDB_NAME: fineract_default
-      FINERACT_DEFAULT_TENANTDB_DESCRIPTION: FINORA Local Tenant
+      FINERACT_DEFAULT_TENANTDB_NAME: "${FINERACT_DEFAULT_DB_NAME:-fineract_default}"
+      FINERACT_DEFAULT_TENANTDB_DESCRIPTION: FINORA Neon Tenant
       # Phải giữ đúng giá trị cũ: nó mã hóa mật khẩu tenant đã lưu trong fineract_tenants.
       FINERACT_DEFAULT_MASTER_PASSWORD: "${FINERACT_DEFAULT_MASTER_PASSWORD:-fineract}"
       FINERACT_SERVER_SSL_ENABLED: "false"
@@ -172,8 +170,9 @@ services:
       test: ["CMD", "/usr/local/bin/finora-fineract-readiness"]
       interval: 15s
       timeout: 20s
-      retries: 40
-      start_period: 180s
+      # Neon trống lần đầu có hơn 1.800 change-set; direct SSL có thể cần 10–15 phút.
+      retries: 80
+      start_period: 300s
     networks:
       - finora
 

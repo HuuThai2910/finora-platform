@@ -1,11 +1,6 @@
 package com.finora.loan.integration.fineract.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -13,6 +8,8 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.loan.config.FineractBookingProperties;
+import com.finora.loan.domain.product.RepaymentMethod;
+import com.finora.loan.integration.fineract.mapper.FineractRepaymentPolicy;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -21,6 +18,7 @@ import java.time.ZoneOffset;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -37,6 +35,7 @@ class FineractCoreLoanBookingGatewayTest {
         FineractCoreLoanBookingGateway gateway = new FineractCoreLoanBookingGateway(
                 builder.build(), passThroughExecutor(),
                 new FineractBookingProperties(1L, 1L, 1L, "en", "yyyy-MM-dd"),
+                new FineractRepaymentPolicy(),
                 Clock.fixed(Instant.parse("2026-10-04T00:00:00Z"), ZoneOffset.UTC));
 
         server.expect(requestTo("http://fineract.test/clients?externalId=FINORA-BORROWER-BORROWER-1"))
@@ -54,6 +53,7 @@ class FineractCoreLoanBookingGatewayTest {
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(content().string(Matchers.allOf(
                         Matchers.containsString("\"interestCalculationPeriodType\":1"),
+                        Matchers.containsString("\"amortizationType\":1"),
                         Matchers.containsString("\"transactionProcessingStrategyCode\":\"advanced-payment-allocation-strategy\""))))
                 .andRespond(withSuccess("{\"resourceId\":3}", MediaType.APPLICATION_JSON));
         server.expect(requestTo(LOAN_WITH_SCHEDULE))
@@ -78,7 +78,8 @@ class FineractCoreLoanBookingGatewayTest {
 
         var result = gateway.bookAndDisburse(new CoreLoanBookingGateway.CoreLoanBookingCommand(
                 1L, "LC-1", "BORROWER-1", 2L, new BigDecimal("50000000"), 6,
-                new BigDecimal("15"), "FINORA-FINERACT-V2", LocalDate.of(2026, 10, 4), "PAY-1"));
+                new BigDecimal("15"), RepaymentMethod.ANNUITY, "FINORA-FINERACT-V2",
+                LocalDate.of(2026, 10, 4), "PAY-1"));
 
         assertThat(result.fineractLoanId()).isEqualTo(3L);
         assertThat(result.maturityDate()).isEqualTo(LocalDate.of(2027, 4, 4));
@@ -95,6 +96,7 @@ class FineractCoreLoanBookingGatewayTest {
         FineractCoreLoanBookingGateway gateway = new FineractCoreLoanBookingGateway(
                 builder.build(), passThroughExecutor(),
                 new FineractBookingProperties(1L, 1L, 1L, "en", "yyyy-MM-dd"),
+                new FineractRepaymentPolicy(),
                 Clock.fixed(Instant.parse("2026-10-04T00:00:00Z"), ZoneOffset.UTC));
 
         server.expect(requestTo("http://fineract.test/clients?externalId=FINORA-BORROWER-BORROWER-1"))
@@ -112,7 +114,8 @@ class FineractCoreLoanBookingGatewayTest {
 
         var result = gateway.bookAndDisburse(new CoreLoanBookingGateway.CoreLoanBookingCommand(
                 1L, "LC-1", "BORROWER-1", 2L, new BigDecimal("50000000"), 6,
-                new BigDecimal("15"), "FINORA-FINERACT-V2", LocalDate.of(2026, 10, 4), "PAY-1"));
+                new BigDecimal("15"), RepaymentMethod.ANNUITY, "FINORA-FINERACT-V2",
+                LocalDate.of(2026, 10, 4), "PAY-1"));
 
         assertThat(result.nextDueDate()).isEqualTo(LocalDate.of(2026, 11, 4));
         assertThat(result.nextDueAmount()).isEqualByComparingTo("8701681.50");
@@ -159,6 +162,7 @@ class FineractCoreLoanBookingGatewayTest {
         FineractCoreLoanBookingGateway gateway = new FineractCoreLoanBookingGateway(
                 builder.build(), passThroughExecutor(),
                 new FineractBookingProperties(1L, 1L, 1L, "en", "yyyy-MM-dd"),
+                new FineractRepaymentPolicy(),
                 Clock.fixed(Instant.parse("2026-10-17T03:00:00Z"), ZoneOffset.UTC));
 
         server.expect(requestTo("http://fineract.test/clients?externalId=FINORA-BORROWER-BORROWER-1"))
@@ -168,7 +172,10 @@ class FineractCoreLoanBookingGatewayTest {
         // Product V4 chỉ nhận khoản vay tính lãi theo ngày (Fineract 1.15 bắt buộc khi bật tính lại lãi).
         server.expect(requestTo("http://fineract.test/loans"))
                 .andExpect(method(HttpMethod.POST))
-                .andExpect(content().string(Matchers.containsString("\"interestCalculationPeriodType\":0")))
+                .andExpect(content().string(Matchers.allOf(
+                        Matchers.containsString("\"interestCalculationPeriodType\":0"),
+                        Matchers.containsString("\"amortizationType\":0"),
+                        Matchers.containsString("\"transactionProcessingStrategyCode\":\"mifos-standard-strategy\""))))
                 .andRespond(withSuccess("{\"resourceId\":3}", MediaType.APPLICATION_JSON));
         server.expect(requestTo(LOAN_WITH_SCHEDULE))
                 .andRespond(withSuccess("{\"status\":{\"pendingApproval\":true}}", MediaType.APPLICATION_JSON));
@@ -181,7 +188,8 @@ class FineractCoreLoanBookingGatewayTest {
 
         gateway.bookAndDisburse(new CoreLoanBookingGateway.CoreLoanBookingCommand(
                 1L, "LC-4", "BORROWER-1", 2L, new BigDecimal("10000000"), 6,
-                new BigDecimal("12"), "FINORA-FINERACT-V4", LocalDate.of(2026, 10, 17), "PAY-4"));
+                new BigDecimal("12"), RepaymentMethod.EQUAL_PRINCIPAL, "FINORA-FINERACT-V4",
+                LocalDate.of(2026, 10, 17), "PAY-4"));
 
         server.verify();
     }
@@ -194,6 +202,7 @@ class FineractCoreLoanBookingGatewayTest {
         FineractCoreLoanBookingGateway gateway = new FineractCoreLoanBookingGateway(
                 builder.build(), passThroughExecutor(),
                 new FineractBookingProperties(1L, 1L, 1L, "en", "yyyy-MM-dd"),
+                new FineractRepaymentPolicy(),
                 Clock.fixed(Instant.parse("2026-10-16T20:00:00Z"), java.time.ZoneId.of("Asia/Ho_Chi_Minh")));
 
         server.expect(requestTo("http://fineract.test/clients?externalId=FINORA-BORROWER-BORROWER-1"))
@@ -226,17 +235,23 @@ class FineractCoreLoanBookingGatewayTest {
 
         gateway.bookAndDisburse(new CoreLoanBookingGateway.CoreLoanBookingCommand(
                 1L, "LC-1", "BORROWER-1", 2L, new BigDecimal("50000000"), 6,
-                new BigDecimal("15"), "FINORA-FINERACT-V2", LocalDate.of(2026, 10, 1), "PAY-1"));
+                new BigDecimal("15"), RepaymentMethod.ANNUITY, "FINORA-FINERACT-V2",
+                LocalDate.of(2026, 10, 1), "PAY-1"));
 
         server.verify();
     }
 
-    @SuppressWarnings({"unchecked", "rawtypes"})
     private FineractRequestExecutor passThroughExecutor() {
-        FineractRequestExecutor executor = mock(FineractRequestExecutor.class);
-        doAnswer(invocation -> null).when(executor).authenticate(any());
-        when(executor.execute(eq(FineractCallGroup.BOOKING), any(), any()))
-                .thenAnswer(invocation -> ((FineractRequestExecutor.ExternalCall) invocation.getArgument(2)).execute());
-        return executor;
+        return new FineractRequestExecutor(null, null, new ObjectMapper()) {
+            @Override
+            public void authenticate(HttpHeaders headers) {
+                // Unit test chỉ kiểm tra payload; xác thực được kiểm tra riêng ở FineractRequestExecutorTest.
+            }
+
+            @Override
+            public <T> T execute(FineractCallGroup group, String operation, ExternalCall<T> call) {
+                return call.execute();
+            }
+        };
     }
 }

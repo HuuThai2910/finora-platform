@@ -6,7 +6,7 @@ status: REVIEW
 roadmap_task: P0-C05_P1-A04
 depends_on: [LN-003, FINERACT_1_15_LOCAL_FIXTURE]
 created_at: 2026-08-02
-updated_at: 2026-09-05
+updated_at: 2026-10-25
 approved_by: Thai
 approved_at: 2026-08-03
 accepted_by: Thai
@@ -174,6 +174,25 @@ có giới hạn, vì vậy người dùng không phải bấm liên tục để
 | monthly repayment | `repaymentEvery=1`, frequency `2` | Months |
 | amount range | principal/min/max principal | Decimal string |
 | term range | number/min/max repayments | Monthly V1 |
+
+### Ràng buộc schedule engine theo cách trả nợ
+
+Fineract 1.15 không chỉ dựa vào `amortizationType`. Với lịch `PROGRESSIVE`, engine vẫn tạo EMI có
+tổng tiền trả gần đều và phần gốc tăng dần, kể cả khi request gửi `amortizationType=0`. Vì vậy FINORA
+khóa đồng thời ba thuộc tính sau khi tạo, tính thử và booking khoản vay:
+
+| Cách trả | Schedule engine | Transaction strategy | Kết quả nghiệp vụ |
+|---|---|---|---|
+| `ANNUITY` | `PROGRESSIVE` đối với V2–V4 | `advanced-payment-allocation-strategy` | Tổng tiền mỗi kỳ gần đều, gốc tăng dần và lãi giảm dần |
+| `EQUAL_PRINCIPAL` | `CUMULATIVE` | `mifos-standard-strategy` | Gốc mỗi kỳ bằng nhau (kỳ cuối xử lý phần làm tròn), tổng tiền kỳ sau giảm dần |
+
+V4 vẫn bật tính lại lãi theo ngày cho cả hai cách trả. Với `EQUAL_PRINCIPAL`, Fineract dùng
+`rescheduleStrategyMethod=2` (giảm số kỳ); phương án điều chỉnh kỳ cuối của lịch `PROGRESSIVE` không
+được Fineract chấp nhận trên lịch `CUMULATIVE`.
+
+Product đã đồng bộ bằng mapping cũ không được sửa trực tiếp hoặc tái sử dụng: admin phải tạo Product
+FINORA mới. Cơ chế reconcile đọc lại cả amortization, schedule type, strategy và cờ tính lại lãi để
+fail closed nếu Fineract trả về Product cùng external ID nhưng sai bất biến.
 
 `daysInYearType`, `daysInMonthType`, `transactionProcessingStrategyCode`, accounting rule và account IDs lấy từ tenant bootstrap/template; không copy ID từ tài liệu mẫu.
 

@@ -41,7 +41,7 @@ switch ($Scope) {
         $requiredSecrets += @('PAYMENT_POSTGRES_ADMIN_PASSWORD', 'PAYMENT_DB_PASSWORD')
     }
     'Blockchain' {
-        $profiles += 'blockchain'
+        $profiles += 'blockchain-local-db'
         $infraServices += 'blockchain-postgres'
         $healthServices += 'blockchain-postgres'
         $requiredSecrets += @('BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD', 'BLOCKCHAIN_DB_PASSWORD')
@@ -59,7 +59,7 @@ switch ($Scope) {
         $requiredSecrets += @('INVESTMENT_POSTGRES_ADMIN_PASSWORD', 'INVESTMENT_DB_PASSWORD')
     }
     'All' {
-        $profiles += @('loan', 'payment', 'blockchain', 'user', 'investment')
+        $profiles += @('loan', 'payment', 'blockchain-local-db', 'user', 'investment')
         $infraServices += @('loan-postgres', 'payment-postgres', 'blockchain-postgres', 'user-redis', 'investment-postgres')
         $healthServices += @('loan-postgres', 'payment-postgres', 'blockchain-postgres', 'user-redis', 'investment-postgres')
         $requiredSecrets += @(

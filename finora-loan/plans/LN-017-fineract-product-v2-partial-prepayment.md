@@ -5,17 +5,19 @@ owner: Thai
 reviewers: []
 status: REVIEW
 depends_on: [LN-003, LN-006, LN-013]
-updated_at: 2026-10-11
+updated_at: 2026-10-25
 ---
 
-# LN-017 — Fineract Product V2/V3 và cổng trả trước một phần
+# LN-017 — Fineract Product V2–V4 và cổng trả trước một phần
 
 ## Bản đọc nhanh
 
-Product/mapping tạo mới dùng `FINORA-FINERACT-V3`, ánh xạ sang
-`advanced-payment-allocation-strategy`. Quy tắc mặc định ưu tiên nghĩa vụ quá hạn, rồi nghĩa vụ đến
+Product/mapping tạo mới dùng `FINORA-FINERACT-V4`. Với `ANNUITY`, V4 ánh xạ sang
+`advanced-payment-allocation-strategy`; quy tắc mặc định ưu tiên nghĩa vụ quá hạn, rồi nghĩa vụ đến
 hạn, rồi tiền trả trước; phần kỳ tương lai dùng `NEXT_INSTALLMENT` để ưu tiên giảm các kỳ gần nhất và
-rút ngắn thời gian còn nợ. Khoản vay V2 giữ `REAMORTIZATION`; V1 tiếp tục `mifos-standard-strategy`.
+rút ngắn thời gian còn nợ. Với `EQUAL_PRINCIPAL`, Fineract 1.15 phải dùng lịch `CUMULATIVE` và
+`mifos-standard-strategy` để phần gốc thực sự bằng nhau; nếu dùng `PROGRESSIVE`, phần gốc vẫn tăng dần.
+Khoản vay V2 giữ `REAMORTIZATION`; V1 tiếp tục `mifos-standard-strategy`.
 
 API trả trước một phần mở cho khoản vay V2/V3. Fineract 1.15 chưa có endpoint preview nhận **số tiền
 giả định** để trả lịch mới trước giao dịch; vì vậy quote chỉ snapshot nghĩa vụ hiện tại, gốc trả thêm,
@@ -29,6 +31,8 @@ từ Fineract và đi theo `RepaymentDistributed.v1`.
 | `FINORA-FINERACT-V1` | `mifos-standard-strategy` | Giữ nguyên cho mapping/application/loan cũ |
 | `FINORA-FINERACT-V2` | `advanced-payment-allocation-strategy` | `loanScheduleType=PROGRESSIVE` + `paymentAllocation.DEFAULT` + `futureInstallmentAllocationRule=REAMORTIZATION` |
 | `FINORA-FINERACT-V3` | `advanced-payment-allocation-strategy` | Như V2 nhưng `futureInstallmentAllocationRule=NEXT_INSTALLMENT` để ưu tiên rút ngắn kỳ |
+| `FINORA-FINERACT-V4` + `ANNUITY` | `advanced-payment-allocation-strategy` | `PROGRESSIVE`, `NEXT_INSTALLMENT`, tính lại lãi theo ngày; không thu lãi tương lai |
+| `FINORA-FINERACT-V4` + `EQUAL_PRINCIPAL` | `mifos-standard-strategy` | `CUMULATIVE`, tính lại lãi theo ngày, gốc mỗi kỳ bằng nhau; cơ cấu dùng giảm số kỳ |
 
 `coreConfigVersion` được snapshot từ mapping vào `LoanApplication`, rồi truyền nguyên giá trị sang
 schedule preview, final schedule và core booking. Version lạ fail closed; cấu hình runtime không được
@@ -61,12 +65,14 @@ hoạt động.
 
 ## Bản đồ code và kiểm thử hiện tại
 
-- `FineractAllocationPolicy`: ánh xạ version → strategy/rules ở một nơi duy nhất.
-- `FineractProductPayloadMapper`: gửi `loanScheduleType=PROGRESSIVE` và `paymentAllocation` khi tạo V2/V3.
+- `FineractAllocationPolicy`: ánh xạ version + cách trả nợ → strategy/rules ở một nơi duy nhất.
+- `FineractProductPayloadMapper`: gửi `PROGRESSIVE` + `paymentAllocation` cho Advanced; bỏ hai field này
+  để Fineract tạo `CUMULATIVE` cho gốc trả đều.
 - `FineractSchedulePayloadMapper` và `FineractCoreLoanBookingGateway`: dùng strategy từ snapshot.
 - `ApplicationSubmissionContext`, `ScheduleCalculationRequest`, `CoreLoanBookingCommand`: mang
   `coreConfigVersion` xuyên luồng, không đọc lại cấu hình mới giữa chừng.
-- `FineractPayloadMapperTest`: khóa payload V1/V2/V3, gồm `PROGRESSIVE` và rule tương lai theo version.
+- `FineractPayloadMapperTest`: khóa payload V1–V4, gồm `PROGRESSIVE`/`CUMULATIVE`, amortization,
+  strategy, cờ tính lại lãi và rule tương lai theo version/cách trả.
 - Payment V9 tạo quote schema, account snapshot `coreConfigVersion` và enum `PARTIAL_PREPAYMENT`;
   V10 mở rộng snapshot tên allocation strategy mà không sửa checksum migration cũ.
 - `FineractCoreLoanBookingGateway` gửi `legalFormId`, cùng interest calculation policy với Product và

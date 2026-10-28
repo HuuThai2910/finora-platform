@@ -4,7 +4,7 @@
 
 ### Chế độ hằng ngày — Neon
 
-Loan, Payment, Blockchain, User và Investment kết nối thẳng PostgreSQL trên Neon bằng biến môi trường. Không cần bật container database local.
+Loan, Payment, Blockchain, User, Investment và hai database của Fineract kết nối thẳng PostgreSQL trên Neon bằng biến môi trường. Không cần bật container database local.
 
 Hướng dẫn tạo từng Neon Project, DBeaver và IntelliJ: [NEON-POSTGRESQL-SETUP.md](../NEON-POSTGRESQL-SETUP.md).
 
@@ -15,11 +15,11 @@ Docker Compose giữ PostgreSQL riêng từng service để làm việc khi mấ
 | Profile | Container dữ liệu | Host port | Volume |
 |---|---|---:|---|
 | `loan` | `finora-loan-postgres` | `15433` | `loan-postgres-data` |
-| `fineract` | `finora-fineract-postgres` | `15432` | `fineract-postgres-data` |
+| `fineract-local-db` | `finora-fineract-postgres` | `15432` | `fineract-postgres-data` |
 | `fineract` | `finora-fineract` | `18443` | không lưu DB trong app container |
 | `ai` | `finora-ai` | `8000` | model v17 nằm trong image, không có database |
 | `payment` | `finora-payment-postgres` | `15434` | `payment-postgres-data` (Payment không dùng Redis, B23) |
-| `blockchain` | `finora-blockchain-postgres` | `15435` | `blockchain-postgres-data` |
+| `blockchain-local-db` | `finora-blockchain-postgres` | `15435` | `blockchain-postgres-data` |
 | `fabric` | `finora-fabric-orderer`, `finora-fabric-peer0-org1/org2`, `finora-fabric-ccaas-org1/org2` | `7051` (gateway peer0.org1) | `fabric-orderer-data`, `fabric-peer0-org1-data`, `fabric-peer0-org2-data`; dựng bằng [`fabric-network/`](fabric-network/README.md) |
 | `user` | `finora-user-redis` | `6381` | `user-redis-data` |
 | `investment` | `finora-investment-postgres` | `15437` | `investment-postgres-data` |
@@ -35,27 +35,26 @@ chạy trên máy host hoặc Neon. Container Keycloak vẫn chạy trong Docker
 Thay cho việc mở IntelliJ: sáu service Java (Loan, Payment, Investment, Notification, Blockchain, Gateway) chạy trong
 container `eclipse-temurin:21-jre` bằng **jar đã build sẵn**, không build image. Mỗi service đọc `.env` của module (DB Neon
 như khi chạy IntelliJ); Compose chỉ đổi địa chỉ `localhost` trong `.env` (Kafka, Keycloak, Fineract, AI, User, Payment) sang
-tên service trong mạng Docker. Blockchain dùng container `blockchain-postgres` (chưa có DB Neon), ledger MOCK, listener và
-worker bật (ghi lên Fabric local khi đặt `BLOCKCHAIN_PROOF_PROVIDER=HYPERLEDGER_FABRIC`, mục dưới); Fineract dùng `fineract-postgres`.
+tên service trong mạng Docker. Blockchain dùng DB Neon `finora_blockchain`; Fineract dùng DB Neon `fineract_tenants` và
+`fineract_default`. Các container PostgreSQL local không thuộc profile hằng ngày; volume cũ chỉ giữ làm fallback offline.
 
 ```powershell
 # Build jar một lần trước lần bật đầu tiên
 mvn -B -ntp -pl finora-loan,finora-payment,finora-investment,finora-notification,finora-blockchain,finora-gateway -am package -DskipTests
-# Bật hạ tầng + sáu service (Kafka, Keycloak, User, AI, Fineract, DB Blockchain/Fineract, rồi các app)
-docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps up -d
-docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps ps
+# Bật hạ tầng + sáu service; Fineract và Blockchain tự kết nối Neon.
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile apps up -d
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile apps ps
 # Sửa code một service: dừng container trước (container giữ khóa file jar, Maven không ghi đè được), build, bật lại
-docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps stop loan
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile apps stop loan
 mvn -B -ntp -pl finora-loan -am package -DskipTests
-docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps up -d loan
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile apps up -d loan
 ```
 
-- Mọi lệnh `docker compose` của profile `apps` phải có đủ bốn profile như trên: chỉ `--profile apps` thì Compose báo
-  `depends on undefined service "kafka": invalid compose project` (Kafka, Keycloak ở profile `demo`, DB Blockchain ở
-  `blockchain`). Tắt riêng sáu service app, giữ hạ tầng: `... stop loan payment investment notification blockchain gateway`.
+- Mọi lệnh `docker compose` của profile `apps` phải có `demo`, `fineract` và `apps`: `demo` cung cấp Kafka/Keycloak/User/AI,
+  còn `fineract` bật core banking. Tắt riêng sáu service app, giữ hạ tầng: `... stop loan payment investment notification blockchain gateway`.
 
-- Cần `BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD` và `BLOCKCHAIN_DB_PASSWORD` trong `docker/.env` (container DB khởi tạo bằng các giá
-  trị này ở lần đầu).
+- Cần `FINERACT_DB_HOST`, hai tên DB Fineract, `BLOCKCHAIN_DB_URL`, username/password và SSL trong `docker/.env`.
+  `*_POSTGRES_ADMIN_PASSWORD` chỉ dùng khi chủ động bật profile fallback `fineract-local-db`/`blockchain-local-db`.
 - **Mặc định giả lập để test UI (D85)**, ghi đè `.env` của module: Loan ký `MOCK` và coi người vay đã eKYC (`mock`),
   Investment tắt kiểm eKYC nhà đầu tư và worker Auto-Invest. Đổi bằng `APPS_SIGNATURE_PROVIDER`,
   `APPS_BORROWER_PROFILE_PROVIDER`, `APPS_INVESTMENT_REQUIRE_EKYC`, `APPS_INVESTMENT_AUTO_INVEST_ENABLED` trong `docker/.env`
@@ -177,20 +176,19 @@ Do có `restart: unless-stopped`, sau lần tạo đầu
 chỉ cần mở Docker Desktop thì container tự chạy lại, trừ khi người dùng đã chủ động stop nó.
 AI không cần username/password hay database riêng.
 
-### Chạy Fineract 1.15.0 cho LN-006
+### Chạy Fineract 1.15.0 hằng ngày
 
-Fineract có PostgreSQL riêng, không dùng chung `finora_loan`. Trong `docker/.env`
-cần điền `FINERACT_POSTGRES_ADMIN_PASSWORD`, `FINERACT_DB_PASSWORD` và giữ
-credential API local `mifos/password` nếu chưa đổi fixture:
+Fineract không dùng DB Loan. Trong `docker/.env`, cấu hình direct endpoint Neon,
+`fineract_tenants`, `fineract_default`, `sslmode=require`, default role/password và giữ
+credential API `mifos/password` nếu chưa đổi fixture. Sau đó bật bằng:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File docker/smoke-fineract.ps1 -KeepRunning
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile fineract up -d fineract
 ```
 
-Lệnh trên chỉ cần chạy trong lần thiết lập đầu hoặc khi cần smoke lại. Hai service
-`fineract-postgres` và `fineract` dùng `restart: unless-stopped`, vì vậy các lần sau
-chỉ cần mở Docker Desktop; Docker sẽ tự chạy lại hai container đã được tạo.
-Smoke script bootstrap idempotent currency `VND` cho tenant `default` trước khi Loan đồng bộ Product.
+Container `fineract` dùng `restart: unless-stopped`; Docker Desktop sẽ tự bật lại app và app luôn kết nối Neon.
+Container `fineract-postgres` không nằm trong profile này và có `restart: "no"`. Lần đầu với DB trống, Liquibase có thể
+mất vài phút để tạo schema. Script smoke/fallback bootstrap idempotent currency `VND` cho tenant `default` trước khi Loan đồng bộ Product.
 API `PUT /currencies` thay toàn bộ allowlist nên script đọc danh sách hiện hành, giữ các mã đang có và
 chỉ bổ sung `VND`; chạy lại không tạo dữ liệu trùng hoặc loại bỏ `USD`. Script cũng tạo idempotent Client
 kỹ thuật `FINORA-PREVIEW-CLIENT`, vì API `calculateLoanSchedule` của Fineract bắt buộc `clientId`.
@@ -201,8 +199,7 @@ fixture và header `Fineract-Platform-TenantId: default`. `selectedCurrencyOptio
 đang cho phép sử dụng; `currencyOptions` chỉ là danh sách mã Fineract hỗ trợ. Vì vậy nhìn thấy `VND`
 trong `currencyOptions` chưa đủ: `VND` phải xuất hiện trong `selectedCurrencyOptions` trước khi sync Product.
 
-Không chạy `smoke-fineract.ps1 -Stop` sau mỗi ngày nếu muốn giữ cơ chế tự khởi động;
-`-Stop` chỉ dùng khi chủ đích tắt Fineract trong những ngày không phát triển Loan.
+Không bật profile `fineract-local-db` trong luồng hằng ngày; profile này chỉ dùng fallback offline và giữ volume cũ.
 
 Image Docker Hub không có tag cho commit phát hành `1.15.0`, nên lần thiết lập
 đầu Compose build `finora/fineract:1.15.0` từ binary release chính thức trong
@@ -432,7 +429,7 @@ Loan chạy trong container qua profile `apps` (mục 1b) cùng năm service cò
 Bật hoặc tạo lại riêng Loan:
 
 ```powershell
-docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps up -d loan
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile apps up -d loan
 ```
 
 Postman gọi `http://localhost:8081`. PostgreSQL offline `loan-postgres` (profile `loan`, mục 6, DBeaver `localhost:15433`)

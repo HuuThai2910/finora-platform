@@ -4,7 +4,7 @@ title: PostgreSQL 17 và Neon cho toàn bộ service có persistence
 owners: Thai, Hai
 status: REVIEW
 created_at: 2026-08-03
-updated_at: 2026-08-08
+updated_at: 2026-10-25
 approved_by: Thai, Hai
 approved_at: 2026-08-08
 ---
@@ -80,11 +80,16 @@ Fineract có project `finora-fineract` riêng và do P0-C05/LN-006 triển khai.
 | Docker smoke User + Keycloak PostgreSQL (2026-08-08) | Pass; health và Keycloak readiness đạt, container được dừng; volume smoke tạm đã xóa để owner tự đặt credential |
 | Docker smoke Investment + Keycloak PostgreSQL (2026-08-08) | Pass; health và Keycloak readiness đạt, container được dừng; volume smoke tạm đã xóa để owner tự đặt credential |
 | Rule validation và `git diff --check` (2026-08-08) | Pass; chỉ có cảnh báo chuyển LF/CRLF của Git trên Windows |
+| Chuyển Fineract + Blockchain container sang Neon (2026-10-25) | Ba DB `fineract_tenants`, `fineract_default`, `finora_blockchain` dùng direct endpoint + `sslmode=require`; Blockchain Flyway v2 và Fineract Liquibase bootstrap trên DB rỗng; hai PostgreSQL Docker tách khỏi profile hằng ngày, volume cũ giữ làm fallback |
 
 User và Investment chưa có entity nghiệp vụ, vì vậy Flyway hiện khởi tạo lịch sử
 nhưng chưa tạo bảng giả. Migration `V1` của từng service phải đi cùng entity đầu tiên
 để schema phản ánh đúng nghiệp vụ. Task ở `REVIEW` sau khi local smoke và quality
 gate đạt; kết nối Neon thật được nghiệm thu riêng vì repository không lưu credential.
+
+Ngoại lệ demo được owner yêu cầu ngày 2026-10-25: ba database mới phía trên cùng nằm trong một Neon Project/default role
+để giảm vận hành khóa luận. Ranh giới database vẫn giữ nguyên; production thật phải tách runtime role hoặc project để giảm
+blast radius. Secret chỉ nằm trong `docker/.env` bị Git ignore.
 
 ## 7. Failure path
 

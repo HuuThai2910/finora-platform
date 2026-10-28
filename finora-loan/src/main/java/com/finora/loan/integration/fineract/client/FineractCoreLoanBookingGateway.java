@@ -2,6 +2,7 @@ package com.finora.loan.integration.fineract.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.finora.loan.config.FineractBookingProperties;
+import com.finora.loan.integration.fineract.mapper.FineractRepaymentPolicy;
 import com.finora.loan.integration.fineract.mapper.FineractStrategyResolver;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -21,6 +22,7 @@ public class FineractCoreLoanBookingGateway implements CoreLoanBookingGateway{
  private final RestClient fineractRestClient;
  private final FineractRequestExecutor executor;
  private final FineractBookingProperties properties;
+ private final FineractRepaymentPolicy repaymentPolicy;
  private final Clock clock;
 
  /**
@@ -93,9 +95,11 @@ public class FineractCoreLoanBookingGateway implements CoreLoanBookingGateway{
   body.put("externalId",external);body.put("principal",c.principal());body.put("loanTermFrequency",c.termMonths());
   body.put("loanTermFrequencyType",2);body.put("loanType","individual");body.put("numberOfRepayments",c.termMonths());
   body.put("repaymentEvery",1);body.put("repaymentFrequencyType",2);body.put("interestRatePerPeriod",c.annualRate());
-  body.put("amortizationType",1);body.put("interestType",0);
+  body.put("amortizationType",repaymentPolicy.amortizationType(c.repaymentMethod()));
+  body.put("interestType",repaymentPolicy.interestType());
   body.put("interestCalculationPeriodType",FineractStrategyResolver.interestCalculationPeriodType(c.coreConfigVersion()));
-  body.put("transactionProcessingStrategyCode",FineractStrategyResolver.strategy(c.coreConfigVersion()));
+  body.put("transactionProcessingStrategyCode",FineractStrategyResolver.strategy(
+    c.coreConfigVersion(),c.repaymentMethod()));
   body.put("expectedDisbursementDate",bookingDate.toString());body.put("submittedOnDate",bookingDate.toString());common(body);
   return resource(post("/loans",body,"create-loan"));
  }

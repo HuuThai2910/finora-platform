@@ -32,15 +32,33 @@ function Get-Setting {
     return $DefaultValue
 }
 
-foreach ($required in @('FINERACT_POSTGRES_ADMIN_PASSWORD', 'FINERACT_DB_PASSWORD')) {
+foreach ($required in @('FINERACT_POSTGRES_ADMIN_PASSWORD')) {
     if ([string]::IsNullOrWhiteSpace((Get-Setting $required))) {
         throw "Thiếu $required trong process environment hoặc $EnvFile."
     }
 }
 
 $composeFile = Join-Path $PSScriptRoot 'docker-compose.yml'
-$composeArgs = @('compose', '--env-file', $EnvFile, '-f', $composeFile, '--profile', 'fineract')
+$composeArgs = @(
+    'compose', '--env-file', $EnvFile, '-f', $composeFile,
+    '--profile', 'fineract', '--profile', 'fineract-local-db'
+)
 $services = @('fineract-postgres', 'fineract')
+
+# Script này kiểm tra fixture PostgreSQL local. Luồng chạy hằng ngày giữ nguyên cấu hình Neon trong docker/.env;
+# chỉ process hiện tại được override tạm thời và được khôi phục trong finally.
+$localDbSettings = [ordered]@{
+    FINERACT_DB_HOST = 'fineract-postgres'
+    FINERACT_DB_PORT = '5432'
+    FINERACT_DB_SSLMODE = 'disable'
+    FINERACT_DB_USERNAME = (Get-Setting 'FINERACT_LOCAL_DB_USERNAME' 'fineract')
+    FINERACT_DB_PASSWORD = (Get-Setting 'FINERACT_LOCAL_DB_PASSWORD' (Get-Setting 'FINERACT_POSTGRES_ADMIN_PASSWORD'))
+}
+$previousDbSettings = @{}
+foreach ($name in $localDbSettings.Keys) {
+    $previousDbSettings[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+    [Environment]::SetEnvironmentVariable($name, [string]$localDbSettings[$name], 'Process')
+}
 
 function Invoke-Compose {
     param([string[]]$Arguments)
@@ -178,4 +196,7 @@ try {
     throw
 } finally {
     if ($started -and -not $KeepRunning) { Stop-Fixture }
+    foreach ($name in $previousDbSettings.Keys) {
+        [Environment]::SetEnvironmentVariable($name, $previousDbSettings[$name], 'Process')
+    }
 }

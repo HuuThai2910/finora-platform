@@ -5,7 +5,7 @@ owner: Both
 status: ACTIVE
 depends_on: [P5, P6]
 created_at: 2026-10-16
-updated_at: 2026-10-17
+updated_at: 2026-10-25
 ---
 
 # FINORA-REMAINING — Kế hoạch chi tiết phần việc còn lại
@@ -54,6 +54,11 @@ Wave 3 (2026-10-17) đưa các mục dưới đây lên mức demo có kiểm ch
 ## 1. Current state và phạm vi
 
 ### 1.1 Nguồn sự thật
+
+Tài liệu AS-IS hợp nhất cho Loan, Payment, Blockchain/Fabric, Fineract và Gateway là
+[`docs/architecture/FINORA-CORE-BUSINESS-AND-DATA-FLOW.md`](../../docs/architecture/FINORA-CORE-BUSINESS-AND-DATA-FLOW.md).
+Tài liệu này giải thích cả nghiệp vụ và chuỗi hàm/bảng hiện hành; các plan task bên dưới vẫn giữ vai trò bằng chứng
+thiết kế/lịch sử, không được dùng để ghi đè code hiện tại.
 
 | Phạm vi | Nguồn sự thật | Không được làm |
 |---|---|---|

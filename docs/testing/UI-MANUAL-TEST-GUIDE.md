@@ -93,34 +93,34 @@ Hai cách chạy **không bật cùng lúc** (trùng cổng 8080–8086). Đổi
 | Nhóm ca | Cách bật | Ghi chú |
 |---|---|---|
 | Phần lớn ca gắn **[UI]**: đăng ký, hồ sơ vay, duyệt, gọi vốn, ký MOCK, giải ngân, trả kỳ, trả trước, tất toán, rút tiền, sự cố, proof MOCK, thông báo, bảo mật | **Cách A — profile `apps`** (Docker + DB Neon, mục dưới) | Dữ liệu ở Neon như khi chạy IntelliJ |
-| Ký **SmartCA UAT thật** (mục 4.5) | Cách A, thêm `APPS_SIGNATURE_PROVIDER=VNPT_SMART_CA` vào `docker/.env` rồi tạo lại container Loan: `docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps up -d loan`. Thông tin UAT (`VNPT_SMARTCA_*`) đọc từ `finora-loan/.env`. Xong thì xóa biến và chạy lại lệnh để về `MOCK` | Không cần IntelliJ: SmartCA không gọi ngược vào Loan (chưa dùng webhook), Loan đối soát khi người dùng bấm kiểm tra. Khi bật, mọi chữ ký đều cần duyệt trên app SmartCA (một signer test cố định) |
+| Ký **SmartCA UAT thật** (mục 4.5) | Cách A, thêm `APPS_SIGNATURE_PROVIDER=VNPT_SMART_CA` vào `docker/.env` rồi tạo lại container Loan: `docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile apps up -d loan`. Thông tin UAT (`VNPT_SMARTCA_*`) đọc từ `finora-loan/.env`. Xong thì xóa biến và chạy lại lệnh để về `MOCK` | Không cần IntelliJ: SmartCA không gọi ngược vào Loan (chưa dùng webhook), Loan đối soát khi người dùng bấm kiểm tra. Khi bật, mọi chữ ký đều cần duyệt trên app SmartCA (một signer test cố định) |
 | Ca cần **dời đồng hồ** (quá hạn, nợ xấu, ghi kỳ đúng ngày đến hạn — nhãn [UI + công cụ] dùng T2) | **Cách B — launcher E2E** `-Database local` (mục 2.2–2.3) | DB local tự tạo lại; chữ ký luôn MOCK; không dùng chung với SmartCA |
 | **Fabric thật** (`BC-06`, `BC-N08`, `BC-N09`) | Cách A: `powershell -ExecutionPolicy Bypass -File docker/fabric-network/fabric-network.ps1 -Action Up`, thêm `BLOCKCHAIN_PROOF_PROVIDER=HYPERLEDGER_FABRIC` vào `docker/.env` rồi `docker compose ... up -d blockchain` (D86). Cách B: thêm `-WithFabric` | Thêm khoảng 200–400 MB RAM. Proof tạo trước khi bật vẫn là MOCK. Xong: xóa biến, `up -d blockchain`, `fabric-network.ps1 -Action Down` |
 | **CIC local** (mục 4.15) | Cách B thêm `-WithLocalCic` | CIC trên Vercel không nhận được quá hạn (không đọc được Kafka local) |
 
 **Cách A — profile `apps` (Docker + DB Neon).** PowerShell trong `finora-platform`. Jar đã build sẵn. Mọi lệnh `docker compose`
-của cách A dùng đủ bốn profile như lệnh bật dưới đây (chỉ `--profile apps` thì Compose báo `invalid compose project`). Sửa
+của cách A dùng đủ ba profile như lệnh bật dưới đây (chỉ `--profile apps` thì thiếu hạ tầng `demo` và Fineract). Sửa
 code một service: `stop <service>` trước (container giữ khóa file jar trên Windows nên Maven không ghi đè được), Maven
 `package`, rồi `up -d <service>`. Đổi biến `APPS_*` (D85) cũng dùng `up -d <service>` để tạo lại container; `restart` giữ
 biến cũ. Chi tiết: `docker/README.md` mục 1b.
 
 ```powershell
-# Bật tất cả: Kafka, Keycloak, User, AI, Fineract, DB Blockchain/Fineract và sáu service Java (Loan, Payment, Investment,
+# Bật tất cả: Kafka, Keycloak, User, AI, Fineract dùng Neon và sáu service Java (Loan, Payment, Investment,
 # Notification, Blockchain với ledger MOCK, Gateway)
-docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps up -d
-# Đợi mọi container báo healthy (lần đầu khoảng 2–3 phút; Flyway áp migration còn thiếu lên Neon dùng chung)
-docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps ps
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile apps up -d
+# Đợi mọi container báo healthy (DB đã có schema: khoảng 2–3 phút; Fineract Neon trống lần đầu có thể 10–15 phút)
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile apps ps
 # Một service không lên healthy: xem log
 docker logs finora-loan --tail 100
 # Tắt khi xong (container và dữ liệu giữ nguyên)
-docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps stop
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile apps stop
 ```
 
 Sau đó chạy web (mục 2.4) và mobile (mục 2.5). Cổng 8080–8086 mở cho mạng LAN nên điện thoại thật gọi được qua IP máy tính
 (Windows có thể hỏi quyền firewall).
 
 **Cách B — launcher E2E (DB local).** Các mục 2.2–2.3 dưới đây. Trước khi bật, tắt sáu container app của cách A (giữ
-hạ tầng): `docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile blockchain --profile apps stop loan payment investment notification blockchain gateway`. Quay lại cách A: `start-local-services.ps1 -Action Stop` rồi lệnh bật cách A.
+hạ tầng): `docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract --profile apps stop loan payment investment notification blockchain gateway`. Quay lại cách A: `start-local-services.ps1 -Action Stop` rồi lệnh bật cách A.
 
 ### 2.2 Dựng hạ tầng Docker (cách B)
 
@@ -1367,28 +1367,29 @@ tác sửa DPD, nhóm nợ hay số dư.
 | INC-N06 | [UI] | Ngăn "Ghi nhận mới": "Hẹn trả" thiếu ngày/số tiền, ngày ở quá khứ; "Ghi chú" trống | "Nhập ngày hẹn trả và số tiền.", "Ngày hẹn trả không được trước hôm nay.", "Nhập nội dung ghi chú." |
 | INC-N07 | [UI] | Lỗi khi thao tác (ví dụ service tắt) | Khối lỗi trên đầu tab với `message`, mã, "mã truy vết" và "Thử lại" (chạy lại đúng thao tác) |
 
-### 4.13 Web "Bằng chứng blockchain" (W3D)
+### 4.13 Web "Xác minh dữ liệu giao dịch" (W3D)
 
 Điều kiện: admin web; một khoản vay đã giải ngân (và đã trả kỳ nếu muốn có proof `REPAYMENT`). Mặc định ledger `MOCK`. ID hồ
 sơ vay dạng số (không phải `LA-…`) đọc ở đầu trang chi tiết gọi vốn ("#{id}, hạng …"). Câu cố định trên trang: proof là bằng
 chứng kỹ thuật về toàn vẹn dữ liệu, không phải chữ ký số hay chứng cứ pháp lý (`NEEDS_LEGAL_REVIEW`).
 
-**BC-01 [UI] Tra cứu theo khoản vay.** Sidebar "Kiểm toán" → "Bằng chứng blockchain" (hoặc nút "Bằng chứng blockchain" ở chi
+**BC-01 [UI] Tra cứu theo khoản vay.** Sidebar "Kiểm toán" → "Xác minh giao dịch" (hoặc nút "Xác minh dữ liệu" ở chi
 tiết gọi vốn, hoặc link "Bằng chứng" ở "Sự cố giao dịch"). Chọn "Hồ sơ vay", nhập ID số → "Tra cứu" → banner "Đang tra theo Hồ
 sơ vay {id}: gồm mọi trạng thái, cũ nhất trước. Chọn một trạng thái ở trên sẽ bỏ tra cứu." Bảng: các mốc hợp đồng, giải ngân,
 phát hành Note (và trả nợ), cột "Trạng thái" "Đã xác nhận", "Biên nhận" = "MOCK, không có trên Fabric", "Giao dịch Fabric" = "Không
 có, biên nhận MOCK". Mỗi mốc đúng một dòng (`proof.milestones-confirmed`). Các loại tra cứu khác: "Hợp đồng" (`LC-…`), "Giải
 ngân" (mã saga), "Trả nợ" (mã giao dịch trả nợ), "Phát hành Note", "Chuyển nhượng Note".
 
-**BC-02 [UI] Chi tiết proof MOCK.** "⋯" → "Xem chi tiết và kiểm tra": khối cảnh báo MOCK ("Receipt MOCK chỉ dùng cho demo; bằng
-chứng này KHÔNG được ghi lên Hyperledger Fabric"); mục "Hash đã neo", "Event nguồn" (có `eventId`), "Biên nhận sổ cái" ("Mã biên
-nhận MOCK (không phải giao dịch Fabric)"), "Đối chiếu gần nhất".
+**BC-02 [UI] Chi tiết proof MOCK.** "⋯" → "Xem kết quả xác minh": đầu ngăn hiện kết luận "Đã ghi nhận trong môi trường demo",
+nghiệp vụ, mã liên quan và thời điểm. Cảnh báo nói rõ dữ liệu demo chưa ghi lên Fabric. Mở "Xem chi tiết kỹ thuật và nguồn dữ
+liệu" mới thấy hash, event nguồn, biên nhận và lần đối chiếu gần nhất.
 
-**BC-03 [UI] Kiểm tra không kèm dữ liệu gốc.** Mục "Kiểm tra toàn vẹn", để trống "Dữ liệu gốc của event (không bắt buộc)" →
-"Kiểm tra": "Dữ liệu gốc so với hash đã neo" = "Không kiểm"; "Cơ sở dữ liệu so với sổ cái Fabric" = "MOCK, không có trên Fabric".
+**BC-03 [UI] Kiểm tra tự động.** Mục "Xác minh dữ liệu" → "Kiểm tra lại", không cần nhập dữ liệu: kết quả MOCK là "Bản demo
+không nằm trên Fabric" + "MOCK, không có trên Fabric"; Fabric là "Dữ liệu đang lưu khớp với sổ cái" khi hai bên khớp.
 
-**BC-04 [UI + công cụ] Kiểm tra kèm dữ liệu gốc.** Lấy `data` của event nguồn bằng T3 với `eventId` ở mục "Event nguồn" và topic
-theo loại proof; dán vào ô → "Kiểm tra": "Khớp hash đã neo" + "MOCK, không có trên Fabric" (`proof.artifact-recomputed`).
+**BC-04 [UI + công cụ] Kiểm tra kèm dữ liệu gốc.** Mở "Kiểm tra chuyên sâu bằng dữ liệu nguồn". Lấy `data` bằng T3 với `eventId`
+trong "Chi tiết kỹ thuật" và topic theo loại proof; dán vào ô → "Tính lại hash từ dữ liệu nguồn": "Dữ liệu nguồn không bị thay
+đổi" + "Khớp hash đã neo" (`proof.artifact-recomputed`).
 
 **BC-05 [UI + công cụ] Neo biên nhận hợp đồng (D75).** Với proof hợp đồng, `data.pdfReceiptHash` trong artifact phải bằng SHA-256
 của tệp "Trang biên nhận chữ ký" tải từ mobile/API: PowerShell `(Get-FileHash -Algorithm SHA256 <tệp biên nhận>).Hash.ToLower()`.
