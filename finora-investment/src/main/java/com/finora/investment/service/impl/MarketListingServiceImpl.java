@@ -175,6 +175,7 @@ public class MarketListingServiceImpl implements MarketListingService {
             String creditGrade,
             BigDecimal minAnnualRate,
             Integer maxTermMonths,
+            String hiddenBorrowerId,
             int page,
             int size
     ) {
@@ -189,6 +190,7 @@ public class MarketListingServiceImpl implements MarketListingService {
                 normalize(creditGrade),
                 minAnnualRate,
                 maxTermMonths,
+                hiddenBorrowerId,
                 pageable
         );
 

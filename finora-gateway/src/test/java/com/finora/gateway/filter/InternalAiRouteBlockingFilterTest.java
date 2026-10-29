@@ -10,7 +10,10 @@ import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Kiểm tra gateway chặn route eKYC nội bộ của finora-ai nhưng vẫn cho route chấm điểm đi qua. */
+/**
+ * Kiểm tra gateway chặn route eKYC nội bộ của finora-ai và {@code /api/v1/internal/**} nhưng vẫn cho route chấm điểm,
+ * hồ sơ người dùng đi qua.
+ */
 class InternalAiRouteBlockingFilterTest {
 
     private final InternalAiRouteBlockingFilter filter = new InternalAiRouteBlockingFilter();
@@ -30,7 +33,14 @@ class InternalAiRouteBlockingFilterTest {
             "/api/v1/ai/%65kyc/document",
             "/api/v1/ai/%2565kyc/document",
             "/api/v1/ai/ekyc;jsessionid=abc/document",
-            "/api/v1/ai/ekyc%2Fdocument"
+            "/api/v1/ai/ekyc%2Fdocument",
+            // Endpoint service-to-service (danh tính cho giấy chuyển nhượng Note) không được lộ ra ngoài.
+            "/api/v1/internal/users/42/identity",
+            "/api/v1/internal",
+            "/API/V1/Internal/users/42/identity",
+            "/api/v1/users/../internal/users/42/identity",
+            "/api/v1/users/%2e%2e/internal/users/42/identity",
+            "/api/v1/users/%252e%252e/internal/users/42/identity"
     })
     void blocksEveryVariantOfInternalEkycRoutes(String uri) throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", uri);
@@ -53,6 +63,8 @@ class InternalAiRouteBlockingFilterTest {
             "/api/v1/ai/ekycx/document",
             "/api/v1/users/profile/ekyc-verify",
             "/api/v1/users/profile/ekyc/liveness",
+            "/api/v1/users/me",
+            "/api/v1/internalx/users",
             "/health"
     })
     void letsOtherRoutesThrough(String uri) throws Exception {

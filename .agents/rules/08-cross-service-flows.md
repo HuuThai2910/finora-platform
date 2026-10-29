@@ -443,6 +443,9 @@ lưu payload). Lỗi consume retry có backoff rồi vào `<topic>.DLT`. Provide
 ghi lên mạng Fabric local (2 tổ chức, endorsement MAJORITY, chaincode `finora-ledger`, launcher `-WithFabric`), đối
 chiếu trước khi ghi lại sau timeout và worker đối chiếu DB ↔ chain opt-in. API ADMIN `GET /api/v1/blockchain/proofs`,
 `POST .../{proofId}/verify|retry`. Chi tiết: [`W3D`](../plans/W3D-fabric-proofs.md).
+2026-10-29: thêm mốc `NoteTransferDocumentIssued.v1` (NOTE_TRANSFER_DOCUMENT, aggregate
+`NoteTransferDocument/<tradeReference>`, topic `finora.investment.note-transfer-document-issued`) cho giấy xác nhận
+chuyển nhượng Note ký PAdES; chaincode allowlist nhận loại mới từ image CCaaS `1.1.0`.
 
 ## F09 — Notification từ domain event
 

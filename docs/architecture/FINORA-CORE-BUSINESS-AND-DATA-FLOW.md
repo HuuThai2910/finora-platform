@@ -655,7 +655,7 @@ V4 là cấu hình dùng cho Product mới. `FineractProductPayloadMapper` và `
 
 PDF, CCCD, payload tài chính đầy đủ và hồ sơ vay **không nằm trên Fabric**. File PDF vẫn ở Loan. Fabric transaction ID là biên nhận do mạng Fabric trả về, không phải Fineract reference.
 
-## 27. Bốn mốc đang được neo
+## 27. Các mốc đang được neo
 
 | Event nguồn | Proof type | Aggregate dễ hiểu |
 |---|---|---|
@@ -663,15 +663,17 @@ PDF, CCCD, payload tài chính đầy đủ và hồ sơ vay **không nằm trê
 | `LoanDisbursed.v1` | `DISBURSEMENT` | khoản vay đã giải ngân và core booking xong |
 | `RepaymentDistributed.v1` | `REPAYMENT` | một giao dịch trả nợ đã thu, ghi core và phân phối |
 | `NoteOwnershipChanged.v1` | `NOTE_OWNERSHIP` | phát hành/chuyển chủ Note |
+| `NoteTransferDocumentIssued.v1` | `NOTE_TRANSFER_DOCUMENT` | giấy xác nhận chuyển nhượng Note (PDF ký PAdES, `documentHash` = SHA-256 của file) cấp khi giao dịch sổ lệnh tất toán; aggregate `NoteTransferDocument/<tradeReference>` |
 
-Servicing proof khác như từng quyết định cơ cấu/default chưa được tự động neo nếu không nằm trong bốn event trên; không được mô tả là đã có.
+Servicing proof khác như từng quyết định cơ cấu/default chưa được tự động neo nếu không nằm trong các event trên; không được mô tả là đã có.
 
 ## 28. Chuỗi code từ Kafka tới Fabric
 
 ```text
 Kafka event
 → MilestoneProofConsumer#contractActivated/#loanDisbursed/
-                         #repaymentDistributed/#noteOwnershipChanged
+                         #repaymentDistributed/#noteOwnershipChanged/
+                         #noteTransferDocumentIssued
 → MilestoneProofRegistrar#register
    parse envelope, lấy eventId/occurredAt/data
    canonicalize data JSON v2, tính SHA-256

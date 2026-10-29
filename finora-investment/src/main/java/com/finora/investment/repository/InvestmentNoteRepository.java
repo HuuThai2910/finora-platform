@@ -94,18 +94,27 @@ public interface InvestmentNoteRepository extends JpaRepository<InvestmentNote, 
             """)
     BigDecimal findMaxTradableOutstanding(@Param("listingId") Long listingId);
 
-    /** Các đợt gọi vốn còn Note giao dịch được, mới nhất trước — danh sách sổ lệnh. */
+    /**
+     * Các đợt gọi vốn còn Note giao dịch được, mới nhất trước — danh sách sổ lệnh. Bỏ khoản vay mà
+     * {@code hiddenBorrowerId} là người vay; null (quản trị viên) thì không bỏ gì.
+     */
     @Query(value = """
             SELECT n.listingId FROM InvestmentNote n
             WHERE n.status IN ('ACTIVE', 'DEFAULTED')
+              AND (:hiddenBorrowerId IS NULL OR NOT EXISTS (
+                    SELECT l.id FROM MarketListing l
+                    WHERE l.id = n.listingId AND l.borrowerId = :hiddenBorrowerId))
             GROUP BY n.listingId
             ORDER BY n.listingId DESC
             """,
             countQuery = """
             SELECT COUNT(DISTINCT n.listingId) FROM InvestmentNote n
             WHERE n.status IN ('ACTIVE', 'DEFAULTED')
+              AND (:hiddenBorrowerId IS NULL OR NOT EXISTS (
+                    SELECT l.id FROM MarketListing l
+                    WHERE l.id = n.listingId AND l.borrowerId = :hiddenBorrowerId))
             """)
-    Page<Long> findTradableListingIds(Pageable pageable);
+    Page<Long> findTradableListingIds(@Param("hiddenBorrowerId") String hiddenBorrowerId, Pageable pageable);
 
     /** Các đợt gọi vốn trong danh sách có Note nợ xấu, một truy vấn cho cả trang. */
     @Query("""

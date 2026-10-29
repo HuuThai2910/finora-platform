@@ -80,7 +80,7 @@ public class MilestoneProofRegistrar {
         }
     }
 
-    /** Khoản vay liên quan để explorer gom proof; event v1 của bốn mốc đều có field này. */
+    /** Khoản vay liên quan để explorer gom proof; event v1 của mọi mốc đều có field này. */
     private static Long loanApplicationId(JsonNode data) {
         JsonNode value = data.get("loanApplicationId");
         if (value == null || value.isNull()) {

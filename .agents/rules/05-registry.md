@@ -126,6 +126,9 @@ MinIO: bằng chứng eKYC dùng SeaweedFS local (profile `ekyc`, thay MinIO đ�
 network/chaincode local có từ W3D (2026-10-17, bảng trên). Mail local dùng Mailpit (profile `mail`), thay cho MailHog.
 Route `/api/v1/ai/ekyc/**` của AI chỉ nhận token service account `finora-user-client` (client role `ai:ekyc:ocr`, W3A
 D34/D35); gateway chặn route này từ ngoài.
+`GET /api/v1/internal/users/{userId}/identity` của User (họ tên + CCCD chỉ giữ 4 số cuối, cho giấy chuyển nhượng Note)
+chỉ nhận token có client role `user:identity:read_internal` của `finora-user-client`, gán cho service account
+`finora-investment-client` (realm JSON + `docker/keycloak/add-investment-client.sh`); gateway chặn `/api/v1/internal/**`.
 
 ## Phân bổ managed hiện tại
 

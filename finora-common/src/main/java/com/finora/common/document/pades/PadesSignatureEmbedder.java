@@ -1,15 +1,13 @@
-package com.finora.loan.service.contract.pades;
+package com.finora.common.document.pades;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HexFormat;
-import org.springframework.stereotype.Component;
 
 /**
  * Ghi CMS (hex) vào chỗ trống /Contents của bản đã chuẩn bị. Chỉ các ký tự '0' bên trong {@code <...>} bị thay;
  * độ dài tệp và mọi byte trong ByteRange giữ nguyên, nên digest đã gửi ký vẫn đúng với tệp sau khi nhúng.
  */
-@Component
 public class PadesSignatureEmbedder {
 
     public byte[] embed(byte[] prepared, int contentsOffset, int contentsLength, byte[] cms) {

@@ -25,7 +25,7 @@ import com.finora.loan.integration.signature.SignatureEvidence;
 import com.finora.loan.integration.signature.SignatureProvider;
 import com.finora.loan.integration.signature.SignatureSubmissionStatus;
 import com.finora.loan.integration.signature.SigningCertificate;
-import com.finora.loan.service.contract.pades.EmbeddedPadesSignature;
+import com.finora.common.document.pades.EmbeddedPadesSignature;
 import com.finora.loan.messaging.event.LoanContractClosedWithoutSignatureEventData;
 import com.finora.loan.messaging.event.LoanContractSignedEventData;
 import com.finora.loan.messaging.event.LoanContractActivatedEventData;

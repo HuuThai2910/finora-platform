@@ -61,6 +61,9 @@ public class SecurityConfig {
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
                         // Actuator health check cho monitoring/k8s (gồm nhóm liveness/readiness, W3E)
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        // Endpoint nội bộ cho service account: chỉ cần JWT hợp lệ ở tầng URL, quyền cụ thể
+                        // (vd. user:identity:read_internal) do @PreAuthorize kiểm. Không bao giờ permitAll.
+                        .requestMatchers("/api/v1/internal/**").authenticated()
                         // Mọi endpoint còn lại yêu cầu xác thực
                         .anyRequest().authenticated()
                 )

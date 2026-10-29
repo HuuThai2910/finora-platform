@@ -1,6 +1,6 @@
-package com.finora.loan.service.contract.pades;
+package com.finora.common.document.pades;
 
-import com.finora.loan.service.contract.pades.PadesTestSigners.TestSigner;
+import com.finora.common.document.pades.PadesTestSigners.TestSigner;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
@@ -27,7 +27,7 @@ import org.bouncycastle.cms.SignerInformation;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import static com.finora.loan.service.contract.pades.PadesTestSigners.newSigner;
+import static com.finora.common.document.pades.PadesTestSigners.newSigner;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

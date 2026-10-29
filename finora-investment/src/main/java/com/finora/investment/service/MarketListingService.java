@@ -32,6 +32,7 @@ public interface MarketListingService {
             String creditGrade,
             BigDecimal minAnnualRate,
             Integer maxTermMonths,
+            String hiddenBorrowerId,
             int page,
             int size
     );

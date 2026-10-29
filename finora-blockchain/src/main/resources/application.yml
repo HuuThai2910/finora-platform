@@ -68,6 +68,8 @@ finora:
     loan-disbursed-topic: ${LOAN_DISBURSED_TOPIC:finora.loan.disbursed}
     repayment-distributed-topic: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:finora.payment.repayment-distributed}
     note-ownership-changed-topic: ${INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC:finora.investment.note-ownership-changed}
+    # Giấy xác nhận chuyển nhượng Note (PDF ký PAdES) Investment cấp khi giao dịch sổ lệnh tất toán.
+    note-transfer-document-issued-topic: ${INVESTMENT_NOTE_TRANSFER_DOCUMENT_ISSUED_TOPIC:finora.investment.note-transfer-document-issued}
     proof:
       # MOCK chỉ phục vụ local/test và receipt luôn có tiền tố MOCK; HYPERLEDGER_FABRIC ghi lên mạng Fabric local
       # (docker/fabric-network, launcher E2E -WithFabric).

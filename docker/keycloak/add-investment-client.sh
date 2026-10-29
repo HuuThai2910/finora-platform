@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Tạo service account `finora-investment-client` (client role payment:hold:on_behalf) trên
-# realm `finora` ĐANG CHẠY. Cần vì Keycloak bỏ qua realm import khi realm đã tồn tại, nên
-# client mới thêm vào keycloak/template/realm-finora.json không tự xuất hiện.
+# realm `finora` ĐANG CHẠY, và gán thêm client role user:identity:read_internal của
+# finora-user-client (Investment đọc họ tên + CCCD đã che để in giấy chuyển nhượng Note).
+# Cần vì Keycloak bỏ qua realm import khi realm đã tồn tại, nên client/role mới thêm vào
+# keycloak/template/realm-finora.json không tự xuất hiện.
 #
 # Chạy lại nhiều lần an toàn: client/role/gán role đã có thì bỏ qua.
 #
@@ -72,6 +74,23 @@ fi
 kc add-roles -r "$REALM" --uusername "service-account-$CLIENT_ID" \
   --cclientid "$CLIENT_ID" --rolename "$ROLE" >/dev/null
 echo "Đã gán $ROLE cho service-account-$CLIENT_ID"
+
+# Role đọc danh tính nằm trên finora-user-client (cùng chỗ các role user:* mà finora-user kiểm).
+USER_CLIENT_ID=finora-user-client
+IDENTITY_ROLE=user:identity:read_internal
+USER_CLIENT_UUID="$(kc get clients -r "$REALM" -q "clientId=$USER_CLIENT_ID" --fields id --format csv --noquotes | tr -d '\r' | head -n 1)"
+if [ -z "$USER_CLIENT_UUID" ]; then
+  echo "Không tìm thấy client $USER_CLIENT_ID trên realm $REALM" >&2
+  exit 1
+fi
+if ! kc get "clients/$USER_CLIENT_UUID/roles/$IDENTITY_ROLE" -r "$REALM" >/dev/null 2>&1; then
+  kc create "clients/$USER_CLIENT_UUID/roles" -r "$REALM" -s "name=$IDENTITY_ROLE" \
+    -s "description=Service account finora-investment doc ho ten + CCCD da che de in giay chuyen nhuong Note" >/dev/null
+  echo "Đã tạo client role $IDENTITY_ROLE trên $USER_CLIENT_ID"
+fi
+kc add-roles -r "$REALM" --uusername "service-account-$CLIENT_ID" \
+  --cclientid "$USER_CLIENT_ID" --rolename "$IDENTITY_ROLE" >/dev/null
+echo "Đã gán $IDENTITY_ROLE ($USER_CLIENT_ID) cho service-account-$CLIENT_ID"
 
 echo
 echo "Chép vào finora-investment/.env (và docker/.env):"

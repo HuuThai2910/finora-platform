@@ -44,6 +44,9 @@ public interface MarketListingRepository extends JpaRepository<MarketListing, Lo
      * <p>{@code status} để trống nghĩa là lấy mọi trạng thái — màn quản trị cần thấy cả
      * khoản đã gọi đủ vốn để khóa vốn và phát hành Note, trong khi app nhà đầu tư chỉ
      * quan tâm khoản đang mở.</p>
+     *
+     * <p>{@code hiddenBorrowerId} là người đang xem: khoản vay của chính họ không hiện trong danh sách đầu tư.
+     * Null (quản trị viên) thì không ẩn gì.</p>
      */
     @Query("""
             SELECT l FROM MarketListing l
@@ -51,12 +54,14 @@ public interface MarketListingRepository extends JpaRepository<MarketListing, Lo
               AND (:grade IS NULL OR l.creditGrade = :grade)
               AND (:minRate IS NULL OR l.annualInterestRate >= :minRate)
               AND (:maxTermMonths IS NULL OR l.termMonths <= :maxTermMonths)
+              AND (:hiddenBorrowerId IS NULL OR l.borrowerId IS NULL OR l.borrowerId <> :hiddenBorrowerId)
             """)
     Page<MarketListing> search(
             @Param("status") ListingStatus status,
             @Param("grade") String grade,
             @Param("minRate") java.math.BigDecimal minRate,
             @Param("maxTermMonths") Integer maxTermMonths,
+            @Param("hiddenBorrowerId") String hiddenBorrowerId,
             Pageable pageable
     );
 

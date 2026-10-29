@@ -633,11 +633,12 @@ services:
           - peer0.org2.finora.local
 
   # Mỗi tổ chức chạy chaincode riêng của mình; peer gọi tới theo connection.json trong package CCaaS.
+  # Đổi mã chaincode thì tăng tag image để `fabric-network.ps1 -Action Up` build lại (1.1.0: thêm NOTE_TRANSFER_DOCUMENT).
   fabric-ccaas-org1:
     profiles: ["fabric"]
     build:
       context: ./fabric-network/chaincode/finora-ledger
-    image: finora/fabric-ledger-ccaas:1.0.0
+    image: finora/fabric-ledger-ccaas:1.1.0
     restart: unless-stopped
     container_name: finora-fabric-ccaas-org1
     mem_limit: 64m
@@ -654,7 +655,7 @@ services:
 
   fabric-ccaas-org2:
     profiles: ["fabric"]
-    image: finora/fabric-ledger-ccaas:1.0.0
+    image: finora/fabric-ledger-ccaas:1.1.0
     restart: unless-stopped
     container_name: finora-fabric-ccaas-org2
     mem_limit: 64m
