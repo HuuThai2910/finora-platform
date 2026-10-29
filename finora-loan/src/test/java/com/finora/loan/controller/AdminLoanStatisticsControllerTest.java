@@ -234,10 +234,10 @@ class AdminLoanStatisticsControllerTest {
 
         mockMvc.perform(get("/api/v1/admin/loan-statistics/summary"))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("ADMIN_ROLE_REQUIRED"));
+                .andExpect(jsonPath("$.code").value("PERMISSION_REQUIRED"));
         mockMvc.perform(get("/api/v1/admin/loan-statistics/series"))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.code").value("ADMIN_ROLE_REQUIRED"));
+                .andExpect(jsonPath("$.code").value("PERMISSION_REQUIRED"));
         verifyNoInteractions(repository);
     }
 

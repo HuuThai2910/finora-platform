@@ -2,6 +2,7 @@ package com.finora.investment.config;
 
 import com.finora.common.security.DualBearerTokenResolver;
 import com.finora.common.security.KeycloakJwtAuthenticationConverter;
+import com.finora.common.security.ops.OpsFunction;
 import jakarta.servlet.DispatcherType;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +27,9 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  *
  * <p>Phân quyền theo ba nhóm. Đọc thị trường mở cho khách chưa đăng nhập vì đó là
  * thông tin niêm yết công khai, không chứa dữ liệu cá nhân người vay (F03 bước 4).
- * {@code /investments/admin/**} yêu cầu vai trò ADMIN ngay tại tầng URL. Đặt/huỷ lệnh,
+ * {@code /investments/admin/**} kiểm quyền chức năng ngay tại tầng URL: nhân viên cần quyền Xem/Thao tác
+ * {@code ops:*} của màn tương ứng ({@link OpsFunction}), ADMIN luôn qua; đường dẫn quản trị chưa gán chức năng
+ * vẫn chỉ ADMIN. Đặt/huỷ lệnh,
  * Auto-Invest và danh mục cá nhân yêu cầu vai trò INVESTOR; quyền trên từng lệnh vẫn do
  * domain kiểm khi so chủ sở hữu, còn eKYC và chặn tự cấp vốn ở {@code InvestorEligibility}.</p>
  */
@@ -58,6 +61,36 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // Swagger để đối chiếu hợp đồng API khi phát triển.
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
+                        // Gọi vốn & Notes: xem nhà đầu tư/Note; khóa vốn, phát hành Note, đóng listing hết hạn.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/investments/admin/listings/*/investors",
+                                "/api/v1/investments/admin/commitments/*/notes")
+                                .hasAnyAuthority(OpsFunction.FUNDING.canView())
+                        .requestMatchers(HttpMethod.POST, "/api/v1/investments/admin/listings/*/finalize",
+                                "/api/v1/investments/admin/listings/*/activate-notes",
+                                "/api/v1/investments/admin/listings/close-expired")
+                                .hasAnyAuthority(OpsFunction.FUNDING.canAct())
+                        // Cấu hình gọi vốn: đổi tham số ảnh hưởng mọi khoản lên sàn sau đó.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/investments/admin/settings")
+                                .hasAnyAuthority(OpsFunction.FUNDING_SETTINGS.canView())
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/investments/admin/settings")
+                                .hasAnyAuthority(OpsFunction.FUNDING_SETTINGS.canAct())
+                        // Đối soát & sự cố: lệnh góp vốn lệch với ví ở Payment.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/investments/admin/order-incidents")
+                                .hasAnyAuthority(OpsFunction.RECONCILIATION.canView())
+                        .requestMatchers(HttpMethod.POST, "/api/v1/investments/admin/order-incidents/*/retry")
+                                .hasAnyAuthority(OpsFunction.RECONCILIATION.canAct())
+                        // Chợ thứ cấp: sổ lệnh, lịch sử khớp và giấy xác nhận chuyển nhượng.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/investments/admin/order-books/summary",
+                                "/api/v1/investments/admin/order-books/trades",
+                                "/api/v1/investments/admin/transfer-documents",
+                                "/api/v1/investments/admin/transfer-documents/*",
+                                "/api/v1/investments/admin/transfer-documents/*/pdf")
+                                .hasAnyAuthority(OpsFunction.SECONDARY_MARKET.canView())
+                        .requestMatchers(HttpMethod.POST, "/api/v1/investments/admin/transfer-documents/*/retry")
+                                .hasAnyAuthority(OpsFunction.SECONDARY_MARKET.canAct())
+                        .requestMatchers(HttpMethod.GET, "/api/v1/investments/admin/statistics/**")
+                                .hasAnyAuthority(OpsFunction.DASHBOARD.canView())
+                        // Đường dẫn quản trị chưa gán chức năng: chỉ ADMIN (nhân viên bị chặn mặc định).
                         .requestMatchers("/api/v1/investments/admin/**").hasRole("ADMIN")
                         // Thao tác bỏ tiền và dữ liệu danh mục cá nhân chỉ dành cho nhà đầu tư.
                         // Đọc sàn/sổ lệnh vẫn chỉ cần đăng nhập: web quản trị và người vay cũng xem.

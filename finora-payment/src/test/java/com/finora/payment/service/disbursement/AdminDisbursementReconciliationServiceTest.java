@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.finora.common.exception.BusinessException;
+import com.finora.common.security.ops.OpsFunction;
 import com.finora.payment.domain.disbursement.PaymentDisbursement;
 import com.finora.payment.domain.disbursement.PaymentDisbursementStatus;
 import com.finora.payment.repository.PaymentDisbursementRepository;
@@ -14,6 +15,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -71,14 +73,42 @@ class AdminDisbursementReconciliationServiceTest {
 
         assertThatThrownBy(() -> service.find(UUID.randomUUID()))
                 .isInstanceOfSatisfying(BusinessException.class,
-                        exception -> assertThat(exception.getCode()).isEqualTo("ADMIN_ROLE_REQUIRED"));
+                        exception -> assertThat(exception.getCode()).isEqualTo("PERMISSION_REQUIRED"));
         verifyNoInteractions(disbursements);
     }
 
-    private static void actAs(String role) {
+    @Test
+    void staffWithReconciliationViewReadsButCannotRecheck() {
+        actAs("ROLE_STAFF", OpsFunction.RECONCILIATION.view());
+        UUID sagaId = UUID.randomUUID();
+        when(disbursements.findBySagaId(sagaId)).thenReturn(Optional.of(PaymentDisbursement.requested(sagaId, 10L,
+                "LC-E2E-1", 20L, "borrower-1", new BigDecimal("10000000"), "VND", "MOCK", "[]", NOW)));
+
+        assertThat(service.find(sagaId).sagaId()).isEqualTo(sagaId);
+        assertThatThrownBy(() -> service.requestRecheck(sagaId))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("PERMISSION_REQUIRED"));
+    }
+
+    @Test
+    void staffWithReconciliationActionReachesTheStatusCheck() {
+        actAs("ROLE_STAFF", OpsFunction.RECONCILIATION.view(), OpsFunction.RECONCILIATION.action());
+        UUID sagaId = UUID.randomUUID();
+        PaymentDisbursement value = PaymentDisbursement.requested(sagaId, 10L, "LC-E2E-1", 20L, "borrower-1",
+                new BigDecimal("10000000"), "VND", "MOCK", "[]", NOW);
+        when(disbursements.findBySagaId(sagaId)).thenReturn(Optional.of(value));
+        when(disbursements.findByIdForUpdate(value.getId())).thenReturn(Optional.of(value));
+
+        // Qua kiểm quyền, dừng ở quy tắc nghiệp vụ: lệnh chưa ở trạng thái đối soát.
+        assertThatThrownBy(() -> service.requestRecheck(sagaId))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("DISBURSEMENT_NOT_RECONCILABLE"));
+    }
+
+    private static void actAs(String... authorities) {
         Jwt jwt = Jwt.withTokenValue("token").header("alg", "none")
                 .claim("sub", "admin-1").claim("user_id", "admin-1").build();
         SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(
-                jwt, List.of(new SimpleGrantedAuthority(role)), "admin-1"));
+                jwt, Arrays.stream(authorities).map(SimpleGrantedAuthority::new).toList(), "admin-1"));
     }
 }

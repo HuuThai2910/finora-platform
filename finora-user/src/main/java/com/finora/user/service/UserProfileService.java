@@ -5,6 +5,7 @@ import com.finora.user.dto.response.UserProfileResponse;
 import com.finora.user.dto.response.UserStatsResponse;
 import org.springframework.data.domain.Pageable;
 
+import java.util.Collection;
 import java.util.UUID;
 
 /**
@@ -15,7 +16,13 @@ import java.util.UUID;
  */
 public interface UserProfileService {
 
-    UserProfileResponse getMyProfile(UUID keycloakUserId);
+    /**
+     * Hồ sơ của chính người gọi, kèm quyền chức năng quản trị và vai trò nhân viên.
+     *
+     * @param keycloakUserId Keycloak ID của người gọi
+     * @param authorities    authority của JWT đang dùng — nguồn của {@code permissions}
+     */
+    UserProfileResponse getMyProfile(UUID keycloakUserId, Collection<String> authorities);
 
     /**
      * Danh sách người dùng, lọc tùy chọn theo vai trò và trạng thái eKYC.
@@ -50,10 +57,14 @@ public interface UserProfileService {
 
     /**
      * Gán vai trò mới — nhận role dạng String, tự parse + kiểm tra admin không tự đổi role.
+     * <p>
+     * Trên Keycloak, realm role tài khoản cũ (và vai trò nhân viên cũ) được gỡ khi gán role mới, rồi mọi phiên
+     * của người dùng bị đăng xuất để token sau mang đúng quyền mới.
      *
      * @param userId            ID người dùng
-     * @param role              Tên vai trò dạng String (BORROWER, INVESTOR, ADMIN)
+     * @param role              Tên vai trò dạng String (BORROWER, INVESTOR, STAFF, ADMIN)
+     * @param staffRoleCode     mã vai trò nhân viên — bắt buộc khi {@code role=STAFF}, phải rỗng với vai trò khác
      * @param currentKeycloakId Keycloak ID của admin đang thao tác
      */
-    void assignRole(Long userId, String role, UUID currentKeycloakId);
+    void assignRole(Long userId, String role, String staffRoleCode, UUID currentKeycloakId);
 }

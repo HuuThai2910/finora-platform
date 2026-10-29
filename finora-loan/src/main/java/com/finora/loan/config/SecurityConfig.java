@@ -2,6 +2,7 @@ package com.finora.loan.config;
 
 import com.finora.common.security.DualBearerTokenResolver;
 import com.finora.common.security.KeycloakJwtAuthenticationConverter;
+import com.finora.common.security.ops.OpsFunction;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,9 +25,10 @@ import java.util.List;
  * header, web quản trị gửi qua cookie, và {@code CurrentUserProvider} đọc claim
  * {@code user_id} để biết hồ sơ thuộc về ai.</p>
  *
- * <p>Endpoint {@code /admin/**} yêu cầu vai trò ADMIN ngay tại tầng URL; các endpoint
- * còn lại chỉ cần đăng nhập, vì quyền trên từng hồ sơ do domain tự kiểm tra qua
- * {@code requireOwner}.</p>
+ * <p>Endpoint {@code /admin/**} được kiểm ngay tại tầng URL theo quyền chức năng
+ * ({@link OpsFunction}): GET cần quyền Xem, lệnh ghi cần quyền Thao tác, ADMIN luôn qua.
+ * API quản trị chưa gắn chức năng thì chỉ ADMIN gọi được. Các endpoint còn lại chỉ cần
+ * đăng nhập, vì quyền trên từng hồ sơ do domain tự kiểm tra qua {@code requireOwner}.</p>
  */
 @Configuration
 @EnableWebSecurity
@@ -50,6 +52,62 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // Metric vận hành (số sự cố, hàng đợi) chỉ cho quản trị viên (W3E).
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
+                        // Phân quyền nhân viên theo chức năng; ADMIN luôn qua (canView/canAct có sẵn ROLE_ADMIN).
+                        // Hồ sơ vay: xem danh sách, chi tiết duyệt, giải thích và các lần chấm điểm.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/admin/loan-applications",
+                                "/api/v1/admin/loan-applications/*/review",
+                                "/api/v1/admin/loan-applications/*/explanation",
+                                "/api/v1/admin/loan-applications/*/assessments",
+                                "/api/v1/admin/loan-applications/*/assessments/*")
+                        .hasAnyAuthority(OpsFunction.LOAN_APPLICATION.canView())
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/admin/loan-applications/*/approve",
+                                "/api/v1/admin/loan-applications/*/reject",
+                                "/api/v1/admin/loan-applications/*/scoring-retry")
+                        .hasAnyAuthority(OpsFunction.LOAN_APPLICATION.canAct())
+                        // Sản phẩm vay: tạo, sửa, đổi trạng thái và đồng bộ core đều là Thao tác.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/loan-products/**")
+                        .hasAnyAuthority(OpsFunction.LOAN_PRODUCT.canView())
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/admin/loan-products",
+                                "/api/v1/admin/loan-products/*/activate",
+                                "/api/v1/admin/loan-products/*/deactivate",
+                                "/api/v1/admin/loan-products/*/archive",
+                                "/api/v1/admin/loan-products/*/core-sync")
+                        .hasAnyAuthority(OpsFunction.LOAN_PRODUCT.canAct())
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/admin/loan-products/*")
+                        .hasAnyAuthority(OpsFunction.LOAN_PRODUCT.canAct())
+                        // Cơ cấu nợ.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/loan-reschedule-requests")
+                        .hasAnyAuthority(OpsFunction.RESCHEDULE.canView())
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/admin/loan-reschedule-requests/*/approve",
+                                "/api/v1/admin/loan-reschedule-requests/*/reject")
+                        .hasAnyAuthority(OpsFunction.RESCHEDULE.canAct())
+                        // Thu hồi nợ.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/admin/collection-cases",
+                                "/api/v1/admin/collection-cases/*/actions")
+                        .hasAnyAuthority(OpsFunction.COLLECTION.canView())
+                        .requestMatchers(HttpMethod.POST, "/api/v1/admin/collection-cases/*/actions")
+                        .hasAnyAuthority(OpsFunction.COLLECTION.canAct())
+                        // Đối soát & sự cố: projection lệch, saga giải ngân, sự kiện trả nợ bị cách ly.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/admin/loan-servicing-reconciliation",
+                                "/api/v1/admin/loan-servicing-reconciliation/incidents",
+                                "/api/v1/admin/disbursement-sagas",
+                                "/api/v1/admin/repayment-event-quarantine")
+                        .hasAnyAuthority(OpsFunction.RECONCILIATION.canView())
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/admin/loan-servicing-reconciliation/*/reconcile",
+                                "/api/v1/admin/disbursement-sagas/*/requeue",
+                                "/api/v1/admin/repayment-event-quarantine/*/replay")
+                        .hasAnyAuthority(OpsFunction.RECONCILIATION.canAct())
+                        // Thống kê cho trang Tổng quan.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/loan-statistics/**")
+                        .hasAnyAuthority(OpsFunction.DASHBOARD.canView())
+                        // API quản trị chưa gắn chức năng nào: chỉ ADMIN, nhân viên mặc định bị chặn.
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )

@@ -43,6 +43,6 @@ public class RegisterRequest {
     @Pattern(regexp = "^0[0-9]{9}$", message = "Số điện thoại gồm 10 chữ số và bắt đầu bằng 0")
     private String phone;
 
-    /** Vai trò mong muốn — mặc định BORROWER nếu null */
+    /** Vai trò mong muốn: BORROWER hoặc INVESTOR, mặc định BORROWER nếu null; ADMIN/STAFF bị từ chối (400 ROLE_NOT_ALLOWED) */
     private UserRole role;
 }

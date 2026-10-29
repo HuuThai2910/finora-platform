@@ -2,6 +2,7 @@ package com.finora.loan.service.product.impl;
 
 import com.finora.common.exception.ResourceNotFoundException;
 import com.finora.common.security.SecurityUtils;
+import com.finora.common.security.ops.OpsFunction;
 import com.finora.loan.domain.product.LoanProduct;
 import com.finora.loan.domain.product.CoreSyncStatus;
 import com.finora.loan.domain.product.LoanProduct;
@@ -182,8 +183,9 @@ public class LoanProductServiceImpl implements LoanProductService {
                 .orElseThrow(() -> new ResourceNotFoundException("Loan Product", "id", id));
     }
 
+    /** Người thao tác Product; chỉ ai có quyền Thao tác "Sản phẩm vay" (hoặc ADMIN) mới đổi được Product. */
     private String actor() {
-        SecurityUtils.requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.LOAN_PRODUCT.action());
         return SecurityUtils.getCurrentUserId();
     }
 

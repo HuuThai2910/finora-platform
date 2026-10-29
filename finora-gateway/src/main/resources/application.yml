@@ -30,13 +30,13 @@ spring:
           - id: user-admin-service
             uri: http://localhost:8085
             predicates:
-              - Path=/api/v1/admin/users/**
+              - Path=/api/v1/admin/users/**,/api/v1/admin/staff-roles/**
           - id: user-service
             uri: http://localhost:8085
             predicates:
               - Path=/api/v1/users/**,/api/v1/kyc/**
           # Loan Service cũng nhận /api/v1/admin/**; đặt sau route admin User để
-          # /api/v1/admin/users/** không bị Loan nuốt mất.
+          # /api/v1/admin/users/** và /api/v1/admin/staff-roles/** không bị Loan nuốt mất.
           - id: loan-admin-service
             uri: http://localhost:8081
             predicates:

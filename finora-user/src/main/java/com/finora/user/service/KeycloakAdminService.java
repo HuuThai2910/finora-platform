@@ -1,7 +1,11 @@
 package com.finora.user.service;
 
 import com.finora.common.enums.user.UserRole;
+import com.finora.user.domain.StaffRoleDefinition;
 import org.keycloak.representations.AccessTokenResponse;
+
+import java.util.List;
+import java.util.Optional;
 
 /**
  * Interface dịch vụ tương tác với Keycloak Admin REST API — quản lý vòng đời tài khoản.
@@ -48,6 +52,34 @@ public interface KeycloakAdminService {
     Boolean isUserEnabled(String keycloakUserId);
 
     void assignRole(String keycloakUserId, String roleName);
+
+    /**
+     * Thay bộ realm role do FINORA quản lý của một tài khoản bằng {@code roleNames}: role tài khoản
+     * ({@code ROLE_BORROWER/INVESTOR/STAFF/ADMIN}) và vai trò nhân viên {@code STAFF_*} không còn trong danh sách
+     * bị gỡ, role mới được thêm. Realm role khác (default-roles, offline_access…) giữ nguyên.
+     * <p>
+     * Thêm trước, gỡ sau: lỗi giữa chừng để tài khoản thừa quyền cũ chứ không mất hết quyền.
+     */
+    void replaceRealmRoles(String keycloakUserId, List<String> roleNames);
+
+    /** Đăng xuất mọi phiên của tài khoản để token sau mang quyền mới. Lỗi chỉ ghi log, không ném. */
+    void logoutUser(String keycloakUserId);
+
+    // ── Vai trò nhân viên (realm role STAFF_* gom client role finora-ops) ──
+
+    /** Mọi realm role có attribute {@code finoraStaffRole=true}, kèm quyền trong composite. */
+    List<StaffRoleDefinition> listStaffRoles();
+
+    /** Vai trò nhân viên theo mã; rỗng nếu không có hoặc realm role đó không phải vai trò nhân viên. */
+    Optional<StaffRoleDefinition> findStaffRole(String code);
+
+    /** Tạo realm role mới; trùng tên ném {@code 409 STAFF_ROLE_EXISTS}. */
+    void createStaffRole(StaffRoleDefinition role);
+
+    /** Ghi tên, mô tả và đồng bộ composite: thêm quyền còn thiếu, gỡ quyền thừa. */
+    void updateStaffRole(StaffRoleDefinition role);
+
+    void deleteStaffRole(String code);
 
     void revokeRefreshToken(String refreshToken);
 

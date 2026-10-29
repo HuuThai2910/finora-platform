@@ -9,7 +9,7 @@ import lombok.Setter;
 /**
  * Yêu cầu gán vai trò mới cho một người dùng.
  *
- * @see com.finora.common.enums.user.UserRole giá trị hợp lệ: BORROWER, INVESTOR, ADMIN
+ * @see com.finora.common.enums.user.UserRole giá trị hợp lệ: BORROWER, INVESTOR, STAFF, ADMIN
  */
 @Getter
 @Setter
@@ -19,4 +19,7 @@ public class AssignRoleRequest {
 
     @NotBlank(message = "Vai trò không được để trống")
     private String role;
+
+    /** Mã vai trò nhân viên ({@code STAFF_*}) — bắt buộc khi {@code role=STAFF}, bỏ trống với vai trò khác. */
+    private String staffRoleCode;
 }

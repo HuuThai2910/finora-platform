@@ -7,6 +7,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -59,4 +60,20 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, Long> 
     /** Đếm số người dùng theo từng trạng thái eKYC trên toàn hệ thống. */
     @Query("select p.ekycStatus, count(p) from UserProfile p group by p.ekycStatus")
     List<Object[]> countGroupedByEkycStatus();
+
+    /**
+     * Số thành viên của từng vai trò nhân viên.
+     *
+     * @return danh sách cặp {@code [String mã vai trò, Long]}
+     */
+    @Query("select p.staffRoleCode, count(p) from UserProfile p "
+            + "where p.staffRoleCode is not null group by p.staffRoleCode")
+    List<Object[]> countGroupedByStaffRoleCode();
+
+    /** Số tài khoản đang giữ một vai trò nhân viên — chặn xoá vai trò còn người dùng. */
+    long countByStaffRoleCode(String staffRoleCode);
+
+    /** Keycloak ID của thành viên một vai trò nhân viên — đăng xuất họ khi vai trò đổi quyền. */
+    @Query("select p.keycloakUserId from UserProfile p where p.staffRoleCode = :staffRoleCode")
+    List<UUID> findKeycloakUserIdsByStaffRoleCode(@Param("staffRoleCode") String staffRoleCode);
 }

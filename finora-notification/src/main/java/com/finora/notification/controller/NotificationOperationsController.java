@@ -16,8 +16,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Vận hành thông báo cho ADMIN (quyền kiểm ở {@code NotificationSecurityConfig}). Đặt dưới {@code /api/v1/notifications}
- * để Gateway hiện có đưa về Notification; {@code /api/v1/admin/**} thuộc route của Loan.
+ * Vận hành thông báo cho ADMIN và nhân viên có quyền Đối soát & sự cố (quyền kiểm ở {@code NotificationSecurityConfig}).
+ * Đặt dưới {@code /api/v1/notifications} để Gateway hiện có đưa về Notification; {@code /api/v1/admin/**} thuộc route
+ * của Loan.
  */
 @RestController
 @RequestMapping("/api/v1/notifications/admin")

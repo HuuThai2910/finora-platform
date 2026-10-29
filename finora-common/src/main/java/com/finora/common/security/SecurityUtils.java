@@ -18,6 +18,8 @@ public final class SecurityUtils {
 
     public static final String USER_ID_CLAIM = "user_id";
     public static final String ROLE_ADMIN = "ROLE_ADMIN";
+    /** Tài khoản nhân viên; quyền cụ thể đến từ vai trò nhân viên ({@code ops:*}), không từ role này. */
+    public static final String ROLE_STAFF = "ROLE_STAFF";
 
     private SecurityUtils() {
     }
@@ -102,6 +104,25 @@ public final class SecurityUtils {
             throw new BusinessException(HttpStatus.FORBIDDEN,
                     "ADMIN_ROLE_REQUIRED",
                     "Tài khoản không có quyền quản trị để thực hiện thao tác này");
+        }
+    }
+
+    /**
+     * Có quyền chức năng quản trị ({@code ops:*}) hay không; ADMIN luôn có.
+     */
+    public static boolean hasPermission(String permission) {
+        Set<String> roles = getCurrentRoles();
+        return roles.contains(ROLE_ADMIN) || (permission != null && roles.contains(permission));
+    }
+
+    /**
+     * Yêu cầu quyền chức năng quản trị, ném FORBIDDEN nếu thiếu. Dùng ở tầng service để kiểm lại sau URL rule.
+     */
+    public static void requirePermission(String permission) {
+        if (!hasPermission(permission)) {
+            throw new BusinessException(HttpStatus.FORBIDDEN,
+                    "PERMISSION_REQUIRED",
+                    "Tài khoản không có quyền thực hiện chức năng này");
         }
     }
 

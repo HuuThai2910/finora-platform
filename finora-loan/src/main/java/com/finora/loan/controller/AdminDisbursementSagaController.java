@@ -13,7 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-/** Saga giải ngân cần vận hành (R2). {@code /api/v1/admin/**} chỉ cho ADMIN (SecurityConfig). */
+/** Saga giải ngân cần vận hành (R2). Cần quyền "Đối soát & sự cố" (SecurityConfig). */
 @RestController
 @RequestMapping("/api/v1/admin/disbursement-sagas")
 @RequiredArgsConstructor

@@ -1,6 +1,7 @@
 package com.finora.investment.service.impl;
 
 import com.finora.common.security.SecurityUtils;
+import com.finora.common.security.ops.OpsFunction;
 import com.finora.investment.domain.settings.FundingSettings;
 import com.finora.investment.dto.request.UpdateFundingSettingsRequest;
 import com.finora.investment.dto.response.FundingSettingsResponse;
@@ -35,7 +36,7 @@ public class FundingSettingsServiceImpl implements FundingSettingsService {
     @Override
     @Transactional
     public FundingSettingsResponse update(UpdateFundingSettingsRequest request) {
-        SecurityUtils.requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.FUNDING_SETTINGS.action());
 
         BigDecimal denomination = positive(request.noteDenomination(), "mệnh giá Note");
         BigDecimal minimum = positive(request.minInvestmentAmount(), "mức đầu tư tối thiểu");

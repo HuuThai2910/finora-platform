@@ -72,6 +72,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional(readOnly = true)
     public RegistrationChallengeResponse register(RegisterRequest request) {
+        UserRole role = selfRegistrationRole(request.getRole());
         String email = request.getEmail();
         String phone = normalizePhone(request.getPhone());
 
@@ -99,7 +100,7 @@ public class AuthServiceImpl implements AuthService {
                 request.getPassword(),
                 fullName,
                 phone,
-                request.getRole() != null ? request.getRole() : UserRole.BORROWER));
+                role));
 
         sendRegistrationOtp(email);
 
@@ -151,6 +152,9 @@ public class AuthServiceImpl implements AuthService {
             pendingRegistrationStore.remove(email);
             throw new BusinessException(HttpStatus.CONFLICT, MSG_PHONE_TAKEN);
         }
+
+        // Kiểm lại vai trò: phiên đăng ký tạo trước bản vá vẫn có thể còn trong Redis
+        selfRegistrationRole(pending.role());
 
         // Tạo user trên Keycloak trước — nếu thất bại thì không có orphan trong DB
         String keycloakUserId = keycloakAdminService.createUser(
@@ -386,6 +390,21 @@ public class AuthServiceImpl implements AuthService {
      * Sinh và gửi OTP đăng ký. Gửi email là best-effort: notification lỗi thì luồng
      * đăng ký vẫn đứng vững, người dùng bấm gửi lại mã là có mã mới.
      */
+    /**
+     * Vai trò được tự đăng ký: chỉ người vay hoặc nhà đầu tư, bỏ trống là người vay. ADMIN/STAFF chỉ có qua
+     * gán vai trò của quản trị viên — nhận từ body đăng ký là lỗ hổng tự nâng quyền.
+     */
+    private static UserRole selfRegistrationRole(UserRole requested) {
+        if (requested == null) {
+            return UserRole.BORROWER;
+        }
+        if (requested != UserRole.BORROWER && requested != UserRole.INVESTOR) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "ROLE_NOT_ALLOWED",
+                    "Chỉ đăng ký được tài khoản người vay hoặc nhà đầu tư");
+        }
+        return requested;
+    }
+
     private void sendRegistrationOtp(String email) {
         String otp = generateOtp();
         rateLimitService.storeRegistrationOtp(email, otp);

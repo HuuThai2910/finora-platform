@@ -1,6 +1,7 @@
 package com.finora.loan.service.core.impl;
 
 import com.finora.common.security.SecurityUtils;
+import com.finora.common.security.ops.OpsFunction;
 import com.finora.loan.domain.core.FineractCommand;
 import com.finora.loan.domain.core.FineractCommandStatus;
 import com.finora.loan.domain.product.LoanProduct;
@@ -34,7 +35,7 @@ public class CoreProductSyncServiceImpl implements CoreProductSyncService {
      */
     @Override
     public CoreProductSyncResponse synchronize(long productId, long version) {
-        SecurityUtils.requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.LOAN_PRODUCT.action());
         // Commit command/mapping bền vững trước; tuyệt đối không giữ transaction khi gọi Fineract.
         ProductSyncPreparation preparation = stateService.prepare(productId, version, SecurityUtils.getCurrentUserId());
         if (preparation.executionRequired()) {

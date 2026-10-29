@@ -2,6 +2,7 @@ package com.finora.payment.config;
 
 import com.finora.common.security.DualBearerTokenResolver;
 import com.finora.common.security.KeycloakJwtAuthenticationConverter;
+import com.finora.common.security.ops.OpsFunction;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -15,7 +16,13 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-/** Bảo vệ API ví bằng cùng access token Keycloak với Loan và Investment. */
+/**
+ * Bảo vệ API ví bằng cùng access token Keycloak với Loan và Investment.
+ *
+ * <p>{@code /api/v1/admin/**} kiểm quyền chức năng ngay tại tầng URL: nhân viên cần quyền Xem/Thao tác
+ * {@code ops:*} của màn tương ứng ({@link OpsFunction}), ADMIN luôn qua; đường dẫn quản trị chưa gán chức năng chỉ
+ * ADMIN. Service kiểm lại cùng quyền để lời gọi nội bộ không lách được URL rule.</p>
+ */
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
@@ -40,6 +47,23 @@ public class PaymentSecurityConfig {
                         // Provider payout giả lập (R4): xác thực bằng HMAC trên body, endpoint 404 khi provider không phải mock.
                         .requestMatchers(HttpMethod.POST, "/api/v1/wallets/callbacks/mock-payout").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        // Rút tiền: xem lệnh rút đang kẹt, yêu cầu tra cứu lại provider.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/withdrawals", "/api/v1/admin/withdrawals/*")
+                                .hasAnyAuthority(OpsFunction.WITHDRAWAL.canView())
+                        .requestMatchers(HttpMethod.POST, "/api/v1/admin/withdrawals/*/recheck")
+                                .hasAnyAuthority(OpsFunction.WITHDRAWAL.canAct())
+                        // Đối soát & sự cố: giải ngân và trả nợ lệch với provider/Fineract.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/disbursement-reconciliation",
+                                "/api/v1/admin/disbursement-reconciliation/**",
+                                "/api/v1/admin/repayment-reconciliation",
+                                "/api/v1/admin/repayment-reconciliation/**")
+                                .hasAnyAuthority(OpsFunction.RECONCILIATION.canView())
+                        .requestMatchers(HttpMethod.POST, "/api/v1/admin/disbursement-reconciliation/*/recheck",
+                                "/api/v1/admin/repayment-reconciliation/*/reconcile",
+                                "/api/v1/admin/repayment-reconciliation/*/repost")
+                                .hasAnyAuthority(OpsFunction.RECONCILIATION.canAct())
+                        // Đường dẫn quản trị chưa gán chức năng: chỉ ADMIN (nhân viên bị chặn mặc định).
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(keycloakRoleConverter))

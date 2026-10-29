@@ -311,10 +311,21 @@ trong `docker/.env`, rồi ghi kết quả vào volume `keycloak-import`. Keyclo
 Realm import tạo sẵn:
 
 - realm `finora`, `sslRequired=none` (local chạy HTTP);
-- 3 realm role `ROLE_BORROWER`, `ROLE_INVESTOR`, `ROLE_ADMIN` — khớp `UserRole` của service;
+- 4 realm role `ROLE_BORROWER`, `ROLE_INVESTOR`, `ROLE_STAFF`, `ROLE_ADMIN` — khớp `UserRole` của service;
+- client `finora-ops` (không đăng nhập được) giữ 28 client role `ops:<chức năng>:view|action` — quyền chức năng
+  của web quản trị, khớp `OpsFunction` ở finora-common. `ROLE_ADMIN` gom toàn bộ;
+- vai trò nhân viên có sẵn `STAFF_VAN_HANH` "Nhân viên vận hành" (realm role composite các `ops:*`, attribute
+  `finoraStaffRole=true`). Quản trị viên tạo thêm vai trò `STAFF_*` ở màn Phân quyền của web; tài khoản nhân viên
+  giữ `ROLE_STAFF` + đúng một `STAFF_*`;
 - confidential client `finora-user-client`: bật *direct access grant* (đăng nhập bằng
   password grant) và *service account* với quyền `manage-users`, `view-users`, `query-users`,
-  `query-groups`, `view-realm` để tạo user / gán role / đổi mật khẩu qua Admin REST API.
+  `query-groups`, `view-realm` để tạo user / gán role / đổi mật khẩu qua Admin REST API, cùng `manage-realm`
+  và `manage-clients` để tạo/sửa/xoá vai trò nhân viên (Keycloak chỉ cho gắn client role `finora-ops` vào composite
+  khi người gọi quản lý được client đó).
+
+Realm đã tạo từ trước khi có phân quyền nhân viên: chạy `bash docker/keycloak/add-staff-rbac.sh` (chạy lại an toàn)
+để thêm `finora-ops`, `ROLE_STAFF`, `STAFF_VAN_HANH`, composite của `ROLE_ADMIN` và quyền của service account. Người
+đang đăng nhập phải đăng nhập lại để token có quyền `ops:*`.
 
 `--import-realm` dùng chiến lược IGNORE_EXISTING: realm đã tồn tại thì Keycloak bỏ qua file
 import. Muốn nạp lại realm sau khi sửa template, phải xoá realm cũ:

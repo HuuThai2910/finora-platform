@@ -11,6 +11,7 @@ import com.finora.user.dto.response.UserStatsResponse;
 import com.finora.user.mapper.UserProfileMapper;
 import com.finora.user.repository.UserProfileRepository;
 import com.finora.user.service.KeycloakAdminService;
+import com.finora.user.service.StaffRoleService;
 import com.finora.user.service.UserProfileService;
 import com.finora.user.support.PiiMasker;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,13 +47,16 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final UserProfileRepository userProfileRepository;
     private final UserProfileMapper userProfileMapper;
     private final KeycloakAdminService keycloakAdminService;
+    private final StaffRoleService staffRoleService;
 
     // ── Hồ sơ cá nhân ──────────────────────────────────────────────
 
     @Override
-    public UserProfileResponse getMyProfile(UUID keycloakUserId) {
+    public UserProfileResponse getMyProfile(UUID keycloakUserId, Collection<String> authorities) {
         UserProfile profile = findByKeycloakUserIdOrThrow(keycloakUserId);
-        return userProfileMapper.toResponse(profile);
+        UserProfileResponse response = withStaffRole(userProfileMapper.toResponse(profile), profile);
+        response.setPermissions(StaffRoleService.permissionsOf(authorities));
+        return response;
     }
 
     // ── Quản trị (Admin) ────────────────────────────────────────────
@@ -140,9 +146,22 @@ public class UserProfileServiceImpl implements UserProfileService {
      * không lưu cờ đó nên phải tra cứu thêm khi admin xem.
      */
     private UserProfileResponse toAdminResponse(UserProfile profile) {
-        UserProfileResponse response = userProfileMapper.toResponse(profile);
+        UserProfileResponse response = withStaffRole(userProfileMapper.toResponse(profile), profile);
         Boolean enabled = keycloakAdminService.isUserEnabled(profile.getKeycloakUserId().toString());
         response.setLocked(enabled == null ? null : !enabled);
+        return response;
+    }
+
+    /** Gắn mã + tên vai trò nhân viên; tên đọc từ bộ nhớ đệm của {@link StaffRoleService}. */
+    private UserProfileResponse withStaffRole(UserProfileResponse response, UserProfile profile) {
+        String code = profile.getRole() == UserRole.STAFF ? profile.getStaffRoleCode() : null;
+        response.setStaffRoleCode(code);
+        if (code == null) {
+            return response;
+        }
+        String name = staffRoleService.nameOf(code);
+        response.setStaffRoleName(name);
+        response.setStaffRole(new UserProfileResponse.StaffRoleRef(code, name));
         return response;
     }
 
@@ -167,7 +186,7 @@ public class UserProfileServiceImpl implements UserProfileService {
 
     @Override
     @Transactional
-    public void assignRole(Long userId, String role, UUID currentKeycloakId) {
+    public void assignRole(Long userId, String role, String staffRoleCode, UUID currentKeycloakId) {
         if (role == null || role.isBlank()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "Vai trò không được để trống");
         }
@@ -179,17 +198,38 @@ public class UserProfileServiceImpl implements UserProfileService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "Vai trò không hợp lệ: " + role);
         }
 
+        String staffCode = staffRoleCode == null || staffRoleCode.isBlank() ? null : staffRoleCode.trim();
+        if (newRole == UserRole.STAFF && staffCode == null) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "STAFF_ROLE_REQUIRED",
+                    "Tài khoản nhân viên phải chọn một vai trò nhân viên");
+        }
+        if (newRole != UserRole.STAFF && staffCode != null) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "STAFF_ROLE_NOT_ALLOWED",
+                    "Chỉ tài khoản nhân viên mới gán được vai trò nhân viên");
+        }
+
         UserProfile profile = findByIdOrThrow(userId);
         preventSelfAction(profile, currentKeycloakId, "Không thể tự đổi vai trò của chính mình");
 
-        keycloakAdminService.assignRole(
-                profile.getKeycloakUserId().toString(), "ROLE_" + newRole.name());
+        // Vai trò nhân viên phải tồn tại thật trên Keycloak (404 STAFF_ROLE_NOT_FOUND nếu không).
+        List<String> realmRoles = new ArrayList<>();
+        realmRoles.add("ROLE_" + newRole.name());
+        if (newRole == UserRole.STAFF) {
+            realmRoles.add(staffRoleService.requireStaffRole(staffCode).code());
+        }
+
+        String keycloakUserId = profile.getKeycloakUserId().toString();
+        keycloakAdminService.replaceRealmRoles(keycloakUserId, realmRoles);
 
         profile.setRole(newRole);
+        profile.setStaffRoleCode(staffCode);
         userProfileRepository.save(profile);
 
-        log.info("Admin đã gán role {} cho userId={}, email={}",
-                newRole, userId, PiiMasker.maskEmail(profile.getEmail()));
+        // Token đang cầm vẫn mang quyền cũ tới khi hết hạn — buộc đăng nhập lại.
+        keycloakAdminService.logoutUser(keycloakUserId);
+
+        log.info("Admin đã gán role {} (vai trò nhân viên {}) cho userId={}, email={}",
+                newRole, staffCode, userId, PiiMasker.maskEmail(profile.getEmail()));
     }
 
     /**

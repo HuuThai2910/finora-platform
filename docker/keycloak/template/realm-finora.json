@@ -52,6 +52,18 @@
         }
       },
       {
+        "name": "ROLE_STAFF",
+        "description": "Nhan vien van hanh - quyen cu the theo vai tro STAFF_* do quan tri vien cau hinh",
+        "composite": true,
+        "composites": {
+          "client": {
+            "finora-user-client": [
+              "user:profile:read"
+            ]
+          }
+        }
+      },
+      {
         "name": "ROLE_ADMIN",
         "description": "Quan tri he thong FINORA",
         "composite": true,
@@ -62,8 +74,79 @@
               "user:admin:read_all",
               "user:admin:lock",
               "user:admin:assign_role"
+            ],
+            "finora-ops": [
+              "ops:dashboard:view",
+              "ops:loan-application:view",
+              "ops:loan-application:action",
+              "ops:collection:view",
+              "ops:collection:action",
+              "ops:reschedule:view",
+              "ops:reschedule:action",
+              "ops:withdrawal:view",
+              "ops:withdrawal:action",
+              "ops:reconciliation:view",
+              "ops:reconciliation:action",
+              "ops:funding:view",
+              "ops:funding:action",
+              "ops:funding-settings:view",
+              "ops:funding-settings:action",
+              "ops:secondary-market:view",
+              "ops:secondary-market:action",
+              "ops:loan-product:view",
+              "ops:loan-product:action",
+              "ops:customer:view",
+              "ops:customer:action",
+              "ops:ekyc:view",
+              "ops:ekyc:action",
+              "ops:blockchain:view",
+              "ops:blockchain:action",
+              "ops:ai-policy:view",
+              "ops:ai-policy:action",
+              "ops:ai-scoring:view"
             ]
           }
+        }
+      },
+      {
+        "name": "STAFF_VAN_HANH",
+        "description": "Xem mọi chức năng, thao tác các việc vận hành hằng ngày",
+        "composite": true,
+        "composites": {
+          "client": {
+            "finora-ops": [
+              "ops:dashboard:view",
+              "ops:loan-application:view",
+              "ops:loan-application:action",
+              "ops:collection:view",
+              "ops:collection:action",
+              "ops:reschedule:view",
+              "ops:reschedule:action",
+              "ops:withdrawal:view",
+              "ops:withdrawal:action",
+              "ops:reconciliation:view",
+              "ops:funding:view",
+              "ops:funding:action",
+              "ops:funding-settings:view",
+              "ops:secondary-market:view",
+              "ops:secondary-market:action",
+              "ops:loan-product:view",
+              "ops:customer:view",
+              "ops:ekyc:view",
+              "ops:ekyc:action",
+              "ops:blockchain:view",
+              "ops:ai-policy:view",
+              "ops:ai-scoring:view"
+            ]
+          }
+        },
+        "attributes": {
+          "finoraStaffRole": [
+            "true"
+          ],
+          "displayName": [
+            "Nhân viên vận hành"
+          ]
         }
       }
     ],
@@ -117,11 +200,140 @@
           "name": "user:identity:read_internal",
           "description": "Service account finora-investment doc ho ten + CCCD da che de in giay chuyen nhuong Note; khong nam trong role nguoi dung"
         }
+      ],
+      "finora-ops": [
+        {
+          "name": "ops:dashboard:view",
+          "description": "Tổng quan & thống kê — Xem"
+        },
+        {
+          "name": "ops:loan-application:view",
+          "description": "Hồ sơ vay — Xem"
+        },
+        {
+          "name": "ops:loan-application:action",
+          "description": "Hồ sơ vay — Thao tác"
+        },
+        {
+          "name": "ops:collection:view",
+          "description": "Thu hồi nợ — Xem"
+        },
+        {
+          "name": "ops:collection:action",
+          "description": "Thu hồi nợ — Thao tác"
+        },
+        {
+          "name": "ops:reschedule:view",
+          "description": "Cơ cấu nợ — Xem"
+        },
+        {
+          "name": "ops:reschedule:action",
+          "description": "Cơ cấu nợ — Thao tác"
+        },
+        {
+          "name": "ops:withdrawal:view",
+          "description": "Rút tiền — Xem"
+        },
+        {
+          "name": "ops:withdrawal:action",
+          "description": "Rút tiền — Thao tác"
+        },
+        {
+          "name": "ops:reconciliation:view",
+          "description": "Đối soát & sự cố — Xem"
+        },
+        {
+          "name": "ops:reconciliation:action",
+          "description": "Đối soát & sự cố — Thao tác"
+        },
+        {
+          "name": "ops:funding:view",
+          "description": "Gọi vốn & Notes — Xem"
+        },
+        {
+          "name": "ops:funding:action",
+          "description": "Gọi vốn & Notes — Thao tác"
+        },
+        {
+          "name": "ops:funding-settings:view",
+          "description": "Cấu hình gọi vốn — Xem"
+        },
+        {
+          "name": "ops:funding-settings:action",
+          "description": "Cấu hình gọi vốn — Thao tác"
+        },
+        {
+          "name": "ops:secondary-market:view",
+          "description": "Chợ thứ cấp — Xem"
+        },
+        {
+          "name": "ops:secondary-market:action",
+          "description": "Chợ thứ cấp — Thao tác"
+        },
+        {
+          "name": "ops:loan-product:view",
+          "description": "Sản phẩm vay — Xem"
+        },
+        {
+          "name": "ops:loan-product:action",
+          "description": "Sản phẩm vay — Thao tác"
+        },
+        {
+          "name": "ops:customer:view",
+          "description": "Khách hàng — Xem"
+        },
+        {
+          "name": "ops:customer:action",
+          "description": "Khách hàng — Thao tác"
+        },
+        {
+          "name": "ops:ekyc:view",
+          "description": "Duyệt eKYC — Xem"
+        },
+        {
+          "name": "ops:ekyc:action",
+          "description": "Duyệt eKYC — Thao tác"
+        },
+        {
+          "name": "ops:blockchain:view",
+          "description": "Bằng chứng blockchain — Xem"
+        },
+        {
+          "name": "ops:blockchain:action",
+          "description": "Bằng chứng blockchain — Thao tác"
+        },
+        {
+          "name": "ops:ai-policy:view",
+          "description": "Chính sách AI — Xem"
+        },
+        {
+          "name": "ops:ai-policy:action",
+          "description": "Chính sách AI — Thao tác"
+        },
+        {
+          "name": "ops:ai-scoring:view",
+          "description": "Chấm thử AI — Xem"
+        }
       ]
     }
   },
 
   "clients": [
+    {
+      "clientId": "finora-ops",
+      "name": "FINORA Ops Permissions",
+      "description": "Chi giu client role ops:* (quyen chuc nang web quan tri) de gom vao vai tro nhan vien STAFF_*; khong dang nhap duoc",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "clientAuthenticatorType": "client-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false
+    },
     {
       "clientId": "finora-investment-client",
       "name": "FINORA Investment Service",
@@ -283,7 +495,9 @@
           "view-users",
           "query-users",
           "query-groups",
-          "view-realm"
+          "view-realm",
+          "manage-realm",
+          "manage-clients"
         ],
         "finora-user-client": [
           "user:admin:read_all",

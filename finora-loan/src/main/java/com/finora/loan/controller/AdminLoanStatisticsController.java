@@ -12,8 +12,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Thống kê danh mục cho vay cho trang quản trị. Quyền ADMIN được chặn ở {@code SecurityConfig}
- * ({@code /api/v1/admin/**}) và kiểm lại trong service như các API admin khác của module.
+ * Thống kê danh mục cho vay cho trang quản trị. Quyền Xem "Tổng quan" (hoặc ADMIN) được chặn ở
+ * {@code SecurityConfig} và kiểm lại trong service như các API admin khác của module.
  */
 @RestController
 @RequestMapping("/api/v1/admin/loan-statistics")

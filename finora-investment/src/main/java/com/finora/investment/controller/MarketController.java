@@ -2,6 +2,7 @@ package com.finora.investment.controller;
 
 import com.finora.common.dto.PageResponse;
 import com.finora.common.security.SecurityUtils;
+import com.finora.common.security.ops.OpsFunction;
 import com.finora.investment.dto.response.FundingProgressResponse;
 import com.finora.investment.dto.response.MarketListingResponse;
 import com.finora.investment.service.MarketListingService;
@@ -44,8 +45,10 @@ public class MarketController {
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
-        // Khoản vay của chính người xem không hiện trong danh sách đầu tư; quản trị viên thấy hết.
-        String hiddenBorrowerId = SecurityUtils.isAdmin() ? null : SecurityUtils.getCurrentUserId();
+        // Khoản vay của chính người xem không hiện trong danh sách đầu tư; quản trị viên và nhân viên có quyền
+        // Xem Gọi vốn thấy hết.
+        String hiddenBorrowerId = SecurityUtils.hasPermission(OpsFunction.FUNDING.view())
+                ? null : SecurityUtils.getCurrentUserId();
         return listingService.search(status, grade, minRate, maxTermMonths, hiddenBorrowerId, page, size);
     }
 

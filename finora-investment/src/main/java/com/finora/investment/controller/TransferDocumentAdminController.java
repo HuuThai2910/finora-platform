@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Giấy xác nhận chuyển nhượng Note cho quản trị: danh sách, chi tiết kèm artifact để xác minh với Blockchain, tải PDF
- * đã đóng dấu và thử lại văn bản lỗi. Nằm dưới {@code /investments/admin/**} nên chỉ vai trò ADMIN.
+ * đã đóng dấu và thử lại văn bản lỗi. Xem cần quyền Xem Chợ thứ cấp, thử lại cần quyền Thao tác (ADMIN luôn qua).
  */
 @RestController
 @RequestMapping("/api/v1/investments/admin/transfer-documents")

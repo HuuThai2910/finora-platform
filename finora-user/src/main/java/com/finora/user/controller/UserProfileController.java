@@ -37,11 +37,15 @@ public class UserProfileController {
     private final EkycVerificationService ekycVerificationService;
     private final KycSummaryService kycSummaryService;
 
+    /**
+     * Hồ sơ của chính mình. Trường {@code permissions} là quyền {@code ops:*} trong JWT đang dùng (ADMIN nhận đủ
+     * danh mục) để web quản trị dựng menu; {@code staffRole} là vai trò nhân viên hoặc {@code null}.
+     */
     @GetMapping("/me")
     @PreAuthorize("hasAuthority('user:profile:read')")
     public ResponseEntity<UserProfileResponse> getMyProfile() {
         UUID keycloakUserId = SecurityUtils.getCurrentKeycloakUserId();
-        return ResponseEntity.ok(userProfileService.getMyProfile(keycloakUserId));
+        return ResponseEntity.ok(userProfileService.getMyProfile(keycloakUserId, SecurityUtils.getCurrentRoles()));
     }
 
     /**

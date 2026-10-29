@@ -2,6 +2,7 @@ package com.finora.blockchain.config;
 
 import com.finora.common.security.DualBearerTokenResolver;
 import com.finora.common.security.KeycloakJwtAuthenticationConverter;
+import com.finora.common.security.ops.OpsFunction;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -18,7 +19,9 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 /**
  * B54: finora-common kéo Spring Security vào Blockchain nhưng service chưa cấu hình resource server, nên mọi endpoint
  * rơi vào user Basic sinh ngẫu nhiên của Spring Boot (health 401, explorer không dùng được token Keycloak). Explorer
- * proof chỉ dành cho ADMIN (dữ liệu vận hành, có ID khoản vay); health mở cho kiểm tra sống.
+ * proof là dữ liệu vận hành (có ID khoản vay): ADMIN hoặc nhân viên có quyền Bằng chứng blockchain ({@link OpsFunction}).
+ * Xem danh sách, chi tiết và đối chiếu (verify chỉ đọc DB và Fabric, không ghi gì) cần quyền Xem; đưa proof lỗi về hàng
+ * đợi cần quyền Thao tác. Health mở cho kiểm tra sống.
  */
 @Configuration
 @EnableWebSecurity
@@ -38,6 +41,15 @@ public class BlockchainSecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/blockchain/health").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        // Actuator ngoài health (health bỏ qua chain ở BlockchainHealthEndpointSecurityConfig) chỉ ADMIN.
+                        .requestMatchers("/actuator/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/blockchain/proofs", "/api/v1/blockchain/proofs/*")
+                                .hasAnyAuthority(OpsFunction.BLOCKCHAIN.canView())
+                        .requestMatchers(HttpMethod.POST, "/api/v1/blockchain/proofs/*/verify")
+                                .hasAnyAuthority(OpsFunction.BLOCKCHAIN.canView())
+                        .requestMatchers(HttpMethod.POST, "/api/v1/blockchain/proofs/*/retry")
+                                .hasAnyAuthority(OpsFunction.BLOCKCHAIN.canAct())
+                        // Đường proof chưa gán chức năng: chỉ ADMIN (nhân viên bị chặn mặc định).
                         .requestMatchers("/api/v1/blockchain/proofs/**", "/api/v1/blockchain/proofs").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2

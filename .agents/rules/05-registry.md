@@ -26,9 +26,17 @@ Thay đổi giá trị trong bảng MUST cập nhật cấu hình, tài liệu l
 | Fineract PostgreSQL           | Neon direct `5432`                    | `fineract_tenants`, `fineract_default`; Liquibase do Fineract quản lý; Docker `15432` chỉ là fallback `fineract-local-db`                                    |
 | Mailpit (tùy chọn, dev)       |  8025 UI; 1025 SMTP (host local)     | Mail server local bắt thư để test; không lưu trữ lâu dài, không gửi ra Internet                                                                               |
 
-Realm role Keycloak hiện có: `ROLE_BORROWER`, `ROLE_INVESTOR`, `ROLE_ADMIN` — khớp enum `UserRole`
+Realm role Keycloak hiện có: `ROLE_BORROWER`, `ROLE_INVESTOR`, `ROLE_STAFF`, `ROLE_ADMIN` — khớp enum `UserRole`
 của `finora-user`. Nguồn chuẩn là `docker/keycloak/template/realm-finora.json`; secret của client được
 render lúc chạy từ `KEYCLOAK_CLIENT_SECRET` trong `docker/.env`, không commit vào template.
+
+Phân quyền nhân viên: quyền chức năng web quản trị là client role `ops:<chức năng>:view|action` của client
+`finora-ops` (không đăng nhập được), danh mục cố định ở `OpsFunction` (finora-common). Vai trò nhân viên là realm
+role `STAFF_<MÃ>` (attribute `finoraStaffRole=true`, `displayName`) gom các quyền đó; vai trò có sẵn `STAFF_VAN_HANH`.
+Tài khoản nhân viên giữ `ROLE_STAFF` + đúng một `STAFF_*` (mã lưu ở `user_profiles.staff_role_code`). `ROLE_ADMIN`
+gom mọi `ops:*` và luôn qua mọi kiểm tra quyền; cấu hình vai trò (`/api/v1/admin/staff-roles/**`) và gán vai trò chỉ
+ADMIN. Service account `finora-user-client` cần thêm `manage-realm` + `manage-clients` (realm-management) để tạo
+vai trò. Realm đang chạy: `docker/keycloak/add-staff-rbac.sh`.
 
 Consumer group hiện có: `payment-group`, `blockchain-group`, `notification-group`,
 `notification-investor-servicing`, `notification-domain-events` (W3F), `cic-loan-delinquency`.

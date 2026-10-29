@@ -3,6 +3,7 @@ package com.finora.payment.service.repayment;
 import com.finora.common.dto.PageResponse;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.security.SecurityUtils;
+import com.finora.common.security.ops.OpsFunction;
 import com.finora.payment.domain.repayment.PaymentRepayment;
 import com.finora.payment.domain.repayment.PaymentRepaymentStatus;
 import com.finora.payment.dto.response.RepaymentReconciliationResponse;
@@ -41,7 +42,7 @@ public class AdminRepaymentReconciliationService {
      */
     @Transactional(readOnly = true)
     public PageResponse<RepaymentReconciliationResponse> list(List<PaymentRepaymentStatus> statuses, int page, int size) {
-        requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.RECONCILIATION.view());
         List<PaymentRepaymentStatus> filter = statuses == null || statuses.isEmpty() ? INCIDENT_STATUSES : statuses;
         if (!INCIDENT_STATUSES.containsAll(filter)) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "REPAYMENT_INCIDENT_STATUS_INVALID",
@@ -59,7 +60,7 @@ public class AdminRepaymentReconciliationService {
 
     /** Chỉ tra cứu transaction theo external reference; tuyệt đối không POST repayment lần hai. */
     public RepaymentReconciliationResponse reconcile(UUID repaymentId) {
-        requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.RECONCILIATION.action());
         PaymentRepayment value = repayments.findByRepaymentId(repaymentId).orElseThrow(() -> notFound());
         if (value.getStatus() != PaymentRepaymentStatus.RECONCILIATION_REQUIRED) {
             throw new BusinessException(HttpStatus.CONFLICT, "REPAYMENT_NOT_RECONCILABLE",
@@ -74,7 +75,7 @@ public class AdminRepaymentReconciliationService {
      * theo externalId trước; core đã có thì chỉ ghi nhận kết quả. Không tạo giao dịch thứ hai vì dùng đúng externalId.
      */
     public RepaymentReconciliationResponse repost(UUID repaymentId) {
-        requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.RECONCILIATION.action());
         PaymentRepayment value = repayments.findByRepaymentId(repaymentId).orElseThrow(() -> notFound());
         String actorId = SecurityUtils.getCurrentUserId();
         try {
@@ -97,13 +98,6 @@ public class AdminRepaymentReconciliationService {
 
     private Duration repostSafeAfter() {
         return environment.getProperty(REPOST_SAFE_AFTER, Duration.class, Duration.ofMinutes(15));
-    }
-
-    private static void requireAdmin() {
-        if (!SecurityUtils.hasRole("ROLE_ADMIN")) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "ADMIN_ROLE_REQUIRED",
-                    "Chỉ quản trị viên được truy cập đối soát trả nợ");
-        }
     }
 
     private static BusinessException notFound() {

@@ -1,10 +1,13 @@
 package com.finora.loan.service.servicing;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.finora.common.exception.BusinessException;
+import com.finora.common.security.ops.OpsFunction;
 import com.finora.loan.domain.servicing.FinoraLoan;
 import com.finora.loan.domain.servicing.LoanServicingProjection;
 import com.finora.loan.domain.servicing.LoanServicingSnapshot;
@@ -111,6 +114,55 @@ class AdminLoanServicingReconciliationServiceTest {
             assertThat(item.occurrenceCount()).isEqualTo(1);
         });
         verify(syncService, org.mockito.Mockito.never()).sync(any());
+    }
+
+    @Test
+    void staffWithViewPermissionListsButCannotReconcile() {
+        authenticateStaff(OpsFunction.RECONCILIATION.view());
+        when(projections.findByStaleTrueOrderByUpdatedAtAscIdAsc(any())).thenReturn(new PageImpl<>(List.of()));
+        when(incidents.findByStatusOrderByUpdatedAtAscIdAsc(
+                org.mockito.ArgumentMatchers.eq(ReconciliationIncidentStatus.OPEN), any()))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        assertThat(service.listStale(0, 20).data()).isEmpty();
+        assertThat(service.listIncidents(null, null, 0, 20).data()).isEmpty();
+        assertThatThrownBy(() -> service.reconcile("LN-001"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("PERMISSION_REQUIRED"));
+        verify(syncService, org.mockito.Mockito.never()).sync(any());
+    }
+
+    @Test
+    void staffWithActionPermissionReconciles() {
+        authenticateStaff(OpsFunction.RECONCILIATION.action());
+        when(loans.findByLoanNumber("LN-001")).thenReturn(Optional.of(loan));
+        when(projections.findByFinoraLoanId(1L)).thenReturn(Optional.of(projection()));
+
+        service.reconcile("LN-001");
+
+        verify(syncService).sync(1L);
+    }
+
+    @Test
+    void staffWithoutPermissionCannotList() {
+        authenticateStaff();
+
+        assertThatThrownBy(() -> service.listStale(0, 20))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("PERMISSION_REQUIRED"));
+    }
+
+    /** Nhân viên vận hành: ROLE_STAFF cộng các quyền ops:* được giao, không có ROLE_ADMIN. */
+    private static void authenticateStaff(String... permissions) {
+        List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
+        authorities.add(new SimpleGrantedAuthority("ROLE_STAFF"));
+        for (String permission : permissions) {
+            authorities.add(new SimpleGrantedAuthority(permission));
+        }
+        Jwt jwt = Jwt.withTokenValue("staff-token").header("alg", "none").subject("staff-1")
+                .issuedAt(NOW).expiresAt(NOW.plusSeconds(3600)).build();
+        SecurityContextHolder.getContext().setAuthentication(
+                new JwtAuthenticationToken(jwt, authorities, "staff-1"));
     }
 
     private LoanServicingProjection projection() {

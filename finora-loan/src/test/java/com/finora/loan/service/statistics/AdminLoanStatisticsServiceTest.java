@@ -435,6 +435,25 @@ class AdminLoanStatisticsServiceTest {
         verifyNoInteractions(repository);
     }
 
+    @Test
+    void staffWithDashboardViewPermissionReadsStatistics() {
+        SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken("staff", null,
+                "ROLE_STAFF", com.finora.common.security.ops.OpsFunction.DASHBOARD.view()));
+        stubEmptySummary();
+
+        assertThat(service.summary().applications().total()).isZero();
+    }
+
+    @Test
+    void staffWithoutDashboardPermissionIsForbidden() {
+        authenticateAs("ROLE_STAFF");
+
+        assertThatThrownBy(() -> service.summary())
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("PERMISSION_REQUIRED"));
+        verifyNoInteractions(repository);
+    }
+
     private void stubEmptySummary() {
         when(repository.countApplicationsByStatusAndFunding()).thenReturn(List.of());
         when(repository.countLoansByStatus()).thenReturn(List.of());

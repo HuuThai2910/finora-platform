@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Thống kê sàn gọi vốn và chợ Notes cho trang quản trị (STATS-001). Chỉ đọc.
- * Nằm dưới {@code /investments/admin/**} nên {@code SecurityConfig} chỉ cho vai trò ADMIN.
+ * {@code SecurityConfig} cho ADMIN và nhân viên có quyền Xem Tổng quan ({@code ops:dashboard:view}).
  */
 @RestController
 @RequestMapping("/api/v1/investments/admin/statistics")

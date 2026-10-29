@@ -5,7 +5,8 @@ thay bộ luật chấm điểm đang áp dụng cho mọi hồ sơ. Nay mỗi r
 ``Authorization: Bearer`` hoặc cookie ``access_token`` của web admin), được kiểm chữ ký RS256 qua JWKS, issuer và hạn.
 
 Quyền đọc từ token giống ``KeycloakJwtAuthenticationConverter`` phía Java: realm role thành ``ROLE_*``, client role giữ
-nguyên tên (ví dụ ``ai:credit:score`` của service account ``finora-loan-client``).
+nguyên tên (ví dụ ``ai:credit:score`` của service account ``finora-loan-client``, ``ops:ai-policy:view`` của nhân viên
+qua client ``finora-ops``). Client role của mọi client trong ``resource_access`` đều được giữ, không lọc theo client.
 """
 from __future__ import annotations
 
@@ -24,6 +25,12 @@ ROLE_ADMIN = "ROLE_ADMIN"
 CREDIT_SCORE = "ai:credit:score"
 EKYC_OCR = "ai:ekyc:ocr"
 FRAUD_DETECT = "ai:fraud:detect"
+
+# Quyền nhân viên vận hành: client role của client ``finora-ops`` (resource_access["finora-ops"].roles), đặt tên
+# ``ops:<chức năng>:view`` / ``ops:<chức năng>:action``. ROLE_ADMIN luôn qua mọi cổng có quyền nhân viên.
+OPS_AI_POLICY_VIEW = "ops:ai-policy:view"
+OPS_AI_POLICY_ACTION = "ops:ai-policy:action"
+OPS_AI_SCORING_VIEW = "ops:ai-scoring:view"
 
 _ACCESS_TOKEN_COOKIE = "access_token"
 _LEEWAY_SECONDS = 5
@@ -44,6 +51,8 @@ class Caller:
     subject: str
     client_id: str | None
     authorities: frozenset[str]
+    # preferred_username của Keycloak, chỉ để ghi nhật ký kiểm toán cho dễ đọc; định danh chuẩn vẫn là subject.
+    username: str | None = None
 
     def has_any(self, *names: str) -> bool:
         return any(name in self.authorities for name in names)
@@ -115,7 +124,8 @@ def current_caller(request: Request) -> Caller:
         raise _unauthenticated("Access token đã hết hạn") from exc
     except jwt.PyJWTError as exc:
         raise _unauthenticated("Access token không hợp lệ") from exc
-    return Caller(subject=str(claims["sub"]), client_id=claims.get("azp"), authorities=authorities_of(claims))
+    return Caller(subject=str(claims["sub"]), client_id=claims.get("azp"), authorities=authorities_of(claims),
+                  username=claims.get("preferred_username"))
 
 
 def require_any(*authorities: str) -> Callable[[Caller], Caller]:

@@ -1,6 +1,7 @@
 package com.finora.loan.service.servicing;
 
 import com.finora.common.security.SecurityUtils;
+import com.finora.common.security.ops.OpsFunction;
 import com.finora.loan.domain.servicing.FinoraLoan;
 import com.finora.loan.domain.servicing.FinoraLoanStatus;
 import com.finora.loan.domain.servicing.LoanServicingProjection;
@@ -35,7 +36,7 @@ public class AdminLoanServicingReconciliationService {
     /** Danh sách projection stale dùng hai query cố định, không gọi Fineract theo từng dòng. */
     @Transactional(readOnly = true)
     public PageResponse<AdminLoanServicingReconciliationResponse> listStale(int page, int size) {
-        SecurityUtils.requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.RECONCILIATION.view());
         Page<LoanServicingProjection> result = projections.findByStaleTrueOrderByUpdatedAtAscIdAsc(
                 PageRequest.of(page, size));
         Map<Long, FinoraLoan> byId = loans.findAllById(result.getContent().stream()
@@ -48,7 +49,7 @@ public class AdminLoanServicingReconciliationService {
 
     /** Gọi GET Fineract ngoài transaction; lặp lại an toàn và không phát sinh repayment/disbursement. */
     public AdminLoanServicingReconciliationResponse reconcile(String loanNumber) {
-        SecurityUtils.requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.RECONCILIATION.action());
         FinoraLoan loan = loans.findByLoanNumber(loanNumber).orElseThrow(() -> notFound(loanNumber));
         if (loan.getStatus() != FinoraLoanStatus.ACTIVE && loan.getStatus() != FinoraLoanStatus.DEFAULTED) {
             throw new LoanBusinessException(HttpStatus.CONFLICT, "LOAN_NOT_RECONCILABLE",
@@ -65,7 +66,7 @@ public class AdminLoanServicingReconciliationService {
     @Transactional(readOnly = true)
     public PageResponse<LoanReconciliationIncidentResponse> listIncidents(
             ReconciliationIncidentStatus status, ReconciliationIncidentType type, int page, int size) {
-        SecurityUtils.requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.RECONCILIATION.view());
         ReconciliationIncidentStatus selected = status == null ? ReconciliationIncidentStatus.OPEN : status;
         Page<LoanReconciliationIncident> result = type == null
                 ? incidents.findByStatusOrderByUpdatedAtAscIdAsc(selected, PageRequest.of(page, size))

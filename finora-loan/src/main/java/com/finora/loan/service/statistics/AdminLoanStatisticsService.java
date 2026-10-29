@@ -1,6 +1,7 @@
 package com.finora.loan.service.statistics;
 
 import com.finora.common.security.SecurityUtils;
+import com.finora.common.security.ops.OpsFunction;
 import com.finora.common.statistics.StatisticsBucket;
 import com.finora.common.statistics.StatisticsPeriod;
 import com.finora.loan.domain.application.LoanApplicationStatus;
@@ -80,7 +81,7 @@ public class AdminLoanStatisticsService {
 
     @Transactional(readOnly = true)
     public LoanStatisticsSummaryResponse summary() {
-        SecurityUtils.requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.DASHBOARD.view());
         return new LoanStatisticsSummaryResponse(
                 clock.instant(),
                 applications(statistics.countApplicationsByStatusAndFunding()),
@@ -103,7 +104,7 @@ public class AdminLoanStatisticsService {
      * @throws com.finora.common.exception.BusinessException 400 STATISTICS_RANGE_INVALID khi khoảng ngày sai
      */
     public LoanStatisticsSeriesResponse series(LocalDate from, LocalDate to, StatisticsBucket bucket) {
-        SecurityUtils.requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.DASHBOARD.view());
         StatisticsPeriod period = StatisticsPeriod.of(from, to, bucket, clock);
         SeriesRows rows = transactions.execute(status -> new SeriesRows(
                 statistics.countSubmittedByBucketAndProduct(period),

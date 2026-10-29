@@ -30,7 +30,8 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>
  * Đường dẫn literal {@code /api/v1/admin/users/ekyc-attempts} được Spring ưu tiên hơn mẫu {@code /{id}}
  * của {@link AdminUserController} nên hai controller dùng chung tiền tố mà không giẫm nhau.
- * Dùng quyền sẵn có: {@code user:admin:read_all} để xem, {@code user:admin:lock} để quyết định.
+ * Nhân viên xem bằng {@code ops:ekyc:view}, duyệt/từ chối bằng {@code ops:ekyc:action}; authority cũ
+ * {@code user:admin:read_all} / {@code user:admin:lock} vẫn được nhận để không gãy tài khoản và service account cũ.
  */
 @RestController
 @RequestMapping("/api/v1/admin/users/ekyc-attempts")
@@ -41,7 +42,7 @@ public class AdminEkycAttemptController {
 
     /** Danh sách lượt theo trạng thái; mặc định {@code MANUAL_REVIEW}, {@code ALL} để xem mọi trạng thái. */
     @GetMapping
-    @PreAuthorize("hasAuthority('user:admin:read_all')")
+    @PreAuthorize("hasAnyAuthority('user:admin:read_all','ops:ekyc:view','ROLE_ADMIN')")
     public ResponseEntity<PageResponse<EkycAttemptSummaryResponse>> listAttempts(
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
@@ -50,7 +51,7 @@ public class AdminEkycAttemptController {
     }
 
     @GetMapping("/{attemptId}")
-    @PreAuthorize("hasAuthority('user:admin:read_all')")
+    @PreAuthorize("hasAnyAuthority('user:admin:read_all','ops:ekyc:view','ROLE_ADMIN')")
     public ResponseEntity<EkycAttemptDetailResponse> getAttempt(@PathVariable String attemptId) {
         return ResponseEntity.ok(reviewService.detail(attemptId, SecurityUtils.getCurrentKeycloakUserId()));
     }
@@ -60,7 +61,7 @@ public class AdminEkycAttemptController {
      * trình duyệt/proxy lưu cache vì là ảnh giấy tờ và khuôn mặt.
      */
     @GetMapping("/{attemptId}/evidence/{evidenceId}")
-    @PreAuthorize("hasAuthority('user:admin:read_all')")
+    @PreAuthorize("hasAnyAuthority('user:admin:read_all','ops:ekyc:view','ROLE_ADMIN')")
     public ResponseEntity<InputStreamResource> downloadEvidence(@PathVariable String attemptId,
                                                                 @PathVariable String evidenceId) {
         EvidenceDownload download = reviewService.openEvidence(
@@ -77,7 +78,7 @@ public class AdminEkycAttemptController {
     }
 
     @PostMapping("/{attemptId}/approve")
-    @PreAuthorize("hasAuthority('user:admin:lock')")
+    @PreAuthorize("hasAnyAuthority('user:admin:lock','ops:ekyc:action','ROLE_ADMIN')")
     public ResponseEntity<EkycAttemptDetailResponse> approve(@PathVariable String attemptId,
                                                              @Valid @RequestBody(required = false) EkycApproveRequest request) {
         return ResponseEntity.ok(reviewService.approve(attemptId, SecurityUtils.getCurrentKeycloakUserId(),
@@ -85,7 +86,7 @@ public class AdminEkycAttemptController {
     }
 
     @PostMapping("/{attemptId}/reject")
-    @PreAuthorize("hasAuthority('user:admin:lock')")
+    @PreAuthorize("hasAnyAuthority('user:admin:lock','ops:ekyc:action','ROLE_ADMIN')")
     public ResponseEntity<EkycAttemptDetailResponse> reject(@PathVariable String attemptId,
                                                             @Valid @RequestBody EkycRejectRequest request) {
         return ResponseEntity.ok(reviewService.reject(attemptId, SecurityUtils.getCurrentKeycloakUserId(),

@@ -222,7 +222,7 @@ class WithdrawalFlowIT {
                 update payment_withdrawals set status = 'RECONCILIATION_REQUIRED', next_attempt_at = null,
                     error_code = 'WITHDRAWAL_RESULT_UNKNOWN' where withdrawal_id = ?""", created.withdrawalId());
 
-        assertCode(() -> adminService.recheck(created.withdrawalId()), "ADMIN_ROLE_REQUIRED");
+        assertCode(() -> adminService.recheck(created.withdrawalId()), "PERMISSION_REQUIRED");
         actAs("ADMIN-1", "ROLE_ADMIN");
         assertThat(adminService.list(0, 100).getContent())
                 .anySatisfy(item -> assertThat(item.withdrawalId()).isEqualTo(created.withdrawalId()));

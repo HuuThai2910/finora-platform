@@ -174,6 +174,53 @@ class AdminEkycAttemptControllerTest {
     }
 
     @Test
+    void staffWithEkycActionCanDecide() throws Exception {
+        authenticateWith("ROLE_STAFF", "ops:ekyc:view", "ops:ekyc:action");
+        when(reviewService.approve(eq(ATTEMPT.toString()), eq(USER_ID), any())).thenReturn(detail("APPROVED"));
+        when(reviewService.reject(ATTEMPT.toString(), USER_ID, "ảnh mờ")).thenReturn(detail("REJECTED"));
+
+        mockMvc.perform(post(BASE + "/" + ATTEMPT + "/approve"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("APPROVED"));
+        mockMvc.perform(post(BASE + "/" + ATTEMPT + "/reject")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"note\":\"ảnh mờ\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void staffWithOnlyEkycViewCanReadButNotDecide() throws Exception {
+        authenticateWith("ROLE_STAFF", "ops:ekyc:view");
+        when(reviewService.list(null, 0, 20)).thenReturn(PageResponse.<EkycAttemptSummaryResponse>builder()
+                .content(List.of()).page(0).size(20).totalElements(0).totalPages(0).last(true).build());
+
+        mockMvc.perform(get(BASE)).andExpect(status().isOk());
+        mockMvc.perform(post(BASE + "/" + ATTEMPT + "/approve"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+        mockMvc.perform(post(BASE + "/" + ATTEMPT + "/reject")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"note\":\"sai\"}"))
+                .andExpect(status().isForbidden());
+        verify(reviewService, org.mockito.Mockito.never()).approve(anyString(), any(), any());
+    }
+
+    @Test
+    void staffWithoutEkycPermissionCannotRead() throws Exception {
+        authenticateWith("ROLE_STAFF", "ops:customer:view", "ops:loan-application:action");
+
+        mockMvc.perform(get(BASE)).andExpect(status().isForbidden());
+        mockMvc.perform(get(BASE + "/" + ATTEMPT)).andExpect(status().isForbidden());
+        verifyNoInteractions(reviewService);
+    }
+
+    @Test
+    void adminRolePassesWithoutLegacyAuthorities() throws Exception {
+        authenticateWith("ROLE_ADMIN");
+        when(reviewService.approve(eq(ATTEMPT.toString()), eq(USER_ID), any())).thenReturn(detail("APPROVED"));
+
+        mockMvc.perform(post(BASE + "/" + ATTEMPT + "/approve")).andExpect(status().isOk());
+    }
+
+    @Test
     void rejectWithoutNoteIsValidationError() throws Exception {
         authenticateWith("user:admin:lock");
 

@@ -3,6 +3,7 @@ package com.finora.payment.service.disbursement;
 import com.finora.common.dto.PageResponse;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.security.SecurityUtils;
+import com.finora.common.security.ops.OpsFunction;
 import com.finora.payment.domain.disbursement.PaymentDisbursement;
 import com.finora.payment.domain.disbursement.PaymentDisbursementStatus;
 import com.finora.payment.dto.response.DisbursementReconciliationResponse;
@@ -34,7 +35,7 @@ public class AdminDisbursementReconciliationService {
 
     @Transactional(readOnly = true)
     public PageResponse<DisbursementReconciliationResponse> list(int page, int size) {
-        requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.RECONCILIATION.view());
         Page<DisbursementReconciliationResponse> result = disbursements
                 .findByStatusInOrderByUpdatedAtAscIdAsc(OPEN_STATUSES, PageRequest.of(page, size))
                 .map(DisbursementReconciliationResponse::from);
@@ -50,7 +51,7 @@ public class AdminDisbursementReconciliationService {
      */
     @Transactional(readOnly = true)
     public DisbursementReconciliationResponse find(UUID sagaId) {
-        requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.RECONCILIATION.view());
         return disbursements.findBySagaId(sagaId).map(DisbursementReconciliationResponse::from)
                 .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "DISBURSEMENT_NOT_FOUND",
                         "Không tìm thấy lệnh giải ngân"));
@@ -58,7 +59,7 @@ public class AdminDisbursementReconciliationService {
 
     @Transactional
     public DisbursementReconciliationResponse requestRecheck(UUID sagaId) {
-        requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.RECONCILIATION.action());
         PaymentDisbursement found = disbursements.findBySagaId(sagaId).orElseThrow(() -> new BusinessException(
                 HttpStatus.NOT_FOUND, "DISBURSEMENT_NOT_FOUND", "Không tìm thấy lệnh giải ngân"));
         PaymentDisbursement value = disbursements.findByIdForUpdate(found.getId()).orElseThrow();
@@ -71,12 +72,5 @@ public class AdminDisbursementReconciliationService {
         log.warn("Admin yêu cầu tra cứu lại provider: sagaId={}, actor={}, manualRecheckCount={}",
                 value.getSagaId(), actorId, value.getManualRecheckCount());
         return DisbursementReconciliationResponse.from(value);
-    }
-
-    private static void requireAdmin() {
-        if (!SecurityUtils.hasRole("ROLE_ADMIN")) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "ADMIN_ROLE_REQUIRED",
-                    "Chỉ quản trị viên được truy cập đối soát giải ngân");
-        }
     }
 }

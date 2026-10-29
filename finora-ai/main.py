@@ -43,7 +43,15 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import config_router, credit_router, ekyc_router, fraud_router
-from app.security import CREDIT_SCORE, EKYC_OCR, FRAUD_DETECT, ROLE_ADMIN, api_docs_enabled, require_any
+from app.security import (
+    CREDIT_SCORE,
+    EKYC_OCR,
+    FRAUD_DETECT,
+    OPS_AI_SCORING_VIEW,
+    ROLE_ADMIN,
+    api_docs_enabled,
+    require_any,
+)
 
 _docs = api_docs_enabled()
 app = FastAPI(
@@ -65,11 +73,11 @@ app.add_middleware(
 
 # === Register Routers ===
 # Mọi endpoint nghiệp vụ cần access token Keycloak (D35): Loan chấm điểm bằng service account, admin web dùng phiên
-# đăng nhập; chỉ User được OCR CCCD; chỉ admin đọc/sửa cấu hình chấm điểm.
+# đăng nhập (admin hoặc nhân viên có quyền ops:* của client finora-ops); chỉ User được OCR CCCD. Cấu hình chấm điểm
+# kiểm quyền theo từng endpoint trong config_router (GET cần ops:ai-policy:view, PUT cần ops:ai-policy:action).
 app.include_router(credit_router.router, prefix="/api/v1/ai/credit", tags=["Credit Scoring"],
-                   dependencies=[Depends(require_any(CREDIT_SCORE, ROLE_ADMIN))])
-app.include_router(config_router.router, prefix="/api/v1/ai/config", tags=["Product Config"],
-                   dependencies=[Depends(require_any(ROLE_ADMIN))])
+                   dependencies=[Depends(require_any(CREDIT_SCORE, OPS_AI_SCORING_VIEW, ROLE_ADMIN))])
+app.include_router(config_router.router, prefix="/api/v1/ai/config", tags=["Product Config"])
 app.include_router(ekyc_router.router, prefix="/api/v1/ai/ekyc", tags=["eKYC"],
                    dependencies=[Depends(require_any(EKYC_OCR))])
 app.include_router(fraud_router.router, prefix="/api/v1/ai/fraud", tags=["Fraud Detection"],

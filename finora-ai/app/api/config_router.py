@@ -29,7 +29,7 @@ from itertools import pairwise
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
-from app.security import Caller, current_caller
+from app.security import OPS_AI_POLICY_ACTION, OPS_AI_POLICY_VIEW, ROLE_ADMIN, Caller, require_any
 from app.services.credit.product_config import get_legal_limits, reload, save
 from app.services.credit.rule_engine import DIEM_TOI_DA_MOI_LUAT
 from app.services.credit.truong_du_lieu import DANH_MUC_TRUONG, mo_ta_danh_muc
@@ -37,6 +37,11 @@ from app.services.credit.truong_du_lieu import DANH_MUC_TRUONG, mo_ta_danh_muc
 _audit_logger = logging.getLogger("finora.ai.audit")
 
 router = APIRouter()
+
+# Quyền theo từng endpoint (chức năng AI_POLICY của finora-ops): GET cần quyền Xem, PUT cần quyền Thao tác;
+# ROLE_ADMIN qua cả hai. Giống OpsFunction.canView()/canAct() phía Java.
+_quyen_xem = require_any(OPS_AI_POLICY_VIEW, ROLE_ADMIN)
+_quyen_sua = require_any(OPS_AI_POLICY_ACTION, ROLE_ADMIN)
 
 
 class GradeConfig(BaseModel):
@@ -98,7 +103,7 @@ class ProductConfigUpdate(BaseModel):
     model_weights: ModelWeights | None = None
 
 
-@router.get("/product", response_model=ProductConfigResponse)
+@router.get("/product", response_model=ProductConfigResponse, dependencies=[Depends(_quyen_xem)])
 async def get_product_config():
     """Đọc cấu hình sản phẩm hiện tại."""
     config = reload()
@@ -218,7 +223,7 @@ def _kiem_tra_nguong_quyet_dinh(
 
 
 @router.put("/product", response_model=ProductConfigResponse)
-async def update_product_config(body: ProductConfigUpdate, caller: Caller = Depends(current_caller)):
+async def update_product_config(body: ProductConfigUpdate, caller: Caller = Depends(_quyen_sua)):
     """Cập nhật khoảng điểm AI, ngưỡng duyệt và trọng số. Legal limits không đổi."""
     _kiem_tra_bang_hang(body.grades)
     _kiem_tra_nguong_quyet_dinh(body.grades, body.approval_thresholds)
@@ -238,8 +243,10 @@ async def update_product_config(body: ProductConfigUpdate, caller: Caller = Depe
         current["model_weights"] = body.model_weights.model_dump()
 
     config = save(current)
-    # LEGAL-AI-01: cấu hình quyết định chấm điểm phải truy được ai đổi (chỉ ROLE_ADMIN tới được đây, D35).
-    _audit_logger.warning("Admin cập nhật cấu hình chấm điểm: actor=%s, phan=product", caller.subject)
+    # LEGAL-AI-01: cấu hình quyết định chấm điểm phải truy được ai đổi (ROLE_ADMIN hoặc nhân viên có
+    # ops:ai-policy:action tới được đây, D35).
+    _audit_logger.warning("Cập nhật cấu hình chấm điểm: actor=%s, username=%s, phan=product",
+                          caller.subject, caller.username)
     return ProductConfigResponse(**config)
 
 
@@ -453,20 +460,20 @@ def _kiem_tra_bo_luat(rules: list[RuleConfig]) -> None:
             raise _loi(f"luật {r.ma}: ngưỡng phải {chieu} để bậc đầu là bậc tốt nhất")
 
 
-@router.get("/rules", response_model=RulesResponse)
+@router.get("/rules", response_model=RulesResponse, dependencies=[Depends(_quyen_xem)])
 async def get_rules_config():
     """Đọc bộ luật chấm điểm hiện tại kèm danh mục trường được phép dùng."""
     return _dung_rules_response()
 
 
 @router.put("/rules", response_model=RulesResponse)
-async def update_rules_config(body: RulesUpdate, caller: Caller = Depends(current_caller)):
+async def update_rules_config(body: RulesUpdate, caller: Caller = Depends(_quyen_sua)):
     """Thay toàn bộ bộ luật: thêm, sửa, xoá, sắp xếp, bật/tắt trong một lần lưu."""
     _kiem_tra_bo_luat(body.rules)
 
     current = reload()
     current["rules"] = [r.model_dump(exclude_none=True) for r in body.rules]
     save(current)
-    _audit_logger.warning("Admin cập nhật cấu hình chấm điểm: actor=%s, phan=rules, so_luat=%d",
-                          caller.subject, len(body.rules))
+    _audit_logger.warning("Cập nhật cấu hình chấm điểm: actor=%s, username=%s, phan=rules, so_luat=%d",
+                          caller.subject, caller.username, len(body.rules))
     return _dung_rules_response()

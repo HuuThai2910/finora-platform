@@ -2,6 +2,7 @@ package com.finora.loan.service.scoring.impl;
 
 import com.finora.common.exception.ResourceNotFoundException;
 import com.finora.common.security.SecurityUtils;
+import com.finora.common.security.ops.OpsFunction;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.scoring.CreditScoringAssessment;
 import com.finora.loan.dto.common.PageResponse;
@@ -61,7 +62,7 @@ public class CreditScoringAssessmentServiceImpl implements CreditScoringAssessme
             String idempotencyKey,
             ScoringRetryRequest request
     ) {
-        SecurityUtils.requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.LOAN_APPLICATION.action());
         CreditScoringAssessment assessment = stateService.retry(
                 applicationNumber, idempotencyKey.trim(), request, SecurityUtils.getCurrentUserId());
         return ScoringRetryAcceptedResponse.accepted(

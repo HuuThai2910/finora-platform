@@ -22,5 +22,9 @@ public interface UserProfileMapper {
      */
     @Mapping(source = "idNumberEncrypted", target = "idNumber")
     @Mapping(source = "phoneEncrypted", target = "phone")
+    @Mapping(target = "locked", ignore = true)
+    @Mapping(target = "staffRoleName", ignore = true)
+    @Mapping(target = "staffRole", ignore = true)
+    @Mapping(target = "permissions", ignore = true)
     UserProfileResponse toResponse(UserProfile entity);
 }

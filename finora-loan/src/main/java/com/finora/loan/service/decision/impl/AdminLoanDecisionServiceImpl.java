@@ -2,6 +2,7 @@ package com.finora.loan.service.decision.impl;
 
 import com.finora.common.exception.ResourceNotFoundException;
 import com.finora.common.security.SecurityUtils;
+import com.finora.common.security.ops.OpsFunction;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.application.LoanApplicationStatus;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
@@ -171,7 +172,7 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
             String idempotencyKey,
             ApproveLoanApplicationRequest request
     ) {
-        SecurityUtils.requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.LOAN_APPLICATION.action());
         String adminId = SecurityUtils.getCurrentUserId();
         String normalizedKey = idempotencyKey.trim();
         String requestHash = hashingService.sha256(new DecisionFingerprint("APPROVE", request));
@@ -193,7 +194,7 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
             String idempotencyKey,
             RejectLoanApplicationRequest request
     ) {
-        SecurityUtils.requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.LOAN_APPLICATION.action());
         String adminId = SecurityUtils.getCurrentUserId();
         String normalizedKey = idempotencyKey.trim();
         String requestHash = hashingService.sha256(new DecisionFingerprint("REJECT", request));

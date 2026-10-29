@@ -11,6 +11,7 @@ import lombok.Setter;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 
 /**
  * Phản hồi thông tin hồ sơ người dùng.
@@ -62,4 +63,25 @@ public class UserProfileResponse {
      * vì người đang gọi đương nhiên không bị khóa.
      */
     private Boolean locked;
+
+    /** Mã vai trò nhân viên ({@code STAFF_*}) — chỉ có với tài khoản {@code STAFF}. */
+    private String staffRoleCode;
+
+    /** Tên hiển thị của vai trò nhân viên, đọc từ Keycloak; không tra được thì bằng mã vai trò. */
+    private String staffRoleName;
+
+    /** Vai trò nhân viên dạng gọn cho web quản trị; {@code null} nếu không phải nhân viên. */
+    private StaffRoleRef staffRole;
+
+    /**
+     * Quyền chức năng quản trị ({@code ops:*}) của phiên đăng nhập hiện tại — chỉ trả ở {@code /users/me}.
+     * <p>
+     * Lấy từ JWT đang dùng chứ không từ Keycloak, nên khớp đúng những gì các service sẽ kiểm. ADMIN nhận
+     * đủ danh mục. Người vay/nhà đầu tư nhận mảng rỗng.
+     */
+    private List<String> permissions;
+
+    /** Vai trò nhân viên rút gọn: mã và tên hiển thị. */
+    public record StaffRoleRef(String code, String name) {
+    }
 }

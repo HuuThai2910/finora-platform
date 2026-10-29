@@ -18,9 +18,11 @@ import org.springframework.web.bind.annotation.*;
 
 
 /**
- * Controller quản trị người dùng — chỉ dành cho admin.
+ * Controller quản trị người dùng.
  * <p>
- * Bao gồm: xem danh sách, xem chi tiết, khóa/mở khóa tài khoản, gán vai trò.
+ * Bao gồm: xem danh sách, xem chi tiết, khóa/mở khóa tài khoản, gán vai trò. Xem và khóa mở theo quyền nhân viên
+ * {@code ops:customer:*} (thống kê còn mở cho {@code ops:dashboard:view}); authority {@code user:admin:*} giữ lại
+ * cho service account (finora-ai đọc hồ sơ bằng {@code user:admin:read_all}). Gán vai trò chỉ ADMIN.
  */
 @RestController
 @RequestMapping("/api/v1/admin/users")
@@ -37,7 +39,7 @@ public class AdminUserController {
      * kết quả trải trên toàn bộ dữ liệu chứ không chỉ trang đang tải.
      */
     @GetMapping
-    @PreAuthorize("hasAuthority('user:admin:read_all')")
+    @PreAuthorize("hasAnyAuthority('user:admin:read_all','ops:customer:view','ROLE_ADMIN')")
     public ResponseEntity<PageResponse<UserProfileResponse>> getAllUsers(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -50,7 +52,7 @@ public class AdminUserController {
 
     /** Thống kê tổng số người dùng theo vai trò và trạng thái eKYC. */
     @GetMapping("/stats")
-    @PreAuthorize("hasAuthority('user:admin:read_all')")
+    @PreAuthorize("hasAnyAuthority('user:admin:read_all','ops:customer:view','ops:dashboard:view','ROLE_ADMIN')")
     public ResponseEntity<UserStatsResponse> getUserStats() {
         return ResponseEntity.ok(userProfileService.getUserStats());
     }
@@ -66,7 +68,7 @@ public class AdminUserController {
      * @param bucket {@code DAY} (mặc định), {@code WEEK} hoặc {@code MONTH}
      */
     @GetMapping("/stats/series")
-    @PreAuthorize("hasAuthority('user:admin:read_all')")
+    @PreAuthorize("hasAnyAuthority('user:admin:read_all','ops:customer:view','ops:dashboard:view','ROLE_ADMIN')")
     public ResponseEntity<UserStatsSeriesResponse> getUserStatsSeries(
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
@@ -79,33 +81,34 @@ public class AdminUserController {
 
     /** Chi tiết hồ sơ một người dùng — màn hình khách hàng/eKYC của admin. */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAuthority('user:admin:read_all')")
+    @PreAuthorize("hasAnyAuthority('user:admin:read_all','ops:customer:view','ROLE_ADMIN')")
     public ResponseEntity<UserProfileResponse> getUserById(@PathVariable Long id) {
         return ResponseEntity.ok(userProfileService.getUserById(id));
     }
 
     @PostMapping("/{id}/lock")
-    @PreAuthorize("hasAuthority('user:admin:lock')")
+    @PreAuthorize("hasAnyAuthority('user:admin:lock','ops:customer:action','ROLE_ADMIN')")
     public ResponseEntity<Void> lockUser(@PathVariable Long id) {
         userProfileService.lockUser(id, SecurityUtils.getCurrentKeycloakUserId());
         return ResponseEntity.ok().build();
     }
 
     @PostMapping("/{id}/unlock")
-    @PreAuthorize("hasAuthority('user:admin:lock')")
+    @PreAuthorize("hasAnyAuthority('user:admin:lock','ops:customer:action','ROLE_ADMIN')")
     public ResponseEntity<Void> unlockUser(@PathVariable Long id) {
         userProfileService.unlockUser(id);
         return ResponseEntity.ok().build();
     }
 
     /**
-     * Gán vai trò mới.
+     * Gán vai trò mới — chỉ ADMIN, không mở bằng quyền nhân viên để không ai tự nâng quyền.
      * <p>
-     * Nhận vai trò qua body {@code {"role":"ADMIN"}} — cũng chấp nhận query
-     * param {@code ?role=ADMIN} cho các client đang gửi theo kiểu cũ.
+     * Nhận vai trò qua body {@code {"role":"STAFF","staffRoleCode":"STAFF_VAN_HANH"}} — cũng chấp nhận query
+     * param {@code ?role=ADMIN} cho các client đang gửi theo kiểu cũ. {@code staffRoleCode} bắt buộc khi
+     * {@code role=STAFF} và bị từ chối với vai trò khác.
      */
     @PostMapping("/{id}/roles")
-    @PreAuthorize("hasAuthority('user:admin:assign_role')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> assignRole(
             @PathVariable Long id,
             @RequestParam(value = "role", required = false) String roleParam,
@@ -115,7 +118,8 @@ public class AdminUserController {
                 ? body.getRole()
                 : roleParam;
 
-        userProfileService.assignRole(id, role, SecurityUtils.getCurrentKeycloakUserId());
+        String staffRoleCode = body != null ? body.getStaffRoleCode() : null;
+        userProfileService.assignRole(id, role, staffRoleCode, SecurityUtils.getCurrentKeycloakUserId());
         return ResponseEntity.ok().build();
     }
 

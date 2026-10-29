@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Giám sát chợ Notes cho quản trị: lần khớp kèm hai bên và trạng thái thanh toán, dải số liệu tổng.
- * Nằm dưới {@code /investments/admin/**} nên {@code SecurityConfig} chỉ cho vai trò ADMIN.
+ * {@code SecurityConfig} cho ADMIN và nhân viên có quyền Xem Chợ thứ cấp ({@code ops:secondary-market:view}).
  */
 @RestController
 @RequestMapping("/api/v1/investments/admin/order-books")

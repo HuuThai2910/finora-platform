@@ -103,6 +103,13 @@ public class UserProfile {
     @Builder.Default
     private UserRole role = UserRole.BORROWER;
 
+    /**
+     * Mã vai trò nhân viên ({@code STAFF_*}) — chỉ có khi {@link #role} là {@link UserRole#STAFF}.
+     * Quyền thật nằm ở composite của realm role cùng tên trên Keycloak; cột này để đếm thành viên và hiển thị.
+     */
+    @Column(name = "staff_role_code", length = 60)
+    private String staffRoleCode;
+
     /** Trạng thái xác minh eKYC */
     @Enumerated(EnumType.STRING)
     @Column(name = "ekyc_status", nullable = false)

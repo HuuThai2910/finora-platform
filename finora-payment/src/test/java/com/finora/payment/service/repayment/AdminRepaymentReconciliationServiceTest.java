@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.finora.common.exception.BusinessException;
+import com.finora.common.security.ops.OpsFunction;
 import com.finora.payment.domain.repayment.PaymentRepayment;
 import com.finora.payment.domain.repayment.PaymentRepaymentStatus;
 import com.finora.payment.domain.servicing.PaymentLoanAccount;
@@ -17,6 +18,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -149,7 +151,7 @@ class AdminRepaymentReconciliationServiceTest {
 
         assertThatThrownBy(() -> service.list(null, 0, 20))
                 .isInstanceOfSatisfying(BusinessException.class,
-                        exception -> assertThat(exception.getCode()).isEqualTo("ADMIN_ROLE_REQUIRED"));
+                        exception -> assertThat(exception.getCode()).isEqualTo("PERMISSION_REQUIRED"));
         verify(repayments, never()).findByStatusInOrderByUpdatedAtAscIdAsc(
                 org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any(Pageable.class));
     }
@@ -172,10 +174,40 @@ class AdminRepaymentReconciliationServiceTest {
         return repayment;
     }
 
-    private void actAs(String role) {
+    @Test
+    void staffWithReconciliationViewListsButCannotReconcileOrRepost() {
+        actAs("ROLE_STAFF", OpsFunction.RECONCILIATION.view());
+        when(repayments.findByStatusInOrderByUpdatedAtAscIdAsc(
+                org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        assertThat(service.list(null, 0, 20).getContent()).isEmpty();
+        UUID repaymentId = UUID.randomUUID();
+        assertThatThrownBy(() -> service.reconcile(repaymentId))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("PERMISSION_REQUIRED"));
+        assertThatThrownBy(() -> service.repost(repaymentId))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("PERMISSION_REQUIRED"));
+        verify(repaymentService, never()).reconcileCorePosting(org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void staffWithReconciliationActionPassesThePermissionCheck() {
+        actAs("ROLE_STAFF", OpsFunction.RECONCILIATION.action());
+        UUID repaymentId = UUID.randomUUID();
+        when(repayments.findByRepaymentId(repaymentId)).thenReturn(Optional.empty());
+
+        // Qua kiểm quyền, dừng ở tra cứu: giao dịch không tồn tại.
+        assertThatThrownBy(() -> service.reconcile(repaymentId))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("REPAYMENT_NOT_FOUND"));
+    }
+
+    private void actAs(String... authorities) {
         Jwt jwt = Jwt.withTokenValue("token").header("alg", "none")
                 .claim("sub", "admin-1").claim("user_id", "admin-1").build();
         SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(
-                jwt, List.of(new SimpleGrantedAuthority(role)), "admin-1"));
+                jwt, Arrays.stream(authorities).map(SimpleGrantedAuthority::new).toList(), "admin-1"));
     }
 }

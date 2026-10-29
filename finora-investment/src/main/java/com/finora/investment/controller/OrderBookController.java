@@ -4,6 +4,7 @@ import com.finora.common.security.pin.PinScope;
 import com.finora.common.security.pin.RequirePin;
 import com.finora.common.dto.PageResponse;
 import com.finora.common.security.SecurityUtils;
+import com.finora.common.security.ops.OpsFunction;
 import com.finora.investment.dto.request.PlaceBookOrderRequest;
 import com.finora.investment.dto.response.BookOrderResponse;
 import com.finora.investment.dto.response.OrderBookPositionResponse;
@@ -57,8 +58,10 @@ public class OrderBookController {
     public PageResponse<OrderBookSummaryResponse> listBooks(
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-        // Khoản vay của chính người xem không hiện trên Sàn; quản trị viên thấy hết.
-        String hiddenBorrowerId = SecurityUtils.isAdmin() ? null : SecurityUtils.getCurrentUserId();
+        // Khoản vay của chính người xem không hiện trên Sàn; quản trị viên và nhân viên có quyền Xem Chợ thứ cấp
+        // thấy hết.
+        String hiddenBorrowerId = SecurityUtils.hasPermission(OpsFunction.SECONDARY_MARKET.view())
+                ? null : SecurityUtils.getCurrentUserId();
         return toPageResponse(queryService.listBooks(hiddenBorrowerId, PageRequest.of(page, size)));
     }
 

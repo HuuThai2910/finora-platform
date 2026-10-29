@@ -3,6 +3,7 @@ package com.finora.payment.service.withdrawal;
 import com.finora.common.dto.PageResponse;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.security.SecurityUtils;
+import com.finora.common.security.ops.OpsFunction;
 import com.finora.payment.domain.withdrawal.PaymentWithdrawal;
 import com.finora.payment.domain.withdrawal.WithdrawalStatus;
 import com.finora.payment.dto.response.AdminWithdrawalResponse;
@@ -35,7 +36,7 @@ public class AdminWithdrawalService {
 
     @Transactional(readOnly = true)
     public PageResponse<AdminWithdrawalResponse> list(int page, int size) {
-        SecurityUtils.requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.WITHDRAWAL.view());
         Page<AdminWithdrawalResponse> result = withdrawals
                 .findByStatusInOrderByUpdatedAtAscIdAsc(INCIDENT, PageRequest.of(page, size))
                 .map(AdminWithdrawalResponse::from);
@@ -46,7 +47,7 @@ public class AdminWithdrawalService {
 
     @Transactional(readOnly = true)
     public AdminWithdrawalResponse find(UUID withdrawalId) {
-        SecurityUtils.requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.WITHDRAWAL.view());
         return withdrawals.findByWithdrawalId(withdrawalId).map(AdminWithdrawalResponse::from)
                 .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "WITHDRAWAL_NOT_FOUND",
                         "Không tìm thấy lệnh rút"));
@@ -54,7 +55,7 @@ public class AdminWithdrawalService {
 
     @Transactional
     public AdminWithdrawalResponse recheck(UUID withdrawalId) {
-        SecurityUtils.requireAdmin();
+        SecurityUtils.requirePermission(OpsFunction.WITHDRAWAL.action());
         PaymentWithdrawal value = withdrawals.findByWithdrawalIdForUpdate(withdrawalId)
                 .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "WITHDRAWAL_NOT_FOUND",
                         "Không tìm thấy lệnh rút"));
