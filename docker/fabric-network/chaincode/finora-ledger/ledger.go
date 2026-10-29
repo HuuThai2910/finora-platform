@@ -43,10 +43,11 @@ var (
 	sourceServicePattern = regexp.MustCompile(`^finora-[a-z0-9-]{1,40}$`)
 
 	allowedProofTypes = map[string]bool{
-		"CONTRACT_DOCUMENT": true,
-		"DISBURSEMENT":      true,
-		"REPAYMENT":         true,
-		"NOTE_OWNERSHIP":    true,
+		"CONTRACT_DOCUMENT":      true,
+		"DISBURSEMENT":           true,
+		"REPAYMENT":              true,
+		"NOTE_OWNERSHIP":         true,
+		"NOTE_TRANSFER_DOCUMENT": true, // giấy xác nhận chuyển nhượng Note (PDF ký PAdES), theo tradeReference
 	}
 )
 

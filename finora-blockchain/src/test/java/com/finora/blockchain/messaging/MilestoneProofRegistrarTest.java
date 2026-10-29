@@ -30,6 +30,8 @@ class MilestoneProofRegistrarTest {
             + "\"allocationHash\":\"fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9\","
             + "\"activatedAt\":\"2026-10-17T03:00:00Z\"}";
 
+    private static final String PDF_HASH = "9b2d3f6c1e0a4b5c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c";
+
     @Mock
     private ProofSubmissionService proofs;
 
@@ -113,6 +115,51 @@ class MilestoneProofRegistrarTest {
     }
 
     @Test
+    void noteTransferDocumentIsAnchoredPerTradeWithTheCanonicalHashOfEventData() {
+        UUID eventId = UUID.randomUUID();
+
+        registrar.register(ProofMilestone.NOTE_TRANSFER_DOCUMENT_ISSUED,
+                envelope(eventId, transferDocumentData("\"" + PDF_HASH + "\"", "\"SHA-256\"")), eventId.toString(),
+                "NoteTransferDocumentIssued", "1");
+
+        ProofRegistrationCommand command = captured();
+        assertThat(command.sourceService()).isEqualTo("finora-investment");
+        assertThat(command.sourceEventType()).isEqualTo("NoteTransferDocumentIssued");
+        assertThat(command.sourceEventVersion()).isEqualTo(1);
+        assertThat(command.proofType()).isEqualTo(ProofType.NOTE_TRANSFER_DOCUMENT);
+        assertThat(command.aggregateType()).isEqualTo("NoteTransferDocument");
+        assertThat(command.aggregateId()).isEqualTo("TRD-ABCDEF0123456789ABCD");
+        assertThat(command.loanApplicationId()).isEqualTo(123L);
+        // Neo hash canonical của data (chứa documentHash của PDF), không phải documentHash trực tiếp.
+        assertThat(command.payloadHash()).hasSize(64).isNotEqualTo(PDF_HASH);
+        assertThat(command.payloadVersion()).isEqualTo(2);
+    }
+
+    @Test
+    void noteTransferDocumentWithoutAValidPdfHashGoesToDeadLetter() {
+        UUID eventId = UUID.randomUUID();
+        String missingHash = "{\"documentNumber\":\"CN-TRD-0A1B2C3D\",\"tradeReference\":\"TRD-ABCDEF0123456789ABCD\","
+                + "\"loanApplicationId\":123,\"listingId\":45,\"hashAlgorithm\":\"SHA-256\"}";
+        assertThatIllegalArgumentException().isThrownBy(() -> registrar.register(
+                ProofMilestone.NOTE_TRANSFER_DOCUMENT_ISSUED, envelope(eventId, missingHash), null, null, null));
+        assertThatIllegalArgumentException().isThrownBy(() -> registrar.register(
+                ProofMilestone.NOTE_TRANSFER_DOCUMENT_ISSUED,
+                envelope(eventId, transferDocumentData("\"abc123\"", "\"SHA-256\"")), null, null, null));
+        assertThatIllegalArgumentException().isThrownBy(() -> registrar.register(
+                ProofMilestone.NOTE_TRANSFER_DOCUMENT_ISSUED,
+                envelope(eventId, transferDocumentData("\"" + PDF_HASH.toUpperCase() + "\"", "\"SHA-256\"")),
+                null, null, null));
+        assertThatIllegalArgumentException().isThrownBy(() -> registrar.register(
+                ProofMilestone.NOTE_TRANSFER_DOCUMENT_ISSUED,
+                envelope(eventId, transferDocumentData("\"" + PDF_HASH + "\"", "\"MD5\"")), null, null, null));
+        assertThatIllegalArgumentException().isThrownBy(() -> registrar.register(
+                ProofMilestone.NOTE_TRANSFER_DOCUMENT_ISSUED,
+                envelope(eventId, transferDocumentData("\"" + PDF_HASH + "\"", "\"SHA-256\"")), null,
+                "NoteOwnershipChanged", "1"));
+        verify(proofs, never()).register(any());
+    }
+
+    @Test
     void headerEnvelopeMismatchAndMissingBusinessFieldsGoToDeadLetter() {
         UUID eventId = UUID.randomUUID();
         assertThatIllegalArgumentException().isThrownBy(() -> registrar.register(ProofMilestone.CONTRACT_SIGNED,
@@ -138,6 +185,12 @@ class MilestoneProofRegistrarTest {
 
     private static String envelope(UUID eventId, String data) {
         return "{\"eventId\":\"" + eventId + "\",\"occurredAt\":\"2026-10-17T03:00:01Z\",\"version\":1,\"data\":" + data + "}";
+    }
+
+    private static String transferDocumentData(String documentHash, String hashAlgorithm) {
+        return "{\"documentNumber\":\"CN-TRD-0A1B2C3D\",\"tradeReference\":\"TRD-ABCDEF0123456789ABCD\","
+                + "\"loanApplicationId\":123,\"listingId\":45,\"documentHash\":" + documentHash + ","
+                + "\"hashAlgorithm\":" + hashAlgorithm + ",\"issuedAt\":\"2026-10-29T03:00:00Z\"}";
     }
 
     private static String noteData(String reason, String reference) {

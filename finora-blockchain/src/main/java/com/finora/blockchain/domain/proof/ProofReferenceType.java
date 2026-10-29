@@ -14,7 +14,9 @@ public enum ProofReferenceType {
     DISBURSEMENT_SAGA("DisbursementSaga"),
     REPAYMENT("Repayment"),
     NOTE_ISSUANCE("NoteIssuance"),
-    NOTE_TRANSFER("NoteTransfer");
+    NOTE_TRANSFER("NoteTransfer"),
+    /** Giấy xác nhận chuyển nhượng Note; mã tra là {@code tradeReference}, cùng mã với {@code NOTE_TRANSFER}. */
+    NOTE_TRANSFER_DOCUMENT("NoteTransferDocument");
 
     private final String aggregateType;
 

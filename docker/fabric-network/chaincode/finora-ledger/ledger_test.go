@@ -106,6 +106,24 @@ func TestRegisterProofStoresHashOnlyRecordWithTransactionReference(t *testing.T)
 	}
 }
 
+func TestNoteTransferDocumentProofIsAcceptedPerTrade(t *testing.T) {
+	state := newFakeState("tx-1")
+
+	payload, err := registerProof(state, "Org1MSP", org1Writers, []string{testProofID, "NOTE_TRANSFER_DOCUMENT",
+		"NoteTransferDocument", "TRD-ABCDEF0123456789ABCD", testHash, "2", "finora-investment"})
+	if err != nil {
+		t.Fatalf("giấy xác nhận chuyển nhượng phải ghi được: %v", err)
+	}
+	var record ProofRecord
+	if err := json.Unmarshal(payload, &record); err != nil {
+		t.Fatalf("payload không phải JSON: %v", err)
+	}
+	if record.ProofType != "NOTE_TRANSFER_DOCUMENT" || record.AggregateType != "NoteTransferDocument" ||
+		record.AggregateID != "TRD-ABCDEF0123456789ABCD" || record.SourceService != "finora-investment" {
+		t.Fatalf("nội dung proof sai: %+v", record)
+	}
+}
+
 func TestSameProofSubmittedAgainReturnsTheOriginalRecordWithoutWriting(t *testing.T) {
 	state := newFakeState("tx-1")
 	first, err := registerProof(state, "Org1MSP", org1Writers,

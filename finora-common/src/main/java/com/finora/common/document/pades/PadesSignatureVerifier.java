@@ -1,4 +1,4 @@
-package com.finora.loan.service.contract.pades;
+package com.finora.common.document.pades;
 
 import java.io.IOException;
 import java.security.cert.CertificateException;
@@ -34,7 +34,6 @@ import org.bouncycastle.cms.CMSSignedData;
 import org.bouncycastle.cms.SignerInformation;
 import org.bouncycastle.cms.jcajce.JcaSimpleSignerInfoVerifierBuilder;
 import org.bouncycastle.operator.OperatorCreationException;
-import org.springframework.stereotype.Component;
 
 /**
  * Kiểm toàn bộ chữ ký PAdES trong một tệp, theo thứ tự phiên bản.
@@ -44,7 +43,6 @@ import org.springframework.stereotype.Component;
  * thư, không có signing-time. Chữ ký cuối phải bao đến byte cuối tệp, tức không có thay đổi nào chưa ký. Chữ ký trước
  * được kiểm trên đúng phần đầu tệp của nó, nên nếu bản sau sửa bytes cũ thì chữ ký trước sẽ hỏng và bị phát hiện.</p>
  */
-@Component
 public class PadesSignatureVerifier {
 
     private static final byte[] EOF_MARKER = "%%EOF".getBytes(java.nio.charset.StandardCharsets.US_ASCII);

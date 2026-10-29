@@ -1,2 +1,3 @@
 com.finora.common.observability.OperationalMetricsAutoConfiguration
 com.finora.common.observability.KafkaHealthAutoConfiguration
+com.finora.common.document.pades.PadesAutoConfiguration

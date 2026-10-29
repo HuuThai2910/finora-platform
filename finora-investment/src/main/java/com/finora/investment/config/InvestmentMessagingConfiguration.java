@@ -7,7 +7,7 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration
 @EnableConfigurationProperties({InvestmentKafkaProperties.class, InvestmentOutboxProperties.class,
-        InvestorRiskDisclosureProperties.class})
+        InvestorRiskDisclosureProperties.class, TransferDocumentProperties.class})
 public class InvestmentMessagingConfiguration {
 
     @Bean

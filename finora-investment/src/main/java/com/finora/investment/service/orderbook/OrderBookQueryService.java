@@ -59,10 +59,13 @@ public class OrderBookQueryService {
     private final InvestmentNoteRepository noteRepository;
     private final MarketListingRepository listingRepository;
 
-    /** Các đợt gọi vốn còn Note lưu hành, kèm giá tốt nhất hai phía. */
+    /**
+     * Các đợt gọi vốn còn Note lưu hành, kèm giá tốt nhất hai phía. Khoản vay mà {@code hiddenBorrowerId} là
+     * người vay không hiện: người vay không được mua Note của chính mình.
+     */
     @Transactional(readOnly = true)
-    public Page<OrderBookSummaryResponse> listBooks(Pageable pageable) {
-        Page<Long> listingIds = noteRepository.findTradableListingIds(pageable);
+    public Page<OrderBookSummaryResponse> listBooks(String hiddenBorrowerId, Pageable pageable) {
+        Page<Long> listingIds = noteRepository.findTradableListingIds(hiddenBorrowerId, pageable);
         if (listingIds.isEmpty()) {
             return new PageImpl<>(List.of(), pageable, listingIds.getTotalElements());
         }

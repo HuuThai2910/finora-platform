@@ -1,4 +1,4 @@
-package com.finora.loan.service.contract.pades;
+package com.finora.common.document.pades;
 
 import java.time.Instant;
 import java.util.Arrays;

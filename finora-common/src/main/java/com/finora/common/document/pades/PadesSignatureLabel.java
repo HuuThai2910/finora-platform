@@ -1,4 +1,4 @@
-package com.finora.loan.service.contract.pades;
+package com.finora.common.document.pades;
 
 /**
  * Nhãn ghi vào từ điển chữ ký PDF (/Name, /Reason, /Location). Chỉ dùng vai trò và mã bên ký giả danh như trong

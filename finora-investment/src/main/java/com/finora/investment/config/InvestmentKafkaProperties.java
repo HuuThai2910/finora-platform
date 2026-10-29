@@ -15,6 +15,7 @@ public record InvestmentKafkaProperties(
         String noteServicingChangedTopic,
         String rescheduleConsentRequestedTopic,
         String rescheduleConsentCompletedTopic,
+        String noteTransferDocumentIssuedTopic,
         Duration publishTimeout
 ) {
     private static final Pattern TOPIC = Pattern.compile("finora\\.[a-z0-9][a-z0-9.-]*");
@@ -32,6 +33,8 @@ public record InvestmentKafkaProperties(
                 rescheduleConsentRequestedTopic, "rescheduleConsentRequestedTopic");
         rescheduleConsentCompletedTopic = requireTopic(
                 rescheduleConsentCompletedTopic, "rescheduleConsentCompletedTopic");
+        noteTransferDocumentIssuedTopic = requireTopic(
+                noteTransferDocumentIssuedTopic, "noteTransferDocumentIssuedTopic");
         publishTimeout = publishTimeout == null ? Duration.ofSeconds(10) : publishTimeout;
         if (publishTimeout.isZero() || publishTimeout.isNegative()
                 || publishTimeout.compareTo(Duration.ofMinutes(1)) > 0) {

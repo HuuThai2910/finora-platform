@@ -7,8 +7,8 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
 /**
- * Consumer group {@code blockchain-group} cho bốn mốc proof. Chỉ đăng ký proof trong DB của Blockchain (transaction
- * ngắn, không gọi Fabric); worker ghi ledger sau. Fabric tắt vì vậy không chặn hay rollback luồng tiền/hợp đồng nguồn.
+ * Consumer group {@code blockchain-group} cho bốn mốc proof và giấy xác nhận chuyển nhượng Note. Chỉ đăng ký proof
+ * trong DB của Blockchain (transaction ngắn, không gọi Fabric); worker ghi ledger sau. Fabric tắt vì vậy không chặn hay rollback luồng tiền/hợp đồng nguồn.
  */
 @Component
 @RequiredArgsConstructor
@@ -50,5 +50,13 @@ public class MilestoneProofConsumer {
             @Header(name = EVENT_TYPE, required = false) String type,
             @Header(name = EVENT_VERSION, required = false) String version) {
         registrar.register(ProofMilestone.NOTE_OWNERSHIP_CHANGED, payload, id, type, version);
+    }
+
+    @KafkaListener(topics = "${finora.blockchain.note-transfer-document-issued-topic:finora.investment.note-transfer-document-issued}")
+    public void noteTransferDocumentIssued(@Payload String payload,
+            @Header(name = EVENT_ID, required = false) String id,
+            @Header(name = EVENT_TYPE, required = false) String type,
+            @Header(name = EVENT_VERSION, required = false) String version) {
+        registrar.register(ProofMilestone.NOTE_TRANSFER_DOCUMENT_ISSUED, payload, id, type, version);
     }
 }

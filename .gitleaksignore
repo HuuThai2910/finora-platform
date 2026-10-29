@@ -13,3 +13,6 @@ ba9e65432e0300f0ab1986b1b4fb42e6b8aeb684:finora-payment/src/main/java/com/finora
 1897f4a8396da9e8872f9190df728970fac39bc9:finora-notification/src/test/java/com/finora/notification/service/push/PushTokensTest.java:generic-api-key:35
 # W3C: khai báo record chứa tham số kiểu khóa riêng trong test PAdES; khóa sinh lúc chạy test, không commit khóa nào.
 738d79c4a45a7fa845560591c298e574d2ef25fd:finora-loan/src/test/java/com/finora/loan/service/contract/pades/PadesTestSigners.java:generic-api-key:33
+# Giấy xác nhận chuyển nhượng Note (2026-10-29): khai báo record Credential có tham số kiểu khóa riêng của con dấu
+# FINORA. Khóa demo sinh trong bộ nhớ lúc khởi động, khóa thật đọc từ keystore ngoài repo; không commit khóa nào.
+d7bef01d1f0c0ce2e1229e46e2269c77eea97712:finora-investment/src/main/java/com/finora/investment/service/transferdocument/TransferDocumentSeal.java:generic-api-key:198

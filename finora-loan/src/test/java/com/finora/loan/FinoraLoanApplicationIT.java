@@ -107,7 +107,7 @@ class FinoraLoanApplicationIT {
     @Autowired com.finora.loan.service.contract.LoanContractStateService contractStateService;
     @Autowired PinTokenService pinTokenService;
     @Autowired HashingService hashingService;
-    @Autowired com.finora.loan.service.contract.pades.PadesSignatureVerifier padesVerifier;
+    @Autowired com.finora.common.document.pades.PadesSignatureVerifier padesVerifier;
     @Autowired AiCreditProperties aiCreditProperties;
     @Autowired CircuitBreakerFactory<?, ?> circuitBreakerFactory;
     @Autowired @Qualifier("aiCreditRestClient") RestClient aiCreditRestClient;

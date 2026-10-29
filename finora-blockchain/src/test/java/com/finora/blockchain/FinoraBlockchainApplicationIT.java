@@ -97,7 +97,7 @@ class FinoraBlockchainApplicationIT {
 
         assertThat(version).startsWith("17.");
         assertThat(flyway.info().pending()).isEmpty();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("2");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("3");
     }
 
     @Test
@@ -251,6 +251,24 @@ class FinoraBlockchainApplicationIT {
         mvc.perform(get("/api/v1/blockchain/proofs/{id}", "not-a-uuid").with(admin()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("PROOF_ID_INVALID"));
+    }
+
+    @Test
+    void noteTransferDocumentProofIsStoredAndFoundByTradeReference() throws Exception {
+        UUID eventId = UUID.randomUUID();
+        String data = "{\"documentNumber\":\"CN-TRD-0A1B2C3D\",\"tradeReference\":\"TRD-ABCDEF0123456789ABCD\","
+                + "\"loanApplicationId\":123,\"listingId\":45,\"documentHash\":\"" + "ab".repeat(32) + "\","
+                + "\"hashAlgorithm\":\"SHA-256\",\"issuedAt\":\"2026-10-29T03:00:00Z\"}";
+        ProofSubmissionView document = registrar.register(ProofMilestone.NOTE_TRANSFER_DOCUMENT_ISSUED,
+                envelope(eventId, data), eventId.toString(), "NoteTransferDocumentIssued", "1");
+        proofProcessor.process(proofRepository.findByProofId(document.proofId()).orElseThrow().getId());
+
+        mvc.perform(get("/api/v1/blockchain/proofs").param("referenceType", "NOTE_TRANSFER_DOCUMENT")
+                        .param("referenceId", "TRD-ABCDEF0123456789ABCD").with(admin()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].proofType").value("NOTE_TRANSFER_DOCUMENT"))
+                .andExpect(jsonPath("$.content[0].status").value("CONFIRMED"));
     }
 
     @Test

@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -24,6 +25,11 @@ import java.util.Locale;
  * Các route eKYC của finora-ai (đọc thẻ, liveness) chỉ dành cho finora-user gọi nội bộ; trước đây
  * route OCR mở ra internet qua gateway nên ai cũng gọi được để đốt quota AI. Route
  * {@code /api/v1/ai/credit/**} (finora-web dùng) vẫn đi qua bình thường.
+ * <p>
+ * Chặn thêm {@code /api/v1/internal/**}: endpoint service-to-service của các service (vd. danh tính người dùng
+ * cho giấy chuyển nhượng Note của finora-user) chỉ gọi thẳng giữa các service bằng token service account. Không route
+ * nào khai báo tiền tố này, nhưng biến thể như {@code /api/v1/users/%2e%2e/internal/...} khớp route
+ * {@code /api/v1/users/**} rồi được service phía sau chuẩn hoá thành đường dẫn nội bộ, nên chặn tường minh ở đây.
  * <p>
  * Đường dẫn được chuẩn hoá trước khi so: giải mã phần trăm ({@code %65kyc}), bỏ tham số đoạn
  * ({@code ;x=y}), gộp {@code //}, bỏ {@code /./}, xử lý {@code /../}, không phân biệt hoa thường —
@@ -35,6 +41,11 @@ import java.util.Locale;
 public class InternalAiRouteBlockingFilter extends OncePerRequestFilter {
 
     static final String BLOCKED_PREFIX = "/api/v1/ai/ekyc";
+
+    /** Tiền tố endpoint nội bộ giữa các service (finora-user {@code /api/v1/internal/users/**}). */
+    static final String INTERNAL_PREFIX = "/api/v1/internal";
+
+    private static final List<String> BLOCKED_PREFIXES = List.of(BLOCKED_PREFIX, INTERNAL_PREFIX);
 
     private static final byte[] NOT_FOUND_BODY =
             "{\"code\":\"RESOURCE_NOT_FOUND\",\"message\":\"Không tìm thấy tài nguyên\"}"
@@ -55,7 +66,7 @@ public class InternalAiRouteBlockingFilter extends OncePerRequestFilter {
         chain.doFilter(request, response);
     }
 
-    /** Đường dẫn đã chuẩn hoá thuộc {@code /api/v1/ai/ekyc} hoặc nằm dưới nó. */
+    /** Đường dẫn đã chuẩn hoá trùng hoặc nằm dưới một tiền tố bị chặn ({@code /api/v1/ai/ekyc}, {@code /api/v1/internal}). */
     static boolean isBlocked(String rawPath, String contextPath) {
         if (rawPath == null || rawPath.isEmpty()) {
             return false;
@@ -65,7 +76,8 @@ public class InternalAiRouteBlockingFilter extends OncePerRequestFilter {
             path = path.substring(contextPath.length());
         }
         String normalized = normalize(path);
-        return normalized.equals(BLOCKED_PREFIX) || normalized.startsWith(BLOCKED_PREFIX + "/");
+        return BLOCKED_PREFIXES.stream()
+                .anyMatch(prefix -> normalized.equals(prefix) || normalized.startsWith(prefix + "/"));
     }
 
     /**

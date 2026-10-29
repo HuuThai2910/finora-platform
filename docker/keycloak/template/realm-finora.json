@@ -112,6 +112,10 @@
         {
           "name": "notification:internal:send",
           "description": "Service account finora-user goi endpoint noi bo gui email cua Notification (D36)"
+        },
+        {
+          "name": "user:identity:read_internal",
+          "description": "Service account finora-investment doc ho ten + CCCD da che de in giay chuyen nhuong Note; khong nam trong role nguoi dung"
         }
       ]
     }
@@ -121,7 +125,7 @@
     {
       "clientId": "finora-investment-client",
       "name": "FINORA Investment Service",
-      "description": "Service account cua finora-investment: Auto-Invest goi Payment khi khong co JWT nguoi dung",
+      "description": "Service account cua finora-investment: Auto-Invest goi Payment, giay chuyen nhuong Note doc danh tinh tu User khi khong co JWT nguoi dung",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
@@ -263,6 +267,9 @@
       "clientRoles": {
         "finora-investment-client": [
           "payment:hold:on_behalf"
+        ],
+        "finora-user-client": [
+          "user:identity:read_internal"
         ]
       }
     },

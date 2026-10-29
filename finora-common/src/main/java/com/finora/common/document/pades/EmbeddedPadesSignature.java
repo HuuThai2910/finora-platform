@@ -1,4 +1,4 @@
-package com.finora.loan.service.contract.pades;
+package com.finora.common.document.pades;
 
 import java.security.cert.X509Certificate;
 import java.time.Instant;

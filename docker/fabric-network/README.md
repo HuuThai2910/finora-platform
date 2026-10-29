@@ -40,6 +40,11 @@ powershell -ExecutionPolicy Bypass -File docker/fabric-network/fabric-network.ps
 `Up` kiểm RAM Docker còn trống trước (mặc định cần 768 MiB, D14); `-SkipMemoryCheck` bỏ qua nếu chấp nhận rủi ro.
 `-ProjectName <tên>` chạy dưới project Compose riêng (W3D dùng `finora-fabric-verify` để không đụng stack đang chạy).
 
+**Nâng mã chaincode trên mạng đang chạy** (ví dụ thêm loại proof vào allowlist): package CCaaS chỉ chứa địa chỉ
+server nên định nghĩa chaincode (version `1.0`, sequence `1`) và package ID giữ nguyên; chỉ cần build image mới
+(tag trong `docker-compose.yml`, hiện `finora/fabric-ledger-ccaas:1.1.0`) và tạo lại hai container `fabric-ccaas-*`.
+`Down` (không `-RemoveData`) rồi `Up` làm đúng việc này và giữ nguyên ledger.
+
 Sau `Up`, `build/client.json` ghi endpoint và **đường dẫn** file danh tính cho `finora-blockchain` (không chép nội
 dung khóa). Khi chạy service từ IntelliJ, đặt các biến tương ứng:
 

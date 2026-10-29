@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.investment.config.InvestmentKafkaProperties;
+import com.finora.investment.messaging.event.NoteTransferDocumentIssuedEventData;
 import com.finora.investment.service.outbox.InvestmentOutboxMessage;
 import com.finora.investment.service.outbox.InvestmentOutboxPublishException;
 import com.finora.investment.service.outbox.InvestmentOutboxPublisher;
@@ -52,8 +53,10 @@ public class InvestmentKafkaOutboxPublisher implements InvestmentOutboxPublisher
                 && message.eventVersion() == 1;
         boolean rescheduleConsentCompleted = "LoanRescheduleConsentCompleted".equals(message.eventType())
                 && message.eventVersion() == 1;
+        boolean transferDocumentIssued = NoteTransferDocumentIssuedEventData.EVENT_TYPE.equals(message.eventType())
+                && message.eventVersion() == NoteTransferDocumentIssuedEventData.EVENT_VERSION;
         if (!fullyFunded && !fundingExpired && !ownershipChanged && !servicingChanged
-                && !rescheduleConsentCompleted) {
+                && !rescheduleConsentCompleted && !transferDocumentIssued) {
             throw failure("KAFKA_EVENT_ROUTE_MISSING",
                     "Event/version chưa có Kafka route được duyệt", false, null);
         }
@@ -85,6 +88,7 @@ public class InvestmentKafkaOutboxPublisher implements InvestmentOutboxPublisher
                 case "InvestorNoteServicingChanged" -> properties.noteServicingChangedTopic();
                 case "LoanFundingExpired" -> properties.fundingExpiredTopic();
                 case "LoanRescheduleConsentCompleted" -> properties.rescheduleConsentCompletedTopic();
+                case NoteTransferDocumentIssuedEventData.EVENT_TYPE -> properties.noteTransferDocumentIssuedTopic();
                 default -> properties.fullyFundedTopic();
             };
             ProducerRecord<String, String> record = new ProducerRecord<>(topic, message.aggregateId(), value);

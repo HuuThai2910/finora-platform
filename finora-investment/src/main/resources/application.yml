@@ -92,6 +92,11 @@ finora:
     payment:
       mode: ${INVESTMENT_PAYMENT_MODE:http}
       base-url: ${PAYMENT_SERVICE_URL:http://localhost:8082/api/v1}
+    # Họ tên + CCCD đã che in lên giấy xác nhận chuyển nhượng; service account cần client role
+    # user:identity:read_internal (docker/keycloak/add-investment-client.sh).
+    user:
+      mode: ${INVESTMENT_USER_MODE:http}
+      base-url: ${USER_SERVICE_URL:http://localhost:8085}
     # Service account cho lời gọi Payment không có JWT người dùng (Auto-Invest giữ tiền thay
     # nhà đầu tư). Client mang client role payment:hold:on_behalf.
     service-account:
@@ -109,6 +114,20 @@ finora:
         batch-size: ${INVESTMENT_ORDER_BOOK_SETTLEMENT_BATCH_SIZE:50}
         retry-backoff: ${INVESTMENT_ORDER_BOOK_SETTLEMENT_RETRY_BACKOFF:5s}
         maximum-backoff: ${INVESTMENT_ORDER_BOOK_SETTLEMENT_MAXIMUM_BACKOFF:5m}
+    # Giấy xác nhận chuyển nhượng Note: worker lập PDF cho lần khớp đã thanh toán, đóng dấu số FINORA rồi phát
+    # NoteTransferDocumentIssued để Blockchain neo hash. Không có keystore thì dùng con dấu demo (không giá trị pháp lý).
+    transfer-document:
+      enabled: ${INVESTMENT_TRANSFER_DOCUMENT_ENABLED:true}
+      delay: ${INVESTMENT_TRANSFER_DOCUMENT_DELAY:10000}
+      batch-size: ${INVESTMENT_TRANSFER_DOCUMENT_BATCH_SIZE:20}
+      max-attempts: ${INVESTMENT_TRANSFER_DOCUMENT_MAX_ATTEMPTS:8}
+      retry-backoff: ${INVESTMENT_TRANSFER_DOCUMENT_RETRY_BACKOFF:30s}
+      maximum-backoff: ${INVESTMENT_TRANSFER_DOCUMENT_MAXIMUM_BACKOFF:30m}
+      processing-lease: ${INVESTMENT_TRANSFER_DOCUMENT_PROCESSING_LEASE:2m}
+      seal:
+        keystore-path: ${INVESTMENT_TRANSFER_DOCUMENT_SEAL_KEYSTORE:}
+        keystore-password: ${INVESTMENT_TRANSFER_DOCUMENT_SEAL_PASSWORD:}
+        key-alias: ${INVESTMENT_TRANSFER_DOCUMENT_SEAL_ALIAS:}
     # Đối soát định kỳ: đóng listing hết hạn gọi vốn, làm tiếp/huỷ lệnh kẹt chờ giữ tiền quá
     # pending-funds-timeout, nhả khoản giữ còn treo, huỷ lệnh trong sổ của khoản vay đã tất toán.
     maintenance:
@@ -132,6 +151,7 @@ finora:
       note-servicing-changed-topic: ${INVESTMENT_NOTE_SERVICING_CHANGED_TOPIC:finora.investment.note-servicing-changed}
       reschedule-consent-requested-topic: ${LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC:finora.loan.reschedule-consent-requested}
       reschedule-consent-completed-topic: ${INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC:finora.investment.reschedule-consent-completed}
+      note-transfer-document-issued-topic: ${INVESTMENT_NOTE_TRANSFER_DOCUMENT_ISSUED_TOPIC:finora.investment.note-transfer-document-issued}
       repayment-distributed-topic: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:finora.payment.repayment-distributed}
       loan-settled-topic: ${LOAN_SETTLED_TOPIC:finora.loan.settled}
       loan-rescheduled-topic: ${LOAN_RESCHEDULED_TOPIC:finora.loan.rescheduled}

@@ -1,4 +1,4 @@
-package com.finora.loan.service.contract.pades;
+package com.finora.common.document.pades;
 
 import java.io.IOException;
 import java.security.GeneralSecurityException;
@@ -30,7 +30,6 @@ import org.bouncycastle.asn1.x509.Certificate;
 import org.bouncycastle.asn1.x509.GeneralName;
 import org.bouncycastle.asn1.x509.GeneralNames;
 import org.bouncycastle.asn1.x509.IssuerSerial;
-import org.springframework.stereotype.Component;
 
 /**
  * Dựng CMS SignedData tách rời (detached) theo PAdES-B-B (ETSI EN 319 142-1) cho chữ ký do provider ngoài tạo.
@@ -40,7 +39,6 @@ import org.springframework.stereotype.Component;
  * từ điển chữ ký. Provider chỉ nhận SHA-256 của DER signed attributes; giá trị chữ ký RSA PKCS#1 v1.5 trả về được kiểm
  * bằng khóa công khai của chứng thư trước khi đóng gói, nên chữ ký sai không bao giờ được nhúng vào PDF.</p>
  */
-@Component
 public class PadesCmsBuilder {
 
     private static final AlgorithmIdentifier SHA256 = new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha256);

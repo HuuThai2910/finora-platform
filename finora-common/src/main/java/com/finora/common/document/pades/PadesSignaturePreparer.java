@@ -1,4 +1,4 @@
-package com.finora.loan.service.contract.pades;
+package com.finora.common.document.pades;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -12,7 +12,6 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.ExternalSigningSupport;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.PDSignature;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.SignatureOptions;
-import org.springframework.stereotype.Component;
 
 /**
  * Thêm một trường chữ ký ẩn vào PDF bằng incremental update của PDFBox và chừa trống /Contents.
@@ -21,7 +20,6 @@ import org.springframework.stereotype.Component;
  * khớp phần nó bao phủ. Bước này không ký; nó trả digest của ByteRange để dựng signed attributes, còn giá trị chữ ký
  * được nhúng sau vào đúng chỗ trống (provider từ xa có thể mất vài phút để người dùng xác nhận).</p>
  */
-@Component
 public class PadesSignaturePreparer {
 
     /** 16 KiB cho CMS: chứng thư ký + CA + root khoảng 5 KiB, còn chỗ cho dấu thời gian nếu nâng lên PAdES-B-T. */

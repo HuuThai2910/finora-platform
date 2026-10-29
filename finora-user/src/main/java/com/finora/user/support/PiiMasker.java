@@ -42,6 +42,24 @@ public final class PiiMasker {
     }
 
     /**
+     * Che số CCCD để in lên giấy tờ gửi bên thứ ba: chỉ giữ 4 ký tự cuối, giữ nguyên độ dài.
+     * "079203012345" → "********2345"
+     * <p>
+     * Khác {@link #maskIdNumber(String)} (dùng cho log): giấy tờ theo thông lệ chỉ để lộ phần đuôi để đối chiếu.
+     *
+     * @return {@code null} khi không có số CCCD, để bên gọi biết người dùng chưa có CCCD thay vì nhận chuỗi giả
+     */
+    public static String maskIdNumberKeepLastFour(String idNumber) {
+        if (isBlank(idNumber)) return null;
+
+        String value = idNumber.trim();
+        int len = value.length();
+        if (len <= 4) return "*".repeat(len);
+
+        return "*".repeat(len - 4) + value.substring(len - 4);
+    }
+
+    /**
      * Mask số điện thoại: hiện 2 ký tự đầu + 4 ký tự cuối.
      * "0912345678" → "09****5678"
      */
