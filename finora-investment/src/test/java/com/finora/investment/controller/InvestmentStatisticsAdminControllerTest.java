@@ -13,7 +13,7 @@ import com.finora.common.security.KeycloakJwtAuthenticationConverter;
 import com.finora.investment.config.SecurityConfig;
 import com.finora.investment.repository.InvestmentStatisticsRepository;
 import com.finora.investment.repository.InvestmentStatisticsRepository.TradeBucketRow;
-import com.finora.investment.service.statistics.InvestmentStatisticsService;
+import com.finora.investment.service.statistics.impl.InvestmentStatisticsServiceImpl;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -37,7 +37,7 @@ import org.springframework.test.web.servlet.MockMvc;
  */
 @WebMvcTest(controllers = InvestmentStatisticsAdminController.class)
 @Import({SecurityConfig.class, DualBearerTokenResolver.class, KeycloakJwtAuthenticationConverter.class,
-        InvestmentStatisticsService.class, InvestmentStatisticsAdminControllerTest.FixedClock.class})
+        InvestmentStatisticsServiceImpl.class, InvestmentStatisticsAdminControllerTest.FixedClock.class})
 class InvestmentStatisticsAdminControllerTest {
 
     private static final String SERIES = "/api/v1/investments/admin/statistics/series";

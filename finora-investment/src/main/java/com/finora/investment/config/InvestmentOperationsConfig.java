@@ -3,7 +3,7 @@ package com.finora.investment.config;
 import com.finora.common.observability.OperationalGauge;
 import com.finora.common.observability.OperationalGaugeSet;
 import com.finora.investment.repository.operations.InvestmentOperationalMetricsRepository;
-import com.finora.investment.service.impl.OrderIncidentService;
+import com.finora.investment.service.OrderIncidentService;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

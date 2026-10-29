@@ -24,7 +24,7 @@ import com.finora.investment.client.PaymentClient;
 import com.finora.investment.client.impl.StubPaymentClient;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
 import com.finora.investment.repository.InvestmentOrderRepository;
-import com.finora.investment.service.impl.FundingMaintenanceService;
+import com.finora.investment.service.FundingMaintenanceService;
 import com.finora.investment.repository.InvestmentNoteRepository;
 import com.finora.investment.repository.InvestmentOutboxEventRepository;
 import com.finora.investment.repository.MarketListingRepository;
@@ -134,7 +134,7 @@ class FundingFlowIT {
     private PortfolioService portfolioService;
 
     @Autowired
-    private com.finora.investment.service.impl.OrderIncidentService orderIncidentService;
+    private com.finora.investment.service.OrderIncidentService orderIncidentService;
 
     @Autowired
     private com.finora.investment.service.messaging.LoanRescheduleConsentRequestedHandler consentRequestedHandler;

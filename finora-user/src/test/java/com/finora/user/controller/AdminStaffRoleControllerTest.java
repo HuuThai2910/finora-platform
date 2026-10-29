@@ -5,6 +5,7 @@ import com.finora.user.domain.StaffRoleDefinition;
 import com.finora.user.repository.UserProfileRepository;
 import com.finora.user.service.KeycloakAdminService;
 import com.finora.user.service.StaffRoleService;
+import com.finora.user.service.impl.StaffRoleServiceImpl;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -58,7 +59,7 @@ class AdminStaffRoleControllerTest {
     @BeforeEach
     void setUp() {
         mockMvc = ControllerTestSupport.mockMvc(new AdminStaffRoleController(
-                new StaffRoleService(keycloakAdminService, userProfileRepository, CLOCK)));
+                new StaffRoleServiceImpl(keycloakAdminService, userProfileRepository, CLOCK)));
     }
 
     @AfterEach

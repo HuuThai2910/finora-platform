@@ -3,6 +3,7 @@ package com.finora.user.controller;
 import com.finora.user.domain.UserProfile;
 import com.finora.user.repository.UserProfileRepository;
 import com.finora.user.service.UserIdentityService;
+import com.finora.user.service.impl.UserIdentityServiceImpl;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,7 +40,7 @@ class InternalUserControllerTest {
     @BeforeEach
     void setUp() {
         mockMvc = ControllerTestSupport.mockMvc(
-                new InternalUserController(new UserIdentityService(userProfileRepository)));
+                new InternalUserController(new UserIdentityServiceImpl(userProfileRepository)));
     }
 
     @AfterEach

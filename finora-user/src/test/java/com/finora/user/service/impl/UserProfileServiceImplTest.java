@@ -53,7 +53,7 @@ class UserProfileServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        StaffRoleService staffRoleService = new StaffRoleService(keycloakAdminService, userProfileRepository, CLOCK);
+        StaffRoleService staffRoleService = new StaffRoleServiceImpl(keycloakAdminService, userProfileRepository, CLOCK);
         service = new UserProfileServiceImpl(userProfileRepository, new UserProfileMapperImpl(),
                 keycloakAdminService, staffRoleService);
         target = UserProfile.builder().id(42L).keycloakUserId(TARGET_KC_ID).email("nhanvien@example.test")

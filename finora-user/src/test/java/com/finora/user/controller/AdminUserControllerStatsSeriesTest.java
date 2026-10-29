@@ -7,6 +7,7 @@ import com.finora.user.repository.UserStatisticsRepository;
 import com.finora.user.repository.UserStatisticsRepository.RegistrationBucketRow;
 import com.finora.user.service.UserProfileService;
 import com.finora.user.service.UserStatisticsService;
+import com.finora.user.service.impl.UserStatisticsServiceImpl;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,7 +58,7 @@ class AdminUserControllerStatsSeriesTest {
     @BeforeEach
     void setUp() {
         AdminUserController target = new AdminUserController(
-                userProfileService, new UserStatisticsService(statisticsRepository, CLOCK));
+                userProfileService, new UserStatisticsServiceImpl(statisticsRepository, CLOCK));
         ProxyFactory proxyFactory = new ProxyFactory(target);
         proxyFactory.setProxyTargetClass(true);
         proxyFactory.addAdvisor(AuthorizationManagerBeforeMethodInterceptor.preAuthorize());

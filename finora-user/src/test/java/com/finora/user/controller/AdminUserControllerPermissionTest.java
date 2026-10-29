@@ -7,6 +7,7 @@ import com.finora.user.dto.response.UserStatsResponse;
 import com.finora.user.repository.UserStatisticsRepository;
 import com.finora.user.service.UserProfileService;
 import com.finora.user.service.UserStatisticsService;
+import com.finora.user.service.impl.UserStatisticsServiceImpl;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,7 +51,7 @@ class AdminUserControllerPermissionTest {
     @BeforeEach
     void setUp() {
         mockMvc = ControllerTestSupport.mockMvc(new AdminUserController(userProfileService,
-                new UserStatisticsService(statisticsRepository, Clock.systemUTC())));
+                new UserStatisticsServiceImpl(statisticsRepository, Clock.systemUTC())));
     }
 
     @AfterEach

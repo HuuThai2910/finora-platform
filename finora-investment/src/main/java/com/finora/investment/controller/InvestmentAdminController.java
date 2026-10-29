@@ -9,7 +9,7 @@ import com.finora.investment.dto.response.OrderIncidentResponse;
 import com.finora.investment.service.MarketListingService;
 import com.finora.investment.service.FundingSettingsService;
 import com.finora.investment.service.NoteIssuanceService;
-import com.finora.investment.service.impl.OrderIncidentService;
+import com.finora.investment.service.OrderIncidentService;
 import com.finora.common.dto.PageResponse;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;

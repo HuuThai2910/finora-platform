@@ -14,7 +14,7 @@ import com.finora.investment.config.SecurityConfig;
 import com.finora.investment.service.FundingSettingsService;
 import com.finora.investment.service.MarketListingService;
 import com.finora.investment.service.NoteIssuanceService;
-import com.finora.investment.service.impl.OrderIncidentService;
+import com.finora.investment.service.OrderIncidentService;
 import com.finora.investment.service.orderbook.OrderBookAdminService;
 import com.finora.investment.service.statistics.InvestmentStatisticsService;
 import com.finora.investment.service.transferdocument.TransferDocumentAdminService;
