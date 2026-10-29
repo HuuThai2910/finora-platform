@@ -26,6 +26,7 @@ Docker Compose giữ PostgreSQL riêng từng service để làm việc khi mấ
 | `core` | `finora-keycloak` | `8180` | `keycloak-import` (file realm đã render) |
 | `demo` | Kafka + `finora-user` + Keycloak + Redis + AI | `9092`, `8085`, `8180`, `6381`, `8000` | Database User/Keycloak nằm ngoài Compose; CIC là Node đã deploy qua `CIC_SERVICE_URL` |
 | `mail` | `finora-mailpit` | `8025` UI, `1025` SMTP | không lưu trữ lâu dài (tối đa 500 thư) |
+| `ekyc` | `finora-seaweedfs` + `finora-seaweedfs-init` | `9100` (S3 API) | `seaweedfs-data` — ảnh CCCD/video liveness thử nghiệm (mục 4.3) |
 
 Database PostgreSQL của Keycloak và `finora-user` không nằm trong Compose; chúng có thể
 chạy trên máy host hoặc Neon. Container Keycloak vẫn chạy trong Docker. Xem mục 4.0 và 4.1.
@@ -422,6 +423,74 @@ Lỗi gửi email: ... lỗi=Couldn't connect to host                   -> sai M
 ```
 
 Địa chỉ email trong log được mask theo rule không log PII.
+
+## 4.3. Lưu bằng chứng eKYC (SeaweedFS, profile `ekyc`)
+
+Luồng eKYC (EKYC-002) lưu ảnh hai mặt CCCD, video liveness, khung hình và `result.json` qua S3 API.
+Dev local dùng **SeaweedFS** (`chrislusf/seaweedfs:4.48`, Apache-2.0) thay MinIO — MinIO đã ngừng phát hành
+image/binary. Khi deploy dùng Amazon S3: cùng một code, chỉ đổi biến môi trường. Bản Azure hiện để
+`EKYC_EVIDENCE_ENABLED=false` (chưa có bucket) nên eKYC dừng ở `STORAGE_UNAVAILABLE`.
+
+### Bước 1 — Điền khoá trong `docker/.env`
+
+```properties
+SEAWEEDFS_ADMIN_ACCESS_KEY=<tự sinh>     # tài khoản quản trị, chỉ seaweedfs-init dùng
+SEAWEEDFS_ADMIN_SECRET_KEY=<tự sinh>
+EKYC_S3_ACCESS_KEY=<tự sinh>             # tài khoản của finora-user: chỉ Read/Write/List/Tagging trên bucket
+EKYC_S3_SECRET_KEY=<tự sinh>
+EKYC_S3_BUCKET=finora-ekyc
+```
+
+Khoá chỉ gồm chữ, số và `. _ ~ + / = -` (container sinh `s3.json` từ các biến này lúc khởi động; ký tự
+khác sẽ làm hỏng JSON nên container dừng và báo lỗi). Sinh nhanh:
+`python -c "import secrets; print(secrets.token_hex(20))"`.
+
+### Bước 2 — Bật kho
+
+```powershell
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile ekyc up -d
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile ekyc logs seaweedfs-init
+```
+
+- `seaweedfs`: S3 API chỉ mở ở `127.0.0.1:9100` (không dùng `9000` vì trùng CIC); mã hoá khi lưu bằng
+  `-s3.encryptVolumeData`; truy cập ẩn danh bị từ chối vì đã khai báo tài khoản.
+- `seaweedfs-init` (`amazon/aws-cli:2.38.1`, chạy một lần): tạo bucket bằng tài khoản quản trị và đặt
+  vòng đời theo tag `stage=pending` 1 ngày, `stage=final` `EKYC_EVIDENCE_RETENTION_DAYS` ngày. SeaweedFS
+  nhận cấu hình nhưng chưa chắc thực thi lọc theo tag, nên đây chỉ là lớp phòng thủ thêm: worker quét dọn
+  của finora-user (mỗi giờ) mới là nguồn chuẩn, dựa trên cột `ekyc_evidence.stage`.
+- Tài khoản `finora-user` không tạo được bucket khác và chỉ thấy bucket eKYC.
+
+### Bước 3 — Cấu hình finora-user
+
+Chạy trong IntelliJ, đặt trong `finora-user/.env` (xem `.env.example`):
+
+```properties
+EKYC_EVIDENCE_ENABLED=true
+EKYC_S3_ENDPOINT=http://localhost:9100
+EKYC_S3_PATH_STYLE=true
+EKYC_S3_REGION=us-east-1
+EKYC_S3_BUCKET=finora-ekyc
+EKYC_S3_ACCESS_KEY=<giống docker/.env>
+EKYC_S3_SECRET_KEY=<giống docker/.env>
+```
+
+User gọi `/api/v1/ai/ekyc/*` bằng service account `finora-user-client` (client role `ai:ekyc:ocr`, D34/D35): cần
+`KEYCLOAK_CLIENT_SECRET` đúng trong `finora-user/.env`, không có token nội bộ riêng.
+
+Chạy trong Docker (profile `demo` hoặc `docker-compose.app.yml --profile ekyc`), compose tự trỏ
+`EKYC_S3_ENDPOINT=http://seaweedfs:8333`. Object key có dạng
+`ekyc/{EKYC_S3_ENV}/{userProfileId}/{attemptId}/{file}`, không chứa số định danh hay họ tên.
+
+Kiểm tra nhanh bằng AWS CLI trên máy (nếu có): `aws --endpoint-url http://localhost:9100 s3 ls s3://finora-ekyc --recursive`
+với khoá của tài khoản `finora-user`. Test tích hợp tuỳ chọn của finora-user:
+
+```powershell
+$env:EKYC_S3_IT_ENDPOINT="http://127.0.0.1:9100"; $env:EKYC_S3_IT_ACCESS_KEY="<EKYC_S3_ACCESS_KEY>"; $env:EKYC_S3_IT_SECRET_KEY="<EKYC_S3_SECRET_KEY>"
+mvn -pl finora-user verify "-Dit.test=S3EkycEvidenceStorageIT" "-Dtest=NoSuchTest" "-Dsurefire.failIfNoSpecifiedTests=false"
+```
+
+Dữ liệu trên SeaweedFS local chỉ là dữ liệu thử nghiệm; xoá toàn bộ bằng
+`docker compose ... --profile ekyc down -v` (mất volume `seaweedfs-data`).
 
 ## 5. Chạy Loan application bằng container
 

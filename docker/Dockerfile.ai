@@ -11,6 +11,13 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends build-essential libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Model khuôn mặt eKYC (YuNet + SFace của OpenCV Zoo) không nằm trong repo: tải lúc build
+# bằng script chỉ dùng thư viện chuẩn Python (không cần curl), URL ghim theo commit và
+# kiểm SHA-256 — sai hash thì build dừng. Đặt trước bước cài thư viện để đổi
+# requirements không phải tải lại ~38 MB model.
+COPY finora-ai/scripts/download_face_models.py ./scripts/download_face_models.py
+RUN python scripts/download_face_models.py --dest /models/face
+
 COPY finora-ai/requirements.txt ./requirements.txt
 RUN python -m pip install --upgrade pip \
     && python -m pip wheel --wheel-dir /wheels --requirement requirements.txt
@@ -23,9 +30,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Image runtime chỉ giữ OpenMP cho XGBoost; compiler không đi vào container cuối.
+# Image runtime chỉ giữ OpenMP cho XGBoost và Tesseract (kèm dữ liệu tiếng Anh) để đọc
+# MRZ/số in trên CCCD; compiler không đi vào container cuối.
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends libgomp1 \
+    && apt-get install --yes --no-install-recommends libgomp1 tesseract-ocr tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /wheels /wheels
@@ -40,6 +48,7 @@ COPY finora-ai/models/credit/model_v17.0.0.pkl ./models/credit/model_v17.0.0.pkl
 COPY finora-ai/models/credit/model_v17.0.0.json ./models/credit/model_v17.0.0.json
 COPY finora-ai/models/fraud/model_v1.1.0.pkl ./models/fraud/model_v1.1.0.pkl
 COPY finora-ai/models/fraud/model_v1.1.0.json ./models/fraud/model_v1.1.0.json
+COPY --from=builder /models/face ./models/face
 COPY finora-ai/config/product_config.json ./config/product_config.json
 
 RUN useradd --create-home --uid 10001 finora \

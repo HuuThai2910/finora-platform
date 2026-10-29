@@ -342,6 +342,97 @@ services:
     networks:
       - finora-network
 
+  # ============ eKYC EVIDENCE STORAGE (S3 LOCAL) ============
+  # Kho S3 local cho ảnh CCCD/video liveness (EKYC-002). Dùng SeaweedFS (Apache-2.0) vì MinIO đã
+  # ngừng phát hành image/binary. Chỉ mở S3 API ở 127.0.0.1:9100 — không dùng 9000 vì trùng CIC.
+  # Bật: --profile ekyc. File s3.json (2 tài khoản) được sinh lúc khởi động từ docker/.env, không commit:
+  #   ekyc-admin   (SEAWEEDFS_ADMIN_*): toàn quyền, chỉ seaweedfs-init dùng để tạo bucket;
+  #   finora-user  (EKYC_S3_*): chỉ Read/Write/List/Tagging trên bucket eKYC.
+  # Mã hoá khi lưu bằng -s3.encryptVolumeData; truy cập ẩn danh bị từ chối vì đã khai báo identities.
+  seaweedfs:
+    profiles: ["ekyc"]
+    image: chrislusf/seaweedfs:4.48
+    restart: unless-stopped
+    container_name: finora-seaweedfs
+    environment:
+      SEAWEEDFS_ADMIN_ACCESS_KEY: "${SEAWEEDFS_ADMIN_ACCESS_KEY:-}"
+      SEAWEEDFS_ADMIN_SECRET_KEY: "${SEAWEEDFS_ADMIN_SECRET_KEY:-}"
+      EKYC_S3_ACCESS_KEY: "${EKYC_S3_ACCESS_KEY:-}"
+      EKYC_S3_SECRET_KEY: "${EKYC_S3_SECRET_KEY:-}"
+      EKYC_S3_BUCKET: "${EKYC_S3_BUCKET:-finora-ekyc}"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        for v in "$$SEAWEEDFS_ADMIN_ACCESS_KEY" "$$SEAWEEDFS_ADMIN_SECRET_KEY" "$$EKYC_S3_ACCESS_KEY" "$$EKYC_S3_SECRET_KEY"; do
+          case "$$v" in
+            ""|*[!A-Za-z0-9._~+/=-]*)
+              echo "Thieu SEAWEEDFS_ADMIN_* hoac EKYC_S3_* trong docker/.env (chi chu, so va . _ ~ + / = -)" >&2
+              exit 1;;
+          esac
+        done
+        umask 077
+        printf '{"identities":[{"name":"ekyc-admin","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]},{"name":"finora-user","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:%s","Write:%s","List:%s","Tagging:%s"]}]}\n' \
+          "$$SEAWEEDFS_ADMIN_ACCESS_KEY" "$$SEAWEEDFS_ADMIN_SECRET_KEY" "$$EKYC_S3_ACCESS_KEY" "$$EKYC_S3_SECRET_KEY" \
+          "$$EKYC_S3_BUCKET" "$$EKYC_S3_BUCKET" "$$EKYC_S3_BUCKET" "$$EKYC_S3_BUCKET" > /etc/seaweedfs/s3.json
+        chown seaweed:seaweed /etc/seaweedfs/s3.json
+        # entrypoint gốc của image tự sửa quyền /data rồi hạ xuống user seaweed trước khi chạy weed.
+        exec /entrypoint.sh server -dir=/data -ip.bind=0.0.0.0 -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -s3.encryptVolumeData -master.volumeSizeLimitMB=64
+    ports:
+      - "127.0.0.1:${SEAWEEDFS_S3_HOST_PORT:-9100}:8333"
+    volumes:
+      - seaweedfs-data:/data
+    healthcheck:
+      # GET / không kèm chữ ký trả 403 nhưng chứng tỏ cổng S3 đã nhận request.
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://127.0.0.1:8333/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks:
+      - finora-network
+
+  # One-shot: tạo bucket bằng tài khoản admin và đặt vòng đời theo tag (pending 1 ngày, final
+  # EKYC_EVIDENCE_RETENTION_DAYS ngày). SeaweedFS nhận cấu hình nhưng chưa chắc thực thi lọc theo tag,
+  # nên đây chỉ là lớp phòng thủ thêm; worker quét dọn của finora-user mới là nguồn chuẩn cho hạn lưu.
+  seaweedfs-init:
+    profiles: ["ekyc"]
+    image: amazon/aws-cli:2.38.1
+    container_name: finora-seaweedfs-init
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: "${SEAWEEDFS_ADMIN_ACCESS_KEY:-}"
+      AWS_SECRET_ACCESS_KEY: "${SEAWEEDFS_ADMIN_SECRET_KEY:-}"
+      AWS_DEFAULT_REGION: "${EKYC_S3_REGION:-us-east-1}"
+      AWS_EC2_METADATA_DISABLED: "true"
+      EKYC_S3_BUCKET: "${EKYC_S3_BUCKET:-finora-ekyc}"
+      EKYC_EVIDENCE_RETENTION_DAYS: "${EKYC_EVIDENCE_RETENTION_DAYS:-30}"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        aws configure set default.s3.addressing_style path
+        S3="--endpoint-url http://seaweedfs:8333"
+        i=0
+        until aws $$S3 s3api list-buckets >/dev/null 2>&1; do
+          i=$$((i + 1))
+          if [ "$$i" -ge 60 ]; then echo "SeaweedFS chua san sang sau 2 phut" >&2; exit 1; fi
+          sleep 2
+        done
+        # Bucket đã có (chạy lại init) thì create báo lỗi; head-bucket thành công nghĩa là dùng tiếp.
+        aws $$S3 s3api create-bucket --bucket "$$EKYC_S3_BUCKET" >/dev/null 2>&1 \
+          || aws $$S3 s3api head-bucket --bucket "$$EKYC_S3_BUCKET"
+        printf '{"Rules":[{"ID":"ekyc-pending","Status":"Enabled","Filter":{"Tag":{"Key":"stage","Value":"pending"}},"Expiration":{"Days":1}},{"ID":"ekyc-final","Status":"Enabled","Filter":{"Tag":{"Key":"stage","Value":"final"}},"Expiration":{"Days":%s}}]}' \
+          "$$EKYC_EVIDENCE_RETENTION_DAYS" > /tmp/lifecycle.json
+        aws $$S3 s3api put-bucket-lifecycle-configuration --bucket "$$EKYC_S3_BUCKET" \
+          --lifecycle-configuration file:///tmp/lifecycle.json \
+          || echo "Canh bao: khong dat duoc lifecycle theo tag; worker quet don cua finora-user van xoa dung han" >&2
+        echo "San sang: bucket $$EKYC_S3_BUCKET"
+    networks:
+      - finora-network
+
   # ============ PAYMENT OWNED DATABASE ============
   # Payment không dùng Redis (B23, W3E): đã gỡ container payment-redis. Khai báo volume `payment-redis-data` ở cuối file
   # không còn service nào dùng (Compose không tạo volume không được tham chiếu); xóa được ở lần sửa danh sách volume sau.
@@ -648,6 +739,16 @@ services:
       KEYCLOAK_ISSUER_URI: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8180}/realms/${KEYCLOAK_REALM:-finora}
       KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM:-finora}/protocol/openid-connect/certs
       AI_SERVICE_URL: http://ai:8000
+      # Bằng chứng eKYC: bật cùng --profile ekyc (SeaweedFS trong cùng mạng Docker).
+      EKYC_EVIDENCE_ENABLED: "${EKYC_EVIDENCE_ENABLED:-false}"
+      EKYC_S3_ENDPOINT: http://seaweedfs:8333
+      EKYC_S3_PATH_STYLE: "true"
+      EKYC_S3_REGION: "${EKYC_S3_REGION:-us-east-1}"
+      EKYC_S3_BUCKET: "${EKYC_S3_BUCKET:-finora-ekyc}"
+      EKYC_S3_ACCESS_KEY: "${EKYC_S3_ACCESS_KEY:-}"
+      EKYC_S3_SECRET_KEY: "${EKYC_S3_SECRET_KEY:-}"
+      EKYC_S3_ENV: "${EKYC_S3_ENV:-dev}"
+      EKYC_EVIDENCE_RETENTION_DAYS: "${EKYC_EVIDENCE_RETENTION_DAYS:-30}"
       NOTIFICATION_SERVICE_URL: ${NOTIFICATION_SERVICE_URL:-http://host.docker.internal:8086}
       CIC_SERVICE_URL: ${CIC_SERVICE_URL:-https://cic-service-node.vercel.app}
       USER_CIC_MAPPING_ENABLED: "${USER_CIC_MAPPING_ENABLED:-false}"
@@ -927,6 +1028,7 @@ volumes:
   user-redis-data:
   investment-postgres-data:
   notification-postgres-data:
+  seaweedfs-data:
 
 networks:
   finora-network:

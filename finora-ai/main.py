@@ -26,19 +26,24 @@ def _load_dotenv() -> None:
 
 _load_dotenv()
 
-from fastapi import Depends, FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-from app.api import credit_router, ekyc_router, fraud_router
-from app.api import config_router
-from app.security import CREDIT_SCORE, EKYC_OCR, FRAUD_DETECT, ROLE_ADMIN, api_docs_enabled, require_any
-
 # Uvicorn chỉ cấu hình logger của chính nó; logger của app không có handler nên
-# log INFO (như dòng chẩn đoán OCR) bị nuốt. Bật handler gốc để nhìn thấy chúng.
+# log INFO (như dòng chẩn đoán eKYC) bị nuốt. Bật handler gốc **trước** khi import
+# router để cảnh báo lúc khởi động (ví dụ cấu hình eKYC) cũng có định dạng.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
+
+# Windows: phải nạp zxing-cpp TRƯỚC scikit-learn (credit/fraud). scikit-learn 1.4 mang
+# msvcp140.dll 14.32 trong sklearn/.libs; nạp trước thì zxing-cpp (biên dịch bằng MSVC
+# mới hơn) dùng nhầm bản cũ và có thể crash cả tiến trình (access violation). Nạp
+# zxing-cpp trước thì cả hai dùng bản hệ thống mới hơn. Linux/Docker không bị.
+import zxingcpp  # noqa: F401
+from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api import config_router, credit_router, ekyc_router, fraud_router
+from app.security import CREDIT_SCORE, EKYC_OCR, FRAUD_DETECT, ROLE_ADMIN, api_docs_enabled, require_any
 
 _docs = api_docs_enabled()
 app = FastAPI(

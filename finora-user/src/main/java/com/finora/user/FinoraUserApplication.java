@@ -1,8 +1,11 @@
 package com.finora.user;
 
+import com.finora.user.config.AiServiceProperties;
 import com.finora.user.config.AuthCookieProperties;
 import com.finora.user.config.CicMappingProperties;
 import com.finora.user.config.CryptoProperties;
+import com.finora.user.config.EkycConsentProperties;
+import com.finora.user.config.EkycStorageProperties;
 import com.finora.user.config.KeycloakAdminProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -17,7 +20,10 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         CryptoProperties.class,
         KeycloakAdminProperties.class,
         AuthCookieProperties.class,
-        CicMappingProperties.class
+        CicMappingProperties.class,
+        AiServiceProperties.class,
+        EkycConsentProperties.class,
+        EkycStorageProperties.class
 })
 public class FinoraUserApplication {
 

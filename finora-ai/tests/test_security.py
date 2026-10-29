@@ -105,11 +105,16 @@ def test_only_admin_reads_or_changes_scoring_config(client):
 
 
 def test_cccd_ocr_only_accepts_the_user_service_account(client):
+    # EKYC-002 thay /ekyc/ocr bằng /ekyc/document (đọc thẻ) và /ekyc/liveness; cả hai cùng quyền ai:ekyc:ocr.
     loan = _token(client_roles=[security.CREDIT_SCORE])
     user_service = _token(client_roles=[security.EKYC_OCR], azp="finora-user-client")
 
-    assert client.post("/api/v1/ai/ekyc/ocr", json={}, headers={"Authorization": "Bearer " + loan}).status_code == 403
-    assert client.post("/api/v1/ai/ekyc/ocr", json={},
+    assert client.post("/api/v1/ai/ekyc/document", json={},
+                       headers={"Authorization": "Bearer " + loan}).status_code == 403
+    assert client.post("/api/v1/ai/ekyc/liveness",
+                       headers={"Authorization": "Bearer " + loan}).status_code == 403
+    assert client.post("/api/v1/ai/ekyc/document").status_code == 401
+    assert client.post("/api/v1/ai/ekyc/document", json={},
                        headers={"Authorization": "Bearer " + user_service}).status_code == 422
 
 

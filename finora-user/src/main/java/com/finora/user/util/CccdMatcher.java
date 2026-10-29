@@ -11,11 +11,12 @@ import java.util.Locale;
 import java.util.Optional;
 
 /**
- * Đối chiếu dữ liệu OCR đọc từ ảnh CCCD với dữ liệu người dùng đã khai.
+ * Đối chiếu dữ liệu đọc từ thẻ với dữ liệu người dùng đã khai trong hồ sơ.
  * <p>
- * Chỉ số CCCD là điều kiện chặn (so bằng HMAC ở tầng service). Họ tên và ngày
- * sinh chỉ sinh cảnh báo: EasyOCR trên CCCD tiếng Việt rất hay sai dấu và nhầm
- * ký tự, nếu chặn cứng thì tỉ lệ người dùng thật bị từ chối sẽ cao vô lý.
+ * Chỉ số định danh là điều kiện chặn (so bằng HMAC ở tầng service). Họ tên và ngày
+ * sinh chỉ sinh cảnh báo: tên trong MRZ không có dấu, tên do AI đọc có thể sai dấu,
+ * còn người dùng có thể đã khai tên không dấu lúc đăng ký — chặn cứng sẽ từ chối
+ * nhầm người thật.
  */
 public final class CccdMatcher {
 

@@ -25,23 +25,60 @@ Mỗi flow mới hoặc thay đổi MUST xác định trigger, orchestrator, con
 5. User phát `KycVerified`, `KycRejected` hoặc `KycManualReviewRequired`.
 6. Notification gửi kết quả theo event.
 
-**CURRENT STATE (2026-08-22):** đã triển khai xác minh trên `UserProfile`, chưa có KYC application entity và chưa phát event; Notification chưa nhận kết quả eKYC. Luồng đã **bỏ xác minh khuôn mặt/liveness** theo quyết định thiết kế — bằng chứng định danh là ảnh giấy tờ hai mặt:
+**CURRENT STATE (2026-10-16, EKYC-002):** xác minh đọc thẻ tất định + liveness + so khuôn mặt + lưu bằng chứng
++ duyệt tay. Chưa phát event và Notification chưa nhận kết quả eKYC; "KYC application" hiện là bảng
+`ekyc_attempts` (một lượt mỗi lần quét đạt). Plan và hợp đồng chi tiết:
+[`EKYC-002`](../plans/EKYC-002-cccd-liveness-evidence.md); legal gate [`LEGAL-DATA-01`](../../docs/LEGAL-COMPLIANCE.md).
 
-eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng nhập) và chạy hai bước — quét ra bản nháp, người dùng xác nhận mới lưu:
+eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng nhập):
 
-1. **Quét:** client gửi `POST /api/v1/users/profile/ekyc-verify` gồm ảnh mặt trước và mặt sau CCCD. User chạy tuần tự và dừng ở bước đầu tiên trượt: rate limit → `POST /api/v1/ai/ekyc/ocr` trên ảnh mặt trước → đối chiếu HMAC số CCCD (`ID_MISMATCH` với hồ sơ có số cũ, `ID_TAKEN` nếu số thuộc tài khoản khác). Đạt thì cất kết quả OCR vào **bản nháp Redis (TTL 10 phút)** và trả `DRAFT_READY` kèm bản nháp — **hồ sơ chưa được ghi**.
-2. Ảnh mặt sau không OCR (model chỉ đọc mặt trước) — nộp kèm làm bằng chứng cầm thẻ đầy đủ, phục vụ đối soát tay khi có nghi vấn.
-3. **Xác nhận:** người dùng soát bản nháp trên client; sai thì quét lại, đúng thì gọi `POST /api/v1/users/profile/ekyc-confirm` (không mang dữ liệu — bản nháp đọc từ Redis để client không sửa được thông tin OCR). User kiểm tra trùng lần cuối, ghi bản nháp vào hồ sơ, chuyển `VERIFIED` (`documentVerified = true`) và tạo `user_cic_mapping_tasks` trong cùng transaction; chỉ xoá nháp Redis sau khi DB commit. Nháp hết hạn trả `DRAFT_EXPIRED`.
-4. **Ánh xạ CIC:** worker User lấy task bằng lease, giải mã CCCD just-in-time rồi gọi API nội bộ CIC với ID hồ sơ `user_profiles.id` (claim `user_id`, B26) làm `borrowerId`. CIC tắt không rollback eKYC; task retry lũy tiến và request lặp được CIC xử lý idempotent. CCCD không đi qua Kafka/log/bảng task.
-4. Các trường hợp trượt giữ nguyên trạng thái hồ sơ và trả `resultCode` (`OCR_FAILED`/`ID_MISMATCH`/`ID_TAKEN`/`RATE_LIMITED`/`AI_UNAVAILABLE`/`DRAFT_EXPIRED`) để client hướng dẫn chụp lại.
+0. **Đồng ý:** `GET/POST /api/v1/users/profile/ekyc/consent` trả điều khoản (Markdown đã điền chỗ trống, SHA-256)
+   và ghi `ekyc_consents` (phiên bản + hash + 4 mã mục đích). Mọi bước sau tự kiểm đồng ý còn hiệu lực trong DB.
+   `DELETE` rút lại: ghi `withdrawn_at`, bỏ lượt đang mở/chờ duyệt, xoá bản nháp, hồ sơ về `PENDING` (giữ hash
+   số định danh), xoá object theo tiền tố người dùng sau commit.
+1. **Quét thẻ:** `POST /api/v1/users/profile/ekyc-verify` (hai ảnh, QR mobile đọc được, nguồn ảnh). User kiểm theo
+   thứ tự: đã `VERIFIED` → trả luôn; `MANUAL_REVIEW` → `REVIEW_PENDING`; chưa đồng ý → `CONSENT_REQUIRED`; kho tắt →
+   `STORAGE_UNAVAILABLE`; rate limit; rồi gọi `POST /api/v1/ai/ekyc/document` bằng token service account `finora-user-client` (client role
+   `ai:ekyc:ocr`, D34/D35).
+   AI đọc QR → MRZ (check digit) → cấu trúc số, AI (Gemini) chỉ điền chỗ trống trên crop đã che chân dung, trả
+   `AUTO_OK|NEEDS_REVIEW|RETAKE` + nguồn từng trường + embedding chân dung. User áp luật nghiệp vụ (CMND/không nhận
+   diện, hết hạn và dưới 18 tuổi theo ngày Việt Nam, khác số hồ sơ, số thuộc tài khoản khác), mở `ekyc_attempts`
+   `IN_PROGRESS` (bỏ lượt cũ), đẩy hai ảnh lên S3 (`stage=pending`) và cất **bản nháp Redis mã hoá (15 phút)** —
+   hồ sơ chưa được ghi. `RETAKE` tăng bộ đếm chụp lại (1 giờ) gửi kèm lần sau.
+2. **Liveness:** `POST …/ekyc/liveness/challenge` cấp 3 hành động ngẫu nhiên xen FRONTAL (90 giây, một lần, gắn
+   lượt). `POST …/ekyc/liveness` (multipart video hoặc ảnh tĩnh) → `GETDEL` thử thách → chống phát lại SHA-256
+   (30 ngày) → nội bộ `POST /api/v1/ai/ekyc/liveness` (YuNet/SFace, khớp chặt chuỗi + nhịp, so mặt với embedding
+   chân dung) → lưu video + khung bằng chứng → `PASS`/`REVIEW` đi tiếp, `RETAKE` quay lại, `FAIL`/`FACE_MISMATCH`
+   tính lần trượt; trượt 3 lần trong 24 giờ → lượt + hồ sơ `MANUAL_REVIEW` (kèm bản nháp mã hoá).
+3. **Xác nhận:** `POST …/ekyc-confirm` (tuỳ chọn `edits` cho trường chỉ AI đọc). Bằng chứng gắn tag `final` và
+   `result.json` được ghi **trước** transaction. Giấy tờ `AUTO_OK` + liveness `PASS` → một transaction ghi định danh
+   vào hồ sơ, hồ sơ + lượt `VERIFIED` (`documentVerified`, `livenessVerified`, `faceMatchScore`) và tạo
+   `user_cic_mapping_tasks`; còn lại → lượt + hồ sơ `MANUAL_REVIEW` (bản nháp mã hoá trong lượt, định danh chưa ghi).
+   Claim Keycloak `ekyc_status` và dọn Redis chỉ chạy sau commit.
+4. **Duyệt tay (web admin):** `/api/v1/admin/users/ekyc-attempts…` xem danh sách/chi tiết, stream bằng chứng qua User
+   (ghi `ekyc_evidence_access_log` mỗi lần mở), duyệt → `VERIFIED` + task CIC, từ chối → `FAILED`; `@Version` chặn
+   hai người duyệt cùng lúc (`409 ATTEMPT_ALREADY_DECIDED`).
+5. **Ánh xạ CIC:** worker User lấy task bằng lease, giải mã CCCD just-in-time rồi gọi API nội bộ CIC với
+   ID hồ sơ `user_profiles.id` (claim `user_id`, B26) làm `borrowerId`. CIC tắt không rollback eKYC; task retry lũy tiến và request lặp được CIC xử lý
+   idempotent. CCCD không đi qua Kafka/log/bảng task.
+6. **Quét dọn (mỗi giờ):** lượt `IN_PROGRESS` quá 24 giờ → `ABANDONED`; xoá object của lượt bỏ, object `final` quá
+   hạn lưu (`EKYC_EVIDENCE_RETENTION_DAYS`) và object tạo trước lần rút đồng ý. Vòng đời bucket chỉ là lớp phòng thủ thêm.
 
-**State authority:** AI không giữ trạng thái; rate limit nằm ở User (Redis). Số CCCD là điều kiện đối chiếu duy nhất; họ tên và ngày sinh chỉ sinh cảnh báo `ocrWarnings`. Phần face-match/liveness phía AI đã xoá hẳn (2026-08-22); AI chỉ còn `/ocr` cho eKYC — engine duy nhất là Gemini vision, bắt buộc cấu hình `GEMINI_API_KEY` (thiếu key endpoint trả lỗi và User hiển thị AI_UNAVAILABLE).
+**State authority:** AI không giữ trạng thái và không quyết luật nghiệp vụ; User quyết `VERIFIED`/`MANUAL_REVIEW`/
+`FAILED`. Rate limit, bản nháp, thử thách, bộ đếm nằm ở Redis của User. Gateway trả 404 cho mọi
+`/api/v1/ai/ekyc/**` từ ngoài; `/api/v1/ai/credit/**` vẫn đi qua.
 
-**Chống lạm dụng:** rate limit 1 request/10 giây cho mỗi người dùng; mỗi CCCD chỉ gắn với một tài khoản toàn hệ thống.
+**Chống lạm dụng:** rate limit quét thẻ 10 giây (thêm giới hạn chung 5 lần/10 phút của D40, `429 RATE_LIMITED`),
+gửi video 10 giây, xin thử thách 3 giây mỗi người dùng; mỗi số định
+danh một tài khoản (HMAC + unique `id_number_hash`); thử thách dùng một lần; video/bộ ảnh gửi lại bị từ chối.
 
-**Idempotency:** `kycApplicationId + analysisType + modelVersion`. Hiện tại xác minh là thao tác trạng thái trên `UserProfile`, gọi lại khi đã `VERIFIED` trả kết quả cũ mà không gọi AI.
+**Idempotency:** gọi lại khi đã `VERIFIED` trả kết quả cũ không gọi AI; xác nhận trùng (bấm hai lần) va vào
+optimistic lock của lượt và trả trạng thái thật; mỗi hồ sơ tối đa một task CIC.
 
-**Failure:** AI timeout → KYC giữ `PROCESSING`/`RETRY_PENDING`; retry có giới hạn, sau đó manual review/DLT. MUST NOT tự đánh dấu verified khi AI lỗi. Hiện tại AI lỗi trả `AI_UNAVAILABLE` và giữ nguyên trạng thái hồ sơ.
+**Failure:** AI lỗi/timeout/bận → `AI_UNAVAILABLE`, giữ nguyên trạng thái và trả suất rate limit; MUST NOT tự đánh dấu
+verified khi AI lỗi. Kho lưu lỗi/tắt → `STORAGE_UNAVAILABLE`, không bao giờ `VERIFIED` khi chưa lưu đủ bằng chứng
+(lượt vừa mở bị bỏ nếu upload ảnh lỗi). Gắn tag S3 lỗi chỉ log cảnh báo (cột `stage` là nguồn chuẩn). Keycloak lỗi
+khi ghi claim → ghi bù ở lần đăng nhập sau.
 
 ## F00 — Đồng bộ FINORA Product sang Fineract
 
