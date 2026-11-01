@@ -243,7 +243,7 @@ class LoanApplicationDecisionTest {
     }
 
     @Test
-    void fundingCancellationOnlyClosesFullyFundedRoundOnce() {
+    void fundingCancellationClosesOpenOrFullyFundedRoundOnce() {
         LoanApplication application = scoringApplication(10L);
         application.completeScoring(
                 10L, AiRecommendation.APPROVED, pricing("A", "12.0000", "-0.5000"),
@@ -253,20 +253,57 @@ class LoanApplicationDecisionTest {
                 NOW.plusSeconds(3600), "SYSTEM", NOW.plusSeconds(4));
         application.requestFunding(1, 1, "SYSTEM", NOW.plusSeconds(5));
 
-        // Chưa đủ vốn thì không có allocation/tiền giữ để bồi hoàn; hết hạn gọi vốn đi luồng LoanFundingExpired.
-        assertThatThrownBy(() -> application.markFundingCancelled("CONTRACT_EXPIRED", "SYSTEM", NOW.plusSeconds(6)))
-                .isInstanceOf(LoanDomainException.class)
-                .extracting("code").isEqualTo("LOAN_FUNDING_NOT_FULLY_FUNDED");
-
-        application.markFullyFunded(20L, new BigDecimal("50000000.00"), 1L, "b".repeat(64),
-                "[{\"commitmentId\":1}]", NOW.plusSeconds(6), "SYSTEM", NOW.plusSeconds(6));
-        assertThat(application.markFundingCancelled("CONTRACT_EXPIRED", "SYSTEM", NOW.plusSeconds(7))).isTrue();
+        application.validateRequestedFundingWithdrawal(0, "BORROWER-001");
+        assertThat(application.markFundingCancelled("BORROWER_WITHDREW", "SYSTEM", NOW.plusSeconds(6))).isTrue();
         assertThat(application.getFundingStatus()).isEqualTo(LoanFundingStatus.CANCELLED);
-        assertThat(application.getFundingCancelledAt()).isEqualTo(NOW.plusSeconds(7));
-        assertThat(application.getFundingCancelReason()).isEqualTo("CONTRACT_EXPIRED");
+        assertThat(application.getAllocationHash()).isNull();
+
+        LoanApplication fundedApplication = scoringApplication(11L);
+        fundedApplication.completeScoring(
+                11L, AiRecommendation.APPROVED, pricing("A", "12.0000", "-0.5000"),
+                106L, "AI_DECISION_V17", "SYSTEM", NOW.plusSeconds(3));
+        fundedApplication.prepareTermsConfirmation(
+                TermsConfirmationStatus.AUTO_AUTHORIZED, "LOAN_TERMS_V1", "a".repeat(64),
+                NOW.plusSeconds(3600), "SYSTEM", NOW.plusSeconds(4));
+        fundedApplication.requestFunding(1, 1, "SYSTEM", NOW.plusSeconds(5));
+        fundedApplication.markFullyFunded(20L, new BigDecimal("50000000.00"), 1L, "b".repeat(64),
+                "[{\"commitmentId\":1}]", NOW.plusSeconds(6), "SYSTEM", NOW.plusSeconds(6));
+        assertThat(fundedApplication.markFundingCancelled("CONTRACT_EXPIRED", "SYSTEM", NOW.plusSeconds(7))).isTrue();
+        assertThat(fundedApplication.getFundingStatus()).isEqualTo(LoanFundingStatus.CANCELLED);
+        assertThat(fundedApplication.getFundingCancelledAt()).isEqualTo(NOW.plusSeconds(7));
+        assertThat(fundedApplication.getFundingCancelReason()).isEqualTo("CONTRACT_EXPIRED");
         // Hai nguồn (hết hạn ký và giải ngân lỗi) gọi lại không được phát bồi hoàn lần hai.
-        assertThat(application.markFundingCancelled("DISBURSEMENT_FAILED", "SYSTEM", NOW.plusSeconds(8))).isFalse();
-        assertThat(application.getFundingCancelReason()).isEqualTo("CONTRACT_EXPIRED");
+        assertThat(fundedApplication.markFundingCancelled("DISBURSEMENT_FAILED", "SYSTEM", NOW.plusSeconds(8))).isFalse();
+        assertThat(fundedApplication.getFundingCancelReason()).isEqualTo("CONTRACT_EXPIRED");
+    }
+
+    @Test
+    void cancellationReasonMustMatchFundingStage() {
+        LoanApplication requested = approvedFundingApplication(12L);
+        requested.requestFunding(1, 1, "SYSTEM", NOW.plusSeconds(5));
+        assertThatThrownBy(() -> requested.markFundingCancelled(
+                "CONTRACT_DECLINED", "SYSTEM", NOW.plusSeconds(6)))
+                .hasMessageContaining("Lý do hủy không phù hợp");
+
+        LoanApplication funded = approvedFundingApplication(13L);
+        funded.requestFunding(1, 1, "SYSTEM", NOW.plusSeconds(5));
+        funded.markFullyFunded(21L, new BigDecimal("50000000.00"), 1L, "a".repeat(64),
+                "[{\"commitmentId\":1}]", NOW.plusSeconds(6), "SYSTEM", NOW.plusSeconds(6));
+        assertThatThrownBy(() -> funded.markFundingCancelled(
+                "BORROWER_WITHDREW", "SYSTEM", NOW.plusSeconds(7)))
+                .hasMessageContaining("Lý do hủy không phù hợp");
+    }
+
+    @Test
+    void borrowerCanWithdrawAtEveryPreDecisionStage() {
+        LoanApplication scoring = scoringApplication(10L);
+        scoring.withdraw(0, "Không còn nhu cầu", "BORROWER-001", NOW.plusSeconds(3));
+        assertThat(scoring.getStatus()).isEqualTo(LoanApplicationStatus.WITHDRAWN);
+
+        LoanApplication review = scoringApplication(11L);
+        review.markPendingReview("SYSTEM", NOW.plusSeconds(3));
+        review.withdraw(0, null, "BORROWER-001", NOW.plusSeconds(4));
+        assertThat(review.getStatus()).isEqualTo(LoanApplicationStatus.WITHDRAWN);
     }
 
     @Test
@@ -291,6 +328,17 @@ class LoanApplicationDecisionTest {
         LoanApplication application = submittedApplication();
         application.startEligibility("SYSTEM", NOW.plusSeconds(1));
         application.startScoring(assessmentId, "SYSTEM", NOW.plusSeconds(2));
+        return application;
+    }
+
+    private LoanApplication approvedFundingApplication(Long assessmentId) {
+        LoanApplication application = scoringApplication(assessmentId);
+        application.completeScoring(
+                assessmentId, AiRecommendation.APPROVED, pricing("A", "12.0000", "-0.5000"),
+                100L + assessmentId, "AI_DECISION_V17", "SYSTEM", NOW.plusSeconds(3));
+        application.prepareTermsConfirmation(
+                TermsConfirmationStatus.AUTO_AUTHORIZED, "LOAN_TERMS_V1", "a".repeat(64),
+                NOW.plusSeconds(3600), "SYSTEM", NOW.plusSeconds(4));
         return application;
     }
 

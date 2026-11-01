@@ -37,6 +37,7 @@ import com.finora.loan.service.application.BorrowerKycSnapshots;
 import com.finora.loan.service.application.LoanApplicationService;
 import com.finora.loan.service.application.LoanApplicationSubmissionStateService;
 import com.finora.loan.service.application.LoanTermsConfirmationService;
+import com.finora.loan.service.funding.LoanFundingCancellationService;
 import com.finora.loan.support.HashingService;
 import java.time.Clock;
 import java.time.Instant;
@@ -67,6 +68,7 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
     private final HashingService hashingService;
     private final LoanPricingDisclosureProperties disclosureProperties;
     private final BorrowerProfileProvider profileProvider;
+    private final LoanFundingCancellationService fundingCancellationService;
     private final Clock clock;
 
     /**
@@ -166,18 +168,31 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
         return BorrowerKycSnapshots.from(profile);
     }
 
-    /** Rút hồ sơ đang SUBMITTED; thay đổi trạng thái và history cùng transaction. */
+    /**
+     * Trước quyết định: đóng hồ sơ bằng WITHDRAWN. Sau duyệt nhưng listing còn mở: giữ quyết định APPROVED
+     * làm audit, đóng trục funding và phát event để Investment hủy commitment/nhả hold.
+     */
     @Override
     @Transactional
     public LoanApplicationResponse withdraw(String applicationNumber, WithdrawLoanApplicationRequest request) {
         LoanApplication application = getApplication(applicationNumber);
         Instant now = Instant.now(clock);
         String userId = SecurityUtils.getCurrentUserId();
-        application.withdraw(request.version(), request.reason(), userId, now);
-        applicationRepository.saveAndFlush(application);
+        LoanApplicationStatus previousStatus = application.getStatus();
+        boolean openFunding = previousStatus == LoanApplicationStatus.APPROVED
+                && application.getFundingStatus() == com.finora.loan.domain.application.LoanFundingStatus.REQUESTED;
+        if (openFunding) {
+            application.validateRequestedFundingWithdrawal(request.version(), userId);
+            fundingCancellationService.cancel(
+                    application.getId(), null, LoanFundingCancellationService.BORROWER_WITHDREW, now);
+        } else {
+            application.withdraw(request.version(), request.reason(), userId, now);
+            applicationRepository.saveAndFlush(application);
+        }
         historyRepository.save(LoanApplicationStatusHistory.create(
-                application.getId(), LoanApplicationStatus.SUBMITTED, LoanApplicationStatus.WITHDRAWN,
-                "APPLICATION_WITHDRAWN", request.reason(), ActorType.BORROWER,
+                application.getId(), previousStatus, application.getStatus(),
+                openFunding ? "FUNDING_WITHDRAWN_BY_BORROWER" : "APPLICATION_WITHDRAWN",
+                request.reason(), ActorType.BORROWER,
                 userId, now));
         return mapper.toResponse(
                 application,

@@ -72,7 +72,7 @@ eKYC và bảng luật không đi qua Kafka và Investment không chép các s�
 | `DisbursementRequested` v2 / `finora.loan.disbursement-requested` | Loan → Payment | Contract đã `EFFECTIVE`, Loan đã tạo durable Saga | Payment lưu yêu cầu duy nhất theo `sagaId`, capture/đối chiếu từng `paymentHoldReference` và gọi provider ngoài transaction | unique `sagaId`; provider reference/idempotency dùng cùng `sagaId` |
 | `DisbursementCompleted` v1 / `finora.payment.disbursement-completed` | Payment → Loan | Provider xác nhận tiền đã chuyển và Payment đã lưu reference | Loan ghi nhận Fineract bằng external ID, không yêu cầu Payment chuyển lại | `eventId` + `sagaId`; `paymentReference` unique |
 | `DisbursementFailed` v1 / `finora.payment.disbursement-failed` | Payment → Loan | Lỗi cuối cùng, không còn retry tự động trong Payment | Loan giữ Contract `EFFECTIVE`, saga thành `PAYMENT_FAILED` để vận hành xử lý; nếu saga còn `WAITING_PAYMENT` thì cùng transaction ghi `LoanFundingCancelled` để nhà đầu tư được nhả tiền giữ | `eventId` + `sagaId` |
-| `LoanFundingCancelled` v1 / `finora.loan.funding-cancelled` | Loan → Investment; Notification (W3F, theo `borrowerId` P2 và allocation đã lưu) | Đợt gọi vốn đã đủ vốn nhưng khoản vay chắc chắn không giải ngân: Contract nhiều bên `DECLINED`/`EXPIRED`, hoặc `DisbursementFailed` đến khi saga còn `WAITING_PAYMENT` | Investment khóa listing, đối chiếu allocation, hủy commitment `ACTIVE` và lệnh tương ứng, chuyển listing `CANCELLED`; worker bảo trì nhả từng hold theo mã lệnh. Đã có commitment `FINALIZED` hoặc `disbursedAt` thì từ chối (DLT) vì tiền đã capture | `eventId` trong `processed_events`; Loan chỉ chuyển `fundingStatus FULLY_FUNDED → CANCELLED` một lần nên event logic chỉ sinh một lần; replay với `eventId` mới là no-op khi listing đã `CANCELLED` |
+| `LoanFundingCancelled` v1 / `finora.loan.funding-cancelled` | Loan → Investment; Notification | Người vay rút listing còn mở; Contract nhiều bên bị một bên chưa ký từ chối/hết hạn; hoặc `DisbursementFailed` khi saga còn `WAITING_PAYMENT` | Nhánh listing `OPEN` đối chiếu application + round; nhánh đã đủ vốn đối chiếu exact allocation. Investment hủy commitment/lệnh, chuyển listing `CANCELLED`; worker nhả từng hold. Notification chỉ báo borrower nếu chưa có allocation, hoặc báo cả allocation đã khóa | `eventId` trong `processed_events`; Loan chỉ chuyển funding sang `CANCELLED` một lần; replay với `eventId` mới là no-op khi listing đã `CANCELLED` |
 | `LoanDisbursed` v1 / `finora.loan.disbursed` | Loan → Investment, Payment, Blockchain (proof `DISBURSEMENT`, W3D); Notification (W3F) | Payment success và Fineract đã ghi disbursement | Investment `ACTIVE → FINALIZED` commitments và phát hành Note; các consumer khác chỉ tạo projection/proof/thông báo. Mang `borrowerId` (P2) và kỳ đầu `nextDueDate`/`nextDueAmount` từ Fineract (P3) để Notification báo và nhắc từ kỳ 1 | `eventId`; Note unique theo commitment/sequence |
 | `NoteOwnershipChanged` v1 / `finora.investment.note-ownership-changed` | Investment → Payment, Blockchain (proof `NOTE_OWNERSHIP`, W3D) | Note vừa phát hành hoặc đổi chủ trên chợ thứ cấp | Payment cập nhật read model chủ Note để kỳ trả tiếp theo chuyển tiền đúng người đang sở hữu | `eventId`; `noteId` unique; event cũ hơn `changedAt` không ghi đè event mới |
 | `RepaymentDistributed` v1 / `finora.payment.repayment-distributed` | Payment → Loan, Investment, Blockchain; Notification (W3F) | Ví người vay đã bị trừ, Fineract đã phân bổ và ledger phân phối đã cân bằng | Loan cập nhật projection; Investment cộng gốc/lãi/phần phí trả trước của Note và đóng Note khi hết gốc; Blockchain chỉ neo SHA-256 của `data`; Notification báo người vay theo `borrowerId` (P4) và cập nhật lịch nhắc | `eventId`; unique `repaymentId`/`fineractTransactionId`; `processed_events` |
@@ -244,15 +244,21 @@ Payment. `LoanDisbursed` mới xác nhận toàn bộ happy path bắt buộc (P
 ```
 
 - `borrowerId` (P2, W3F, optional, tương thích ngược): ID logic người vay để Notification báo; Investment bỏ qua.
-- `reasonCode` chỉ nhận `CONTRACT_DECLINED`, `CONTRACT_EXPIRED` hoặc `DISBURSEMENT_FAILED`; giá trị khác bị
+- `reasonCode` nhận `BORROWER_WITHDREW`, `CONTRACT_DECLINED`, `CONTRACT_EXPIRED` hoặc `DISBURSEMENT_FAILED`; giá trị khác bị
   Investment từ chối. Payload không mang lý do tự do hoặc PII.
-- Investment chỉ hủy khi `loanApplicationId`, `applicationNumber`, `fundingRound`, `allocationVersion`,
-  `allocationHash` và `contractNumber` (nếu listing đã gắn) khớp listing `FULLY_FUNDED`. Sai lệch nghĩa là
-  hai service không cùng một allocation: fail closed, không nhả tiền theo phỏng đoán.
+- Với `BORROWER_WITHDREW`, `listingId`, `contractNumber`, `allocationVersion` và `allocationHash` là `null`: Investment
+  tìm dưới khóa bằng `applicationNumber + fundingRound`, bắt buộc đúng `loanApplicationId` và listing còn `OPEN`.
+  Nếu lệnh cuối làm listing `FULLY_FUNDED` trong lúc event đang truyền, consumer vẫn bù trừ miễn chưa disburse/`FINALIZED`;
+  Loan đã commit `CANCELLED` trước nên không lập Contract từ funded event đến muộn.
+  Notification chỉ báo borrower, không chờ lender projection chưa tồn tại.
+- Với ba lý do còn lại, Investment chỉ hủy khi `loanApplicationId`, `applicationNumber`, `fundingRound`,
+  `allocationVersion`, `allocationHash` và `contractNumber` (nếu listing đã gắn) khớp listing `FULLY_FUNDED`.
+  Sai lệch nghĩa là hai service không cùng một allocation: fail closed, không nhả tiền theo phỏng đoán.
 - Lệnh bị hủy mang `rejectedReasonCode = LOAN_FUNDING_CANCELLED` và mô tả tiếng Việt; tiền được trả qua
   `FundingMaintenanceService.releasePendingHolds` (idempotent theo mã lệnh), không gọi Payment trong
   transaction consumer.
-- Phía Loan, `funding.status = CANCELLED` kèm `cancelledAt`, `cancelReason`. Contract giữ nguyên trạng thái
+- Phía Loan, `funding.status = CANCELLED` kèm `cancelledAt`, `cancelReason`. Hồ sơ đã duyệt giữ `APPROVED` làm audit;
+  Contract (nếu đã lập) giữ nguyên trạng thái
   thật (`DECLINED`/`EXPIRED`, hoặc `EFFECTIVE` khi giải ngân thất bại); client phải ưu tiên trạng thái
   funding để không hiển thị “hợp đồng đang hiệu lực” cho khoản vay sẽ không được giải ngân.
 - Ngoài phạm vi v1: giải ngân thất bại sau khi Payment đã capture (saga đã qua `WAITING_PAYMENT`) cần

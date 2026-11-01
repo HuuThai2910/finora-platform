@@ -679,6 +679,21 @@ class NotificationFlowIT {
         assertThat(types("b-" + cancelledLoan)).containsExactly("LOAN_FUNDING_CANCELLED");
         assertThat(types("i-" + cancelledLoan)).containsExactly("INVESTMENT_FUNDING_CANCELLED");
 
+        // Listing còn OPEN: chưa có allocation/lender projection nhưng event vẫn phải kết thúc và báo borrower.
+        Long withdrawnLoan = SEQUENCE.incrementAndGet();
+        Map<String, Object> withdrawn = new LinkedHashMap<>();
+        withdrawn.put("loanApplicationId", withdrawnLoan);
+        withdrawn.put("applicationNumber", "LA-2026-" + withdrawnLoan);
+        withdrawn.put("fundingRound", 1);
+        withdrawn.put("contractNumber", null);
+        withdrawn.put("allocationVersion", null);
+        withdrawn.put("reasonCode", "BORROWER_WITHDREW");
+        withdrawn.put("cancelledAt", "2026-10-17T03:01:00Z");
+        withdrawn.put("borrowerId", "b-" + withdrawnLoan);
+        assertThat(send("finora.loan.funding-cancelled", "LoanFundingCancelled", 1, withdrawn))
+                .isEqualTo(IntakeResult.DELIVERED);
+        assertThat(types("b-" + withdrawnLoan)).containsExactly("LOAN_FUNDING_CANCELLED");
+
         Long consentLoan = SEQUENCE.incrementAndGet();
         Map<String, Object> consent = new LinkedHashMap<>();
         consent.put("requestId", UUID.randomUUID().toString());

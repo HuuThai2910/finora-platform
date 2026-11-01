@@ -37,6 +37,7 @@ public class LoanFundingCancelledHandlerImpl implements LoanFundingCancelledHand
     private static final String ACTOR = "SYSTEM-LOAN-FUNDING-CANCELLED";
     private static final String ORDER_REASON = "LOAN_FUNDING_CANCELLED";
     private static final Map<String, String> REASON_DETAIL = Map.of(
+            "BORROWER_WITHDREW", "Người vay đã rút hồ sơ trước khi ký; tiền giữ được trả lại ví",
             "CONTRACT_DECLINED", "Người vay từ chối hợp đồng; khoản vay không giải ngân, tiền giữ được trả lại ví",
             "CONTRACT_EXPIRED", "Hợp đồng hết hạn ký; khoản vay không giải ngân, tiền giữ được trả lại ví",
             "DISBURSEMENT_FAILED", "Giải ngân thất bại khi tiền chưa chuyển; tiền giữ được trả lại ví");
@@ -54,14 +55,20 @@ public class LoanFundingCancelledHandlerImpl implements LoanFundingCancelledHand
             return;
         }
         String reasonDetail = REASON_DETAIL.get(data.reasonCode());
-        if (reasonDetail == null || data.listingId() == null || data.allocationVersion() == null
-                || data.allocationHash() == null || !data.allocationHash().matches("^[0-9a-f]{64}$")) {
-            throw new IllegalArgumentException("LoanFundingCancelled thiếu listing/allocation hoặc reasonCode không hợp lệ");
+        if (reasonDetail == null || data.applicationNumber() == null || data.fundingRound() == null) {
+            throw new IllegalArgumentException("LoanFundingCancelled thiếu business key hoặc reasonCode không hợp lệ");
         }
-        MarketListing listing = listingRepository.findByIdForUpdate(data.listingId())
-                .orElseThrow(() -> InvestmentDomainException.notFound(
-                        "LISTING_NOT_FOUND", "Không tìm thấy listing của đợt gọi vốn bị hủy"));
-        requireSameAllocation(listing, data);
+        boolean openWithdrawal = "BORROWER_WITHDREW".equals(data.reasonCode());
+        MarketListing listing = openWithdrawal
+                ? listingRepository.findByApplicationNumberAndFundingRoundForUpdate(
+                        data.applicationNumber(), data.fundingRound()).orElseThrow(() -> InvestmentDomainException.notFound(
+                        "LISTING_NOT_FOUND", "Không tìm thấy listing của hồ sơ đã rút"))
+                : lockedAllocationListing(data);
+        if (openWithdrawal) {
+            requireOpenWithdrawal(listing, data);
+        } else {
+            requireSameAllocation(listing, data);
+        }
         Instant now = clock.instant();
         if (listing.getStatus() != ListingStatus.CANCELLED) {
             requireNotDisbursed(listing);
@@ -78,6 +85,35 @@ public class LoanFundingCancelledHandlerImpl implements LoanFundingCancelledHand
         processedEventRepository.saveAndFlush(ProcessedEvent.create(
                 eventId, "LoanFundingCancelled", 1, "finora-loan",
                 data.applicationNumber(), occurredAt, now));
+    }
+
+    private MarketListing lockedAllocationListing(LoanFundingCancelledEventData data) {
+        if (data.listingId() == null || data.allocationVersion() == null
+                || data.allocationHash() == null || !data.allocationHash().matches("^[0-9a-f]{64}$")) {
+            throw new IllegalArgumentException("LoanFundingCancelled thiếu listing/allocation đã khóa");
+        }
+        return listingRepository.findByIdForUpdate(data.listingId())
+                .orElseThrow(() -> InvestmentDomainException.notFound(
+                        "LISTING_NOT_FOUND", "Không tìm thấy listing của đợt gọi vốn bị hủy"));
+    }
+
+    private void requireOpenWithdrawal(MarketListing listing, LoanFundingCancelledEventData data) {
+        boolean sameListing = listing.getLoanId().equals(data.loanApplicationId())
+                && listing.getApplicationNumber().equals(data.applicationNumber())
+                && listing.getFundingRound().equals(data.fundingRound());
+        if (!sameListing) {
+            throw InvestmentDomainException.conflict(
+                    "FUNDING_CANCELLATION_MISMATCH", "Yêu cầu rút hồ sơ không khớp listing đang mở");
+        }
+        // Loan đã khóa Application ở REQUESTED trước khi nhận lệnh rút. Trong thời gian event đi qua Kafka,
+        // lệnh cuối có thể vừa khóa allocation bên Investment; vẫn phải bù trừ nếu chưa disburse/finalize.
+        if (listing.getStatus() != ListingStatus.OPEN
+                && listing.getStatus() != ListingStatus.FULLY_FUNDED
+                && listing.getStatus() != ListingStatus.CANCELLED) {
+            throw InvestmentDomainException.conflict(
+                    "LISTING_NOT_CANCELLABLE",
+                    "Đợt gọi vốn không còn ở trạng thái có thể bù trừ yêu cầu rút hồ sơ");
+        }
     }
 
     private void requireSameAllocation(MarketListing listing, LoanFundingCancelledEventData data) {

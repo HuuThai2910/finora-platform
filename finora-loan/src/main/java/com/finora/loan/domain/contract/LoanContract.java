@@ -483,13 +483,42 @@ public class LoanContract {
     ) {
         requireOwner(actorId);
         requireVersion(expectedVersion);
-        requirePending();
+        requireDeclinableByBorrower();
         requireNotExpired(now);
+        clearBorrowerSignatureAttemptForDecline();
         status = LoanContractStatus.DECLINED;
         consentIdempotencyKey = requireText(idempotencyKey, "idempotencyKey");
         consentRequestHash = requireText(requestHash, "requestHash");
         consentAction = ConsentAction.DECLINE;
         declinedBy = actorId;
+        declinedAt = now;
+        declineReasonCode = Objects.requireNonNull(reasonCode, "reasonCode");
+        declineReasonDetail = normalizeOptional(reasonDetail);
+        updatedBy = actorId;
+        updatedAt = now;
+    }
+
+    /** Service đã khóa và xác nhận actor sở hữu lender party chưa ký trước khi gọi transition này. */
+    public void declineByInvestor(
+            long expectedVersion,
+            ContractDeclineReasonCode reasonCode,
+            String reasonDetail,
+            String idempotencyKey,
+            String requestHash,
+            String actorId,
+            Instant now
+    ) {
+        requireVersion(expectedVersion);
+        if (status != LoanContractStatus.PENDING_LENDER_SIGNATURES) {
+            throw LoanDomainException.conflict(
+                    "LENDER_SIGNATURE_WINDOW_CLOSED", "Hợp đồng không còn chờ chữ ký nhà đầu tư");
+        }
+        requireNotExpired(now);
+        status = LoanContractStatus.DECLINED;
+        consentIdempotencyKey = requireText(idempotencyKey, "idempotencyKey");
+        consentRequestHash = requireText(requestHash, "requestHash");
+        consentAction = ConsentAction.DECLINE;
+        declinedBy = requireText(actorId, "actorId");
         declinedAt = now;
         declineReasonCode = Objects.requireNonNull(reasonCode, "reasonCode");
         declineReasonDetail = normalizeOptional(reasonDetail);
@@ -559,6 +588,33 @@ public class LoanContract {
                     "Hợp đồng không còn ở trạng thái chờ ký"
             );
         }
+    }
+
+    private void requireDeclinableByBorrower() {
+        if (status != LoanContractStatus.PENDING_SIGNATURE
+                && status != LoanContractStatus.PENDING_LENDER_SIGNATURES
+                && status != LoanContractStatus.PENDING_BORROWER_SIGNATURE
+                && status != LoanContractStatus.SIGNING) {
+            throw LoanDomainException.conflict(
+                    "INVALID_CONTRACT_TRANSITION",
+                    "Hợp đồng không còn ở trạng thái có thể từ chối trước chữ ký"
+            );
+        }
+    }
+
+    private void clearBorrowerSignatureAttemptForDecline() {
+        if (status != LoanContractStatus.SIGNING) {
+            return;
+        }
+        consentIdempotencyKey = null;
+        consentRequestHash = null;
+        consentAction = null;
+        signatureMethod = null;
+        signatureProvider = null;
+        signatureTransactionId = null;
+        signatureDocumentId = null;
+        signatureRequestedAt = null;
+        signatureEvidenceHash = null;
     }
 
     private void requireNotExpired(Instant now) {

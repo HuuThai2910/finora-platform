@@ -82,6 +82,22 @@ class ContractPartyTest {
                 "FINORA-INV-TX-002", DOCUMENT, "INV-KEY-002", REQUEST_HASH, ACTOR, NOW.plusSeconds(800))).isTrue();
     }
 
+    @Test
+    void investorCanDeclineBeforeButNotAfterSignature() {
+        ContractParty pending = lender();
+        assertThat(pending.decline("DECLINE-1", REQUEST_HASH, ACTOR, NOW)).isTrue();
+        assertThat(pending.decline("DECLINE-1", REQUEST_HASH, ACTOR, NOW.plusSeconds(1))).isFalse();
+        assertThat(pending.getStatus()).isEqualTo(ContractPartyStatus.DECLINED);
+
+        ContractParty signed = lender();
+        signed.recordSignature(
+                SignatureMethod.CLICK_WRAP_MVP, SignatureProviderType.MOCK, TRANSACTION,
+                EVIDENCE_HASH, "SIGN-1", REQUEST_HASH, ACTOR, NOW);
+        assertThatThrownBy(() -> signed.decline("DECLINE-2", REQUEST_HASH, ACTOR, NOW.plusSeconds(1)))
+                .isInstanceOf(LoanDomainException.class)
+                .extracting("code").isEqualTo("CONTRACT_PARTY_ALREADY_SIGNED");
+    }
+
     private ContractParty lender() {
         return ContractParty.lender(
                 10L, 101L, ACTOR, new BigDecimal("1000000.00"),

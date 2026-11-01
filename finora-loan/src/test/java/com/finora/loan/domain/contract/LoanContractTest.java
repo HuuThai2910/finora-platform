@@ -32,7 +32,7 @@ class LoanContractTest {
                 0, ContractDeclineReasonCode.OTHER, null, "other-key", "d".repeat(64),
                 "BORROWER-001", NOW.plusSeconds(20)))
                 .isInstanceOf(LoanDomainException.class)
-                .hasMessageContaining("chờ ký");
+                .extracting("code").isEqualTo("INVALID_CONTRACT_TRANSITION");
     }
 
     @Test
@@ -143,6 +143,32 @@ class LoanContractTest {
 
         assertThat(contract.getStatus()).isEqualTo(LoanContractStatus.EFFECTIVE);
         assertThat(contract.getEffectiveAt()).isEqualTo(NOW.plusSeconds(30));
+    }
+
+    @Test
+    void borrowerMayDeclineWhileLendersAreStillSigning() {
+        LoanContract contract = contract(NOW.plusSeconds(3600));
+        contract.initializeMultiParty();
+
+        contract.decline(
+                0, ContractDeclineReasonCode.BORROWER_CHANGED_MIND, null,
+                "decline-key", "d".repeat(64), "BORROWER-001", NOW.plusSeconds(10));
+
+        assertThat(contract.getStatus()).isEqualTo(LoanContractStatus.DECLINED);
+        assertThat(contract.getDeclinedBy()).isEqualTo("BORROWER-001");
+    }
+
+    @Test
+    void investorMayCloseContractOnlyDuringLenderSignatureWindow() {
+        LoanContract contract = contract(NOW.plusSeconds(3600));
+        contract.initializeMultiParty();
+
+        contract.declineByInvestor(
+                0, ContractDeclineReasonCode.INVESTOR_CHANGED_MIND, "Đổi kế hoạch",
+                "investor-decline-key", "e".repeat(64), "INVESTOR-001", NOW.plusSeconds(10));
+
+        assertThat(contract.getStatus()).isEqualTo(LoanContractStatus.DECLINED);
+        assertThat(contract.getDeclinedBy()).isEqualTo("INVESTOR-001");
     }
 
     @Test

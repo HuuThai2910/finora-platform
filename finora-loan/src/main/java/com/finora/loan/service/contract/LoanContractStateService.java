@@ -7,6 +7,7 @@ import com.finora.loan.domain.application.ActorType;
 import com.finora.loan.domain.application.LoanApplication;
 import com.finora.loan.domain.contract.ConsentAction;
 import com.finora.loan.domain.contract.ContractParty;
+import com.finora.loan.domain.contract.ContractPartyStatus;
 import com.finora.loan.domain.contract.ContractPartyType;
 import com.finora.loan.domain.contract.ContractPdfArtifactType;
 import com.finora.loan.domain.contract.ContractPdfSignature;
@@ -630,6 +631,62 @@ public class LoanContractStateService {
         abandonPdfSignatureOnClose(contract, now);
         saveHistory(contract, previousStatus, LoanContractStatus.DECLINED,
                 request.reasonCode().name(), ActorType.BORROWER, actorId, now);
+        recordClosedWithoutSignature(contract, request.reasonCode().name(), now);
+        return new ContractConsentResult(contract, false);
+    }
+
+    /**
+     * Nhà đầu tư từ chối trước khi phần vốn của họ có chữ ký. Một Contract dùng chung cho toàn bộ allocation,
+     * nên quyết định này đóng Contract và phát cùng event bồi hoàn như nhánh borrower từ chối.
+     */
+    @Transactional
+    public ContractConsentResult declineByInvestor(
+            String contractNumber,
+            String idempotencyKey,
+            String requestHash,
+            DeclineLoanContractRequest request,
+            String investorId
+    ) {
+        LoanContract duplicate = contractRepository.findByConsentIdempotencyKey(idempotencyKey).orElse(null);
+        if (duplicate != null) {
+            if (!duplicate.getContractNumber().equals(contractNumber)
+                    || !investorId.equals(duplicate.getDeclinedBy())
+                    || !duplicate.isSameConsent(idempotencyKey, requestHash, ConsentAction.DECLINE)) {
+                throw LoanBusinessException.conflict(
+                        "IDEMPOTENCY_KEY_REUSED", "Idempotency-Key đã được dùng cho một consent khác");
+            }
+            return new ContractConsentResult(duplicate, false);
+        }
+        if (request.reasonCode() != com.finora.loan.domain.contract.ContractDeclineReasonCode.INVESTOR_CHANGED_MIND
+                && request.reasonCode() != com.finora.loan.domain.contract.ContractDeclineReasonCode.OTHER) {
+            throw LoanBusinessException.badRequest(
+                    "INVALID_INVESTOR_DECLINE_REASON", "Lý do từ chối không dành cho nhà đầu tư");
+        }
+        LoanContract contract = lockedContract(contractNumber);
+        List<ContractParty> parties = partyRepository.findForUpdate(
+                contract.getId(), ContractPartyType.LENDER, investorId);
+        if (parties.isEmpty()) {
+            throw LoanBusinessException.forbidden(
+                    "INVESTOR_CONTRACT_ACCESS_DENIED", "Bạn không có phần vốn trong hợp đồng này");
+        }
+        if (parties.stream().anyMatch(party -> party.getStatus() == ContractPartyStatus.SIGNED)) {
+            throw LoanBusinessException.conflict(
+                    "CONTRACT_PARTY_ALREADY_SIGNED", "Phần vốn đã ký nên không thể rút đơn phương");
+        }
+        Instant now = clock.instant();
+        if (expireDuringConsent(contract, now)) {
+            return new ContractConsentResult(contract, true);
+        }
+        LoanContractStatus previousStatus = contract.getStatus();
+        contract.declineByInvestor(
+                request.version(), request.reasonCode(), request.reasonDetail(), idempotencyKey,
+                requestHash, investorId, now);
+        parties.forEach(party -> party.decline(idempotencyKey, requestHash, investorId, now));
+        partyRepository.saveAllAndFlush(parties);
+        contractRepository.saveAndFlush(contract);
+        abandonPdfSignatureOnClose(contract, now);
+        saveHistory(contract, previousStatus, LoanContractStatus.DECLINED,
+                request.reasonCode().name(), ActorType.INVESTOR, investorId, now);
         recordClosedWithoutSignature(contract, request.reasonCode().name(), now);
         return new ContractConsentResult(contract, false);
     }

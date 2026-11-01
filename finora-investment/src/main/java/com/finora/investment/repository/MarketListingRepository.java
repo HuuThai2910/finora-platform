@@ -34,6 +34,15 @@ public interface MarketListingRepository extends JpaRepository<MarketListing, Lo
 
     Optional<MarketListing> findByApplicationNumberAndFundingRound(String applicationNumber, Integer fundingRound);
 
+    /** Khóa listing theo business key khi Loan hủy trước lúc nhận được listingId/allocation. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT l FROM MarketListing l WHERE l.applicationNumber = :applicationNumber "
+            + "AND l.fundingRound = :fundingRound")
+    Optional<MarketListing> findByApplicationNumberAndFundingRoundForUpdate(
+            @Param("applicationNumber") String applicationNumber,
+            @Param("fundingRound") Integer fundingRound
+    );
+
     boolean existsByLoanId(Long loanId);
 
     Page<MarketListing> findByStatus(ListingStatus status, Pageable pageable);

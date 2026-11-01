@@ -7,9 +7,9 @@ public enum LoanFundingStatus {
     /** Investment báo đợt gọi vốn hết hạn mà chưa đủ vốn; không lập Contract cho đợt này. */
     EXPIRED,
     /**
-     * Đã đủ vốn nhưng khoản vay sẽ không được giải ngân (hợp đồng bị từ chối/hết hạn ký hoặc Payment
-     * báo giải ngân thất bại khi tiền chưa chuyển). Loan phát {@code LoanFundingCancelled.v1} để
-     * Investment hủy phần vốn và trả tiền đang giữ cho nhà đầu tư.
+     * Đợt gọi vốn bị dừng trước giải ngân: borrower rút khi listing còn mở, hợp đồng bị từ chối/hết hạn
+     * ký, hoặc Payment báo giải ngân thất bại khi tiền chưa chuyển. Loan phát
+     * {@code LoanFundingCancelled.v1} để Investment hủy phần vốn và trả tiền đang giữ.
      */
     CANCELLED
 }

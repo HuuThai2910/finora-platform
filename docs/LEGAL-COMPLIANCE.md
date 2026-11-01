@@ -99,6 +99,10 @@ Các kiểm soát trên triển khai Điều 4, 10, 23, 25, 37 và 38 của `LAW
 - Contract nhiều bên chỉ được lập sau `LoanFullyFunded.v2`, khi danh sách nhà đầu tư, phần vốn,
   `allocationVersion` và `allocationHash` đã khóa. Mỗi bên cho vay ký cùng PDF/hash trước, sau đó người
   vay ký; receipt phải hiển thị bằng chứng riêng của từng bên, không dựng chữ ký giả.
+- Policy demo cho phép người vay rút hồ sơ/đợt gọi vốn và nhà đầu tư rút lệnh riêng trước khi allocation khóa.
+  Sau khi allocation khóa, một bên chưa ký có thể từ chối Contract chung; toàn bộ giao dịch dừng và tiền giữ được
+  nhả. Bên đã ký không được rút đơn phương qua luồng này. Đây là điều kiện giao kết do FINORA công bố, không phải
+  tuyên bố pháp luật mặc nhiên trao quyền rút ở mọi thời điểm; bản production phải đưa rõ vào hợp đồng và legal review.
 - PDF/text hợp đồng mới dùng `LOAN_TERMS_V2`, `CLICK_WRAP_TEXT_V3`, `CONTRACT_PDF_V2` và công bố chính
   sách servicing `FINORA_SERVICING_TERMS_V2` cùng biểu phí `AGRIBANK_REFERENCE_FINORA_2026_V2`:
   không thu lãi tương lai, bảng phí theo thời hạn, mức tối thiểu 100.000 đồng, cách chia 80/20 và cổng

@@ -353,6 +353,43 @@ public class ContractParty {
         return true;
     }
 
+    /**
+     * Nhà đầu tư được từ chối trước khi phần vốn của chính họ có chữ ký. Nếu đang có phiên SmartCA thì đóng
+     * phiên trước; request lặp cùng key/hash là no-op để API an toàn khi retry.
+     */
+    public boolean decline(
+            String requestedIdempotencyKey,
+            String requestedHash,
+            String actorId,
+            Instant now
+    ) {
+        requireOwner(actorId);
+        if (status == ContractPartyStatus.DECLINED) {
+            if (Objects.equals(idempotencyKey, requestedIdempotencyKey)
+                    && Objects.equals(requestHash, requestedHash)) {
+                return false;
+            }
+            throw LoanDomainException.conflict(
+                    "CONTRACT_PARTY_ALREADY_DECLINED", "Phần vốn đã được từ chối bằng yêu cầu khác");
+        }
+        if (status == ContractPartyStatus.SIGNED) {
+            throw LoanDomainException.conflict(
+                    "CONTRACT_PARTY_ALREADY_SIGNED", "Phần vốn đã ký nên không thể rút đơn phương");
+        }
+        if (status != ContractPartyStatus.PENDING_SIGNATURE && status != ContractPartyStatus.SIGNING) {
+            throw LoanDomainException.conflict(
+                    "CONTRACT_PARTY_NOT_PENDING", "Phần vốn không còn ở trạng thái chờ ký");
+        }
+        if (status == ContractPartyStatus.SIGNING) {
+            clearDigitalSignatureAttempt(now);
+        }
+        idempotencyKey = requireText(requestedIdempotencyKey, "idempotencyKey");
+        requestHash = requireHash(requestedHash, "requestHash");
+        status = ContractPartyStatus.DECLINED;
+        updatedAt = Objects.requireNonNull(now, "now");
+        return true;
+    }
+
     public void requireOwner(String actorId) {
         if (!partyId.equals(actorId)) {
             throw LoanDomainException.forbidden(

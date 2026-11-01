@@ -847,6 +847,53 @@ class FundingFlowIT {
     }
 
     @Test
+    @DisplayName("Borrower rút khi listing còn mở: hủy mọi phần vốn và worker nhả hold")
+    void borrowerWithdrawalCancelsOpenListingAndReleasesHolds() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        actAs("INVESTOR-OPEN-WITHDRAWAL");
+        BigDecimal before = stubPayment().availableBalance("INVESTOR-OPEN-WITHDRAWAL");
+        OrderResponse order = fundingService.placeOrder(created.listingId(), "key-open-withdrawal",
+                new PlaceOrderRequest(new BigDecimal("3000000.00"), "INVESTOR_RISK_V1"));
+        SecurityContextHolder.clearContext();
+        var open = listingRepository.findById(created.listingId()).orElseThrow();
+
+        loanFundingCancelledHandler.handle(UUID.randomUUID(), Instant.now(), new LoanFundingCancelledEventData(
+                open.getLoanId(), open.getApplicationNumber(), null, open.getFundingRound(),
+                null, null, null, "BORROWER_WITHDREW", Instant.now()));
+
+        assertThat(listingRepository.findById(open.getId()).orElseThrow().getStatus())
+                .isEqualTo(ListingStatus.CANCELLED);
+        assertThat(orderRepository.findByOrderReference(order.orderReference()).orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.CANCELLED);
+        assertThat(fundingMaintenance.releasePendingHolds(100)).isGreaterThanOrEqualTo(1);
+        assertThat(stubPayment().availableBalance("INVESTOR-OPEN-WITHDRAWAL")).isEqualByComparingTo(before);
+    }
+
+    @Test
+    @DisplayName("Lệnh cuối khóa allocation trong lúc event rút đang truyền vẫn được bù trừ")
+    void borrowerWithdrawalCompensatesConcurrentFullyFundedListing() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        actAs("INVESTOR-WITHDRAWAL-RACE");
+        BigDecimal before = stubPayment().availableBalance("INVESTOR-WITHDRAWAL-RACE");
+        OrderResponse order = fundingService.placeOrder(created.listingId(), "key-withdrawal-race",
+                new PlaceOrderRequest(new BigDecimal("10000000.00"), "INVESTOR_RISK_V1"));
+        SecurityContextHolder.clearContext();
+        var funded = listingRepository.findById(created.listingId()).orElseThrow();
+        assertThat(funded.getStatus()).isEqualTo(ListingStatus.FULLY_FUNDED);
+
+        loanFundingCancelledHandler.handle(UUID.randomUUID(), Instant.now(), new LoanFundingCancelledEventData(
+                funded.getLoanId(), funded.getApplicationNumber(), null, funded.getFundingRound(),
+                null, null, null, "BORROWER_WITHDREW", Instant.now()));
+
+        assertThat(listingRepository.findById(funded.getId()).orElseThrow().getStatus())
+                .isEqualTo(ListingStatus.CANCELLED);
+        assertThat(orderRepository.findByOrderReference(order.orderReference()).orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.CANCELLED);
+        assertThat(fundingMaintenance.releasePendingHolds(100)).isGreaterThanOrEqualTo(1);
+        assertThat(stubPayment().availableBalance("INVESTOR-WITHDRAWAL-RACE")).isEqualByComparingTo(before);
+    }
+
+    @Test
     @DisplayName("Yêu cầu hủy không khớp allocation đã khóa bị từ chối, tiền vẫn được giữ")
     void loanFundingCancellationRejectsMismatchedAllocation() {
         MarketListingResponse created = newListing("10000000.00", "1000000.00");

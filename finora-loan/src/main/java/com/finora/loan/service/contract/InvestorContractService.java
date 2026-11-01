@@ -1,6 +1,7 @@
 package com.finora.loan.service.contract;
 
 import com.finora.loan.dto.contract.request.SignLoanContractRequest;
+import com.finora.loan.dto.contract.request.DeclineLoanContractRequest;
 import com.finora.loan.dto.contract.response.InvestorContractResponse;
 
 public interface InvestorContractService {
@@ -12,6 +13,8 @@ public interface InvestorContractService {
     /** Trang biên nhận chữ ký số, chỉ có sau khi đủ chữ ký. */
     LoanContractPdfContent receipt(String contractNumber);
     InvestorContractResponse sign(String contractNumber, String idempotencyKey, SignLoanContractRequest request);
+    InvestorContractResponse decline(
+            String contractNumber, String idempotencyKey, DeclineLoanContractRequest request);
     InvestorContractResponse refreshSignature(String contractNumber);
 
     /**

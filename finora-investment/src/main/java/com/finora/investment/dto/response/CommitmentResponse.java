@@ -18,6 +18,9 @@ public record CommitmentResponse(
         String noteDenomination,
         BigDecimal sharePercent,
         String status,
+        String orderReference,
+        String listingStatus,
+        boolean cancelAllowed,
         Instant createdAt
 ) {
 }

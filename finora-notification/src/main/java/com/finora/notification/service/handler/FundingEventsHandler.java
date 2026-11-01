@@ -126,15 +126,25 @@ public class FundingEventsHandler implements InboundEventHandler {
         String reasonCode = required(data.reasonCode(), "reasonCode", event.eventType());
         Optional<String> borrower = recipients.borrower(loanId, data.borrowerId(), data.applicationNumber(),
                 data.contractNumber(), null, event.eventId());
-        LoanRecipientService.Lenders lenders = recipients.lenders(loanId);
-        if (lenders.supersedes(data.allocationVersion())) return HandlerOutcome.filtered("STALE_ALLOCATION");
         LoanReference reference = recipients.find(loanId).orElse(null);
         String reason = reason(reasonCode, text.contractLabel(reference, data.contractNumber()));
         String loan = text.loanLabel(loanId, reference, null, null, data.applicationNumber());
         List<NotificationDraft> drafts = new ArrayList<>();
         borrower.ifPresent(id -> drafts.add(NotificationDraft.of(id, NotificationTemplate.LOAN_FUNDING_CANCELLED,
                 Map.of("reason", reason, "loan", loan), loanReference(loanId))));
-        boolean lendersKnown = lenders.matches(data.allocationVersion());
+
+        // Rút khi listing còn OPEN chưa có allocationVersion và chưa có danh sách nhà đầu tư đã khóa.
+        // Chỉ báo cho người vay; không chờ một projection lender không thể tồn tại và không tạo người nhận giả.
+        if ("BORROWER_WITHDREW".equals(reasonCode)) {
+            return borrower.isEmpty()
+                    ? HandlerOutcome.await("BORROWER_UNKNOWN", drafts)
+                    : HandlerOutcome.deliver(drafts);
+        }
+
+        Long allocationVersion = required(data.allocationVersion(), "allocationVersion", event.eventType());
+        LoanRecipientService.Lenders lenders = recipients.lenders(loanId);
+        if (lenders.supersedes(allocationVersion)) return HandlerOutcome.filtered("STALE_ALLOCATION");
+        boolean lendersKnown = lenders.matches(allocationVersion);
         if (lendersKnown) {
             lenders.investorIds().forEach(investorId -> drafts.add(NotificationDraft.of(investorId,
                     NotificationTemplate.INVESTMENT_FUNDING_CANCELLED, Map.of("reason", reason, "loan", loan),
@@ -147,6 +157,7 @@ public class FundingEventsHandler implements InboundEventHandler {
 
     private static String reason(String reasonCode, String contract) {
         return switch (reasonCode) {
+            case "BORROWER_WITHDREW" -> "Bạn đã rút hồ sơ trước khi hợp đồng được ký.";
             case "CONTRACT_DECLINED" -> "Hợp đồng " + contract + " đã bị từ chối ký.";
             case "CONTRACT_EXPIRED" -> "Hợp đồng " + contract + " đã hết hạn ký.";
             case "DISBURSEMENT_FAILED" -> "Giải ngân không thực hiện được.";

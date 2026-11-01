@@ -724,10 +724,9 @@ public class LoanApplication {
     }
 
     /**
-     * Hủy đợt gọi vốn đã đủ vốn khi khoản vay chắc chắn không được giải ngân. Chỉ nhận từ
-     * {@code FULLY_FUNDED}: allocation đã khóa nên Investment cần một tín hiệu nghiệp vụ để trả tiền
-     * đang giữ. Gọi lại khi đã hủy trả {@code false} để hai luồng (hết hạn ký và giải ngân lỗi) không
-     * phát event bồi hoàn lần hai.
+     * Hủy đợt gọi vốn trước giải ngân. {@code REQUESTED} dùng khi borrower rút lúc listing còn mở;
+     * {@code FULLY_FUNDED} dùng khi Contract đóng hoặc giải ngân thất bại trước capture. Gọi lại khi đã hủy
+     * trả {@code false} để không phát event bồi hoàn lần hai.
      *
      * @return {@code true} nếu trạng thái vừa đổi và cần ghi outbox
      */
@@ -736,10 +735,17 @@ public class LoanApplication {
         if (fundingStatus == LoanFundingStatus.CANCELLED) {
             return false;
         }
-        if (fundingStatus != LoanFundingStatus.FULLY_FUNDED) {
+        if (fundingStatus != LoanFundingStatus.REQUESTED
+                && fundingStatus != LoanFundingStatus.FULLY_FUNDED) {
             throw LoanDomainException.conflict(
-                    "LOAN_FUNDING_NOT_FULLY_FUNDED",
-                    "Chỉ đợt gọi vốn đã đủ vốn mới có tiền giữ cần hủy");
+                    "LOAN_FUNDING_NOT_CANCELLABLE",
+                    "Đợt gọi vốn không còn ở trạng thái có thể hủy");
+        }
+        boolean openWithdrawal = "BORROWER_WITHDREW".equals(normalizedReason);
+        if ((fundingStatus == LoanFundingStatus.REQUESTED) != openWithdrawal) {
+            throw LoanDomainException.conflict(
+                    "LOAN_FUNDING_CANCELLATION_REASON_MISMATCH",
+                    "Lý do hủy không phù hợp trạng thái đợt gọi vốn");
         }
         fundingStatus = LoanFundingStatus.CANCELLED;
         fundingCancelledAt = Objects.requireNonNull(now, "now");
@@ -825,14 +831,21 @@ public class LoanApplication {
         updatedAt = now;
     }
 
-    /** Chỉ cho rút trước eligibility/scoring để không bỏ dở side effect đã phát sinh ở hệ thống ngoài. */
+    /**
+     * Rút hồ sơ trước khi có quyết định tín dụng. Các worker eligibility/scoring luôn kiểm tra lại trạng thái dưới
+     * khóa trước khi ghi kết quả, nên hồ sơ đã rút không bị hồi sinh bởi kết quả đến muộn.
+     */
     public void withdraw(long expectedVersion, String reason, String actorId, Instant now) {
         requireOwner(actorId);
         requireVersion(expectedVersion);
-        if (status != LoanApplicationStatus.SUBMITTED) {
+        if (status != LoanApplicationStatus.SUBMITTED
+                && status != LoanApplicationStatus.ELIGIBILITY_PENDING
+                && status != LoanApplicationStatus.SCORING
+                && status != LoanApplicationStatus.SCORING_RETRY_PENDING
+                && status != LoanApplicationStatus.PENDING_REVIEW) {
             throw LoanDomainException.conflict(
                     "INVALID_APPLICATION_TRANSITION",
-                    "Chỉ hồ sơ đang chờ xử lý mới được rút"
+                    "Chỉ hồ sơ chưa có quyết định mới được rút trực tiếp"
             );
         }
         status = LoanApplicationStatus.WITHDRAWN;
@@ -840,6 +853,18 @@ public class LoanApplication {
         withdrawalReason = normalizeOptional(reason);
         updatedBy = actorId;
         updatedAt = now;
+    }
+
+    /** Borrower chỉ được dừng đợt gọi vốn còn mở; allocation đã khóa phải đi qua từ chối Contract. */
+    public void validateRequestedFundingWithdrawal(long expectedVersion, String actorId) {
+        requireOwner(actorId);
+        requireVersion(expectedVersion);
+        if (status != LoanApplicationStatus.APPROVED || fundingStatus != LoanFundingStatus.REQUESTED) {
+            throw LoanDomainException.conflict(
+                    "FUNDING_WITHDRAWAL_NOT_ALLOWED",
+                    "Chỉ đợt gọi vốn còn mở và chưa lập hợp đồng mới được rút"
+            );
+        }
     }
 
     /** Đặt ownership trong domain để mọi use case đọc hoặc ghi đều dùng cùng một quy tắc. */

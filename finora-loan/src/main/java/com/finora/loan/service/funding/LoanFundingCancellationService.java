@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Bồi hoàn cho đợt gọi vốn đã đủ vốn nhưng khoản vay không được giải ngân.
+ * Đóng đợt gọi vốn trước giải ngân và yêu cầu Investment bồi hoàn các khoản giữ liên quan.
  *
  * <p>Chạy trong cùng transaction với thay đổi nguồn (Contract chuyển DECLINED/EXPIRED hoặc Saga chuyển
  * PAYMENT_FAILED) để trạng thái gọi vốn và outbox cùng commit/rollback. Loan chỉ phát sự kiện; việc hủy
@@ -27,6 +27,7 @@ public class LoanFundingCancellationService {
     public static final String CONTRACT_DECLINED = "CONTRACT_DECLINED";
     public static final String CONTRACT_EXPIRED = "CONTRACT_EXPIRED";
     public static final String DISBURSEMENT_FAILED = "DISBURSEMENT_FAILED";
+    public static final String BORROWER_WITHDREW = "BORROWER_WITHDREW";
 
     private static final String EVENT_TYPE = "LoanFundingCancelled";
     private static final String SYSTEM_ACTOR = "SYSTEM-FUNDING-CANCELLATION";
@@ -35,7 +36,7 @@ public class LoanFundingCancellationService {
     private final OutboxService outboxService;
 
     /**
-     * Khóa hồ sơ, chuyển {@code FULLY_FUNDED -> CANCELLED} và ghi outbox publishable đúng một lần.
+     * Khóa hồ sơ, chuyển {@code REQUESTED/FULLY_FUNDED -> CANCELLED} và ghi outbox publishable đúng một lần.
      *
      * @return {@code true} nếu vừa phát event bồi hoàn; {@code false} nếu đã hủy trước đó
      */
@@ -64,7 +65,7 @@ public class LoanFundingCancellationService {
                         reasonCode,
                         now,
                         application.getBorrowerId()));
-        log.info("Hủy đợt gọi vốn đã đủ vốn: applicationNumber={}, contractNumber={}, reasonCode={}",
+        log.info("Hủy đợt gọi vốn trước giải ngân: applicationNumber={}, contractNumber={}, reasonCode={}",
                 application.getApplicationNumber(), contractNumber, reasonCode);
         return true;
     }

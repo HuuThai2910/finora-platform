@@ -13,6 +13,7 @@ import com.finora.investment.dto.response.PortfolioResponse;
 import com.finora.investment.mapper.InvestmentMapper;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
 import com.finora.investment.repository.InvestmentNoteRepository;
+import com.finora.investment.repository.InvestmentOrderRepository;
 import com.finora.investment.repository.MarketListingRepository;
 import com.finora.investment.repository.InvestmentLoanServicingStateRepository;
 import com.finora.investment.domain.note.InvestmentLoanServicingState;
@@ -41,6 +42,7 @@ public class PortfolioServiceImpl implements PortfolioService {
 
     private final InvestmentCommitmentRepository commitmentRepository;
     private final InvestmentNoteRepository noteRepository;
+    private final InvestmentOrderRepository orderRepository;
     private final MarketListingRepository listingRepository;
     private final InvestmentLoanServicingStateRepository servicingStateRepository;
     private final InvestmentMapper mapper;
@@ -184,11 +186,25 @@ public class PortfolioServiceImpl implements PortfolioService {
                 .collect(Collectors.toSet());
         Map<Long, MarketListing> listings = listingRepository.findAllById(listingIds).stream()
                 .collect(Collectors.toMap(MarketListing::getId, Function.identity()));
+        Map<Long, String> orderReferences = orderRepository.findAllById(
+                        commitments.stream().map(InvestmentCommitment::getOrderId).toList()).stream()
+                .collect(Collectors.toMap(
+                        com.finora.investment.domain.order.InvestmentOrder::getId,
+                        com.finora.investment.domain.order.InvestmentOrder::getOrderReference));
 
         return commitments.stream()
                 .map(c -> {
                     MarketListing listing = listings.get(c.getListingId());
-                    return mapper.toCommitmentResponse(c, listing == null ? null : listing.getLoanId());
+                    String orderReference = orderReferences.get(c.getOrderId());
+                    boolean cancelAllowed = c.getStatus() == CommitmentStatus.ACTIVE
+                            && listing != null && listing.getStatus() == com.finora.common.enums.investment.ListingStatus.OPEN
+                            && orderReference != null;
+                    return mapper.toCommitmentResponse(
+                            c,
+                            listing == null ? null : listing.getLoanId(),
+                            orderReference,
+                            listing == null ? null : listing.getStatus().name(),
+                            cancelAllowed);
                 })
                 .toList();
     }

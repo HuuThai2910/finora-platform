@@ -26,7 +26,10 @@ public final class LoanFundingEvents {
     public record FundingExpired(Long loanApplicationId, String applicationNumber, Integer fundingRound,
             String targetAmount, String committedAmount, List<String> investorIds) {}
 
-    /** {@code LoanFundingCancelled.v1} (Loan). {@code borrowerId} optional, chờ producer (P2). */
+    /**
+     * {@code LoanFundingCancelled.v1} (Loan). Với {@code BORROWER_WITHDREW}, listing còn mở nên
+     * {@code contractNumber/allocationVersion} hợp lệ khi để null và chỉ người vay nhận thông báo.
+     */
     public record FundingCancelled(Long loanApplicationId, String applicationNumber, String contractNumber,
             Long allocationVersion, String reasonCode, Instant cancelledAt, String borrowerId) {}
 }

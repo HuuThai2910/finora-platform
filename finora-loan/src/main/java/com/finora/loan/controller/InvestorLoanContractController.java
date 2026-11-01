@@ -3,6 +3,7 @@ package com.finora.loan.controller;
 import com.finora.common.security.pin.PinScope;
 import com.finora.common.security.pin.RequirePin;
 import com.finora.loan.dto.contract.request.SignLoanContractRequest;
+import com.finora.loan.dto.contract.request.DeclineLoanContractRequest;
 import com.finora.loan.dto.contract.response.InvestorContractResponse;
 import com.finora.loan.service.contract.InvestorContractService;
 import com.finora.loan.service.contract.LoanContractPdfContent;
@@ -84,6 +85,15 @@ public class InvestorLoanContractController {
             @Valid @RequestBody SignLoanContractRequest request
     ) {
         return service.sign(contractNumber, idempotencyKey, request);
+    }
+
+    @PostMapping("/{contractNumber}/decline")
+    public InvestorContractResponse decline(
+            @PathVariable @NotBlank @Size(max = 50) String contractNumber,
+            @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 150) String idempotencyKey,
+            @Valid @RequestBody DeclineLoanContractRequest request
+    ) {
+        return service.decline(contractNumber, idempotencyKey, request);
     }
 
     @PostMapping("/{contractNumber}/signature/refresh")

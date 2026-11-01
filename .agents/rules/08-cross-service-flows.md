@@ -147,7 +147,7 @@ eKYC/tuổi lưu trên hồ sơ (Loan V29) để worker kiểm điều kiện v�
 
 **Idempotency:** admin/sign command dùng key và optimistic version; một Application tối đa một Contract trong MVP; Investment unique theo `loanId + listingVersion`.
 
-**Failure:** decline/expiry điều khoản trước gọi vốn → không listing. Contract nhiều bên chỉ có sau khi đủ vốn, nên khi Contract bị `DECLINED`/`EXPIRED` thì Loan chuyển funding `FULLY_FUNDED → CANCELLED` và ghi `LoanFundingCancelled.v1` cùng transaction; Investment đối chiếu allocation, hủy commitment/order, listing `CANCELLED` và worker nhả hold. Không dùng event này khi đã có commitment `FINALIZED`. Sign cạnh tranh chỉ một commit; Investment chưa tạo projection → outbox retry/DLT, Loan không publish event mới trùng để “chữa” lỗi. Listing projection phải rebuild được từ event/source API có kiểm soát.
+**Failure/rút trước chữ ký:** decline/expiry điều khoản trước gọi vốn → không listing. Người vay được rút khi hồ sơ còn trước quyết định; khi đã `APPROVED` và funding còn `REQUESTED`, Loan giữ quyết định tín dụng làm audit nhưng chuyển funding sang `CANCELLED` và phát `LoanFundingCancelled.v1` với `reasonCode=BORROWER_WITHDREW` (chưa có contract/allocation). Investment khóa listing `OPEN`, hủy commitment/order rồi worker nhả hold. Khi allocation đã khóa, Contract nhiều bên bị `DECLINED`/`EXPIRED` (người vay hoặc một nhà đầu tư chưa ký từ chối) thì Loan chuyển `FULLY_FUNDED → CANCELLED` và phát cùng event có đủ allocation; Investment đối chiếu exact allocation trước khi hủy. Bên đã ký không được rút đơn phương bằng API này. Không dùng event khi đã có commitment `FINALIZED`. Sign/rút cạnh tranh chỉ một commit; Investment chưa tạo projection → outbox retry/DLT, Loan không publish event mới trùng để “chữa” lỗi. Listing projection phải rebuild được từ event/source API có kiểm soát.
 
 ## F04 — Đặt vốn và giữ tiền
 
@@ -165,7 +165,7 @@ eKYC/tuổi lưu trên hồ sơ (Loan V29) để worker kiểm điều kiện v�
 
 **Idempotency:** `investmentOrderId` cho hold; unique commitment theo order; funded event unique theo `loanId + fundingRound`.
 
-**Failure/compensation:** Payment từ chối → order `REJECTED`; lỗi tạo commitment sau hold → Investment yêu cầu Payment release bằng reference hold; release được retry idempotently. Concurrent order MUST NOT làm overfund hoặc âm ví. Đã đủ vốn nhưng Loan phát `LoanFundingCancelled.v1` (Contract `DECLINED`/`EXPIRED` hoặc giải ngân thất bại trước capture) → Investment khóa listing, hủy commitment `ACTIVE` và order với mã `LOAN_FUNDING_CANCELLED`, listing `CANCELLED`; worker nhả hold như nhánh hết hạn.
+**Failure/compensation:** Payment từ chối → order `REJECTED`; lỗi tạo commitment sau hold → Investment yêu cầu Payment release bằng reference hold; release được retry idempotently. Nhà đầu tư được hủy riêng lệnh `COMMITTED` khi listing còn `OPEN`; khi allocation đã khóa thì không sửa riêng phần vốn, nhà đầu tư chưa ký chỉ có thể từ chối Contract chung. Concurrent order MUST NOT làm overfund hoặc âm ví. Loan phát `LoanFundingCancelled.v1` khi borrower rút listing `OPEN`, Contract bị `DECLINED`/`EXPIRED`, hoặc giải ngân thất bại trước capture → Investment khóa listing, hủy commitment `ACTIVE` và order với mã `LOAN_FUNDING_CANCELLED`, listing `CANCELLED`; worker nhả hold như nhánh hết hạn.
 
 **Hết hạn gọi vốn:** listing `OPEN` quá `fundingClosesAt` → Investment (cùng transaction, khóa listing) chuyển
 `CLOSED`, huỷ commitment/order còn `ACTIVE`, trừ tiến độ và ghi outbox `LoanFundingExpired.v1`

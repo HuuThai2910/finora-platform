@@ -79,7 +79,13 @@ public class InvestmentMapper {
         );
     }
 
-    public CommitmentResponse toCommitmentResponse(InvestmentCommitment commitment, Long loanId) {
+    public CommitmentResponse toCommitmentResponse(
+            InvestmentCommitment commitment,
+            Long loanId,
+            String orderReference,
+            String listingStatus,
+            boolean cancelAllowed
+    ) {
         return new CommitmentResponse(
                 commitment.getId(),
                 commitment.getListingId(),
@@ -89,6 +95,9 @@ public class InvestmentMapper {
                 commitment.getNoteDenomination().toPlainString(),
                 commitment.getSharePercent(),
                 commitment.getStatus().name(),
+                orderReference,
+                listingStatus,
+                cancelAllowed,
                 commitment.getCreatedAt()
         );
     }

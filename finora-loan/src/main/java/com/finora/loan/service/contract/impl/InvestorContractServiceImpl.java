@@ -18,6 +18,7 @@ import com.finora.loan.domain.contract.LoanContractStatus;
 import com.finora.loan.domain.contract.LoanContractStatusHistory;
 import com.finora.loan.domain.contract.SignatureProviderType;
 import com.finora.loan.dto.contract.request.SignLoanContractRequest;
+import com.finora.loan.dto.contract.request.DeclineLoanContractRequest;
 import com.finora.loan.dto.contract.response.InvestorContractResponse;
 import com.finora.loan.exception.LoanBusinessException;
 import com.finora.loan.integration.signature.DigestSignatureCommand;
@@ -34,8 +35,10 @@ import com.finora.loan.repository.contract.LoanContractDocumentRepository;
 import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.contract.LoanContractStatusHistoryRepository;
 import com.finora.loan.service.contract.ContractPdfSignatureService;
+import com.finora.loan.service.contract.ContractConsentResult;
 import com.finora.loan.service.contract.InvestorContractService;
 import com.finora.loan.service.contract.LoanContractPdfContent;
+import com.finora.loan.service.contract.LoanContractStateService;
 import com.finora.loan.service.outbox.OutboxService;
 import com.finora.loan.support.HashingService;
 import java.nio.charset.StandardCharsets;
@@ -49,6 +52,7 @@ import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -67,6 +71,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
     private final ContractPdfSignatureService pdfSignatureService;
     private final HashingService hashingService;
     private final OutboxService outboxService;
+    private final LoanContractStateService contractStateService;
     private final Clock clock;
     private final PlatformTransactionManager transactionManager;
 
@@ -188,6 +193,32 @@ public class InvestorContractServiceImpl implements InvestorContractService {
         }
         SignatureSubmission result = submission;
         return transactionally(() -> applySubmission(context, result));
+    }
+
+    @Override
+    public InvestorContractResponse decline(
+            String contractNumber,
+            String idempotencyKey,
+            DeclineLoanContractRequest request
+    ) {
+        String investorId = SecurityUtils.getCurrentUserId();
+        String normalizedKey = requireIdempotencyKey(idempotencyKey);
+        String requestHash = hashingService.sha256(new InvestorDeclineFingerprint(
+                contractNumber, investorId, request));
+        ContractConsentResult result;
+        try {
+            result = contractStateService.declineByInvestor(
+                    contractNumber, normalizedKey, requestHash, request, investorId);
+        } catch (DataIntegrityViolationException conflict) {
+            // Hai request cùng Idempotency-Key có thể cùng vượt qua lần đọc đầu. Transaction thua cuộc đã rollback;
+            // đọc lại kết quả đã commit thay vì biến retry hợp lệ thành lỗi 500.
+            result = contractStateService.declineByInvestor(
+                    contractNumber, normalizedKey, requestHash, request, investorId);
+        }
+        if (result.expiredDuringRequest()) {
+            throw LoanBusinessException.conflict("CONTRACT_EXPIRED", "Hợp đồng đã hết hạn ký");
+        }
+        return detail(contractNumber);
     }
 
     /**
@@ -887,6 +918,13 @@ public class InvestorContractServiceImpl implements InvestorContractService {
             String contractNumber,
             String investorId,
             SignLoanContractRequest request
+    ) {
+    }
+
+    private record InvestorDeclineFingerprint(
+            String contractNumber,
+            String investorId,
+            DeclineLoanContractRequest request
     ) {
     }
 
