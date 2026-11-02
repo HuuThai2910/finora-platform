@@ -853,6 +853,10 @@ services:
       # finora-loan/.env), APPS_BORROWER_PROFILE_PROVIDER=user đọc eKYC thật của User.
       FINORA_SIGNATURE_PROVIDER: ${APPS_SIGNATURE_PROVIDER:-MOCK}
       FINORA_BORROWER_PROFILE_PROVIDER: ${APPS_BORROWER_PROFILE_PROVIDER:-mock}
+      # N04: Loan giữ consumer group dài hạn và relay HTTPS sang CIC Node trên Vercel.
+      LOAN_CIC_DELINQUENCY_RELAY_ENABLED: ${LOAN_CIC_DELINQUENCY_RELAY_ENABLED:-false}
+      CIC_SERVICE_URL: ${CIC_SERVICE_URL:-https://cic-service-node.vercel.app}
+      CIC_INTERNAL_API_KEY: "${CIC_INTERNAL_API_KEY:-}"
     ports:
       - "8081:8081"
     depends_on:

@@ -3,17 +3,23 @@ package com.finora.loan.service.servicing;
 import com.finora.common.security.SecurityUtils;
 import com.finora.loan.domain.contract.LoanContract;
 import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
+import com.finora.loan.domain.disbursement.DisbursementSagaStatus;
 import com.finora.loan.domain.servicing.FinoraLoan;
 import com.finora.loan.domain.servicing.LoanServicingProjection;
 import com.finora.loan.dto.common.PageResponse;
 import com.finora.loan.dto.servicing.response.LoanRepaymentScheduleResponse;
 import com.finora.loan.dto.servicing.response.LoanServicingSummaryResponse;
+import com.finora.loan.dto.servicing.response.PendingLoanActivationResponse;
 import com.finora.loan.exception.LoanBusinessException;
 import com.finora.loan.mapper.core.ScheduleCalculationSnapshotMapper;
 import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
+import com.finora.loan.repository.application.LoanApplicationRepository;
+import com.finora.loan.repository.disbursement.DisbursementSagaRepository;
 import com.finora.loan.repository.servicing.FinoraLoanRepository;
 import com.finora.loan.repository.servicing.LoanServicingProjectionRepository;
+import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -33,6 +39,15 @@ public class LoanServicingQueryService {
     private final LoanContractRepository contractRepository;
     private final ScheduleCalculationSnapshotRepository scheduleRepository;
     private final ScheduleCalculationSnapshotMapper scheduleMapper;
+    private final DisbursementSagaRepository disbursementSagaRepository;
+    private final LoanApplicationRepository applicationRepository;
+
+    private static final EnumSet<DisbursementSagaStatus> BORROWER_VISIBLE_PENDING_STATUSES = EnumSet.of(
+            DisbursementSagaStatus.WAITING_PAYMENT,
+            DisbursementSagaStatus.CORE_BOOKING_PENDING,
+            DisbursementSagaStatus.CORE_BOOKING,
+            DisbursementSagaStatus.RETRY_PENDING,
+            DisbursementSagaStatus.REPAIR_REQUIRED);
 
     @Transactional(readOnly = true)
     public PageResponse<LoanServicingSummaryResponse> listMine(int page, int size) {
@@ -44,6 +59,28 @@ public class LoanServicingQueryService {
         return new PageResponse<>(loans.getContent().stream()
                 .map(loan -> summary(loan, requiredProjection(projections.get(loan.getId()))))
                 .toList(), loans.getNumber(), loans.getSize(), loans.getTotalElements());
+    }
+
+    /**
+     * Cho mobile phân biệt "chưa có khoản vay" với "đã giải ngân và đang hoàn tất lịch trả nợ".
+     * COMPLETED không xuất hiện ở đây vì lúc đó {@link #listMine(int, int)} đã là nguồn hiển thị chuẩn.
+     */
+    @Transactional(readOnly = true)
+    public List<PendingLoanActivationResponse> pendingMine() {
+        var sagas = disbursementSagaRepository.findByBorrowerIdAndStatusInOrderByCreatedAtDescIdDesc(
+                SecurityUtils.getCurrentUserId(), BORROWER_VISIBLE_PENDING_STATUSES);
+        Map<Long, String> applicationNumbers = applicationRepository.findAllById(
+                        sagas.stream().map(saga -> saga.getLoanApplicationId()).toList())
+                .stream().collect(Collectors.toMap(application -> application.getId(),
+                        application -> application.getApplicationNumber()));
+        return sagas.stream().map(saga -> new PendingLoanActivationResponse(
+                saga.getLoanApplicationId(),
+                applicationNumbers.getOrDefault(saga.getLoanApplicationId(), "#" + saga.getLoanApplicationId()),
+                saga.getContractNumber(),
+                saga.getAmount(),
+                saga.getCurrency(),
+                saga.getStatus(),
+                saga.getUpdatedAt())).toList();
     }
 
     @Transactional(readOnly = true)

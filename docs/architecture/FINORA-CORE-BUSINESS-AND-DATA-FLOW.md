@@ -787,7 +787,7 @@ Profile Docker chỉ đổi URI thành `http://loan:8081`, `http://payment:8082`
 | `finora.investment.note-ownership-changed` | Investment | Payment/Blockchain | cập nhật owner projection; proof phát hành/chuyển Note |
 | `finora.payment.repayment-collected/cancelled` | Payment | Notification khi bật | báo khoản trả kỳ đang giữ/hủy; không phải phân phối |
 | `finora.payment.repayment-distributed` | Payment | Loan/Investment/Blockchain/Notification | projection servicing/portfolio + proof repayment |
-| `finora.loan.delinquency-changed` | Loan | Investment; CIC chỉ khi deployment hỗ trợ | DPD/nhóm nợ projection; không mang CCCD |
+| `finora.loan.delinquency-changed` | Loan | Investment; Loan CIC relay (CIC local có thể consume trực tiếp) | DPD/nhóm nợ projection; relay gửi HTTPS sang CIC deploy; không mang CCCD |
 | `finora.loan.reschedule-consent-requested` | Loan | Investment/Notification | mở biểu quyết chủ Note |
 | `finora.investment.reschedule-consent-completed` | Investment | Loan | chỉ unanimous approval mới chạy core |
 | `finora.loan.rescheduled`, `finora.loan.settled` | Loan | Investment/Notification | cập nhật lifecycle projection |

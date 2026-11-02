@@ -103,6 +103,22 @@ finora:
   pin:
     token-secret: ${FINORA_PIN_TOKEN_SECRET:dev-only-pin-token-secret-change-me-32b}
     token-ttl: ${FINORA_PIN_TOKEN_TTL:PT3M}
+  cic:
+    # Vercel không consume được Kafka dài hạn. Relay này dùng consumer group riêng để đẩy
+    # LoanDelinquencyChanged.v1 qua endpoint nội bộ HTTPS; mặc định tắt cho tới khi CIC đã deploy endpoint.
+    delinquency-relay:
+      enabled: ${LOAN_CIC_DELINQUENCY_RELAY_ENABLED:false}
+      base-url: ${CIC_SERVICE_URL:https://cic-service-node.vercel.app}
+      internal-api-key: ${CIC_INTERNAL_API_KEY:}
+      connect-timeout: ${LOAN_CIC_CONNECT_TIMEOUT:3s}
+      read-timeout: ${LOAN_CIC_READ_TIMEOUT:15s}
+      max-attempts: ${LOAN_CIC_MAX_ATTEMPTS:5}
+      initial-backoff: ${LOAN_CIC_INITIAL_BACKOFF:1s}
+      max-backoff: ${LOAN_CIC_MAX_BACKOFF:30s}
+      multiplier: ${LOAN_CIC_BACKOFF_MULTIPLIER:2.0}
+      topic: ${LOAN_DELINQUENCY_CHANGED_TOPIC:finora.loan.delinquency-changed}
+      group-id: ${LOAN_CIC_DELINQUENCY_GROUP:loan-cic-delinquency-relay}
+      dlt-topic: ${LOAN_CIC_DELINQUENCY_DLT_TOPIC:finora.loan.delinquency-changed.cic.DLT}
   signature:
     # MOCK giữ luồng click-wrap phát triển. Chỉ đổi sang VNPT_SMART_CA khi đã có certificate và API contract.
     provider: ${FINORA_SIGNATURE_PROVIDER:MOCK}
@@ -355,6 +371,13 @@ resilience4j:
         minimum-number-of-calls: 5
         failure-rate-threshold: 50
         wait-duration-in-open-state: 30s
+      cic-delinquency:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
   timelimiter:
     instances:
       fineract-product:
@@ -380,4 +403,8 @@ resilience4j:
       ai-credit:
         # Cao hơn read-timeout 15 giây để HTTP client phân loại lỗi trước, nhưng vẫn chặn cuộc gọi bị treo.
         timeout-duration: ${AI_TIME_LIMITER_TIMEOUT:17s}
+        cancel-running-future: true
+      cic-delinquency:
+        # Cao hơn HTTP read-timeout để client phân loại timeout trước khi circuit breaker cắt.
+        timeout-duration: ${LOAN_CIC_TIME_LIMITER_TIMEOUT:17s}
         cancel-running-future: true

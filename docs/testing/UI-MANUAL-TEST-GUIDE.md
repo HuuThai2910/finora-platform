@@ -1,12 +1,14 @@
 # Hướng dẫn kiểm thử thủ công giao diện FINORA (web quản trị và mobile) trên stack E2E local
 
-> Cập nhật: 2026-10-18 · Nhánh: `feat/finora-remaining-wave-3` của `finora-platform`, `finora-web`, `finora-mobile` ·
+> Cập nhật: 2026-11-01 · Nhánh kiểm: `main` của `finora-platform`, `finora-web`, `finora-mobile` ·
 > Người duyệt: Thái (owner) · Người kiểm: Hải và các thành viên.
 > Chỉ dùng trên máy dev (profile `apps` với DB Neon dev, hoặc stack E2E DB local, mục 2.1a): không tiền thật, không CCCD
 > thật, không production.
 
 ## 0. Cách đọc tài liệu
 
+- **Đường kiểm chính:** đọc mục 1.5, tạo đúng bộ 12 hồ sơ rồi đi theo cột "Case phải chạy". Mục 4 là phần tra cứu chi tiết;
+  không cần chạy tuần tự toàn bộ ma trận ca kiểm thử để hoàn thành một lượt UAT nghiệp vụ chính.
 - Mỗi luồng ở mục 4 gồm: điều kiện, ca chính (bước đánh số), kết quả trên màn hình, kiểm tra backend (tùy chọn) và khối
   **Ca lỗi và ca biên**.
 - Nhãn cách kích hoạt ca:
@@ -22,8 +24,19 @@
   - **PowerShell** = Windows PowerShell 5.1 mở tại `C:\IUH\Nam4\KhoaLuan\finora-platform` (script stack).
   - **Git Bash** = Git Bash ở cùng thư mục. Lệnh `docker exec` có đường dẫn `/opt/...` trong Git Bash phải có tiền tố
     `MSYS_NO_PATHCONV=1`, nếu không Git Bash đổi đường dẫn thành đường dẫn Windows.
-- Mã ca: `AUTH`, `LOAN`, `ADM`, `FUND`, `CTR`, `DISB`, `REP`, `PRE`, `OVD`, `RSC`, `WDR`, `INC`, `BC`, `NTF`, `CIC`,
+- Mã ca: `AUTH`, `LOAN`, `ADM`, `FUND`, `CTR`, `DISB`, `MKT`, `REP`, `PRE`, `OVD`, `RSC`, `WDR`, `INC`, `BC`, `NTF`, `CIC`,
   `SEC`, `OPS`. Ca lỗi có chữ `N` (ví dụ `REP-N03`).
+
+### 0.1 Lộ trình đọc, tránh chạy lan man
+
+| Mục tiêu | Chỉ cần đọc/chạy |
+|---|---|
+| Demo và nghiệm thu nghiệp vụ chính | Mục 1.5 → 2.1a, 2.4–2.8, 2.11 → đúng case của UAT-01–12 trong mục 4 → 5.1–5.2 |
+| Tra một lỗi UI cụ thể | Dòng `Nxx` ngay dưới luồng tương ứng trong mục 4 → 5.3–5.4 |
+| Kiểm service chết, retry, đối soát | 2.10 và 4.12; không bắt buộc trong lượt UAT chính |
+| Kiểm Fabric, push thật hoặc CIC local | 4.13–4.15; chỉ bật hạ tầng tương ứng khi tới case |
+| Kiểm bảo mật và vận hành | 4.16–4.17; là regression kỹ thuật, không cần tạo thêm hồ sơ trong bộ 12 |
+| Xem giới hạn/code lệch tài liệu | Mục 6–7; dùng khi kết quả khác mong đợi, không phải checklist thao tác |
 
 ## 1. Mục đích, phạm vi, đối tượng
 
@@ -46,7 +59,7 @@ thuộc tên màn hình hay lệnh.
 | Mobile (`finora-mobile`): người vay, nhà đầu tư | Hiệu năng, tải, bảo mật hạ tầng |
 | Web quản trị (`finora-web`): admin | Demo Compose, production |
 | Backend chạy bằng profile `apps` (Docker + DB Neon dev) hoặc launcher E2E với DB local riêng (`-Database local`), mục 2.1a | Tiền thật, CCCD thật, chữ ký số có giá trị pháp lý |
-| Kiểm tra phụ bằng API khi UI không có đường đi | Chợ Notes thứ cấp (R11, chưa có kịch bản nghiệm thu) |
+| Kiểm tra phụ bằng API khi UI không có đường đi; chợ Notes thứ cấp trên mobile và web quản trị | Kiểm tải/hiệu năng và vận hành production của sổ lệnh |
 
 ### 1.4 Cái gì thật, cái gì giả lập
 
@@ -74,6 +87,42 @@ Notification nằm trên Neon dùng chung; CIC luôn là bản Vercel; không d�
 
 Trên mọi màn hình liên quan, app phải ghi rõ là môi trường demo/giả lập (ví nạp mock, rút tiền, chữ ký demo, proof MOCK).
 Thiếu nhãn đó là lỗi (`docs/LEGAL-COMPLIANCE.md`: `LEGAL-PAYMENT-01`, `LEGAL-CONTRACT-01`, `LEGAL-DATA-01`).
+
+### 1.5 Đường kiểm chính — bộ 12 hồ sơ độc lập
+
+Đây là danh sách nghiệm thu nghiệp vụ chính, dành cho người muốn kiểm FINORA từ góc nhìn người dùng mà không phải ghép các
+case rời. Dùng **tài khoản mới + hồ sơ mới** cho mỗi dòng; không sửa DB để đưa hồ sơ sang trạng thái mong muốn. Bốn hồ sơ đầu
+đều đi qua nộp → chấm điểm → duyệt → gọi đủ vốn → ký → giải ngân, nên đã bao phủ happy case chung. Hồ sơ UAT-01 dùng hai nhà
+đầu tư để kiểm chữ ký nhiều bên; sau giải ngân dùng chính Note của hồ sơ này để kiểm chợ thứ cấp.
+
+| Hồ sơ | Mục tiêu và điểm dừng | Case phải chạy | Kết quả kết thúc |
+|---|---|---|---|
+| UAT-01 | Happy case, hai nhà đầu tư, chuyển một phần Note rồi trả đúng kỳ | `LOAN-01–02`, `ADM-01–02`, `FUND-01–05`, `CTR-03`, `DISB-01`, `MKT-01–05`, `REP-01–05` | Khoản vay `ACTIVE`; kỳ đã trả `COMPLETED`; Note đã bán thuộc chủ mới và chủ mới nhận đúng phần trả nợ |
+| UAT-02 | Trả trước một phần gốc | Happy case chung, `PRE-01` | Khoản vay còn `ACTIVE`; dư nợ và lịch tương lai đã giảm/tính lại; tiền và phí chia đúng |
+| UAT-03 | Tất toán sớm toàn bộ | Happy case chung, `PRE-02` | Khoản vay `SETTLED`; dư nợ 0; danh mục và Note đã đóng |
+| UAT-04 | Cơ cấu/gia hạn | Happy case chung, `RSC-01–04` | Admin đã thẩm định, chủ Note đã đồng ý; Fineract, web và mobile cùng hiển thị lịch trả mới |
+| UAT-05 | Quá hạn rồi khắc phục | Happy case chung, `OVD-01–02`, `CIC-01–02` | DPD 10/nhóm 2 rồi về DPD 0/nhóm 1; **để kiểm sau khi N04 CIC HTTPS hoàn tất** nếu nghiệm thu CIC deploy |
+| UAT-06 | Nợ xấu, trả bớt rồi khắc phục | Happy case chung, `OVD-03–06`, `CIC-01–02` | Nhóm 3 không giảm khi chỉ trả bớt; khắc phục đủ mới về nhóm hiện tại 1; lịch sử CIC giữ nhóm cao nhất; **để kiểm sau N04** |
+| UAT-07 | Người vay rút hồ sơ trước quyết định | `LOAN-02`, `LOAN-04` ở `PENDING_REVIEW` | Hồ sơ `WITHDRAWN`; worker đến muộn không làm hồ sơ sống lại |
+| UAT-08 | Admin từ chối hồ sơ | `LOAN-02`, `ADM-01`, `ADM-03` | Hồ sơ `REJECTED`, có lý do; không tạo listing/hợp đồng |
+| UAT-09 | Điều khoản cuối bất lợi hơn và người vay từ chối | `LOAN-03` nhánh từ chối | Không lập hợp đồng và không mở giải ngân |
+| UAT-10 | Nhà đầu tư rút lệnh rồi người vay dừng gọi vốn | `FUND-03`, `FUND-N09`, `LOAN-04` ở `APPROVED + REQUESTED` | Hold được nhả đúng một lần; listing/funding bị hủy; không có hợp đồng |
+| UAT-11 | Người vay từ chối hợp đồng trước chữ ký của mình | Happy case tới hợp đồng, `CTR-N04` | Hợp đồng và đợt vay bị hủy; mọi hold được nhả đúng một lần |
+| UAT-12 | Nhà đầu tư chưa ký từ chối tiếp tục đầu tư | Happy case tới hợp đồng, `CTR-N05` | Hợp đồng chung bị hủy; mọi nhà đầu tư được hoàn hold; không giải ngân |
+
+**Số lượng thực hiện:** kiểm ngay UAT-01–04 và UAT-07–12 (**10 hồ sơ**); giữ UAT-05–06 (**2 hồ sơ**) cho lượt
+quá hạn/nợ xấu có CIC HTTPS. Nếu chỉ kiểm Loan/Payment/Fineract local thì UAT-05–06 vẫn chạy được bằng Cách B và CIC local;
+việc trì hoãn là để nghiệm thu luôn đường CIC deploy trong cùng lượt.
+
+Các mục sau **không cần thêm hồ sơ vay**:
+
+- Nạp/rút ví: dùng tài khoản của UAT-01, chạy `FUND-02`, `WDR-01–04`.
+- Proof và thông báo: kiểm kèm ngay sau từng mốc của UAT-01–12 bằng `BC-01–05`, `NTF-01–03`.
+- Hủy lệnh mua/bán Note chưa khớp và PDF chuyển nhượng: nằm trong `MKT-02–04` của UAT-01.
+
+Hai lượt mở rộng, không nằm trong 12 hồ sơ bắt buộc: **đợt gọi vốn hết hạn** (`FUND-N14`, cần một listing riêng và chờ/đổi
+cấu hình) và **Auto-Invest khớp thật** (cần bật worker; stack mặc định chỉ nghiệm thu lưu cấu hình `FUND-06`). Nếu demo tuyên
+bố hai khả năng này đang hoạt động đầy đủ thì phải tạo thêm hai hồ sơ, tổng cộng 14.
 
 ## 2. Chuẩn bị môi trường
 
@@ -365,7 +414,7 @@ tạo tối đa 10 lệnh nạp mỗi giờ (D40).
   Cách A: `APPS_BORROWER_PROFILE_PROVIDER=user` trong `docker/.env` rồi `docker compose ... up -d loan`; xong xóa biến và
   chạy lại lệnh.
 
-### 2.10 Công cụ phụ
+### 2.10 Công cụ phụ — chỉ mở khi case ghi `[UI + công cụ]` hoặc `[API]`
 
 Mọi đoạn PowerShell dưới đây import module helper của harness (chỉ đọc cấu hình, không in secret):
 
@@ -516,7 +565,7 @@ Scope PIN: `REPAYMENT`, `INVEST`, `ORDER`, `AUTO_INVEST`, `SIGN_CONTRACT`, `WITH
 
 ## 3. Ma trận ca kiểm thử
 
-Tóm tắt: 83 ca chính và 174 ca lỗi/biên (85 [UI], 44 [UI + công cụ], 42 [API], 3 không kích hoạt được trên stack MOCK hoặc
+Tóm tắt: 88 ca chính và 180 ca lỗi/biên (90 [UI], 45 [UI + công cụ], 42 [API], 3 không kích hoạt được trên stack MOCK hoặc
 không có trong code). Ca lỗi gom theo khối; chi tiết ở mục 4. "NĐT" = nhà đầu tư.
 
 | Mã | Luồng | Vai trò | Nền tảng | Điều kiện | Kết quả mong đợi | Quyết định/defect |
@@ -555,6 +604,12 @@ không có trong code). Ca lỗi gom theo khối; chi tiết ở mục 4. "NĐT"
 | CTR-N01–N11 | Ký sai thứ tự, hash/phiên bản sai, từ chối, hết hạn ký, `409`/`503` SmartCA, gửi lại | Người vay, NĐT | Mobile, API | — | Không chữ ký thừa; hủy thì nhả tiền | D8, D73, B71, B72 |
 | DISB-01 | Giải ngân, phát hành Note | Cả hai | Mobile, web | CTR-02 | +10.000.000 một lần, 10 Note | D52 |
 | DISB-N01–N04 | Drill tắt Loan/Payment/Investment, saga cần sửa | — | Công cụ | `-DrillEnv` | Không trùng tiền, khoản vay, Note | Q13, D31 |
+| MKT-01 | Xem sổ lệnh Note | 2 NĐT | Mobile | DISB-01 | Giá mua/bán, vị thế và Note rảnh đúng | INV-E2 |
+| MKT-02 | Đặt rồi hủy lệnh bán chưa khớp | NĐT bán | Mobile | MKT-01 | Note mở khóa, không đổi chủ, không đổi tiền | INV-E2 |
+| MKT-03 | Khớp lệnh bán/mua | 2 NĐT | Mobile | MKT-01 | Note đổi chủ; tiền mua, phí và tiền bán cân bằng | INV-E2 |
+| MKT-04 | PDF và proof chuyển nhượng | Admin | Web | MKT-03 đã thanh toán | PDF ký demo tải được; hash/proof khớp | W3D |
+| MKT-05 | Trả kỳ sau chuyển nhượng | Người vay, 2 NĐT | Mobile | MKT-03 | Chủ Note hiện tại nhận tiền, chủ cũ không nhận nhầm | INV-E2 |
+| MKT-N01–N06 | Thiếu tiền/Note, tự khớp, gửi lặp, hủy phần chưa khớp, Note nợ xấu | 2–3 NĐT | Mobile, công cụ | — | Không giữ/trả tiền hai lần; không đổi chủ sai | INV-E2 |
 | REP-01 | Xem khoản vay và lịch | Người vay | Mobile | DISB-01 | "Lịch trả từng kỳ (6 kỳ)" | — |
 | REP-02 | Trả kỳ trước hạn bị giữ | Người vay | Mobile | REP-01 | `COLLECTED` + ngày ghi nhận; −1.726.000 | D16 |
 | REP-03 | Chặn báo giá khi đang giữ | Người vay | Mobile | REP-02 | `409 INSTALLMENT_PENDING_POSTING` | D22 |
@@ -891,7 +946,7 @@ gọi đủ vốn"; hồ sơ người vay chuyển funding `FULLY_FUNDED`; Loan 
 | FUND-N14 | [UI] | Hết hạn gọi vốn (chờ 1 ngày): trước khi duyệt hồ sơ, admin web "Gọi vốn & Notes" → "Tham số sàn" → "Số ngày gọi vốn" = 1 → "Lưu tham số"; duyệt hồ sơ; nhà đầu tư góp một phần (ví dụ 4.000.000); sau 24 giờ thật, worker (30 giây/lần) hoặc admin bấm "Đóng khoản quá hạn". Đặt lại 14 ngày sau ca | Mobile: listing "Hết hạn gọi vốn"; thẻ chặn "Đã hết hạn gọi vốn". Web: "Đã đóng vì hết hạn"; toast "Đã đóng {n} khoản quá hạn, tiền giữ chỗ đã trả về ví nhà đầu tư." Thông báo: người vay "Đợt gọi vốn đã kết thúc", nhà đầu tư "Khoản đầu tư đã được hủy" | Listing `CLOSED`, lệnh `CANCELLED` với `LISTING_EXPIRED` "Khoản vay hết hạn gọi vốn mà chưa đủ vốn; tiền giữ được trả lại ví"; event `LoanFundingExpired`. Ví nhà đầu tư: đang giữ −4.000.000, khả dụng +4.000.000, đúng một lần. Investment dùng giờ thật, không dời đồng hồ được |
 | FUND-N15 | [API] | Đặt lệnh dưới mức tối thiểu / không chia hết mệnh giá / vượt phần còn thiếu (T7, PIN `INVEST`) | App chặn trước (FUND-N02) | `400 ORDER_BELOW_MINIMUM` "Số tiền đầu tư thấp hơn mức tối thiểu"; `400 ORDER_NOT_DIVISIBLE` "Số tiền đầu tư phải chia hết cho mệnh giá Note"; `409 LISTING_INSUFFICIENT_REMAINING` "Khoản vay chỉ còn nhận thêm {n} đồng"; không giữ tiền |
 | FUND-N16 | [API] | Đặt lệnh vào listing đã đủ vốn hoặc quá hạn | — | `409 LISTING_NOT_OPEN` "Khoản vay không còn nhận vốn" / `409 LISTING_WINDOW_CLOSED` "Đã hết hạn gọi vốn" |
-| FUND-N17 | [UI + API] | Hủy lệnh sơ cấp qua Mobile hoặc `POST :8084/api/v1/investments/orders/{orderReference}/cancel` khi listing còn `OPEN` | Mobile hỏi rõ tiền đang giữ sẽ về ví; tải lại danh mục sau thành công | `200`, lệnh `CANCELLED`, khoản giữ được nhả sau commit: đang giữ −số lệnh, khả dụng +số lệnh. Listing đã đủ vốn: `409 FUNDED_ALLOCATION_LOCKED`; đang giải ngân: `409 COMMITMENT_ALREADY_FINALIZED`; lệnh của người khác: `403 ACCESS_DENIED`; gọi lại khi đã hủy: `200` như cũ |
+| FUND-N17 | [API] | Đối chiếu contract của `FUND-N09`: gọi `POST :8084/api/v1/investments/orders/{orderReference}/cancel` khi listing còn `OPEN`, rồi gọi lại cùng mã; thử mã của người khác và listing đã đủ vốn | — | Lần đầu và lần lặp đều `200`, một lệnh `CANCELLED`, hold nhả đúng một lần; người khác `403 ACCESS_DENIED`; đủ vốn `409 FUNDED_ALLOCATION_LOCKED`; đang giải ngân `409 COMMITMENT_ALREADY_FINALIZED` |
 | FUND-N18 | [UI] | Người vay mở "Sàn" → một khoản vay → "Đầu tư …" | Thanh đầu tư vẫn hiện cho người vay (app không ẩn theo vai trò); backend chặn bằng `403` không có body, app hiện "Bạn không có quyền thực hiện thao tác này." (B86; bản mobile trước `b43f41c` hiện "Phiên đăng nhập đã hết hạn.") | Không có lệnh, ví không đổi |
 | FUND-N19 | [UI + công cụ] | Tắt Payment (T5) rồi đặt lệnh; bật lại | "Lệnh đang chờ ví xác nhận" / "Hệ thống đã ghi nhận lệnh nhưng ví chưa xác nhận giữ tiền…" | `409 PAYMENT_UNAVAILABLE` "Dịch vụ ví đang bận…", lệnh `PENDING_FUNDS`; worker làm tiếp sau khoảng 2 phút khi Payment sống: `COMMITTED`, giữ tiền đúng một lần. Kẹt từ 3 lần thử thì hiện ở `INC-06` |
 
@@ -998,6 +1053,61 @@ Bất biến tiền: người vay +10.000.000 đúng một lần; nhà đầu t�
 | DISB-N02 | [UI + công cụ] | Payment chết sau khi provider chuyển tiền: `-Action Restart -Services payment -DrillEnv 'payment:FINORA_E2E_PAUSE_POINT=provider-disbursed-before-save,payment:FINORA_E2E_PAUSE_DURATION=PT240S,payment:PAYMENT_DISBURSEMENT_PROCESSING_LEASE=PT30S'`; người vay ký; chờ dòng `E2E_PAUSE point=provider-disbursed-before-save` trong `payment.log`; `Stop-Process` Payment; Restart Payment với `-DrillEnv 'payment:PAYMENT_DISBURSEMENT_PROCESSING_LEASE=PT30S'` | Trong lúc chờ, web "Sự cố giao dịch" có thể hiện lệnh ở "Giải ngân chưa có kết quả chuyển tiền" ("Đang chuyển tiền"). Sau khi bật lại: tự đối soát theo `sagaId` → `COMPLETED`; ví người vay +10.000.000 đúng một lần; `GET :8080/api/v1/admin/disbursement-reconciliation/{sagaId}` có `attemptCount = 1`, `errorCode = PAYMENT_PROCESSING_INTERRUPTED` |
 | DISB-N03 | [UI + công cụ] | Investment tắt khi có `LoanDisbursed`: Restart Loan với `-DrillEnv 'loan:FINORA_E2E_PAUSE_POINT=core-booked-before-save,loan:FINORA_E2E_PAUSE_DURATION=PT40S'`; người vay ký; khi Loan dừng ở điểm dừng thì `Stop-Process` Investment; chờ saga `COMPLETED`; Restart Investment; Restart Loan không có `-DrillEnv` | Khi Investment tắt: tab "Sàn"/"Danh mục đầu tư" báo lỗi tải. Bật lại: đúng 10 Note, một `NoteOwnershipChanged`, vị thế có ngày đáo hạn; không Note thứ hai |
 | DISB-N04 | [UI + công cụ] | Saga `REPAIR_REQUIRED` (ghi Fineract lỗi không tự phục hồi). Không có cách tạo ổn định trên stack E2E | Nếu gặp: web "Đã giải ngân, hệ thống lõi chưa ghi khoản vay" → "Ghi lại" (INC-05). Tiền đã giải ngân không bị chuyển lại |
+
+### 4.6a Chợ thứ cấp Notes: đặt lệnh, chuyển chủ và trả nợ cho chủ mới
+
+Phần này dùng **UAT-01**, không tạo thêm hồ sơ vay. Sau `FUND-05` và `CTR-03`, nhà đầu tư A sở hữu 6 Note, B sở hữu 4
+Note; sau `DISB-01`, mỗi Note còn dư nợ gốc 1.000.000 đ. Chưa trả kỳ nào. B phải có thêm ít nhất 1.960.000 đ khả dụng để
+đặt lệnh mua. Phí chuyển nhượng 5% là **policy demo của FINORA**, không phải mức pháp luật ấn định.
+
+**MKT-01 [UI] Mở sổ lệnh và kiểm vị thế.** Trên mobile của A: tab "Sàn" → "Chợ Notes" → khoản vay UAT-01; đường khác là
+"Ví" → "Danh mục đầu tư" → khoản vay → "Bán Note trên chợ". Màn "Sổ lệnh" phải có "Mua cao nhất", "Bán thấp nhất",
+"Giá khớp gần nhất", thang "Bên mua/Bên bán", "Khớp gần đây" và "Của bạn trên sổ này". A thấy 6 "Note còn bán được",
+0 "Note đang trong lệnh bán"; B thấy 4/0. Giá hiển thị theo phần trăm dư nợ gốc, không phải phần trăm mệnh giá ban đầu.
+
+**MKT-02 [UI] Đặt rồi hủy một lệnh bán chưa khớp.**
+
+1. A bấm "Bán Note" → giá 97,5% → số lượng 2 → "Đặt lệnh bán" → PIN phạm vi `ORDER`.
+2. Khi chưa có lệnh mua đối ứng, kết quả "Lệnh đã vào sổ"; A thấy 4 Note rảnh, 2 Note đang trong lệnh bán. Ví A không đổi.
+3. "Lệnh của tôi" → lệnh bán vừa tạo → "Hủy phần chưa khớp" → xác nhận.
+4. Lệnh `CANCELLED`; A trở lại 6 Note rảnh, 0 Note bị khóa; không Note đổi chủ và không bút toán ví phát sinh.
+
+**MKT-03 [UI] Khớp hai Note và đối chiếu tiền.**
+
+1. A đặt lại lệnh **bán 2 Note ở 97,5%**; giữ nguyên lệnh chờ trên sổ.
+2. B bấm "Mua Note" → giá **98,0%** → số lượng 2 → "Đặt lệnh mua" → PIN. Payment giữ tối đa
+   `98% × 1.000.000 × 2 = 1.960.000 đ`.
+3. Bid của B chạm Ask đang chờ của A nên khớp ở giá của lệnh chờ là 97,5%. Màn kết quả ghi "Đã mua xong 2 Note"; sổ và
+   "Khớp gần đây" có giao dịch 2 Note giá 97,5%.
+4. Chờ worker thanh toán vài giây rồi làm mới. Giá chuyển nhượng là 1.950.000 đ; phí nền tảng 5% là 97.500 đ; A nhận
+   1.852.500 đ. B dùng 1.950.000 đ và được nhả 10.000 đ giữ thừa. Tổng tiền dùng = tiền người bán nhận + phí; không bên nào
+   bị trừ/cộng lần hai.
+5. Vị thế cuối: A 4 Note, B 6 Note; 2 Note đã bán không còn trong lệnh của A. Web "Chợ thứ cấp Notes" → "Giao dịch" có
+   đúng một trade `SETTLED`, đúng người mua, người bán, số Note, giá, phí và tiền thực nhận.
+
+**MKT-04 [UI] Giấy xác nhận và blockchain proof.** Khi trade đã `SETTLED`, worker phát hành đúng một "Giấy xác nhận chuyển
+nhượng Note". Web "Chợ thứ cấp Notes" → "Giao dịch" tải được PDF có mã văn bản, mã giao dịch, hai bên, 2 Note, giá
+1.950.000 đ, phí 97.500 đ và thực nhận 1.852.500 đ; PDF dùng con dấu/chứng thư demo và phải ghi rõ không có giá trị pháp lý.
+Web "Kiểm toán" → "Xác minh giao dịch" (trang "Xác minh dữ liệu giao dịch") tra theo mã giao dịch: có proof "Chuyển nhượng
+Note" và "Giấy xác nhận chuyển
+nhượng"; tải PDF rồi kiểm tra phải cho kết quả hash khớp. Với provider MOCK, nhãn vẫn là "MOCK, không có trên Fabric";
+không được hiển thị như on-chain thật.
+
+**MKT-05 [UI] Khoản trả tiếp theo đi cho chủ Note hiện tại.** Tiếp tục `REP-01–05` trên UAT-01. Sau khi kỳ trả được
+`COMPLETED`, tổng tiền phân phối vẫn bằng đúng số người vay đã trả. A chỉ nhận phần của 4 Note đang sở hữu; B nhận phần của 6
+Note đang sở hữu. Hai Note đã chuyển nhượng không được trả thêm cho A. Danh mục, lịch sử ví và thông báo của hai nhà đầu tư
+phải phản ánh cùng một chủ sở hữu; nếu tổng tiền đúng nhưng chia cho chủ cũ thì vẫn là **Fail P0**.
+
+**Ca lỗi tài chính trọng yếu của chợ Notes** (không cần hồ sơ vay mới, trừ MKT-N06 dùng UAT-06):
+
+| Mã | Kích hoạt | Cách gây ra | Kết quả mong đợi |
+|---|---|---|---|
+| MKT-N01 | [UI] | B chỉ có 1.000.000 đ khả dụng nhưng mua 2 Note giá 98% | Lệnh `REJECTED`, báo ví không đủ; không có hold hoặc Note đổi chủ |
+| MKT-N02 | [UI] | A có 6 Note rảnh nhưng đặt bán 7 | Báo chỉ còn 6 Note bán được; không khóa Note nào |
+| MKT-N03 | [UI] | A đang có Ask rồi dùng chính A đặt Bid chạm Ask đó | Không tự khớp; phần Bid chạm lệnh của mình bị hủy `SELF_TRADE_PREVENTED`; Ask cũ và Note khóa giữ nguyên |
+| MKT-N04 | [UI] | Bấm gửi lại cùng nội dung sau lỗi mạng hoặc bấm hai lần | Cùng một lệnh/idempotency key; tiền chỉ giữ một lần |
+| MKT-N05 | [UI] | Lệnh 3 Note mới khớp 2, sau đó hủy | Hai Note đã khớp giữ nguyên; chỉ một Note còn lại bị hủy/mở khóa hoặc nhả phần tiền giữ tương ứng |
+| MKT-N06 | [UI + công cụ] | UAT-06 đã `DEFAULTED`: mở sổ rồi thử đặt lệnh mà chưa tick cảnh báo, sau đó tick và gửi lại | Chưa tick thì không gửi hoặc backend `DEFAULT_NOT_ACKNOWLEDGED`; tick xong mới được đặt. UI phải ghi rõ rủi ro nợ xấu |
 
 ### 4.7 Trả kỳ: giữ tới ngày đến hạn, hủy, ghi nhận đúng ngày
 
@@ -1156,7 +1266,9 @@ thiếu); nhà đầu tư nhận phần gốc + lãi của khoản trả. T2 tr�
 
 - Người vay: trạng thái "Nợ xấu", "Quá hạn 91 ngày", quá hạn 5.178.000 (3 kỳ). Màn "Khắc phục quá hạn" có lựa chọn "Toàn bộ quá
   hạn" (5.178.000, mặc định) hoặc "Chỉ kỳ cũ nhất" (1.726.000).
-- Nhà đầu tư: nhãn "Nợ xấu", ô đỏ "Quá hạn 91 ngày · Nhóm nợ 3"; nút "Bán Note trên chợ" ẩn.
+- Nhà đầu tư: nhãn "Nợ xấu", ô đỏ "Quá hạn 91 ngày · Nhóm nợ 3". Nút bán nhanh "Bán Note trên chợ" trong "Danh mục đầu
+  tư" bị ẩn vì vị thế không còn `ACTIVE`; đây không phải là lệnh cấm giao dịch tuyệt đối. Nhà đầu tư vẫn có thể vào tab "Sàn" →
+  "Chợ Notes" để xem/đặt lệnh, nhưng phải thấy cảnh báo nợ xấu và tự xác nhận đã hiểu rủi ro trước khi gửi lệnh (`MKT-N06`).
 - Thông báo: tin nợ xấu cho người vay (`LOAN_DEFAULTED`) và nhà đầu tư (`BAD_DEBT_MILESTONE`).
 
 **OVD-04 [UI + công cụ] Trả bớt kỳ cũ nhất vẫn là nợ xấu (D26, D29).** Chọn "Chỉ kỳ cũ nhất" → cảnh báo "Bạn chỉ trả kỳ quá hạn
@@ -1311,7 +1423,7 @@ stack E2E (WDR-N11).
 | WDR-N11 | [UI + công cụ] | Tắt Payment (T5) ngay sau khi lệnh "Đã nhận lệnh", bật lại sau 1 phút | Màn trạng thái có thể dừng tự cập nhật ("Đã dừng tự cập nhật. Bấm “Kiểm tra lại”…"); "Kiểm tra lại" sau khi bật lại thấy "Hoàn tất" hoặc "Đang đối soát" ("Đang xác minh kết quả lệnh rút"…) | Hết lease → tra cứu provider theo `withdrawalId`, không gửi lệnh chi thứ hai khi chưa rõ (D42). Provider giả lập giữ kết quả trong bộ nhớ nên sau restart có thể gửi lại đúng mã. Ví chỉ trừ một lần |
 | WDR-N12 | [API] | Gọi `POST :8082/api/v1/wallets/callbacks/mock-payout` với `X-Payout-Signature` sai | — | `401`, không đổi trạng thái lệnh hay ví |
 
-### 4.12 Web "Vận hành khoản vay": sự cố giao dịch, đối soát, thu hồi
+### 4.12 Regression nâng cao — web "Vận hành khoản vay": sự cố, đối soát, thu hồi
 
 Điều kiện: admin web. Trang "Vận hành khoản vay" (`/loans/operations`) có tab "Quá hạn & thu hồi", "Yêu cầu cơ cấu", "Đối
 soát", "Sự kiện trả nợ chờ ghép", "Sự cố giao dịch"; nút "Làm mới" làm mới cả hàng đợi Loan, Payment, Investment. Mọi thao tác
@@ -1531,12 +1643,18 @@ có dòng của người dùng đó, provider `LOG_MOCK`, nhóm đúng (`WALLET`
 | NTF-N13 | [UI + công cụ] | Đăng ký 6 token giả cho cùng tài khoản (NTF-04) | — | Thiết bị có `lastRegisteredAt` cũ nhất bị `REVOKED` (`DEVICE_LIMIT`, tối đa 5) |
 | NTF-N14 | [API] | Admin `POST /api/v1/notifications/admin/push-deliveries/{id}/requeue` cho lần gửi `SENT` | — | `409 PUSH_DELIVERY_NOT_REQUEUEABLE` "Chỉ gửi lại được push ở trạng thái DEAD hoặc FAILED"; thiết bị đã thu hồi: `409 PUSH_DEVICE_REVOKED`. Web không có màn vận hành push |
 
-### 4.15 CIC nhận nợ quá hạn (`-WithLocalCic`, D65)
+### 4.15 CIC nhận nợ quá hạn (N04 HTTPS hoặc `-WithLocalCic`)
 
 Điều kiện:
 
-- Stack `Start -WithLocalCic -CicPath <thư mục cic-service-node của nhánh feat/finora-delinquency-intake>` (nhánh `main` không có
-  `src\messaging` nên launcher từ chối). CIC local nghe cổng 9000, kho tệp `docker/e2e/out/cic/du-lieu.json`, khóa nội bộ
+- **Cách deploy HTTPS (N04):** CIC Node đã deploy endpoint
+  `POST /api/v1/internal/loan-delinquency-events`; Loan có
+  `LOAN_CIC_DELINQUENCY_RELAY_ENABLED=true`, `CIC_SERVICE_URL` và `CIC_INTERNAL_API_KEY` trùng CIC.
+  Loan consume bằng group `loan-cic-delinquency-relay`; hết retry vào
+  `finora.loan.delinquency-changed.cic.DLT`. Chỉ nghiệm thu cách này sau khi N03 có kho CIC bền vững,
+  riêng tư; tại thời điểm 2026-11-01 code ở `READY_FOR_REVIEW`, chưa được coi là đã deploy.
+- **Cách local:** stack `Start -WithLocalCic -CicPath <thư mục cic-service-node có src\messaging>`.
+  CIC local nghe cổng 9000, kho tệp `docker/e2e/out/cic/du-lieu.json`, khóa nội bộ
   `CIC_INTERNAL_API_KEY_E2E` trong `docker/e2e/out/.env.e2e` (không in ra).
 - Không có UI cho CIC: người kiểm quan sát bằng API của CIC local. **Chỉ dùng CCCD tổng hợp đầu 999 (không phải mã tỉnh thật)
   và chỉ với CIC local**; không bao giờ gọi bản Vercel bằng CCCD nào (B70).
@@ -1553,6 +1671,11 @@ $map = Invoke-E2EHttp -Method POST -Uri 'http://localhost:9000/api/v1/internal/b
 ```
 
 Response không bao giờ trả CCCD đầy đủ.
+
+Khi kiểm riêng contract HTTPS mới, gửi nguyên envelope v1 tới
+`POST <CIC_SERVICE_URL>/api/v1/internal/loan-delinquency-events`. Kỳ vọng: `202 CHO_MAPPING` nếu chưa
+có mapping; gửi lại cùng `eventId` là `200 DA_TON_TAI`; sau CIC-01, `soSuKienDaPhatLai = 1` và
+hồ sơ có đúng một phiên bản mới.
 
 **CIC-02 [UI + công cụ] Hồ sơ CIC theo mốc quá hạn.** Chạy mục 4.9 trên khoản vay của người vay đã có mapping. Sau mỗi mốc, đọc
 `Invoke-E2EHttp -Method GET -Uri "http://localhost:9000/api/v1/ho-so/$cccd"` (Git Bash: `curl -s http://localhost:9000/api/v1/ho-so/<cccd>`):
@@ -1579,7 +1702,7 @@ tháng là policy demo FINORA cấu hình bằng `CIC_BAD_DEBT_COOLDOWN_MONTHS`/
 | CIC-N06 | [UI + công cụ] | Phát lại event quá hạn cuối (PowerShell): `$rec = @(Get-E2EKafkaRecords -Container finora-kafka -Topic finora.loan.delinquency-changed -Contains @('<LN-…>'))[-1]; Send-E2EKafkaRecord -Container finora-kafka -Record $rec` | `soPhienBan` không đổi (`cic.duplicate-event-ignored`); Loan, Investment, Notification cũng bỏ qua theo `eventId` |
 | CIC-N07 | [API] | `GET /api/v1/ho-so/<CCCD 999 chưa có>` trên CIC local | `200` với hồ sơ mới chưa lưu (`phienBan` 1, nhóm nợ trống). Trên bản Vercel thao tác này lưu hồ sơ công khai: không làm |
 
-### 4.16 Bảo mật và lạm dụng (W3A, R8A)
+### 4.16 Regression nâng cao — bảo mật và lạm dụng (W3A, R8A)
 
 Điều kiện: hai người vay (A, B) và hai nhà đầu tư (A, B). A đã có hồ sơ `LA-…`, hợp đồng `LC-…`, khoản vay `LN-…`, khoản trả
 `repaymentId` và lệnh góp vốn `orderReference` (lấy từ màn hình, evidence hoặc API của chính A).
@@ -1641,7 +1764,7 @@ khi khoản vay đã lên sàn."
 | SEC-N06 | [UI] | Mở ảnh chụp/màn hình khóa khi có push (NTF-05) | Không có số tiền, tên, mã khoản vay (D63) |
 | SEC-N07 | [UI] | Lịch sử rút tiền | Số tài khoản luôn che `******1234`, kể cả màn chi tiết (D44) |
 
-### 4.17 Health và readiness cho vận hành (W3E)
+### 4.17 Regression nâng cao — health và readiness cho vận hành (W3E)
 
 Mọi service Java có `/actuator/health/liveness` (JVM còn chạy) và `/actuator/health/readiness` (dependency mọi request cần).
 Không cần token để xem trạng thái; chi tiết (lý do, thời điểm, lỗi) chỉ hiện với token `ROLE_ADMIN`. Nhóm `operations` chứa
@@ -1698,7 +1821,36 @@ Ghi một lần ở đầu mỗi đợt (không ghi secret):
 | `-Action Status` trước khi kiểm | `clock=thật` cho loan/payment, `db=local` |
 | OPS-01 | Pass/Fail |
 
-### 5.2 Bảng kết quả từng ca
+### 5.2 Bảng kết quả bộ 12 hồ sơ
+
+Điền một dòng sau khi hoàn thành toàn bộ case gắn với hồ sơ ở mục 1.5. `UAT-05` và `UAT-06` được phép ghi `Deferred — chờ
+N04 CIC HTTPS` trong lượt đầu; không được ghi `Pass` chỉ vì Loan/Payment chạy xong mà CIC deploy chưa nhận dữ liệu.
+
+| Hồ sơ | Kết quả | LA / LC / LN / listing | Tài khoản người vay / NĐT (mã test, không ghi mật khẩu) | Đối chiếu tiền, Fineract, Note/PDF/proof | Bằng chứng / defect |
+|---|---|---|---|---|---|
+| UAT-01 Happy + chợ Note + trả kỳ | | | | | |
+| UAT-02 Trả trước một phần | | | | | |
+| UAT-03 Tất toán sớm | | | | | |
+| UAT-04 Cơ cấu/gia hạn | | | | | |
+| UAT-05 Quá hạn/khắc phục | Deferred | | | | Chờ N04 CIC HTTPS |
+| UAT-06 Nợ xấu/khắc phục | Deferred | | | | Chờ N04 CIC HTTPS |
+| UAT-07 Rút hồ sơ | | | | | |
+| UAT-08 Admin từ chối | | | | | |
+| UAT-09 Từ chối điều khoản cuối | | | | | |
+| UAT-10 Rút vốn/dừng gọi vốn | | | | | |
+| UAT-11 Người vay từ chối hợp đồng | | | | | |
+| UAT-12 Nhà đầu tư từ chối hợp đồng | | | | | |
+
+Một lượt UAT chính chỉ được kết luận đạt khi:
+
+1. Mười hồ sơ kiểm ngay đều `Pass`; hai hồ sơ trì hoãn ghi đúng dependency, không bị che thành `N/A`.
+2. Mọi thay đổi ví cân bằng tới đồng, không giữ/trừ/cộng hai lần; giao dịch chợ Note thỏa `tiền bán = thực nhận + phí`.
+3. Fineract có đúng một khoản vay/giao dịch theo external ID, dư nợ và lịch trùng projection Loan.
+4. Note đúng chủ sau phát hành/chuyển nhượng; kỳ trả sau chuyển nhượng phân phối cho chủ hiện tại.
+5. Hợp đồng, biên nhận, giấy chuyển nhượng tải được; proof tương ứng kiểm tra hash khớp và nhãn MOCK/Fabric đúng môi trường.
+6. Người vay, nhà đầu tư và admin chỉ thấy hành động/trạng thái/thông báo thuộc vai trò của mình.
+
+### 5.3 Bảng kết quả từng ca
 
 | Mã ca | Kết quả (Pass / Fail / Blocked / N/A) | Mã nghiệp vụ dùng (LA-…, LC-…, LN-…, repaymentId, withdrawalId, proofId) | Bằng chứng (ảnh, tên file) | Ghi chú / mã defect |
 |---|---|---|---|---|
@@ -1713,7 +1865,7 @@ Quy ước:
   status, `code`, `message` và `X-Trace-Id`.
 - Mỗi lỗi API ghi `X-Trace-Id` nếu response có header này, để tra log trong `docker/e2e/out/logs/<service>.log`.
 
-### 5.3 Báo defect
+### 5.4 Báo defect
 
 1. Kiểm defect register `.agents/plans/finora-remaining-work-plan.md` mục 3b xem lỗi đã có chưa (ví dụ B66, B73, B76 đang
    `Open`). Đã có thì ghi mã cũ vào cột ghi chú.
@@ -1730,7 +1882,7 @@ Quy ước:
    **P3** câu chữ, giao diện.
 5. Lỗi thuộc module của Hải (User, Investment, Notification, AI, CIC, phần UI Hải làm) ghi "Hải review" (D2).
 
-## 6. Giới hạn đã biết
+## 6. Phụ lục tham chiếu — giới hạn đã biết
 
 | Giới hạn | Ảnh hưởng tới kiểm thử | Nguồn |
 |---|---|---|
@@ -1752,7 +1904,7 @@ Quy ước:
 | Fineract V4 không tính thêm lãi sau ngày đáo hạn; nhóm nợ về 1 ngay khi trả đủ quá hạn | Quá hạn giữ nguyên từ DPD 181 tới 361; không có thời gian theo dõi sau khắc phục | W2D §6 |
 | Hàng đợi sự cố chưa phân quyền chi tiết, chưa duyệt hai người | Mọi admin đều bấm được thao tác sự cố | W2D §6 |
 
-## 7. Lệch tài liệu
+## 7. Phụ lục tham chiếu — lệch tài liệu
 
 Theo quy tắc của tài liệu này, khi plan/tài liệu và code khác nhau thì ca kiểm thử theo code và harness. Các chỗ lệch tìm thấy
 khi viết (2026-10-17):
@@ -1777,7 +1929,7 @@ khi viết (2026-10-17):
 
 ### 7.1 Quan sát nghi lỗi (đề xuất defect; mục đã sửa có mã B trong register)
 
-Đọc từ code hoặc evidence khi viết tài liệu; người kiểm xác nhận trên UI rồi mới mở mã B mới (mục 5.3). Mục **Đã sửa** có bản
+Đọc từ code hoặc evidence khi viết tài liệu; người kiểm xác nhận trên UI rồi mới mở mã B mới (mục 5.4). Mục **Đã sửa** có bản
 sửa ngày 2026-10-18: kiểm lại theo ca ghi ở cuối dòng.
 
 1. DPD trên vị thế nhà đầu tư không giảm sau khi người vay trả bớt ở DPD 91 (91 so với 61 phía Loan) — OVD-04.

@@ -5,6 +5,7 @@ import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import java.util.List;
+import java.util.Collection;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -18,6 +19,7 @@ public interface FinoraLoanRepository extends JpaRepository<FinoraLoan, Long> {
     @Query("select loan from FinoraLoan loan where loan.loanNumber = :loanNumber")
     Optional<FinoraLoan> findByLoanNumberForUpdate(@Param("loanNumber") String loanNumber);
     Optional<FinoraLoan> findByLoanApplicationId(Long loanApplicationId);
+    List<FinoraLoan> findByLoanApplicationIdIn(Collection<Long> loanApplicationIds);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select loan from FinoraLoan loan where loan.loanApplicationId = :loanApplicationId")

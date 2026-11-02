@@ -4,6 +4,7 @@ import com.finora.loan.domain.disbursement.DisbursementSaga;
 import com.finora.loan.domain.disbursement.DisbursementSagaStatus;
 import jakarta.persistence.LockModeType;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -16,6 +17,8 @@ import org.springframework.data.repository.query.Param;
 public interface DisbursementSagaRepository extends JpaRepository<DisbursementSaga, Long> {
     Optional<DisbursementSaga> findByLoanApplicationId(Long loanApplicationId);
     Optional<DisbursementSaga> findByContractNumber(String contractNumber);
+    List<DisbursementSaga> findByBorrowerIdAndStatusInOrderByCreatedAtDescIdDesc(
+            String borrowerId, Collection<DisbursementSagaStatus> statuses);
     org.springframework.data.domain.Page<DisbursementSaga> findByStatusOrderByUpdatedAtAscIdAsc(
             DisbursementSagaStatus status, org.springframework.data.domain.Pageable pageable);
     @Lock(LockModeType.PESSIMISTIC_WRITE)

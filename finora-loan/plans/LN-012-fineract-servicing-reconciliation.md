@@ -189,3 +189,23 @@ N+1 ở đây nguy hiểm theo hai kiểu: N query database để lấy Contract
 
 Chưa xong: quarantine event không map được và E2E restart/timeout với Fineract thật; vì vậy LN-012
 vẫn `IN_PROGRESS`, chưa đạt nghiệm thu toàn bộ.
+
+## 10. Khoảng chuyển tiếp sau khi hợp đồng có hiệu lực (2026-11-01)
+
+Payment có thể đã chuyển tiền vào ví người vay trong khi Fineract còn đang tạo khoản vay và lịch trả nợ.
+Đây là hai bước bền vững khác nhau của saga, không được che bằng cách tạo trước một `finora_loan` giả và
+không được mô tả màn hình trống là “chưa có khoản vay”.
+
+- `GET /api/v1/loans/pending-activation` chỉ trả saga của borrower hiện tại ở các trạng thái
+  `WAITING_PAYMENT`, `CORE_BOOKING_PENDING`, `CORE_BOOKING`, `RETRY_PENDING`, `REPAIR_REQUIRED`.
+- Response chỉ có mã hồ sơ, mã hợp đồng, số tiền, tiền tệ, trạng thái và thời điểm cập nhật; không lộ lỗi
+  nội bộ, mã người vay hay dữ liệu vận hành của người khác.
+- `COMPLETED` không trả ở endpoint này vì `GET /api/v1/loans/me` đã là nguồn hiển thị chuẩn sau khi
+  `ServicingActivationService` tạo `finora_loans` và projection trong cùng transaction hoàn tất saga.
+- `PAYMENT_FAILED` không được trình bày như khoản vay đang hình thành; trạng thái thất bại thuộc luồng
+  hợp đồng/giải ngân và đối soát.
+- Mobile tự đọc lại có giới hạn khi trạng thái còn tự tiến triển. `REPAIR_REQUIRED` dừng tự đọc và hướng
+  người dùng chờ FINORA hỗ trợ, không khuyến khích thanh toán hoặc tạo lại hồ sơ.
+
+Kiểm thử tích hợp `FinoraLoanApplicationIT#approvalRequestsFundingAndOnlyFullyFundedEventCreatesContractIdempotently`
+xác nhận người vay đã ký thấy đúng saga của mình ở `WAITING_PAYMENT` trước khi khoản vay core tồn tại.

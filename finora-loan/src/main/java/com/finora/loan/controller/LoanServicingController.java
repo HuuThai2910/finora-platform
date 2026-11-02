@@ -3,10 +3,12 @@ package com.finora.loan.controller;
 import com.finora.loan.dto.common.PageResponse;
 import com.finora.loan.dto.servicing.response.LoanRepaymentScheduleResponse;
 import com.finora.loan.dto.servicing.response.LoanServicingSummaryResponse;
+import com.finora.loan.dto.servicing.response.PendingLoanActivationResponse;
 import com.finora.loan.service.servicing.LoanServicingQueryService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
+import java.util.List;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,6 +30,11 @@ public class LoanServicingController {
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
         return service.listMine(page, size);
+    }
+
+    @GetMapping("/pending-activation")
+    public List<PendingLoanActivationResponse> pendingMine() {
+        return service.pendingMine();
     }
 
     @GetMapping("/{loanNumber}")

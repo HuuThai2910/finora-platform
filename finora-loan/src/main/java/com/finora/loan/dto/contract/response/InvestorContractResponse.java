@@ -14,6 +14,10 @@ import com.finora.loan.domain.contract.SignatureProviderType;
  */
 public record InvestorContractResponse(
         String contractNumber,
+        Long loanApplicationId,
+        String applicationNumber,
+        String loanNumber,
+        String purpose,
         LoanContractStatus contractStatus,
         ContractPartyStatus partyStatus,
         long contractVersion,
@@ -29,6 +33,7 @@ public record InvestorContractResponse(
         ContractSignatureProfile signatureProfile,
         int pdfSignatureCount,
         String signedPdfDocumentHash,
-        String receiptDocumentHash
+        String receiptDocumentHash,
+        Instant investorSignedAt
 ) {
 }

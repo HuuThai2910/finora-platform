@@ -39,7 +39,8 @@ ADMIN. Service account `finora-user-client` cần thêm `manage-realm` + `manage
 vai trò. Realm đang chạy: `docker/keycloak/add-staff-rbac.sh`.
 
 Consumer group hiện có: `payment-group`, `blockchain-group`, `notification-group`,
-`notification-investor-servicing`, `notification-domain-events` (W3F), `cic-loan-delinquency`.
+`notification-investor-servicing`, `notification-domain-events` (W3F), `cic-loan-delinquency` (CIC local),
+`loan-cic-delinquency-relay` (Loan relay HTTPS tới CIC deploy).
 
 Contract Loan–Investment đã được Thái chấp thuận triển khai ngày 2026-09-26; Hải phải review
 phần Investment trước merge:
@@ -53,7 +54,7 @@ phần Investment trước merge:
 | `finora.loan.investor-signature-requested` | Loan | `investment-loan-funding`, `notification-domain-events` | Gắn Contract/PDF chung vào listing; Notification báo từng nhà đầu tư ký |
 | `finora.loan.borrower-signature-requested` | Loan | `notification-domain-events` | Báo người vay khi tất cả lender đã ký (B24 đã sửa ở W3F) |
 | `finora.loan.contract-activated` | Loan | `investment-loan-funding`, `blockchain-group` | Investment cập nhật Contract có hiệu lực; Blockchain neo SHA-256 data (proof `CONTRACT_DOCUMENT`, W3D) |
-| `finora.loan.delinquency-changed` | Loan | `cic-loan-delinquency`, `investment-loan-funding` | CIC tách nhóm hiện tại/lịch sử; Investment cập nhật DPD/nhóm nợ cho Note projection |
+| `finora.loan.delinquency-changed` | Loan | `loan-cic-delinquency-relay`, `cic-loan-delinquency` (local), `investment-loan-funding` | Relay Loan gửi HTTPS sang CIC deploy; CIC tách nhóm hiện tại/lịch sử; Investment cập nhật DPD/nhóm nợ cho Note projection |
 | `finora.loan.settled` | Loan | `investment-loan-funding` | Investment lưu lifecycle projection; không dùng thay `RepaymentDistributed` để chia tiền/đóng Note |
 | `finora.loan.reschedule-consent-requested` | Loan | `investment-loan-funding` | Mở phiếu đồng thuận cơ cấu cho từng chủ Note hiện tại; payload không chứa PII/lý do tự do |
 | `finora.investment.reschedule-consent-completed` | Investment | `loan-investment-funding` | Trả kết quả đồng thuận cuối; Loan chỉ gọi Fineract khi tất cả nhà đầu tư chấp thuận |
@@ -111,15 +112,20 @@ bảng/contract; không suy diễn subscription khác.
 
 Mapping `borrowerId ↔ CCCD` được đăng ký trực tiếp vào CIC qua API nội bộ có
 `X-Finora-Internal-Key`; tuyệt đối không đưa CCCD thô vào Kafka. Event đến trước mapping
-được giữ trong `cic_pending_delinquency_events` và replay sau khi mapping được tạo.
+được giữ trong hàng chờ cùng kho CIC và replay sau khi mapping được tạo; trên Vercel chỉ được coi là bền sau khi
+N03 hoàn tất kho riêng tư/durable. Source Node hiện hành dùng collection
+`suKienQuaHanChoXuLy`; tên bảng `cic_pending_delinquency_events` chỉ thuộc bản Java legacy, không được dùng để
+kiểm tra bản Node.
 User tự tạo `user_cic_mapping_tasks` cùng transaction xác nhận eKYC, dùng ID hồ sơ (`user_profiles.id`, chính là
 claim `user_id`) làm `borrowerId` và retry có lease. Task chỉ giữ `user_profile_id`; không sao chép CCCD thô.
 
 Loan/Investment/Payment/AI dùng claim `user_id` (ID hồ sơ) làm `borrowerId`; từ Wave 2C mapping CIC cũng dùng đúng
-khóa này (B26 đã sửa ở `CicMappingWorker`, trước đó gửi `keycloakUserId`). Bản CIC Node đang deploy chỉ có API tra cứu
-điểm theo CCCD, chưa có endpoint mapping hay consumer Kafka (B27); nhánh `feat/finora-delinquency-intake` của
-`cic-service-node` bổ sung cả hai (D65, chờ Hải review). Worker mapping của User mặc định tắt
-(`USER_CIC_MAPPING_ENABLED=false`, B70): chỉ bật khi CIC đích lưu mapping riêng tư.
+khóa này (B26 đã sửa ở `CicMappingWorker`, trước đó gửi `keycloakUserId`). Source CIC Node hiện có
+`POST /api/v1/internal/borrower-mappings` và `POST /api/v1/internal/loan-delinquency-events`, cùng dùng
+`X-Finora-Internal-Key`. CIC local có thể consume Kafka trực tiếp; bản Vercel nhận qua group
+`loan-cic-delinquency-relay` của Loan, retry lũy tiến và hết lượt vào
+`finora.loan.delinquency-changed.cic.DLT`. Relay mặc định tắt và chỉ bật sau khi endpoint đã deploy;
+worker mapping User cũng chỉ bật khi CIC đích có kho riêng tư/bền vững (N03, B70).
 
 CURRENT STATE: Keycloak và `finora-user` dùng PostgreSQL cài trực tiếp trên máy host
 (`localhost:5432`, database `keycloak` và `finora_user`); Docker chỉ còn chạy Keycloak và

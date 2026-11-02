@@ -466,6 +466,10 @@ class FinoraLoanApplicationIT {
         JsonNode investorContract = objectMapper.readTree(mockMvc.perform(
                         get("/api/v1/investor/loan-contracts/me"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].loanApplicationId").value(submitted.path("id").asLong()))
+                .andExpect(jsonPath("$[0].applicationNumber").value(applicationNumber))
+                .andExpect(jsonPath("$[0].loanNumber").doesNotExist())
+                .andExpect(jsonPath("$[0].purpose").isNotEmpty())
                 .andExpect(jsonPath("$[0].partyStatus").value("PENDING_SIGNATURE"))
                 .andExpect(jsonPath("$[0].availableSignatureProvider").value("MOCK"))
                 .andReturn().getResponse().getContentAsString()).get(0);
@@ -539,6 +543,16 @@ class FinoraLoanApplicationIT {
                         .content(borrowerSignJson))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("EFFECTIVE"));
+
+        // Người vay không bị thấy màn hình trống trong lúc Payment/Fineract đang hoàn tất giải ngân.
+        mockMvc.perform(get("/api/v1/loans/pending-activation"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].loanApplicationId").value(submitted.path("id").asLong()))
+                .andExpect(jsonPath("$[0].applicationNumber").value(applicationNumber))
+                .andExpect(jsonPath("$[0].contractNumber").value(contractNumber))
+                .andExpect(jsonPath("$[0].principalAmount").value(50000000.0))
+                .andExpect(jsonPath("$[0].currency").value("VND"))
+                .andExpect(jsonPath("$[0].status").value("WAITING_PAYMENT"));
 
         assertThat(jdbcTemplate.queryForObject("""
                 SELECT COUNT(*) FROM loan_outbox_events

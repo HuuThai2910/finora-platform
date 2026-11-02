@@ -1,7 +1,8 @@
 # W4A — Rút hồ sơ/phần vốn trước chữ ký
 
-**Owner:** Thái (Loan/Mobile), Hải review phần Investment  
-**Trạng thái:** READY_FOR_REVIEW  
+**Owner:** Thái (Loan/Mobile), Hải review phần Investment
+
+**Trạng thái:** READY_FOR_REVIEW
 **Phạm vi:** Loan, Investment ở ranh giới hủy lệnh/event, Mobile; không đổi AI scoring, Payment ledger hay chính sách sau chữ ký.
 
 ## Quy tắc nghiệp vụ đã chốt

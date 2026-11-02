@@ -17,6 +17,7 @@ import com.finora.loan.domain.contract.LoanContractDocument;
 import com.finora.loan.domain.contract.LoanContractStatus;
 import com.finora.loan.domain.contract.LoanContractStatusHistory;
 import com.finora.loan.domain.contract.SignatureProviderType;
+import com.finora.loan.domain.servicing.FinoraLoan;
 import com.finora.loan.dto.contract.request.SignLoanContractRequest;
 import com.finora.loan.dto.contract.request.DeclineLoanContractRequest;
 import com.finora.loan.dto.contract.response.InvestorContractResponse;
@@ -34,6 +35,7 @@ import com.finora.loan.repository.contract.ContractPartyRepository;
 import com.finora.loan.repository.contract.LoanContractDocumentRepository;
 import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.contract.LoanContractStatusHistoryRepository;
+import com.finora.loan.repository.servicing.FinoraLoanRepository;
 import com.finora.loan.service.contract.ContractPdfSignatureService;
 import com.finora.loan.service.contract.ContractConsentResult;
 import com.finora.loan.service.contract.InvestorContractService;
@@ -47,8 +49,11 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.LinkedHashMap;
+import java.util.Map;
 import java.math.BigDecimal;
+import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -67,6 +72,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
     private final LoanContractDocumentRepository documentRepository;
     private final LoanContractStatusHistoryRepository historyRepository;
     private final LoanApplicationRepository applicationRepository;
+    private final FinoraLoanRepository finoraLoanRepository;
     private final SignatureProvider signatureProvider;
     private final ContractPdfSignatureService pdfSignatureService;
     private final HashingService hashingService;
@@ -83,9 +89,26 @@ public class InvestorContractServiceImpl implements InvestorContractService {
         partyRepository.findByPartyTypeAndPartyIdOrderByCreatedAtDesc(
                         ContractPartyType.LENDER, investorId)
                 .forEach(party -> firstPartyByContract.putIfAbsent(party.getContractId(), party));
+
+        Map<Long, LoanContract> contracts = contractRepository.findAllById(firstPartyByContract.keySet()).stream()
+                .collect(Collectors.toMap(LoanContract::getId, Function.identity()));
+        List<Long> applicationIds = contracts.values().stream()
+                .map(LoanContract::getApplicationId)
+                .distinct()
+                .toList();
+        Map<Long, LoanApplication> applications = applicationRepository.findAllById(applicationIds).stream()
+                .collect(Collectors.toMap(LoanApplication::getId, Function.identity()));
+        Map<Long, FinoraLoan> loans = finoraLoanRepository.findByLoanApplicationIdIn(applicationIds).stream()
+                .collect(Collectors.toMap(FinoraLoan::getLoanApplicationId, Function.identity()));
+
         return firstPartyByContract.entrySet().stream()
-                .map(entry -> response(
-                        contractRepository.findById(entry.getKey()).orElseThrow(), entry.getValue()))
+                .map(entry -> {
+                    LoanContract contract = java.util.Objects.requireNonNull(
+                            contracts.get(entry.getKey()), "Contract party tham chiếu hợp đồng không tồn tại");
+                    LoanApplication application = java.util.Objects.requireNonNull(
+                            applications.get(contract.getApplicationId()), "Hợp đồng tham chiếu hồ sơ không tồn tại");
+                    return response(contract, entry.getValue(), application, loans.get(contract.getApplicationId()));
+                })
                 .toList();
     }
 
@@ -834,6 +857,17 @@ public class InvestorContractServiceImpl implements InvestorContractService {
     }
 
     private InvestorContractResponse response(LoanContract contract, ContractParty party) {
+        LoanApplication application = applicationRepository.findById(contract.getApplicationId()).orElseThrow();
+        FinoraLoan loan = finoraLoanRepository.findByLoanApplicationId(contract.getApplicationId()).orElse(null);
+        return response(contract, party, application, loan);
+    }
+
+    private InvestorContractResponse response(
+            LoanContract contract,
+            ContractParty party,
+            LoanApplication application,
+            FinoraLoan loan
+    ) {
         LoanContractDocument document = currentDocument(contract);
         List<ContractParty> all = partyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(
                 contract.getId());
@@ -846,7 +880,9 @@ public class InvestorContractServiceImpl implements InvestorContractService {
                 ? pdfSignatureService.signedSummaries(contract.getId())
                 : List.of();
         return new InvestorContractResponse(
-                contract.getContractNumber(), contract.getStatus(), party.getStatus(),
+                contract.getContractNumber(), contract.getApplicationId(), application.getApplicationNumber(),
+                loan == null ? null : loan.getLoanNumber(), application.getPurposeCode().getLabel(),
+                contract.getStatus(), party.getStatus(),
                 contract.getVersion() == null ? 0L : contract.getVersion(), contract.getDocumentHash(),
                 document.getContentHash(), investorAmount, contract.getTermMonths(),
                 (int) all.stream().filter(item -> item.getPartyType() == ContractPartyType.LENDER).count(),
@@ -856,7 +892,8 @@ public class InvestorContractServiceImpl implements InvestorContractService {
                 contract.getSignatureProfile(), signatures.size(),
                 signatures.isEmpty() ? null : signatures.getLast().contentHash(),
                 documentRepository.findContentHash(contract.getId(), ContractPdfArtifactType.SIGNED_RECEIPT)
-                        .orElse(null));
+                        .orElse(null),
+                party.getSignedAt());
     }
 
     private String stableTransactionId(String contractNumber, String investorId, String key) {

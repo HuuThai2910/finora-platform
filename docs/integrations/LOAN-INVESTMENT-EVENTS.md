@@ -342,6 +342,12 @@ Không mang CCCD. User đăng ký mapping `borrowerId ↔ CCCD` vào CIC qua HTT
 Repayment khắc phục đủ phần quá hạn phải tạo event có `daysPastDue = 0`; nếu chỉ sửa projection thì
 CIC sẽ giữ sai nhóm cũ.
 
+Với CIC Node chạy local dài hạn, group `cic-loan-delinquency` có thể đọc Kafka trực tiếp. Với bản
+Vercel, Loan dùng group độc lập `loan-cic-delinquency-relay` và gửi chính envelope trên qua
+`POST /api/v1/internal/loan-delinquency-events` kèm `X-Finora-Internal-Key`. CIC chống ghi trùng theo
+`eventId`; timeout/429/5xx được retry lũy tiến, hết lượt vào topic
+`finora.loan.delinquency-changed.cic.DLT`. Feature flag mặc định tắt cho tới khi endpoint đã deploy.
+
 `LoanSettled.v1` mang `loanApplicationId`, `loanNumber`, `contractNumber`, `borrowerId`,
 `fineractLoanId`, `settledAt`. Event được phát từ cả kết quả repayment và worker sync core, nhưng khóa
 trạng thái/processed event bảo đảm chỉ transition thực sự mới ghi outbox.

@@ -293,9 +293,10 @@ khoản vay (saga chưa lưu), tắt Payment sau khi provider đã chuyển ti�
 5. Payment phát `RepaymentDistributed` với breakdown/reference tối thiểu.
 6. Loan cập nhật servicing projection từ Fineract response/reliable event; Investment cập nhật Note/portfolio và phát projection event theo chủ Note; Blockchain ghi proof; Notification lưu delivery in-app idempotent.
 7. Worker Loan đồng bộ Fineract định kỳ; khi DPD thay đổi, Loan ghi outbox
-   `LoanDelinquencyChanged.v1`. CIC Node deploy ngoài Compose consume idempotent để thêm một phiên bản lịch sử
-   quá hạn/nhóm nợ. Event chỉ mang `borrowerId`; mapping CCCD nằm riêng trong CIC và event
-   đến trước mapping được giữ bền vững để replay.
+   `LoanDelinquencyChanged.v1`. CIC local có thể consume Kafka trực tiếp; với CIC Node trên Vercel, consumer group
+   riêng của Loan relay nguyên envelope qua HTTPS nội bộ để CIC thêm một phiên bản lịch sử quá hạn/nhóm nợ
+   idempotently. Event chỉ mang `borrowerId`; mapping CCCD nằm riêng trong CIC và event đến trước mapping được giữ
+   để replay. Với Vercel, tính bền vững của hàng chờ phụ thuộc N03 (kho private/durable).
 
 **Invariant:** Payment ledger là nguồn chuyển tiền; Fineract là nguồn allocation/balance. Tổng tiền thu phải đối chiếu với core transaction và tổng phân bổ investor + platform; mismatch tạo reconciliation incident, không thu hoặc ghi repayment lần hai.
 
@@ -317,8 +318,9 @@ test PostgreSQL chứng minh borrower → clearing → current Note owner và ou
 `FINORA-FINERACT-V3` với `PROGRESSIVE` + advanced allocation + `NEXT_INSTALLMENT` để ưu tiên rút ngắn
 kỳ; V2 `REAMORTIZATION` và V1 vẫn được đọc tương thích. Trả trước không thu lãi tương lai; tổng phí theo
 policy được chia 80% cho chủ Note theo dư nợ và 20% cho FINORA, có field/event riêng để đối soát. Loan đã phát
-`LoanDelinquencyChanged.v1`; CIC Node ngoài Compose đã có consumer, processed-event và pending-mapping
-queue. Loan V21 tự mở/đóng từng collection episode, tăng stage theo DPD, chuyển `DEFAULTED`
+`LoanDelinquencyChanged.v1`; source CIC Node đã có xử lý idempotent, hàng chờ mapping và cả hai kênh nhận:
+Kafka opt-in cho tiến trình chạy dài hạn, HTTPS nội bộ cho Vercel qua relay của Loan. Loan V21 tự mở/đóng từng
+collection episode, tăng stage theo DPD, chuyển `DEFAULTED`
 từ DPD 91, cure về `ACTIVE` và cung cấp admin queue/audit action append-only. Loan V23 đã fail-closed và
 lưu incident riêng khi servicing snapshot sai core identity, external ID, principal giải ngân hoặc tổng
 breakdown; V24 giữ/replay event hợp lệ nhưng thiếu mapping. Blockchain đã consume repayment hash-only;
@@ -338,6 +340,14 @@ queue” mô tả bản CIC Java cũ. Bản CIC Node đang deploy (`/api/v1/suc-
 vẫn phát `LoanDelinquencyChanged.v1` nhưng hiện không có consumer CIC; lịch sử quá hạn của FINORA chưa được ghi sang
 CIC. Theo D1 không phát triển lại CIC trong repo này; owner quyết định phạm vi. Định danh mapping thống nhất là
 `user_id` (B26 sửa ở Wave 2C, D18).
+
+**Cập nhật 2026-11-01 (N04, `READY_FOR_REVIEW`):** do Vercel không giữ được consumer Kafka, Loan có
+consumer group riêng `loan-cic-delinquency-relay` đọc cùng topic và gửi nguyên envelope v1 tới
+`POST /api/v1/internal/loan-delinquency-events`. CIC dùng lại validation, hàng chờ mapping và chống trùng
+`eventId`; `202` nghĩa là đã giữ chờ mapping, `200` là đã xử lý hoặc event trùng. HTTP 4xx vĩnh viễn
+vào DLT ngay; timeout/408/429/5xx retry lũy tiến tối đa theo cấu hình rồi vào
+`finora.loan.delinquency-changed.cic.DLT`. Cờ `LOAN_CIC_DELINQUENCY_RELAY_ENABLED` mặc định `false`;
+chưa coi là đã vận hành trên deploy cho tới khi Hải review/deploy CIC và N03 bảo đảm kho bền, riêng tư.
 
 **Đính chính 2026-10-17 (B28, B29):** với sản phẩm core V1–V3 (tắt `isInterestRecalculationEnabled`), báo giá tất
 toán (`prepayLoan`) gồm toàn bộ lãi các kỳ còn lại và khoản trả thêm theo `NEXT_INSTALLMENT` trả trọn kỳ tương lai kể
