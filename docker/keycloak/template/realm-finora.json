@@ -102,8 +102,7 @@
               "ops:blockchain:view",
               "ops:blockchain:action",
               "ops:ai-policy:view",
-              "ops:ai-policy:action",
-              "ops:ai-scoring:view"
+              "ops:ai-policy:action"
             ]
           }
         }
@@ -135,8 +134,7 @@
               "ops:ekyc:view",
               "ops:ekyc:action",
               "ops:blockchain:view",
-              "ops:ai-policy:view",
-              "ops:ai-scoring:view"
+              "ops:ai-policy:view"
             ]
           }
         },
@@ -288,11 +286,11 @@
         },
         {
           "name": "ops:ekyc:view",
-          "description": "Duyệt eKYC — Xem"
+          "description": "Duyệt xác minh danh tính — Xem"
         },
         {
           "name": "ops:ekyc:action",
-          "description": "Duyệt eKYC — Thao tác"
+          "description": "Duyệt xác minh danh tính — Thao tác"
         },
         {
           "name": "ops:blockchain:view",
@@ -309,10 +307,6 @@
         {
           "name": "ops:ai-policy:action",
           "description": "Chính sách AI — Thao tác"
-        },
-        {
-          "name": "ops:ai-scoring:view",
-          "description": "Chấm thử AI — Xem"
         }
       ]
     }

@@ -59,10 +59,9 @@ FUNCTIONS=(
   "secondary-market|Chợ thứ cấp|1|1"
   "loan-product|Sản phẩm vay|1|0"
   "customer|Khách hàng|1|0"
-  "ekyc|Duyệt eKYC|1|1"
+  "ekyc|Duyệt xác minh danh tính|1|1"
   "blockchain|Bằng chứng blockchain|1|0"
   "ai-policy|Chính sách AI|1|0"
-  "ai-scoring|Chấm thử AI|0|0"
 )
 
 kc() {

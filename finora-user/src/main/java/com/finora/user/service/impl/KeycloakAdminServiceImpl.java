@@ -170,6 +170,14 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
                     PiiMasker.maskEmail(email));
             throw new BusinessException(HttpStatus.UNAUTHORIZED, "Email hoặc mật khẩu không đúng");
         } catch (HttpClientErrorException e) {
+            // Tài khoản bị quản trị viên khóa (user disabled): Keycloak trả 400 invalid_grant "Account disabled".
+            // Báo đúng lý do thay vì lỗi hệ thống để người dùng biết cần liên hệ hỗ trợ.
+            if (e.getStatusCode() == HttpStatus.BAD_REQUEST
+                    && e.getResponseBodyAsString().contains("Account disabled")) {
+                log.warn("Đăng nhập tài khoản đã bị khóa: email={}", PiiMasker.maskEmail(email));
+                throw new BusinessException(HttpStatus.FORBIDDEN,
+                        "Tài khoản đã bị khóa. Vui lòng liên hệ bộ phận hỗ trợ FINORA.");
+            }
             log.error("Lỗi Keycloak token endpoint: status={}, email={}",
                     e.getStatusCode(), PiiMasker.maskEmail(email));
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR,

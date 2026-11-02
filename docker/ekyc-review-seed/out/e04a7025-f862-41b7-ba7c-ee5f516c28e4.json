@@ -1,0 +1,25 @@
+{
+  "attempt_id": "e04a7025-f862-41b7-ba7c-ee5f516c28e4",
+  "user_profile_id": 19,
+  "seeded_at": "2026-10-30T09:00:26.119364+00:00",
+  "had_cic_task": false,
+  "profile_before": {
+    "id": 19,
+    "email": "bui.anh.tuan@gmail.com",
+    "ekyc_status": "MANUAL_REVIEW",
+    "document_verified": false,
+    "liveness_verified": false,
+    "face_match_score": null,
+    "ekyc_completed_at": null,
+    "full_name": "Bùi Anh Tuấn",
+    "date_of_birth": "1991-06-03",
+    "gender": "MALE",
+    "place_of_origin": "Quảng Ninh",
+    "address": "Phường Bãi Cháy, TP. Hạ Long, Quảng Ninh",
+    "id_card_type": null,
+    "id_issue_date": null,
+    "id_expiry_date": null,
+    "birth_registration_place": null,
+    "had_id_number": true
+  }
+}
