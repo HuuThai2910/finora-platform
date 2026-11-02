@@ -195,7 +195,7 @@ def _kiem_tra_nguong_quyet_dinh(
     if thresholds.auto_reject >= thresholds.auto_approve:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="auto_reject phải nhỏ hơn auto_approve",
+            detail="Ngưỡng tự động từ chối phải nhỏ hơn ngưỡng tự động đề xuất duyệt.",
         )
 
     grades_desc = sorted(grades, key=lambda item: item.min_score, reverse=True)
@@ -204,10 +204,11 @@ def _kiem_tra_nguong_quyet_dinh(
     if approval_grade.grade not in top_grades:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            # Câu hiện nguyên văn trên web quản trị: dùng nhãn ô trên màn hình, không dùng tên trường.
             detail=(
-                f"auto_approve ({thresholds.auto_approve}) đang nằm trong hạng "
-                f"{approval_grade.grade}; ngưỡng tự duyệt phải thuộc một trong hai "
-                f"hạng cao nhất: {sorted(top_grades)}."
+                f"Ngưỡng tự động đề xuất duyệt ({thresholds.auto_approve}) đang nằm trong hạng "
+                f"{approval_grade.grade}; ngưỡng này phải thuộc một trong hai hạng cao nhất "
+                f"({', '.join(sorted(top_grades))})."
             ),
         )
 
@@ -216,7 +217,7 @@ def _kiem_tra_nguong_quyet_dinh(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
-                f"auto_reject phải từ {lowest_grade.max_score} trở lên để toàn bộ "
+                f"Ngưỡng tự động từ chối phải từ {lowest_grade.max_score} trở lên để toàn bộ "
                 f"hạng thấp nhất {lowest_grade.grade} được từ chối tự động."
             ),
         )

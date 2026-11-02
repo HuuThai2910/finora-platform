@@ -13,7 +13,7 @@ class OpsFunctionTest {
         assertThat(OpsFunction.LOAN_APPLICATION.action()).isEqualTo("ops:loan-application:action");
         assertThat(OpsFunction.LOAN_APPLICATION.canAct()).containsExactly("ops:loan-application:action", "ROLE_ADMIN");
         assertThatThrownBy(OpsFunction.DASHBOARD::action).isInstanceOf(IllegalStateException.class);
-        assertThat(OpsFunction.allPermissions()).hasSize(28).doesNotHaveDuplicates()
+        assertThat(OpsFunction.allPermissions()).hasSize(27).doesNotHaveDuplicates()
                 .allMatch(permission -> permission.matches("ops:[a-z-]+:(view|action)"));
     }
 

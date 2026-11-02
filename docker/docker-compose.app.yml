@@ -420,6 +420,9 @@ services:
       SPRING_PROFILES_ACTIVE: local
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       AI_SERVICE_URL: http://ai:8000
+      # Worker chấm điểm lấy token client_credentials của finora-loan-client (D34) qua tên nội bộ; thiếu dòng này Loan gọi
+      # localhost:8180 ngay trong container, hồ sơ kẹt SCORING_RETRY_PENDING (AI_UNAVAILABLE) rồi rơi về chờ thẩm định.
+      KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/finora/protocol/openid-connect/token
       # eKYC người vay đọc từ User bằng token của người vay khi nộp hồ sơ (W2-KYC); `mock` chỉ cho test/E2E.
       FINORA_BORROWER_PROFILE_PROVIDER: ${FINORA_BORROWER_PROFILE_PROVIDER:-user}
       USER_SERVICE_URL: http://user:8085

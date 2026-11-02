@@ -2,14 +2,16 @@ package com.finora.loan.service.outbox;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Relay chỉ khởi động khi có transport bean và operator bật cờ explicit. */
+/**
+ * Relay chỉ khởi động khi operator bật cờ explicit. Không dùng @ConditionalOnBean(OutboxPublisher.class): publisher là
+ * @Bean của KafkaOutboxConfiguration, trong fat jar component được quét trước nên điều kiện sai và worker bị bỏ, outbox
+ * nằm PENDING mãi (hồ sơ đã duyệt không lên sàn). Thiếu publisher thì OutboxRelayService tự xử lý qua ObjectProvider.
+ */
 @Component
-@ConditionalOnBean(OutboxPublisher.class)
 @ConditionalOnProperty(name = "finora.loan.outbox.publisher-enabled", havingValue = "true")
 @RequiredArgsConstructor
 @Slf4j

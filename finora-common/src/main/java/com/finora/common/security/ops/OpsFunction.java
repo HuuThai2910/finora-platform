@@ -30,10 +30,9 @@ public enum OpsFunction {
     SECONDARY_MARKET("secondary-market", "Chợ thứ cấp", "Đầu tư", true, true),
     LOAN_PRODUCT("loan-product", "Sản phẩm vay", "Sản phẩm", true, false),
     CUSTOMER("customer", "Khách hàng", "Khách hàng", true, false),
-    EKYC("ekyc", "Duyệt eKYC", "Khách hàng", true, true),
+    EKYC("ekyc", "Duyệt xác minh danh tính", "Khách hàng", true, true),
     BLOCKCHAIN("blockchain", "Bằng chứng blockchain", "Hệ thống", true, false),
-    AI_POLICY("ai-policy", "Chính sách AI", "AI", true, false),
-    AI_SCORING("ai-scoring", "Chấm thử AI", "AI", false, false);
+    AI_POLICY("ai-policy", "Chính sách AI", "AI", true, false);
 
     /** Client Keycloak giữ các quyền {@code ops:*}. */
     public static final String CLIENT_ID = "finora-ops";

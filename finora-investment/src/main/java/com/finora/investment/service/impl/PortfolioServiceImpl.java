@@ -172,14 +172,19 @@ public class PortfolioServiceImpl implements PortfolioService {
         return NoteStatus.CLOSED;
     }
 
-    /** Các phần vốn đã cam kết của nhà đầu tư hiện tại, kể cả khoản vay chưa giải ngân. */
+    /**
+     * Các phần vốn chưa thành Note của nhà đầu tư hiện tại: đang gọi vốn, đã khóa chờ ký, hoặc đã giải ngân nhưng chưa
+     * phát hành Note. Phần vốn đã có Note nằm ở danh mục đầu tư, không lặp lại ở đây.
+     */
     @Override
     @Transactional(readOnly = true)
     public List<CommitmentResponse> myCommitments() {
         List<InvestmentCommitment> commitments = commitmentRepository.findByInvestorIdAndStatusIn(
                 SecurityUtils.getCurrentUserId(),
                 List.of(CommitmentStatus.ACTIVE, CommitmentStatus.FINALIZED)
-        );
+        ).stream()
+                .filter(c -> c.getStatus() != CommitmentStatus.FINALIZED || !noteRepository.existsByCommitmentId(c.getId()))
+                .toList();
 
         Set<Long> listingIds = commitments.stream()
                 .map(InvestmentCommitment::getListingId)
