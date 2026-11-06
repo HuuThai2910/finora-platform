@@ -284,8 +284,9 @@ jobs:
           case "${SERVICE}" in
             fineract)
               context=docker/fineract; file=docker/fineract/Dockerfile
-              # Mirror nhanh hơn archive.apache.org (như docker-compose.azure.build.yml).
-              build_args=FINERACT_MIRROR=https://downloads.apache.org ;;
+              # Dùng mặc định archive.apache.org của Dockerfile: downloads.apache.org chỉ giữ bản mới nhất (06/11 đã
+              # là 1.16.1, bản 1.15.0 trả 404). Layer tải nằm trong cache gha nên chỉ tải một lần.
+              build_args= ;;
             ai)
               context=.; file=docker/Dockerfile.ai; build_args= ;;
             *)

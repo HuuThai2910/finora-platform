@@ -6,11 +6,9 @@ services:
   fineract:
     build:
       context: ../docker/fineract
+      # Tải Fineract từ archive.apache.org (mặc định của Dockerfile): từ 06/11 downloads.apache.org chỉ còn 1.16.1.
+      # archive chậm (khoảng 200 KB/s từ VM); nếu được thì kéo image finora-fineract từ GHCR thay vì build ở đây.
       dockerfile: Dockerfile
-      args:
-        # Mirror nhanh hơn archive.apache.org nhiều lần; nếu bản 1.15.0 bị gỡ khỏi đây thì
-        # bỏ dòng này để quay về archive.
-        FINERACT_MIRROR: https://downloads.apache.org
   ai:
     build:
       context: ..
