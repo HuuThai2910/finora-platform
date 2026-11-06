@@ -1,35 +1,141 @@
-# CI của finora-platform (Q14, D19; W3E D55).
+# CI của finora-platform (Q14, D19; W3E D55; CI-001 D87).
 #
-# Bốn nhóm job chạy song song, không cần secret thật:
-#   - rules:       .agents/scripts/validate-rules.ps1 (PowerShell 7 trên Linux)
-#   - secret-scan: gitleaks quét toàn bộ lịch sử git, chỉ in giá trị đã che
-#   - java:        mỗi module một job `mvn -pl <module> -am verify` (đúng cổng 06-quality-gates),
-#                  Testcontainers dùng Docker có sẵn của runner ubuntu
+# Chỉ chạy khi có pull request vào main (và khi bấm Run workflow). Job `changes` đọc diff của PR rồi chọn việc cần chạy,
+# không cần secret thật:
+#   - rules:       .agents/scripts/validate-rules.ps1 (PowerShell 7 trên Linux), khi sửa file validator đọc
+#   - secret-scan: gitleaks, luôn chạy; với PR chỉ quét commit của PR, chạy tay thì quét toàn bộ lịch sử
+#   - java:        chỉ các module bị ảnh hưởng; cài finora-common bỏ test rồi `mvn -pl <module> verify` để chỉ chạy test
+#                  của module đó (đúng cổng 06-quality-gates), Testcontainers dùng Docker có sẵn của runner ubuntu
 #   - ai:          pytest của finora-ai; 10 test lệch cấu hình của B44 tách khỏi cổng chặn và báo riêng
+#   - ci-passed:   check tổng, đỏ khi có job lỗi; job bị bỏ qua tính là đạt
 #
 # Mọi action pin theo commit SHA (tag ghi ở comment); gitleaks pin theo tag + digest image.
 # Khi nâng version: chọn bản đã phát hành ít nhất hai tuần, cập nhật SHA và comment cùng lúc.
 name: CI
 
 on:
-  push:
+  pull_request:
     branches:
       - main
-      - "feat/**"
-      - "fix/**"
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Dò thay đổi
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      java_modules: ${{ steps.detect.outputs.java_modules }}
+      run_ai: ${{ steps.detect.outputs.run_ai }}
+      run_rules: ${{ steps.detect.outputs.run_rules }}
+    steps:
+      - name: Checkout toàn bộ lịch sử
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Chọn job theo file thay đổi
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # Bảng ánh xạ ở CI-001 mục 4. Thứ tự các nhánh `case` có ý nghĩa: dòng cụ thể đứng trước dòng chung.
+        # Đường dẫn không khớp dòng nào thì chạy hết, để thêm thư mục mới mà quên sửa bảng chỉ làm CI chạy dư.
+        run: |
+          set -euo pipefail
+          all_java=(finora-common finora-gateway finora-loan finora-payment finora-blockchain finora-investment
+                    finora-user finora-notification)
+          # Mọi module trừ gateway khai báo finora-common trong pom.xml.
+          common_users=(finora-common finora-loan finora-payment finora-blockchain finora-investment finora-user
+                        finora-notification)
+          declare -A java=()
+          run_ai=false
+          run_rules=false
+          run_all=false
+
+          if [[ "${EVENT_NAME}" != "pull_request" ]]; then
+            run_all=true
+            echo "Sự kiện ${EVENT_NAME}: chạy hết." >> "${GITHUB_STEP_SUMMARY}"
+          else
+            # Ba chấm: so với điểm rẽ nhánh khỏi main, tức đúng thay đổi của PR, không lẫn commit mới của main.
+            changed="$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")"
+            {
+              echo "### File thay đổi"
+              echo '```'
+              echo "${changed}"
+              echo '```'
+            } >> "${GITHUB_STEP_SUMMARY}"
+            while IFS= read -r path; do
+              if [[ -z "${path}" ]]; then continue; fi
+              case "${path}" in
+                .github/workflows/ci.yml)
+                  run_all=true ;;
+                pom.xml)
+                  for m in "${all_java[@]}"; do java[$m]=1; done ;;
+                finora-common/*)
+                  for m in "${common_users[@]}"; do java[$m]=1; done ;;
+                finora-loan/PLAN.md | finora-loan/plans/*)
+                  java[finora-loan]=1
+                  run_rules=true ;;
+                finora-gateway/* | finora-loan/* | finora-payment/* | finora-blockchain/* | finora-investment/* | \
+                finora-user/* | finora-notification/*)
+                  java[${path%%/*}]=1 ;;
+                # RealmTemplateStaffRbacTest của finora-user đọc docker/keycloak/template/realm-finora.json.
+                docker/keycloak/*)
+                  java[finora-user]=1 ;;
+                finora-ai/* | .github/ci/ai-known-failures-b44.txt)
+                  run_ai=true ;;
+                .agents/* | AGENTS.md | CLAUDE.md)
+                  run_rules=true ;;
+                docs/* | docker/* | *.md | .gitignore | .gitleaksignore | hs_err_*.log | replay_*.log)
+                  ;;
+                *)
+                  echo "Đường dẫn ngoài bảng ánh xạ: ${path}"
+                  run_all=true ;;
+              esac
+            done <<< "${changed}"
+          fi
+
+          if [[ "${run_all}" == "true" ]]; then
+            for m in "${all_java[@]}"; do java[$m]=1; done
+            run_ai=true
+            run_rules=true
+          fi
+
+          modules=()
+          for m in "${all_java[@]}"; do
+            if [[ -n "${java[$m]:-}" ]]; then modules+=("$m"); fi
+          done
+          if (( ${#modules[@]} )); then
+            java_modules="$(printf '%s\n' "${modules[@]}" | jq -Rnc '[inputs]')"
+          else
+            java_modules='[]'
+          fi
+
+          {
+            echo "java_modules=${java_modules}"
+            echo "run_ai=${run_ai}"
+            echo "run_rules=${run_rules}"
+          } | tee -a "${GITHUB_OUTPUT}"
+          {
+            echo "### Job được chọn"
+            echo "- Java: ${java_modules}"
+            echo "- AI: ${run_ai}"
+            echo "- Rules: ${run_rules}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   rules:
     name: Rule validator
+    needs: changes
+    if: needs.changes.outputs.run_rules == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -48,42 +154,46 @@ jobs:
     env:
       # gitleaks OSS (MIT), không cần license key khi chạy bằng image thay cho gitleaks-action.
       GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
       - name: Checkout toàn bộ lịch sử
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Quét secret trong mọi commit của HEAD
+      - name: Quét secret
+        # PR: chỉ commit có trong head mà không có trong base (đúng các commit của PR). Chạy tay: toàn bộ lịch sử của HEAD
+        # (mặc định gitleaks quét `--all`, kéo cả nhánh khác chưa merge vào kết quả).
         # --redact: log chỉ có vị trí và rule, không có giá trị. False positive đã duyệt nằm trong .gitleaksignore
         # (fingerprint commit:file:rule:line) hoặc comment `gitleaks:allow` ngay trên dòng đó.
-        # --log-opts chỉ lấy lịch sử của HEAD: mặc định gitleaks quét `--all`, kéo cả nhánh khác chưa merge vào kết quả.
         # safe.directory: repo thuộc user runner, git trong container chạy user khác nên phải khai báo tin cậy.
         run: |
+          if [[ -n "${BASE_SHA}" ]]; then
+            log_opts="${BASE_SHA}..${HEAD_SHA}"
+          else
+            log_opts="--full-history HEAD"
+          fi
+          echo "gitleaks --log-opts=${log_opts}"
           docker run --rm \
             -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
             -v "${GITHUB_WORKSPACE}:/repo:ro" -w /repo \
-            "${GITLEAKS_IMAGE}" git /repo --log-opts="--full-history HEAD" \
+            "${GITLEAKS_IMAGE}" git /repo --log-opts="${log_opts}" \
             --gitleaks-ignore-path /repo/.gitleaksignore --redact --no-banner --verbose
 
   java:
     name: Java verify (${{ matrix.module }})
+    needs: changes
+    if: needs.changes.outputs.java_modules != '[]'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       # Một module đỏ không được che kết quả của module khác.
       fail-fast: false
       matrix:
-        module:
-          - finora-common
-          - finora-gateway
-          - finora-loan
-          - finora-payment
-          - finora-blockchain
-          - finora-investment
-          - finora-user
-          - finora-notification
+        module: ${{ fromJSON(needs.changes.outputs.java_modules) }}
     env:
+      MODULE: ${{ matrix.module }}
       # Runner tự hủy sau job nên không cần Ryuk dọn container; image Ryuk của Testcontainers 1.19 dùng Docker API cũ.
       TESTCONTAINERS_RYUK_DISABLED: "true"
     steps:
@@ -101,8 +211,18 @@ jobs:
         # Testcontainers 1.19.7 (do Spring Boot 3.2.5 quản lý) mặc định gọi Docker API 1.32; Docker Engine 29 trên runner
         # chỉ nhận từ 1.44. docker-java đọc api.version trong file này (biến DOCKER_API_VERSION không có tác dụng).
         run: printf 'api.version=1.44\n' > "${HOME}/.docker-java.properties"
+      - name: Cài finora-common (bỏ test)
+        # POM cha + finora-common vào ~/.m2 để bước sau chạy không cần `-am`: test của common chỉ chạy ở job finora-common.
+        # Gateway không dùng common nên bỏ bước này.
+        if: matrix.module != 'finora-common' && matrix.module != 'finora-gateway'
+        run: mvn -B -ntp -pl finora-common -am install -DskipTests
       - name: mvn verify
-        run: mvn -B -ntp -pl "${{ matrix.module }}" -am verify
+        run: |
+          if [[ "${MODULE}" == "finora-common" ]]; then
+            mvn -B -ntp -pl finora-common -am verify
+          else
+            mvn -B -ntp -pl "${MODULE}" verify
+          fi
       - name: Lưu báo cáo test khi đỏ
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -113,9 +233,15 @@ jobs:
             **/target/failsafe-reports/
           if-no-files-found: ignore
           retention-days: 7
+      - name: Bỏ artifact FINORA khỏi cache Maven
+        # setup-java lưu ~/.m2/repository sau job; bản SNAPSHOT finora-* trong đó là của nhánh này, không được dùng lại.
+        if: always()
+        run: rm -rf "${HOME}/.m2/repository/com/finora"
 
   ai:
     name: AI tests (pytest)
+    needs: changes
+    if: needs.changes.outputs.run_ai == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -157,5 +283,29 @@ jobs:
           else
             echo "::warning title=B44::Còn test B44 đỏ (cách ly, không chặn merge); xem log bước này"
             echo "B44: còn test lệch cấu hình (${#known[@]} test cách ly), không chặn merge." >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+
+  ci-passed:
+    name: CI passed
+    needs: [changes, rules, secret-scan, java, ai]
+    # always(): vẫn chạy khi job trước lỗi hoặc bị bỏ qua, để báo đỏ thay vì cũng bị bỏ qua.
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      NEEDS: ${{ toJSON(needs) }}
+    steps:
+      - name: Tổng hợp kết quả
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "${NEEDS}"
+          if [[ "$(jq -r '.changes.result' <<< "${NEEDS}")" != "success" ]]; then
+            echo "::error title=CI::Job Dò thay đổi không thành công nên không biết cần kiểm gì"
+            exit 1
+          fi
+          failed="$(jq -r '[to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key]
+                           | join(", ")' <<< "${NEEDS}")"
+          if [[ -n "${failed}" ]]; then
+            echo "::error title=CI::Job không đạt: ${failed}"
             exit 1
           fi

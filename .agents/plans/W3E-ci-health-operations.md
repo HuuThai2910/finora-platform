@@ -301,6 +301,8 @@ Plan ở `READY_FOR_REVIEW`: code và test đã chạy trên máy (mục 16). Ch
 | D59 | Giữ Flyway 9.22.3 do Spring Boot 3.2.5 quản lý dù Flyway cảnh báo PostgreSQL 17 chưa được kiểm (B59): mọi test migrate/upgrade đã chạy trên PostgreSQL 17.5. Nâng cùng lần lên Spring Boot 3.4.x (Flyway 10.20.1, bản đầu hỗ trợ PostgreSQL 17) hoặc 3.5.x, thêm `flyway-database-postgresql`, verify đủ sáu module; không ghi đè riêng `flyway.version` trên Boot 3.2 |
 | D79 | (Thêm 2026-10-17 khi sửa B58 trên nhánh producer W3F) Consumer Payment dùng `DefaultErrorHandler` + `DeadLetterPublishingRecoverer` sang DLT riêng `<topic>.payment.DLT` (partition do producer chọn), như Notification; `IllegalArgumentException`/`BusinessException` vào DLT ngay, lỗi khác lùi dần 1–30 giây trong 3 phút (cấu hình `PAYMENT_KAFKA_RETRY_*`, `PAYMENT_KAFKA_DLT_SUFFIX`). Không dùng `<topic>.DLT` vì `finora.loan.disbursed`, `finora.investment.note-ownership-changed` đã có Investment/Blockchain ghi vào đó; cửa sổ 3 phút như Notification vì lệnh giải ngân cần chịu được PostgreSQL khởi động lại, mỗi lần chờ dưới `max.poll.interval.ms` |
 
+Ghi chú 06/11: trigger và cách chọn job của D55 được thay bởi D87 ([CI-001](CI-001-pr-main-va-chay-theo-thay-doi.md)).
+
 ### Defect (B55–B59, chép vào plan tổng hợp mục 3b)
 
 | ID | Mức | Workstream | Vấn đề và bằng chứng | Trạng thái |
