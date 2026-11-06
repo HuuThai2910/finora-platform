@@ -1,0 +1,15 @@
+[Unit]
+Description=FINORA: ghi trang thai container cho trang danh thuc
+After=docker.service
+Requires=docker.service
+
+[Service]
+# Xóa file của phiên trước để trang đánh thức không đọc nhầm trạng thái cũ lúc VM vừa bật.
+ExecStartPre=/bin/rm -f /opt/finora/state/public/_status.json
+ExecStart=/opt/finora/bin/finora-status.sh
+ExecStopPost=/bin/rm -f /opt/finora/state/public/_status.json
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

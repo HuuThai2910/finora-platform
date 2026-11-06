@@ -2,10 +2,12 @@
 task_id: CD-001
 title: CD finora-platform lên VM Azure bằng GitHub Actions (build image trên GitHub, VM chỉ kéo image)
 owner: Hai
-status: DRAFT
+status: IN_PROGRESS
 depends_on: [CI-001]
 created_at: 2026-11-06
 updated_at: 2026-11-06
+approved_by: Hai
+approved_at: 2026-11-06
 ---
 
 # CD-001 — Deploy finora-platform lên VM Azure từ GitHub Actions
@@ -14,8 +16,9 @@ Plan thay quy trình deploy tay ở `Đồ Án/deploy/README.md` mục "Cập nh
 plan (Vercel lo). Không đổi code service, entity, API, event hay migration; đổi cách đóng gói image, bố cục thư mục trên
 VM, `docker-compose.azure.yml` và quyền Azure.
 
-Hải chốt 06/11: không có bước duyệt tay; commit nào đã qua CI thì merge xong tự deploy, CI đỏ thì không deploy. Thái giữ
-toàn bộ quyền repo, Hải không có quyền cài đặt repo; Azure là subscription của Hải.
+Hải chốt 06/11: không có bước duyệt tay; commit nào đã qua CI thì merge xong tự deploy, CI đỏ thì không deploy. Hải có
+quyền ghi và vào được Settings của repo (tự thêm Variables); package GHCR thuộc tài khoản HuuThai2910 nên đổi sang public
+có thể cần Thái. Azure là subscription của Hải.
 
 ## Bản đọc nhanh theo nghiệp vụ
 
@@ -239,13 +242,12 @@ kết quả như nhau: tag đã đúng thì `up -d` không làm gì.
 - Log run-command có thể in tên service và tag, không in nội dung `.env` (script không `cat`/`set -x` quanh file env).
 - Rủi ro còn lại: ai merge được vào `main` (Thái) là deploy được lên VM có quyền root. Chấp nhận vì không có bước duyệt.
 
-## 9. Việc của Thái (admin repo, làm một lần)
+## 9. Cài đặt GitHub (làm một lần)
 
-1. Settings → Secrets and variables → Actions → Variables: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`
-   (Hải gửi giá trị sau mục 10 bước 1).
+1. Hải: Settings → Secrets and variables → Actions → Variables: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
+   `AZURE_SUBSCRIPTION_ID` (giá trị in ra ở mục 10 bước 1).
 2. Sau lần build đầu: Packages → mỗi package `finora-*` → Package settings → Change visibility → Public (package của tài
-   khoản cá nhân tạo ra mặc định private; private thì gói Free chỉ có 500 MB và VM phải đăng nhập GHCR).
-3. Merge PR chứa `cd.yml` + `deploy/`.
+   khoản cá nhân tạo ra mặc định private; private thì VM phải đăng nhập GHCR). Hải thử trước; không có nút thì nhờ Thái.
 
 Không cần Environment, ruleset hay secret.
 
@@ -300,4 +302,37 @@ Acceptance: T1–T9 đạt; README cập nhật; ghi thời gian một lần dep
 
 ## 14. Bản đồ code thực tế
 
-Chưa triển khai.
+Triển khai 06/11, chưa commit; chưa chạy trên GitHub/Azure (còn mục 9, 10 bước 1).
+
+| Phần | Vị trí |
+|---|---|
+| Workflow | `.github/workflows/cd.yml`: `gate` (API commits/pulls + check-runs `CI passed`), `plan` (so nhãn revision của tag `main` trên GHCR với `git diff` theo đường dẫn đưa vào image), `build` (ma trận, `docker/build-push-action`, `provenance: false`, cache gha theo service), `retag` (`docker buildx imagetools create`), `deploy` (OIDC, bật VM, run-command, kiểm `/_status.json`, tắt lại) |
+| Script VM | `deploy/cd-deploy.sh`: tham số `sha services repo`; tự chuyển bố cục cũ lần đầu; `images.env` + `.prev`; symlink `current`; Caddyfile cố định ở `/opt/finora/config` + `caddy reload`; đợi healthy; rollback; dọn image và release cũ; dòng cuối `FINORA_CD_RESULT` |
+| Compose | `deploy/docker-compose.azure.yml` (image GHCR theo `<SVC>_TAG`, `env_file` ở `/opt/finora/env`, Caddyfile qua `FINORA_CADDYFILE`); `deploy/docker-compose.azure.build.yml` + `build-images.sh` cho build dự phòng tag `local` |
+| Wrapper | `deploy/host/finora-compose.sh` → `/opt/finora/bin/finora-compose` |
+| Quyền Azure | `deploy/vm-deploy-role.json`; lệnh tạo app registration + federated credential trong `deploy/README.md` mục "CD từ GitHub Actions" |
+| CI | `ci.yml`: `deploy/**` và `cd.yml` không kích hoạt job kiểm nào ngoài secret scan |
+
+Sai khác so với dự kiến:
+- Chọn service bằng nhãn `org.opencontainers.image.revision` của tag `main` thay vì diff `before..after`: lần CD bị `gate`
+  chặn không làm sót thay đổi ở lần sau.
+- Thêm job `retag`: mọi commit đã qua CD có đủ 9 tag, quay lại bản cũ không phải build.
+- Thêm input `skip_ci_check` cho chạy tay (commit đẩy thẳng `main`, lần deploy đầu).
+- Bước chuyển VM (mục 10 bước 3) do `cd-deploy.sh` tự làm ở lần chạy đầu: chép `.env`, tạo `images.env`; hỏng thì chạy
+  lại cụm cũ.
+- Biến Azure để ở Variables của repo (Hải tự thêm) thay vì nhờ Thái.
+- Smoke chỉ kiểm `/_status.json` (`ready` và `updatedAt` mới), chưa gọi API qua gateway.
+
+## 15. Bằng chứng kiểm thử (06/11, Git Bash trên Windows)
+
+- `plan`: tách script từ `cd.yml`, chạy trên lịch sử git thật với GHCR giả (stub `docker buildx imagetools`): registry
+  rỗng → build cả 9; `main` = commit trước (chỉ đổi `.agents`/`.github`) → không build, gắn tag 9, không deploy; `main` =
+  `dbfec10` → build 8 (trừ fineract); chạy lại khi loan đã build → chỉ deploy loan; chạy tay `all` / `loan,user` / để trống
+  đều đúng.
+- `cd-deploy.sh`: chạy với `FINORA_ROOT` giả và stub `docker`/`curl`: lần đầu `all` (chép 7 file env, `images.env` đủ 9
+  tag, `current`, Caddyfile) → ok; deploy loan → chỉ `pull loan`, chỉ `LOAN_TAG` đổi → ok; loan unhealthy → quay về tag và
+  release trước, `rolled-back`; SHA sai → `failed`; chỉ cấu hình (`-`) → ok; pull lỗi → `rolled-back`; lần đầu pull lỗi →
+  xóa `images.env`/`current`, chạy lại compose cũ, `rolled-back`.
+- Workflow đọc được bằng PyYAML, mọi action pin SHA 40 ký tự. Chưa chạy actionlint/shellcheck (auto mode chặn chạy binary
+  tải về).
+- Chưa kiểm thật: OIDC, run-command trên VM, kéo image GHCR, `caddy reload`, thời gian deploy.

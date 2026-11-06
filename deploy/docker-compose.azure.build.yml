@@ -1,0 +1,53 @@
+# Build image ngay trên VM khi không dùng được CD (GitHub Actions/GHCR lỗi). Dùng kèm docker-compose.azure.yml:
+#   bash build-images.sh loan        # build image tag `local`
+#   sửa LOAN_TAG=local trong /opt/finora/state/images.env rồi `finora-compose up -d loan`
+# Cần cây mã đầy đủ của finora-platform ở thư mục cha của deploy/ (git archive), không chỉ thư mục deploy/.
+services:
+  fineract:
+    build:
+      context: ../docker/fineract
+      dockerfile: Dockerfile
+      args:
+        # Mirror nhanh hơn archive.apache.org nhiều lần; nếu bản 1.15.0 bị gỡ khỏi đây thì
+        # bỏ dòng này để quay về archive.
+        FINERACT_MIRROR: https://downloads.apache.org
+  ai:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ai
+  user:
+    build: &java-build
+      context: ..
+      dockerfile: docker/Dockerfile.java-service
+      args:
+        SERVICE_MODULE: finora-user
+  notification:
+    build:
+      <<: *java-build
+      args:
+        SERVICE_MODULE: finora-notification
+  payment:
+    build:
+      <<: *java-build
+      args:
+        SERVICE_MODULE: finora-payment
+  investment:
+    build:
+      <<: *java-build
+      args:
+        SERVICE_MODULE: finora-investment
+  loan:
+    build:
+      <<: *java-build
+      args:
+        SERVICE_MODULE: finora-loan
+  blockchain:
+    build:
+      <<: *java-build
+      args:
+        SERVICE_MODULE: finora-blockchain
+  gateway:
+    build:
+      <<: *java-build
+      args:
+        SERVICE_MODULE: finora-gateway

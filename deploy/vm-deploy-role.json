@@ -1,0 +1,14 @@
+{
+  "Name": "FINORA VM Deploy",
+  "IsCustom": true,
+  "Description": "CD tu GitHub Actions (CD-001): xem trang thai, bat, tat VM demo FINORA va chay script deploy qua run-command. Run-command chay bang root nen chi gan cho app registration finora-github-cd.",
+  "Actions": [
+    "Microsoft.Compute/virtualMachines/read",
+    "Microsoft.Compute/virtualMachines/instanceView/read",
+    "Microsoft.Compute/virtualMachines/start/action",
+    "Microsoft.Compute/virtualMachines/deallocate/action",
+    "Microsoft.Compute/virtualMachines/runCommand/action"
+  ],
+  "NotActions": [],
+  "AssignableScopes": ["/subscriptions/<SUBSCRIPTION_ID>/resourceGroups/finora-rg"]
+}

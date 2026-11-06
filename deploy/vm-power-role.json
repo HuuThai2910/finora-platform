@@ -1,0 +1,13 @@
+{
+  "Name": "FINORA VM Power",
+  "IsCustom": true,
+  "Description": "Xem trang thai, bat va tat (deallocate) VM demo FINORA. Dung cho ham danh thuc tren Vercel va managed identity cua VM.",
+  "Actions": [
+    "Microsoft.Compute/virtualMachines/read",
+    "Microsoft.Compute/virtualMachines/instanceView/read",
+    "Microsoft.Compute/virtualMachines/start/action",
+    "Microsoft.Compute/virtualMachines/deallocate/action"
+  ],
+  "NotActions": [],
+  "AssignableScopes": ["/subscriptions/<SUBSCRIPTION_ID>/resourceGroups/finora-rg"]
+}

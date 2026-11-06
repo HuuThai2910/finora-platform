@@ -1,0 +1,18 @@
+// Mỗi lượt gọi API qua Gateway (logger finora.api), mới nhất trước.
+// Dán vào Azure Portal → Log Analytics workspace finora-logs → Logs, chọn chế độ KQL.
+Syslog
+| where Facility == "local0" and ProcessName startswith "finora-gateway" and SyslogMessage has "finora.api"
+| extend api = parse_json(extract(@"(\{.*\})\s*$", 1, SyslogMessage))
+| project TimeGenerated,
+          method = tostring(api.method), path = tostring(api.path), query = tostring(api.query),
+          service = tostring(api.service), status = toint(api.status), durationMs = toint(api.durationMs),
+          user = tostring(api.user), role = tostring(api.role), client = tostring(api.client), ip = tostring(api.ip),
+          errorCode = tostring(api.errorCode), errorMessage = tostring(api.errorMessage),
+          traceId = tostring(api.traceId), requestBody = tostring(api.requestBody)
+| order by TimeGenerated desc
+
+// Chỉ lỗi (bỏ comment dòng dưới):
+// | where status >= 400
+
+// Số lỗi theo service và mã lỗi trong 24 giờ:
+// | where TimeGenerated > ago(24h) and status >= 400 | summarize count() by service, errorCode

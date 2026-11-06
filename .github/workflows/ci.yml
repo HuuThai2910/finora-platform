@@ -95,7 +95,9 @@ jobs:
                   run_ai=true ;;
                 .agents/* | AGENTS.md | CLAUDE.md)
                   run_rules=true ;;
-                docs/* | docker/* | *.md | .gitignore | .gitleaksignore | hs_err_*.log | replay_*.log)
+                # deploy/ và cd.yml chỉ dùng khi deploy lên VM (CD-001), không có test trong CI.
+                docs/* | docker/* | deploy/* | .github/workflows/cd.yml | *.md | .gitignore | .gitleaksignore | \
+                hs_err_*.log | replay_*.log)
                   ;;
                 *)
                   echo "Đường dẫn ngoài bảng ánh xạ: ${path}"

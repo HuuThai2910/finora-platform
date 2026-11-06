@@ -1,0 +1,1696 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deploy FINORA trên Azure</title>
+<meta name="description" content="Cơ chế deploy FINORA lên Azure (VM tự bật khi vào web, tự tắt khi rảnh) và hướng dẫn tự dựng lại bằng tay.">
+<style>
+:root {
+  --bg: #f5f8f8;
+  --surface: #ffffff;
+  --surface-2: #eef5f4;
+  --text: #1b2a29;
+  --muted: #5a6c6a;
+  --line: #d8e3e1;
+  --accent: #0f877e;
+  --accent-strong: #0a6b64;
+  --accent-soft: #dcf1ee;
+  --amber: #b06d12;
+  --amber-soft: #fbefd9;
+  --danger: #b0413a;
+  --danger-soft: #fbe8e5;
+  --code-bg: #f0f5f4;
+  --code-text: #1f3331;
+  --shadow: 0 1px 2px rgba(16, 40, 38, .06), 0 4px 16px rgba(16, 40, 38, .05);
+  --radius: 14px;
+  --font: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --mono: "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, "Liberation Mono", monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1615;
+    --surface: #152120;
+    --surface-2: #1a2928;
+    --text: #e2ebea;
+    --muted: #93a7a4;
+    --line: #2a3c3a;
+    --accent: #4fc2b6;
+    --accent-strong: #7dd8ce;
+    --accent-soft: #143531;
+    --amber: #e3aa52;
+    --amber-soft: #382a14;
+    --danger: #ef8a80;
+    --danger-soft: #3a1c19;
+    --code-bg: #101b1a;
+    --code-text: #d5e4e2;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1615;
+  --surface: #152120;
+  --surface-2: #1a2928;
+  --text: #e2ebea;
+  --muted: #93a7a4;
+  --line: #2a3c3a;
+  --accent: #4fc2b6;
+  --accent-strong: #7dd8ce;
+  --accent-soft: #143531;
+  --amber: #e3aa52;
+  --amber-soft: #382a14;
+  --danger: #ef8a80;
+  --danger-soft: #3a1c19;
+  --code-bg: #101b1a;
+  --code-text: #d5e4e2;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .25);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.65 var(--font);
+  -webkit-text-size-adjust: 100%;
+}
+a { color: var(--accent-strong); text-underline-offset: 2px; }
+a:hover { color: var(--accent); }
+code, pre, kbd { font-family: var(--mono); }
+:not(pre) > code {
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 .32em;
+  font-size: .88em;
+  overflow-wrap: anywhere;
+}
+h1, h2, h3, h4 { line-height: 1.3; margin: 0; }
+h2 { font-size: 1.5rem; margin: 0 0 .9rem; letter-spacing: -.01em; }
+h3 { font-size: 1.15rem; margin: 1.6rem 0 .6rem; }
+h4 { font-size: 1rem; margin: 1rem 0 .35rem; }
+p { margin: .55rem 0; }
+ul, ol { padding-left: 1.3rem; margin: .5rem 0; }
+li { margin: .22rem 0; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2rem 0; }
+
+/* ---------- Khung trang ---------- */
+.topbar {
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.topbar-inner {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 28px 24px 24px;
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.brand { display: flex; gap: 14px; align-items: center; }
+.brand-mark {
+  width: 44px; height: 44px; border-radius: 12px; flex: none;
+  background: var(--accent-soft); color: var(--accent-strong);
+  display: grid; place-items: center;
+}
+.topbar h1 { font-size: 1.7rem; letter-spacing: -.015em; }
+.topbar .sub { color: var(--muted); margin: .25rem 0 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.chip {
+  font-size: .8rem; padding: 2px 10px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--muted);
+}
+.theme-btn {
+  flex: none;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--text);
+  border-radius: 999px; padding: 6px 14px; font: inherit; font-size: .85rem; cursor: pointer;
+}
+.theme-btn:hover { border-color: var(--accent); }
+
+.layout {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 24px;
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 36px;
+}
+.toc { position: sticky; top: 16px; align-self: start; max-height: calc(100vh - 32px); overflow: auto; }
+.toc details { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 8px 10px 12px; }
+.toc summary { cursor: pointer; font-weight: 600; font-size: .9rem; color: var(--muted); padding: 2px 4px 6px; list-style: none; }
+.toc summary::-webkit-details-marker { display: none; }
+.toc summary::after { content: " ▾"; font-size: .8em; }
+.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: toc; }
+.toc li { margin: 0; }
+.toc a {
+  display: block; text-decoration: none; color: var(--text);
+  font-size: .9rem; padding: 5px 8px; border-radius: 8px; line-height: 1.35;
+}
+.toc a:hover { background: var(--surface-2); }
+.toc a.active { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+.toc .sub a { padding-left: 22px; font-size: .84rem; color: var(--muted); }
+.toc .sub a.active { color: var(--accent-strong); }
+
+main { min-width: 0; max-width: 900px; }
+main > section { margin-bottom: 3rem; }
+.lead { font-size: 1.06rem; }
+.muted { color: var(--muted); }
+.small { font-size: .88rem; }
+
+/* ---------- Khối nội dung ---------- */
+.card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 18px 20px; box-shadow: var(--shadow);
+}
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.stat b { display: block; font-size: 1.05rem; }
+.stat span { color: var(--muted); font-size: .86rem; }
+
+.note, .warn, .tip {
+  border-radius: 12px; padding: 12px 14px; margin: .9rem 0;
+  border: 1px solid var(--line); background: var(--surface-2);
+}
+.note { border-left: 4px solid var(--accent); }
+.tip { border-left: 4px solid var(--accent); background: var(--accent-soft); border-color: transparent; border-left-color: var(--accent); }
+.warn { border-left: 4px solid var(--amber); background: var(--amber-soft); border-color: transparent; border-left-color: var(--amber); }
+.note > :first-child, .warn > :first-child, .tip > :first-child { margin-top: 0; }
+.note > :last-child, .warn > :last-child, .tip > :last-child { margin-bottom: 0; }
+
+.badge {
+  display: inline-block; font-size: .76rem; font-weight: 600; line-height: 1.4;
+  padding: 1px 9px; border-radius: 999px; vertical-align: 2px;
+  background: var(--accent-soft); color: var(--accent-strong);
+}
+.badge.amber { background: var(--amber-soft); color: var(--amber); }
+.badge.gray { background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+
+/* ---------- Bảng ---------- */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: .93rem; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+th { background: var(--surface-2); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td:first-child { font-weight: 600; min-width: 150px; }
+.tbl-group td { background: var(--accent-soft); color: var(--accent-strong); font-weight: 700; font-size: .82rem; letter-spacing: .02em; padding: 6px 14px; }
+
+/* ---------- Mã lệnh ---------- */
+.code { position: relative; margin: 1.1rem 0 .7rem; }
+.code pre {
+  margin: 0; background: var(--code-bg); color: var(--code-text);
+  border: 1px solid var(--line); border-radius: 12px;
+  padding: 18px 16px 14px;
+  overflow-x: auto; font-size: .84rem; line-height: 1.55; tab-size: 2;
+}
+.code .lbl {
+  position: absolute; top: -9px; left: 12px; font-size: .7rem; font-weight: 600;
+  background: var(--surface); color: var(--muted); border: 1px solid var(--line);
+  border-radius: 6px; padding: 0 6px; line-height: 1.5;
+}
+/* Nút nằm trên mép trên của khối (như nhãn bên trái), không đè lên dòng lệnh dài khi cuộn ngang. */
+.copy-btn {
+  position: absolute; top: -11px; right: 12px;
+  font: inherit; font-size: .74rem; line-height: 1.4; cursor: pointer;
+  padding: 1px 9px; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+}
+.copy-btn:hover { color: var(--accent-strong); border-color: var(--accent); }
+.copy-btn.done { color: var(--accent-strong); border-color: var(--accent); }
+.cm { color: var(--muted); }
+
+/* ---------- Sơ đồ ---------- */
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; box-shadow: var(--shadow); }
+.figure svg { display: block; width: 100%; height: auto; }
+.figure .scroll { overflow-x: auto; }
+.figure .scroll svg { min-width: 680px; }
+.caption { color: var(--muted); font-size: .86rem; margin: .6rem .2rem 0; }
+
+svg .d-group { fill: var(--surface-2); stroke: var(--line); stroke-width: 1.2; }
+svg .d-vm { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.2; stroke-opacity: .55; }
+svg .d-box { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+svg .d-box-accent { fill: var(--surface); stroke: var(--accent); stroke-width: 1.4; }
+svg .d-box-amber { fill: var(--surface); stroke: var(--amber); stroke-width: 1.4; }
+svg .d-gt { fill: var(--muted); font: 600 13px var(--font); }
+svg .d-t { fill: var(--text); font: 600 13px var(--font); }
+svg .d-s { fill: var(--muted); font: 12px var(--font); }
+svg .d-xs { fill: var(--muted); font: 11px var(--font); }
+svg .d-lbl { fill: var(--text); font: 11.5px var(--font); paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
+svg .ln { fill: none; stroke: var(--accent); stroke-width: 1.7; }
+svg .ln-amber { fill: none; stroke: var(--amber); stroke-width: 1.7; }
+svg .ln-dash { stroke-dasharray: 6 4; }
+svg .ln-dot { stroke-dasharray: 2 3; }
+svg .ln-muted { fill: none; stroke: var(--muted); stroke-width: 1.3; }
+svg .mk-accent { fill: var(--accent); }
+svg .mk-amber { fill: var(--amber); }
+svg .d-sep { stroke: var(--line); stroke-width: 1; }
+
+/* ---------- Timeline ---------- */
+.timeline { list-style: none; padding: 0; margin: .8rem 0 0; counter-reset: tl; }
+.timeline > li {
+  position: relative; padding: 0 0 16px 46px; margin: 0; counter-increment: tl;
+}
+.timeline > li::before {
+  content: counter(tl);
+  position: absolute; left: 0; top: 0;
+  width: 30px; height: 30px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-weight: 700; font-size: .85rem;
+  background: var(--accent-soft); color: var(--accent-strong); border: 1px solid var(--accent);
+}
+.timeline > li::after {
+  content: ""; position: absolute; left: 15px; top: 32px; bottom: 2px;
+  width: 1px; background: var(--line);
+}
+.timeline > li:last-child::after { display: none; }
+.timeline.amber > li::before { background: var(--amber-soft); color: var(--amber); border-color: var(--amber); }
+.timeline b.where { color: var(--accent-strong); }
+.timeline.amber b.where { color: var(--amber); }
+
+.flow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: .8rem 0; }
+.flow span {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 4px 10px; font-size: .88rem;
+}
+.flow i { font-style: normal; color: var(--accent); font-weight: 700; }
+
+/* ---------- Bước setup ---------- */
+.step {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 4px 20px 16px; margin: 0 0 18px; box-shadow: var(--shadow);
+}
+.step > h3 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 16px 0 6px; }
+.step-no {
+  flex: none; font-size: .8rem; font-weight: 700;
+  background: var(--accent); color: var(--surface);
+  border-radius: 8px; padding: 1px 9px;
+}
+.step .row { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 4px 14px; margin-top: 12px; }
+.step .row > .k { font-size: .8rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding-top: 3px; }
+.step .row > .v > :first-child { margin-top: 0; }
+.step .row > .v > :last-child { margin-bottom: 0; }
+
+.trap { border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 12px 16px; margin-bottom: 10px; }
+.trap h4 { margin: 0 0 .3rem; font-size: .98rem; }
+.trap p { margin: .25rem 0; font-size: .94rem; }
+.trap .fix { color: var(--accent-strong); font-weight: 600; }
+
+/* ---------- Checklist kiểm tra ---------- */
+.chk-bar {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 14px; margin: 1rem 0;
+}
+.chk-progress { font-weight: 600; }
+.chk-progress .bar { display: block; width: 180px; max-width: 100%; height: 6px; border-radius: 99px; background: var(--surface-2); margin-top: 5px; overflow: hidden; }
+.chk-progress .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.btn-reset {
+  font: inherit; font-size: .85rem; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--text);
+  border-radius: 999px; padding: 5px 14px;
+}
+.btn-reset:hover { border-color: var(--danger); color: var(--danger); }
+.checklist { list-style: none; padding: 0; margin: 0; }
+.chk {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px 18px 14px; margin: 0 0 12px; box-shadow: var(--shadow);
+  transition: border-color .15s, background .15s;
+}
+.chk.done { border-color: var(--accent); }
+.chk.done .chk-head label { color: var(--accent-strong); }
+.chk-head { display: flex; gap: 12px; align-items: flex-start; }
+.chk-head input {
+  flex: none; width: 20px; height: 20px; margin: 3px 0 0; accent-color: var(--accent); cursor: pointer;
+}
+.chk-head label { font-weight: 600; cursor: pointer; line-height: 1.45; }
+.chk-no { color: var(--muted); font-weight: 700; margin-right: 4px; }
+.chk dl { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 6px 14px; margin: 10px 0 0 32px; }
+.chk dt { font-size: .76rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding-top: 3px; }
+.chk dd { margin: 0; min-width: 0; font-size: .94rem; }
+.chk dd > :first-child { margin-top: 0; }
+.chk dd > :last-child { margin-bottom: 0; }
+.chk dd .code { margin-top: .9rem; }
+.chk .ok { color: var(--accent-strong); }
+.chk-group { margin: 1.6rem 0 .7rem; font-size: 1rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+
+.to-top {
+  position: fixed; right: 16px; bottom: 16px; z-index: 5;
+  width: 42px; height: 42px; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--surface); color: var(--accent-strong);
+  box-shadow: var(--shadow); cursor: pointer; font-size: 1.1rem;
+  display: none;
+}
+.to-top.show { display: block; }
+
+footer { color: var(--muted); font-size: .85rem; border-top: 1px solid var(--line); padding-top: 16px; }
+
+/* ---------- Màn hình hẹp ---------- */
+@media (max-width: 960px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 16px; }
+  .toc { position: static; max-height: none; }
+  .topbar-inner { padding: 20px 16px 18px; }
+}
+@media (max-width: 640px) {
+  body { font-size: 15.5px; }
+  .topbar h1 { font-size: 1.35rem; }
+  .brand-mark { display: none; }
+  .grid-2, .grid-3 { grid-template-columns: minmax(0, 1fr); }
+  .step { padding: 2px 14px 14px; }
+  .step .row { grid-template-columns: minmax(0, 1fr); }
+  .step .row > .k { padding-top: 6px; }
+  th, td { padding: 8px 10px; }
+  td:first-child { min-width: 120px; }
+  h2 { font-size: 1.3rem; }
+  .chk { padding: 12px 14px; }
+  .chk dl { grid-template-columns: minmax(0, 1fr); margin-left: 0; }
+  .chk dt { padding-top: 6px; }
+}
+@media print {
+  .toc, .theme-btn, .copy-btn, .to-top { display: none !important; }
+  .layout { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div>
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 1 0-1.4-8.8A6 6 0 0 0 4.5 12a3.5 3.5 0 0 0 1 6.9z"/><path d="M12 12v5"/><path d="M9.5 14.5 12 12l2.5 2.5"/></svg>
+        </div>
+        <div>
+          <h1>Deploy FINORA trên Azure</h1>
+          <p class="sub">Cơ chế "vào web thì máy chủ tự bật, rảnh thì tự tắt" và cách tự dựng lại từ đầu bằng tay.</p>
+        </div>
+      </div>
+      <div class="chips">
+        <span class="chip">Azure for Students</span>
+        <span class="chip">malaysiawest</span>
+        <span class="chip">VM Standard_B2as_v2</span>
+        <span class="chip">Docker Compose · 14 container</span>
+        <span class="chip">Vercel + Neon</span>
+        <span class="chip">Theo thư mục deploy ngày 03/11/2026</span>
+      </div>
+    </div>
+    <button class="theme-btn" id="themeBtn" type="button" aria-label="Đổi chế độ sáng tối">Giao diện: tự động</button>
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="toc" aria-label="Mục lục">
+    <details id="tocDetails" open>
+      <summary>Mục lục</summary>
+      <ol>
+        <li><a href="#tong-quan">1. Tổng quan</a></li>
+        <li><a href="#kien-truc">2. Sơ đồ kiến trúc</a></li>
+        <li><a href="#thanh-phan">3. Các thành phần</a></li>
+        <li><a href="#luong">4. Luồng hoạt động</a></li>
+        <li class="sub"><a href="#luong-danh-thuc">a. Đánh thức hệ thống</a></li>
+        <li class="sub"><a href="#luong-request">b. Một request API</a></li>
+        <li class="sub"><a href="#luong-tu-tat">c. Tự tắt khi rảnh</a></li>
+        <li><a href="#setup">5. Dựng lại bằng tay</a></li>
+        <li class="sub"><a href="#phan-azure">Phần A · Azure</a></li>
+        <li class="sub"><a href="#phan-vm">Phần B · Trong VM</a></li>
+        <li class="sub"><a href="#phan-vercel">Phần C · Vercel và thử</a></li>
+        <li><a href="#kiem-tra">6. Kiểm tra trên Azure</a></li>
+        <li class="sub"><a href="#kt-portal">Trên Portal</a></li>
+        <li class="sub"><a href="#kt-ngoai">Ngoài Portal</a></li>
+        <li><a href="#van-hanh">7. Vận hành hằng ngày</a></li>
+        <li><a href="#bay">8. Bẫy đã gặp</a></li>
+        <li><a href="#phu-luc">9. Phụ lục: biến và thư mục</a></li>
+      </ol>
+    </details>
+  </nav>
+
+  <main>
+
+<!-- =============================== 1. TỔNG QUAN =============================== -->
+<section id="tong-quan">
+  <h2>1. Tổng quan</h2>
+  <p class="lead">
+    Toàn bộ backend FINORA (gateway, 7 service nghiệp vụ, Keycloak, Fineract, Kafka, Redis…) chạy bằng Docker Compose
+    trên <b>một máy ảo Linux</b> ở Azure, vùng Malaysia West. Web React nằm trên <b>Vercel</b> và chuyển mọi lời gọi
+    <code>/api/v1/*</code> sang máy ảo, nên trình duyệt chỉ thấy một domain. Dữ liệu nghiệp vụ nằm ở <b>Neon Postgres</b>
+    (AWS Singapore). Máy ảo <b>không chạy suốt ngày</b>: khi có người mở web, trang web nhờ một hàm nhỏ trên Vercel bật máy;
+    khi không ai gọi API trong 45 phút, máy tự tắt hẳn (deallocate).
+  </p>
+  <div class="grid-3" style="margin-top:14px">
+    <div class="stat"><b>Tiết kiệm credit sinh viên</b><span>VM chỉ tính tiền theo giờ chạy (khoảng 0,0855 USD/giờ). Dùng khoảng 60 giờ/tháng thì cả hệ thống tốn chừng 11 USD (ước lượng).</span></div>
+    <div class="stat"><b>Đỡ quota Neon</b><span>Gói Neon Free tính theo giờ compute. VM tắt thì không còn kết nối nào giữ Neon thức, compute Neon tự ngủ theo.</span></div>
+    <div class="stat"><b>Vẫn có một địa chỉ cố định</b><span>IP tĩnh và tên miền <code>finora-api.malaysiawest.cloudapp.azure.com</code> giữ nguyên khi VM tắt, web và mobile không phải đổi cấu hình.</span></div>
+  </div>
+  <div class="note">
+    <p><b>Vì sao không chọn App Service hay Container Apps?</b> Cụm có 14 container phụ thuộc nhau (Kafka, Keycloak, Fineract…)
+    và cần khoảng 4,5 GB RAM khi chạy đủ. Một VM 8 GB chạy đúng file compose như máy dev là cách rẻ và dễ hiểu nhất;
+    việc còn lại chỉ là bật/tắt VM đúng lúc. Gói sinh viên chỉ cho 5 vùng và không có Singapore, nên chọn Malaysia West vì gần Neon nhất.</p>
+  </div>
+</section>
+
+<!-- =============================== 2. KIẾN TRÚC =============================== -->
+<section id="kien-truc">
+  <h2>2. Sơ đồ kiến trúc</h2>
+  <div class="figure">
+    <div class="scroll">
+    <svg viewBox="0 0 1000 720" role="img" aria-labelledby="archTitle archDesc">
+      <title id="archTitle">Kiến trúc deploy FINORA</title>
+      <desc id="archDesc">Trình duyệt vào Vercel; Vercel phục vụ web tĩnh, chuyển /api/v1 sang VM và có hàm /api/wake bật VM qua Azure Resource Manager. Mobile gọi thẳng VM. Trong VM, Caddy chuyển request tới gateway rồi tới các service; các service dùng Neon. Timer systemd dùng managed identity để tự deallocate VM.</desc>
+      <defs>
+        <marker id="arA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-accent"/></marker>
+        <marker id="arB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="mk-amber"/></marker>
+      </defs>
+
+      <!-- Người dùng -->
+      <rect class="d-box" x="20" y="40" width="160" height="52" rx="12"/>
+      <text class="d-t" x="100" y="62" text-anchor="middle">Ứng dụng mobile</text>
+      <text class="d-s" x="100" y="80" text-anchor="middle">Expo Go</text>
+
+      <rect class="d-box" x="20" y="120" width="160" height="220" rx="12"/>
+      <text class="d-t" x="100" y="212" text-anchor="middle">Trình duyệt</text>
+      <text class="d-s" x="100" y="232" text-anchor="middle">finora-web-delta</text>
+      <text class="d-s" x="100" y="248" text-anchor="middle">.vercel.app</text>
+
+      <!-- Vercel -->
+      <rect class="d-group" x="220" y="110" width="220" height="250" rx="14"/>
+      <text class="d-gt" x="236" y="133">Vercel · vùng sin1</text>
+      <rect class="d-box" x="240" y="145" width="180" height="46" rx="10"/>
+      <text class="d-t" x="330" y="164" text-anchor="middle">Web React tĩnh</text>
+      <text class="d-s" x="330" y="181" text-anchor="middle">bản build Vite</text>
+      <rect class="d-box-accent" x="240" y="205" width="180" height="46" rx="10"/>
+      <text class="d-t" x="330" y="224" text-anchor="middle">Rewrite /api/v1/*</text>
+      <text class="d-s" x="330" y="241" text-anchor="middle">→ domain của VM</text>
+      <rect class="d-box-amber" x="240" y="265" width="180" height="74" rx="10"/>
+      <text class="d-t" x="330" y="286" text-anchor="middle">Hàm /api/wake</text>
+      <text class="d-s" x="330" y="304" text-anchor="middle">kiểm WAKE_CODE</text>
+      <text class="d-s" x="330" y="321" text-anchor="middle">token service principal</text>
+
+      <!-- ARM -->
+      <rect class="d-box-amber" x="220" y="420" width="220" height="70" rx="12"/>
+      <text class="d-t" x="330" y="448" text-anchor="middle">Azure Resource Manager</text>
+      <text class="d-s" x="330" y="468" text-anchor="middle">management.azure.com</text>
+
+      <!-- Azure -->
+      <rect class="d-group" x="470" y="20" width="515" height="595" rx="16"/>
+      <text class="d-gt" x="486" y="42">Azure for Students · finora-rg · malaysiawest</text>
+
+      <rect class="d-box" x="490" y="56" width="120" height="420" rx="12"/>
+      <text class="d-t" x="550" y="88" text-anchor="middle">IP tĩnh</text>
+      <text class="d-xs" x="550" y="105" text-anchor="middle">finora-ip</text>
+      <text class="d-t" x="550" y="134" text-anchor="middle">DNS label</text>
+      <text class="d-xs" x="550" y="151" text-anchor="middle">finora-api.</text>
+      <text class="d-xs" x="550" y="166" text-anchor="middle">malaysiawest.</text>
+      <text class="d-xs" x="550" y="181" text-anchor="middle">cloudapp.azure.com</text>
+      <line class="d-sep" x1="504" y1="262" x2="596" y2="262"/>
+      <text class="d-t" x="550" y="290" text-anchor="middle">NSG</text>
+      <text class="d-xs" x="550" y="307" text-anchor="middle">finora-nsg</text>
+      <text class="d-xs" x="550" y="334" text-anchor="middle">80, 443: mở</text>
+      <text class="d-xs" x="550" y="351" text-anchor="middle">22: chỉ IP</text>
+      <text class="d-xs" x="550" y="366" text-anchor="middle">máy dev</text>
+
+      <rect class="d-vm" x="625" y="56" width="345" height="544" rx="14"/>
+      <text class="d-t" x="641" y="78">VM finora-vm · Ubuntu 24.04</text>
+      <text class="d-s" x="641" y="95">B2as_v2 · 2 vCPU · 8 GB RAM · swap 4 GB</text>
+
+      <rect class="d-box-accent" x="645" y="108" width="305" height="56" rx="10"/>
+      <text class="d-t" x="797" y="130" text-anchor="middle">Caddy · cổng 80 / 443</text>
+      <text class="d-s" x="797" y="148" text-anchor="middle">HTTPS Let's Encrypt · bỏ Origin của web</text>
+
+      <rect class="d-box" x="645" y="186" width="305" height="44" rx="10"/>
+      <text class="d-t" x="797" y="205" text-anchor="middle">finora-gateway :8080</text>
+      <text class="d-s" x="797" y="221" text-anchor="middle">định tuyến /api/v1 tới service</text>
+
+      <rect class="d-box" x="645" y="250" width="305" height="74" rx="10"/>
+      <text class="d-t" x="797" y="270" text-anchor="middle">Service nghiệp vụ</text>
+      <text class="d-s" x="797" y="289" text-anchor="middle">user · loan · payment · investment</text>
+      <text class="d-s" x="797" y="306" text-anchor="middle">notification · ai · blockchain</text>
+
+      <rect class="d-box" x="645" y="340" width="305" height="74" rx="10"/>
+      <text class="d-t" x="797" y="360" text-anchor="middle">Hạ tầng trong VM</text>
+      <text class="d-s" x="797" y="379" text-anchor="middle">Kafka · Redis · Keycloak</text>
+      <text class="d-s" x="797" y="396" text-anchor="middle">Fineract · blockchain-db (Postgres)</text>
+
+      <rect class="d-box" x="645" y="430" width="305" height="74" rx="10"/>
+      <text class="d-t" x="797" y="450" text-anchor="middle">systemd trên VM</text>
+      <text class="d-s" x="797" y="469" text-anchor="middle">finora-status: ghi _status.json mỗi 10 s</text>
+      <text class="d-s" x="797" y="486" text-anchor="middle">idle-stop mỗi 5 phút · nightly 00:00 VN</text>
+
+      <rect class="d-box-amber" x="645" y="524" width="305" height="56" rx="10"/>
+      <text class="d-t" x="797" y="546" text-anchor="middle">Managed identity của VM</text>
+      <text class="d-s" x="797" y="564" text-anchor="middle">role FINORA VM Power</text>
+
+      <!-- Neon -->
+      <rect class="d-box-accent" x="470" y="640" width="515" height="64" rx="12"/>
+      <text class="d-t" x="727" y="664" text-anchor="middle">Neon Postgres · AWS ap-southeast-1</text>
+      <text class="d-xs" x="727" y="684" text-anchor="middle">DB của user, loan, payment, investment, notification, Keycloak, Fineract</text>
+
+      <!-- Đường nối: request -->
+      <path class="ln" d="M180,70 H488" marker-end="url(#arA)"/>
+      <text class="d-lbl" x="334" y="62" text-anchor="middle">HTTPS /api/v1 (gọi thẳng VM)</text>
+      <path class="ln" d="M180,168 H238" marker-end="url(#arA)"/>
+      <path class="ln" d="M180,228 H238" marker-end="url(#arA)"/>
+      <path class="ln-amber" d="M180,302 H238" marker-end="url(#arB)"/>
+      <path class="ln" d="M420,228 H488" marker-end="url(#arA)"/>
+      <text class="d-lbl" x="455" y="220" text-anchor="middle">/api/v1</text>
+      <path class="ln ln-dash" d="M420,318 H488" marker-end="url(#arA)"/>
+      <text class="d-lbl" x="455" y="310" text-anchor="middle">trạng thái</text>
+      <path class="ln" d="M610,136 H643" marker-end="url(#arA)"/>
+      <path class="ln" d="M797,164 V184" marker-end="url(#arA)"/>
+      <path class="ln" d="M797,230 V248" marker-end="url(#arA)"/>
+      <path class="ln-muted" d="M797,324 V340"/>
+      <path class="ln ln-dot" d="M950,140 H961 V287 H952" marker-end="url(#arA)"/>
+      <path class="ln-muted" d="M797,504 V522" marker-end="url(#arA)"/>
+      <path class="ln" d="M797,600 V638" marker-end="url(#arA)"/>
+      <text class="d-lbl" x="806" y="628">JDBC qua SSL</text>
+
+      <!-- Đường nối: bật / tắt -->
+      <path class="ln-amber" d="M330,339 V418" marker-end="url(#arB)"/>
+      <text class="d-lbl" x="340" y="384">POST start</text>
+      <path class="ln-amber" d="M300,490 V545 H623" marker-end="url(#arB)"/>
+      <text class="d-lbl" x="470" y="537" text-anchor="middle">bật VM</text>
+      <path class="ln-amber ln-dash" d="M643,568 H380 V492" marker-end="url(#arB)"/>
+      <text class="d-lbl" x="500" y="586" text-anchor="middle">tự tắt: deallocate</text>
+
+      <!-- Chú thích -->
+      <path class="ln" d="M24,620 H64"/>
+      <text class="d-s" x="74" y="624">request của người dùng</text>
+      <path class="ln-amber" d="M24,644 H64"/>
+      <text class="d-s" x="74" y="648">bật / tắt VM (qua Azure Resource Manager)</text>
+      <path class="ln ln-dash" d="M24,668 H64"/>
+      <text class="d-s" x="74" y="672">đọc /_status.json (file tĩnh Caddy phục vụ)</text>
+      <path class="ln ln-dot" d="M24,692 H64"/>
+      <text class="d-s" x="74" y="696">Caddy chuyển thẳng: SSE sổ lệnh, trả nợ</text>
+    </svg>
+    </div>
+    <p class="caption">Đường liền màu teal là dữ liệu người dùng; màu cam là lệnh bật/tắt máy ảo. Mobile không đi qua Vercel nên không có màn đánh thức: VM phải được bật trước (qua web hoặc <code>finora-azure.ps1 up</code>).</p>
+  </div>
+
+  <h3>Ba ý chính cần nhớ</h3>
+  <ul>
+    <li><b>Trình duyệt chỉ nói chuyện với Vercel.</b> Vercel rewrite <code>/api/v1/:path*</code> sang domain VM, nên cookie đăng nhập (<code>SameSite=Lax</code>, <code>Domain=finora-web-delta.vercel.app</code>) chạy như ở máy dev, không cần CORS.</li>
+    <li><b>Bật VM là việc của Vercel, tắt VM là việc của chính VM.</b> Cả hai cùng gọi Azure Resource Manager, mỗi bên có một danh tính riêng (service principal và managed identity) mang cùng một role hẹp <code>FINORA VM Power</code>.</li>
+    <li><b>Caddy là cửa duy nhất mở ra Internet.</b> Gateway, service, Keycloak (127.0.0.1:8180) và Fineract (127.0.0.1:18443) không mở cổng ra ngoài; muốn vào trang quản trị Keycloak thì dùng SSH tunnel.</li>
+  </ul>
+</section>
+
+<!-- =============================== 3. THÀNH PHẦN =============================== -->
+<section id="thanh-phan">
+  <h2>3. Các thành phần</h2>
+  <p>Mỗi dòng trả lời hai câu: thứ đó là gì (nói chung), và nó làm gì cho FINORA.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Thành phần</th><th>Là gì</th><th>Tác dụng cho FINORA</th></tr></thead>
+    <tbody>
+      <tr class="tbl-group"><td colspan="3">AZURE</td></tr>
+      <tr><td>Subscription Azure for Students</td><td>"Tài khoản tính tiền" của Azure. Gói sinh viên có credit miễn phí, không cần thẻ, nhưng chỉ cho tạo tài nguyên ở 5 vùng.</td><td>Mọi chi phí (VM, ổ, IP, log) trừ vào credit. Vì giới hạn vùng nên chọn <code>malaysiawest</code> (không có Singapore).</td></tr>
+      <tr><td>Resource group <code>finora-rg</code></td><td>Thư mục logic gom các tài nguyên cùng vòng đời.</td><td>Chứa VM, IP, NSG, ổ, NIC, workspace log. Role tùy chỉnh chỉ "nhìn thấy" bên trong nhóm này. Xóa nhóm là dọn sạch.</td></tr>
+      <tr><td>VM <code>finora-vm</code> (Standard_B2as_v2)</td><td>Máy ảo dòng B "burstable": 2 vCPU AMD, 8 GB RAM, giá rẻ, hợp tải lúc có lúc không.</td><td>Chạy cả cụm Docker Compose. Đo ngày 15/10: cụm dùng khoảng 4,5/7,9 GB RAM.</td></tr>
+      <tr><td>Managed Disk (Standard SSD 32 GB)</td><td>Ổ đĩa gắn vào VM, tồn tại độc lập với VM, tính tiền cả khi VM tắt.</td><td>Chứa Ubuntu, image Docker (image AI khoảng 3 GB), volume Kafka/Redis/blockchain-db, log Caddy. Ổ nhỏ nên phải dọn cache build.</td></tr>
+      <tr><td>Swap 4 GB</td><td>Một file trên ổ dùng làm RAM dự phòng.</td><td>Đỡ lúc build Maven và lúc 14 container cùng khởi động. <code>vm.swappiness=10</code> để JVM đang chạy không bị đẩy ra swap. <span class="badge gray">setup-vm.sh làm</span></td></tr>
+      <tr><td>Public IP tĩnh <code>finora-ip</code> + DNS label</td><td>Địa chỉ IPv4 cố định (SKU Standard) kèm tên miền miễn phí dạng <code>&lt;label&gt;.&lt;vùng&gt;.cloudapp.azure.com</code>.</td><td>Giữ nguyên khi VM deallocate, nên rewrite của Vercel, mobile và chứng chỉ HTTPS không phải đổi. Tính tiền cả khi VM tắt (khoảng 3,65 USD/tháng).</td></tr>
+      <tr><td>VNet + NSG <code>finora-nsg</code></td><td>Mạng ảo của VM và "tường lửa" theo luật (cổng, nguồn).</td><td>Mở 80/443 cho Caddy; cổng 22 chỉ mở cho IP máy dev. Luật SSH tên <code>default-allow-ssh</code>, <code>finora-azure.ps1 ssh</code> tự sửa nguồn theo IP hiện tại.</td></tr>
+      <tr><td>Custom role <code>FINORA VM Power</code></td><td>Vai trò RBAC tự định nghĩa, chỉ gồm 4 quyền: đọc VM, đọc instanceView, start, deallocate.</td><td>Ai cầm role này chỉ bật/tắt được VM, không xóa, không đổi cấu hình được. Định nghĩa ở <code>vm-power-role.json</code>.</td></tr>
+      <tr><td>Managed Identity (system-assigned)</td><td>Danh tính Azure gắn liền với VM; code trong VM xin token qua địa chỉ nội bộ <code>169.254.169.254</code>, không cần lưu mật khẩu.</td><td><code>finora-idle-stop.sh</code> dùng nó để tự deallocate VM. finora-user dùng nó đọc Log Analytics (cần thêm role Log Analytics Reader).</td></tr>
+      <tr><td>Service principal <code>finora-vercel-wake</code></td><td>"Tài khoản máy" trong Microsoft Entra ID, đăng nhập bằng client id + client secret.</td><td>Hàm <code>/api/wake</code> trên Vercel dùng nó để đọc trạng thái và bật VM. Secret hết hạn sau 2 năm.</td></tr>
+      <tr><td>Azure Resource Manager API</td><td>REST API điều khiển mọi tài nguyên Azure (<code>management.azure.com</code>); Portal và <code>az</code> CLI cũng gọi API này.</td><td>Hai lời gọi FINORA dùng: <code>…/virtualMachines/finora-vm/start</code> (từ Vercel) và <code>…/deallocate</code> (từ VM), cùng <code>instanceView</code> để đọc trạng thái.</td></tr>
+      <tr><td>Log Analytics <code>finora-logs</code> + DCR + Azure Monitor Agent</td><td>Kho log có truy vấn KQL; DCR là luật gom log; agent chạy trong VM đẩy log lên.</td><td>Giữ log container 30 ngày kể cả khi VM tắt, trần 0,15 GB/ngày. Trang "Nhật ký hoạt động" của web quản trị đọc từ đây. <span class="badge gray">tùy chọn</span></td></tr>
+      <tr class="tbl-group"><td colspan="3">TRONG VM</td></tr>
+      <tr><td>Docker + Docker Compose</td><td>Chạy ứng dụng trong container; Compose khai báo cả cụm trong một file YAML.</td><td><code>docker-compose.azure.yml</code> chạy 14 container, mỗi container có <code>mem_limit</code> cho vừa 8 GB và <code>restart: unless-stopped</code> nên VM bật là cụm tự chạy lại. <span class="badge gray">setup-vm.sh cài Docker</span></td></tr>
+      <tr><td>Caddy + Let's Encrypt</td><td>Web server/reverse proxy tự xin và gia hạn chứng chỉ HTTPS miễn phí.</td><td>Cổng vào duy nhất: HTTPS cho domain VM; chuyển <code>/api/v1/*</code> vào gateway; bỏ header <code>Origin</code> của web (bẫy CORS) và <code>X-Internal-Token</code>; ghi <code>api-access.log</code> để biết lúc nào rảnh; phục vụ <code>/_status.json</code>.</td></tr>
+      <tr><td>finora-gateway</td><td>Spring Boot gateway của FINORA.</td><td>Định tuyến tới user, loan, payment, investment, ai, notification, blockchain; in một dòng log JSON <code>finora.api</code> cho mỗi lượt gọi.</td></tr>
+      <tr><td>Keycloak 23</td><td>Máy chủ đăng nhập (OAuth2/OIDC).</td><td>Cấp JWT cho người dùng và token client credentials giữa các service. DB trên Neon; chỉ mở ở 127.0.0.1:8180, issuer giữ <code>http://localhost:8180/realms/finora</code> như máy dev.</td></tr>
+      <tr><td>Kafka 3.9 (KRaft) + Redis 7</td><td>Kafka: hàng đợi sự kiện; Redis: bộ nhớ đệm khóa-giá trị.</td><td>Kafka chở event outbox giữa các service (heap 256 MB). Redis giữ OTP, phiên của finora-user. Cả hai chạy trong VM, dữ liệu ở volume.</td></tr>
+      <tr><td>Fineract 1.15</td><td>Core ngân hàng mã nguồn mở (Apache).</td><td>Sổ khoản vay và lịch trả nợ. Từ 02/11 dùng hai DB trên Neon (<code>fineract_tenants</code>, <code>fineract_default</code>); cần <code>mem_limit</code> 1700m.</td></tr>
+      <tr><td>blockchain + blockchain-db</td><td>Service ghi bằng chứng (proof) và một PostgreSQL nhỏ trong VM.</td><td>Ledger chế độ MOCK (không chạy mạng Fabric trên VM); lưu hash các mốc nghiệp vụ và giấy chuyển nhượng Note.</td></tr>
+      <tr><td>systemd service + timer</td><td>Trình quản lý dịch vụ của Ubuntu; timer giống cron nhưng gắn với service.</td><td><code>finora-status.service</code> ghi trạng thái mỗi 10 s; <code>finora-idle-stop.timer</code> kiểm rảnh mỗi 5 phút; <code>finora-nightly-stop.timer</code> tắt lúc 00:00 giờ VN. <span class="badge gray">setup-vm.sh cài</span></td></tr>
+      <tr><td><code>finora-status.sh</code></td><td>Script bash đọc <code>docker ps</code> và ghi <code>/opt/finora/state/public/_status.json</code>.</td><td>Trang đánh thức biết hệ thống đã sẵn sàng khi <code>ready: true</code>, tức cả 14 service đều <code>healthy</code> hoặc <code>running</code>. Danh sách service trong script phải khớp compose.</td></tr>
+      <tr class="tbl-group"><td colspan="3">BÊN NGOÀI AZURE</td></tr>
+      <tr><td>Vercel: static hosting</td><td>Nơi đặt file build của web React, phát qua CDN.</td><td>Domain <code>finora-web-delta.vercel.app</code>; đây cũng là <code>WEB_DOMAIN</code> dùng làm domain cookie.</td></tr>
+      <tr><td>Vercel: rewrite (<code>vercel.json</code>)</td><td>Luật chuyển tiếp URL phía máy chủ, trình duyệt không thấy.</td><td><code>/api/v1/:path*</code> → domain VM; mọi đường khác (trừ <code>/api/</code>) → <code>index.html</code> cho router React.</td></tr>
+      <tr><td>Vercel: serverless function</td><td>Hàm Node chạy theo request, file trong thư mục <code>api/</code>.</td><td><code>api/wake.js</code>: GET đọc trạng thái VM + <code>_status.json</code>; POST kiểm mã rồi gọi Azure bật VM. Chạy ở vùng <code>sin1</code>.</td></tr>
+      <tr><td>Vercel: biến môi trường</td><td>Cấu hình đặt trong Project Settings, không nằm trong mã.</td><td><code>VITE_*</code> đi vào bản build web; <code>AZURE_*</code>, <code>WAKE_CODE</code>, <code>FINORA_API_DOMAIN</code> chỉ hàm wake đọc được. Danh sách ở <a href="#bien-vercel">phụ lục</a>.</td></tr>
+      <tr><td>Neon Postgres</td><td>PostgreSQL serverless, compute tự ngủ khi không có kết nối.</td><td>DB của user, loan, payment, investment, notification, Keycloak, Fineract. Pool Hikari đặt 5 vì cả cụm dùng chung một compute 0,25 CU.</td></tr>
+      <tr class="tbl-group"><td colspan="3">MÁY DEV</td></tr>
+      <tr><td><code>finora-azure.ps1</code></td><td>Script PowerShell gọi Azure CLI.</td><td><code>status</code> (VM + từng container), <code>up</code> (bật và chờ sẵn sàng), <code>down</code> (deallocate), <code>ssh</code> (mở luật 22 cho IP hiện tại rồi SSH).</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- =============================== 4. LUỒNG =============================== -->
+<section id="luong">
+  <h2>4. Luồng hoạt động</h2>
+
+  <h3 id="luong-danh-thuc">a. VM đang tắt, có người mở web</h3>
+  <ol class="timeline amber">
+    <li><b class="where">Azure.</b> VM ở trạng thái <code>deallocated</code>: không tính tiền giờ, container đều dừng. IP tĩnh, DNS và ổ đĩa vẫn còn.</li>
+    <li><b class="where">Vercel.</b> Người dùng mở <code>finora-web-delta.vercel.app</code>. Bản build có <code>VITE_SYSTEM_WAKE=true</code> nên <code>SystemWakeGate</code> chưa dựng App mà gọi <code>GET /api/wake</code> trước.</li>
+    <li><b class="where">api/wake.js.</b> Lấy token từ Microsoft Entra ID bằng client id/secret của <code>finora-vercel-wake</code>, gọi <code>instanceView</code> của VM, thấy <code>deallocated</code>, trả <code>{ vm, ready: false, codeRequired: true }</code>.</li>
+    <li><b class="where">Màn "Hệ thống đang tắt".</b> Hỏi mã bật hệ thống. Nếu trình duyệt đã nhập đúng một lần (lưu ở localStorage <code>finora.systemWakeCode</code>) thì bỏ qua bước này và tự gửi.</li>
+    <li><b class="where">POST /api/wake.</b> Hàm so mã với <code>WAKE_CODE</code> trước mọi lời gọi Azure (người dò mã không làm tốn lượt gọi), rồi gọi <code>…/finora-vm/start</code> và trả 202. Nếu VM đang tắt dở (<code>deallocating</code>) thì không gọi start; web tự gửi lại sau ít nhất 30 giây.</li>
+    <li><b class="where">VM khởi động.</b> Docker chạy lại 14 container nhờ <code>restart: unless-stopped</code>. <code>finora-status.service</code> xóa <code>_status.json</code> cũ rồi ghi mới mỗi 10 giây.</li>
+    <li><b class="where">Màn "Đang khởi động".</b> Web hỏi <code>/api/wake</code> mỗi 5 giây. Hàm đọc <code>https://finora-api…/_status.json</code> (bỏ qua nếu cũ hơn 60 giây) và hiện từng service đang ở trạng thái nào. Quá 12 phút thì dừng hỏi và cho bấm thử lại.</li>
+    <li><b class="where">Sẵn sàng.</b> Khi <code>ready: true</code>, web dựng App và hiện màn đăng nhập. Thường mất khoảng 5 phút từ lúc nhập mã.</li>
+  </ol>
+
+  <h3 id="luong-request">b. Một request API đi qua những đâu</h3>
+  <p>Ví dụ trình duyệt gọi <code>GET /api/v1/loans</code>:</p>
+  <div class="flow" aria-label="Đường đi của request">
+    <span>Trình duyệt</span><i>→</i><span>Vercel rewrite</span><i>→</i><span>DNS → IP tĩnh</span><i>→</i><span>NSG (443)</span><i>→</i><span>Caddy</span><i>→</i><span>gateway :8080</span><i>→</i><span>loan :8081</span><i>→</i><span>Neon / Kafka / Fineract</span>
+  </div>
+  <ol class="timeline">
+    <li><b class="where">Trình duyệt → Vercel.</b> Gọi cùng domain với trang web nên gửi kèm cookie đăng nhập, không có preflight CORS.</li>
+    <li><b class="where">Vercel.</b> Rewrite sang <code>https://finora-api.malaysiawest.cloudapp.azure.com/api/v1/loans</code>. Host đổi sang domain VM, còn header <code>Origin</code> (nếu có) vẫn là domain Vercel.</li>
+    <li><b class="where">Azure.</b> DNS trả IP tĩnh; NSG cho cổng 443 đi qua tới VM.</li>
+    <li><b class="where">Caddy.</b> Giải mã HTTPS; bỏ <code>X-Internal-Token</code>; bỏ <code>Origin</code> nếu đúng bằng <code>https://&lt;WEB_DOMAIN&gt;</code> (nếu không, Spring trả 403 "Invalid CORS request"); ghi một dòng JSON vào <code>/opt/finora/state/api-access.log</code>; chuyển vào gateway.</li>
+    <li><b class="where">Gateway.</b> Chọn service theo đường dẫn, gọi bằng tên nội bộ trong mạng Docker, in dòng log <code>finora.api</code> (đã che mật khẩu, PIN, OTP, token).</li>
+    <li><b class="where">Service.</b> Kiểm JWT (issuer <code>http://localhost:8180/realms/finora</code>, khóa ký tải từ <code>keycloak:8080</code>), đọc/ghi Neon, đẩy event qua Kafka, gọi Fineract nếu cần, rồi trả kết quả theo đường cũ.</li>
+  </ol>
+  <div class="note">
+    <p><b>Ngoại lệ trong Caddyfile:</b> luồng SSE sổ lệnh (<code>/api/v1/investments/order-books/&lt;id&gt;/stream</code>) đi thẳng <code>investment:8084</code>; <code>/api/v1/repayments</code> và <code>/api/v1/admin/repayment-reconciliation</code> đi thẳng <code>payment:8082</code>. <code>/_status.json</code> là file tĩnh, không qua gateway. Mọi đường khác ngoài <code>/api/v1/*</code> trả 404 "FINORA API".</p>
+    <p><b>Mobile</b> bỏ qua bước 1–2: gọi thẳng <code>https://finora-api…/api/v1</code>.</p>
+  </div>
+
+  <h3 id="luong-tu-tat">c. Quy trình tự tắt</h3>
+  <ol class="timeline amber">
+    <li><b class="where">Timer.</b> <code>finora-idle-stop.timer</code> chạy lần đầu 10 phút sau khi bật, sau đó mỗi 5 phút gọi <code>finora-idle-stop.sh</code>.</li>
+    <li><b class="where">Điều kiện giữ thức.</b> Có file <code>/opt/finora/state/keep-awake</code> → thoát. Có người đăng nhập (lệnh <code>who</code> không rỗng, ví dụ đang mở SSH) → thoát.</li>
+    <li><b class="where">Tính "lần dùng cuối".</b> Lấy giờ bật máy từ <code>/proc/uptime</code>; tìm <code>ts</code> của request <code>/api/v1</code> cuối cùng trong 2000 dòng cuối của <code>api-access.log</code>. Không dùng giờ sửa file, vì bot quét cổng 80 cũng làm Caddy ghi vào file.</li>
+    <li><b class="where">So ngưỡng.</b> Chưa qua 30 phút từ lúc bật, hoặc chưa đủ 45 phút không có request → thoát. Thực tế VM tắt sau 45–50 phút rảnh vì timer chạy 5 phút một lần.</li>
+    <li><b class="where">Deallocate.</b> Hỏi metadata và token qua <code>169.254.169.254</code> (managed identity), ghi log <code>finora-idle-stop</code>, rồi <code>POST …/deallocate</code> lên Azure Resource Manager.</li>
+    <li><b class="where">Lưới an toàn 00:00.</b> <code>finora-nightly-stop.timer</code> chạy lúc 17:00 UTC (00:00 giờ VN) cùng script đó với <code>IDLE_MINUTES=0</code>, <code>BOOT_GRACE_MINUTES=0</code>: tắt ngay, trừ khi có SSH hoặc keep-awake.</li>
+  </ol>
+  <div class="warn"><p><b>Nhớ:</b> keep-awake chặn cả lần tắt lúc 00:00. Quên xóa file này thì VM chạy mãi và tốn credit.</p></div>
+</section>
+
+<!-- =============================== 5. SETUP =============================== -->
+<section id="setup">
+  <h2>5. Dựng lại bằng tay</h2>
+  <p>Các bước dưới đây dựng lại đúng cấu hình đang chạy. Mỗi bước có cách bấm trên <a href="https://portal.azure.com" rel="noopener">Azure Portal</a> và lệnh <code>az</code> tương đương; chọn một trong hai. Lệnh viết cho <b>Git Bash</b> trên Windows (hoặc bash trên VM).</p>
+  <div class="tip">
+    <p><b>Giá trị giữ chỗ:</b> <code>&lt;SUBSCRIPTION_ID&gt;</code>, <code>&lt;IP_MAY_DEV&gt;</code>, <code>&lt;MAT_KHAU&gt;</code>… là chỗ bạn tự điền. Không dán secret thật vào tài liệu, commit hay chat.</p>
+  </div>
+  <div class="code"><span class="lbl">Git Bash · biến dùng chung cho các bước</span><pre><code>export MSYS_NO_PATHCONV=1          # bắt buộc trong Git Bash, nếu không --scope /subscriptions/... bị đổi thành đường dẫn Windows
+RG=finora-rg
+LOC=malaysiawest
+VM=finora-vm
+DOMAIN=finora-api.malaysiawest.cloudapp.azure.com
+KEY=~/.ssh/finora_azure</code></pre></div>
+
+  <h3 id="phan-azure">Phần A · Tài nguyên Azure</h3>
+
+  <div class="step" id="b0">
+    <h3><span class="step-no">Bước 0</span> Chuẩn bị máy dev</h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Có Azure CLI đăng nhập đúng subscription, có SSH key riêng cho VM, có Vercel CLI.</p></div></div>
+    <div class="row"><div class="k">Cách làm</div><div class="v">
+      <ol>
+        <li>Cài <a href="https://learn.microsoft.com/cli/azure/install-azure-cli-windows" rel="noopener">Azure CLI</a>, Git for Windows, Node.js; cài Vercel CLI bằng <code>npm i -g vercel</code>.</li>
+        <li>Đăng nhập, chọn subscription "Azure for Students", đăng ký hai resource provider (README bước 1).</li>
+        <li>Tạo cặp khóa SSH riêng cho VM (khóa bí mật ở lại máy, chỉ khóa <code>.pub</code> lên Azure).</li>
+      </ol>
+      <div class="code"><span class="lbl">Git Bash</span><pre><code>az login
+az account list -o table
+az account set --subscription "&lt;SUBSCRIPTION_ID&gt;"
+az provider register --namespace Microsoft.Compute
+az provider register --namespace Microsoft.Network
+ssh-keygen -t ed25519 -f ~/.ssh/finora_azure -C finora-azure</code></pre></div>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v">
+      <div class="code"><pre><code>az account show --query "{name:name, state:state}" -o table
+az provider show -n Microsoft.Compute --query registrationState -o tsv   # Registered</code></pre></div>
+    </div></div>
+  </div>
+
+  <div class="step" id="b1">
+    <h3><span class="step-no">Bước 1</span> Tạo resource group</h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Một chỗ chứa mọi tài nguyên FINORA ở vùng Malaysia West.</p></div></div>
+    <div class="row"><div class="k">Portal</div><div class="v"><p><b>Resource groups</b> → <b>Create</b> → Subscription: Azure for Students; Resource group: <code>finora-rg</code>; Region: <b>(Asia Pacific) Malaysia West</b> → <b>Review + create</b> → <b>Create</b>.</p></div></div>
+    <div class="row"><div class="k">CLI</div><div class="v">
+      <div class="code"><pre><code>az group create -n $RG -l $LOC</code></pre></div>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v"><div class="code"><pre><code>az group show -n $RG --query "{name:name, location:location}" -o table</code></pre></div></div></div>
+  </div>
+
+  <div class="step" id="b2">
+    <h3><span class="step-no">Bước 2</span> IP tĩnh và tên miền</h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Có địa chỉ cố định <code>finora-api.malaysiawest.cloudapp.azure.com</code> để Vercel, mobile và chứng chỉ HTTPS bám vào, kể cả khi VM tắt.</p></div></div>
+    <div class="row"><div class="k">Portal</div><div class="v"><p><b>Public IP addresses</b> → <b>Create</b> → Resource group <code>finora-rg</code>, Region Malaysia West, Name <code>finora-ip</code>, SKU <b>Standard</b> (luôn là Static), IP version IPv4, <b>DNS name label</b>: <code>finora-api</code> → <b>Create</b>.</p></div></div>
+    <div class="row"><div class="k">CLI</div><div class="v">
+      <div class="code"><pre><code>az network public-ip create -g $RG -n finora-ip -l $LOC \
+  --sku Standard --allocation-method Static --version IPv4 --dns-name finora-api</code></pre></div>
+      <p class="small muted">README tạo IP ngay trong lệnh <code>az vm create</code> (<code>--public-ip-sku Standard --public-ip-address-dns-name finora-api</code>). Tách riêng như ở đây dễ hiểu hơn và đặt được đúng tên <code>finora-ip</code>.</p>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v"><div class="code"><pre><code>az network public-ip show -g $RG -n finora-ip --query "{ip:ipAddress, fqdn:dnsSettings.fqdn, kieu:publicIPAllocationMethod}" -o table</code></pre></div></div></div>
+  </div>
+
+  <div class="step" id="b3">
+    <h3><span class="step-no">Bước 3</span> NSG và luật cổng</h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Chỉ mở đúng thứ cần: 80/443 cho Caddy (80 để Let's Encrypt kiểm domain và chuyển sang https), 22 cho riêng máy dev.</p></div></div>
+    <div class="row"><div class="k">Portal</div><div class="v">
+      <ol>
+        <li><b>Network security groups</b> → <b>Create</b> → <code>finora-nsg</code>, vùng Malaysia West.</li>
+        <li>Mở NSG → <b>Settings › Inbound security rules</b> → <b>Add</b>, tạo 3 luật:
+          <ul>
+            <li><code>default-allow-ssh</code>: Source IP <code>&lt;IP_MAY_DEV&gt;</code>, port 22, TCP, Allow, priority 1000. <b>Giữ đúng tên này</b> vì <code>finora-azure.ps1 ssh</code> sửa luật theo tên.</li>
+            <li><code>allow-http</code>: Source Any, port 80, TCP, priority 1010.</li>
+            <li><code>allow-https</code>: Source Any, port 443, Any (TCP và UDP cho HTTP/3), priority 1020.</li>
+          </ul>
+        </li>
+      </ol>
+    </div></div>
+    <div class="row"><div class="k">CLI</div><div class="v">
+      <div class="code"><pre><code>MYIP=$(curl -s https://api.ipify.org)
+az network nsg create -g $RG -n finora-nsg -l $LOC
+az network nsg rule create -g $RG --nsg-name finora-nsg -n default-allow-ssh --priority 1000 \
+  --access Allow --protocol Tcp --direction Inbound --source-address-prefixes $MYIP --destination-port-ranges 22
+az network nsg rule create -g $RG --nsg-name finora-nsg -n allow-http --priority 1010 \
+  --access Allow --protocol Tcp --direction Inbound --source-address-prefixes '*' --destination-port-ranges 80
+az network nsg rule create -g $RG --nsg-name finora-nsg -n allow-https --priority 1020 \
+  --access Allow --protocol '*' --direction Inbound --source-address-prefixes '*' --destination-port-ranges 443</code></pre></div>
+      <p class="small muted">Nếu để <code>az vm create</code> tự tạo NSG, nó cũng tạo luật <code>default-allow-ssh</code> nhưng mở cho mọi IP; khi đó chạy <code>.\finora-azure.ps1 ssh</code> một lần để thu hẹp lại.</p>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v"><div class="code"><pre><code>az network nsg rule list -g $RG --nsg-name finora-nsg -o table</code></pre></div></div></div>
+  </div>
+
+  <div class="step" id="b4">
+    <h3><span class="step-no">Bước 4</span> Tạo VM (kèm managed identity)</h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Máy Ubuntu 24.04, 2 vCPU / 8 GB, ổ Standard SSD 32 GB, đăng nhập bằng SSH key, gắn IP và NSG ở trên, bật luôn system-assigned managed identity.</p></div></div>
+    <div class="row"><div class="k">Portal</div><div class="v">
+      <ol>
+        <li><b>Virtual machines</b> → <b>Create › Azure virtual machine</b>.</li>
+        <li><b>Basics</b>: RG <code>finora-rg</code>; Name <code>finora-vm</code>; Region Malaysia West; Availability: No infrastructure redundancy; Image <b>Ubuntu Server 24.04 LTS – x64 Gen2</b>; Size <b>Standard_B2as_v2</b> (bấm "See all sizes" nếu không thấy); Authentication <b>SSH public key</b>, Username <code>azureuser</code>, "Use existing public key" rồi dán nội dung <code>~/.ssh/finora_azure.pub</code>; Inbound ports: None (đã có NSG).</li>
+        <li><b>Disks</b>: OS disk size 32 GiB, type <b>Standard SSD (LRS)</b>.</li>
+        <li><b>Networking</b>: Public IP chọn <code>finora-ip</code>; NIC network security group: <b>Advanced</b> → chọn <code>finora-nsg</code>.</li>
+        <li><b>Management</b>: tích <b>Enable system assigned managed identity</b>. Auto-shutdown không có ở vùng này, bỏ qua.</li>
+        <li><b>Review + create</b> → <b>Create</b>.</li>
+      </ol>
+    </div></div>
+    <div class="row"><div class="k">CLI</div><div class="v">
+      <div class="code"><pre><code>az vm create -g $RG -n $VM -l $LOC \
+  --size Standard_B2as_v2 --image Ubuntu2404 \
+  --os-disk-size-gb 32 --storage-sku StandardSSD_LRS \
+  --admin-username azureuser --ssh-key-values ~/.ssh/finora_azure.pub \
+  --public-ip-address finora-ip --nsg finora-nsg \
+  --assign-identity '[system]'</code></pre></div>
+      <p class="small muted">Bật identity sau (nếu quên): Portal → VM → <b>Security › Identity</b> → System assigned: <b>On</b> → Save; hoặc <code>az vm identity assign -g $RG -n $VM</code>.</p>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v">
+      <div class="code"><pre><code>az vm show -d -g $RG -n $VM --query "{state:powerState, fqdn:fqdns, identity:identity.type}" -o table
+ssh -i $KEY azureuser@$DOMAIN "uname -a &amp;&amp; free -h &amp;&amp; df -h /"</code></pre></div>
+    </div></div>
+  </div>
+
+  <div class="step" id="b5">
+    <h3><span class="step-no">Bước 5</span> Tạo custom role "FINORA VM Power"</h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Một role chỉ có 4 quyền (read, instanceView/read, start, deallocate) để giao cho Vercel và cho chính VM mà không lộ quyền khác.</p></div></div>
+    <div class="row"><div class="k">Portal</div><div class="v"><p><b>Resource groups › finora-rg › Access control (IAM)</b> → <b>Add › Add custom role</b> → Baseline permissions: <b>Start from JSON</b> → chọn bản sao của <code>vm-power-role.json</code> đã thay <code>&lt;SUBSCRIPTION_ID&gt;</code> → kiểm tab Permissions có đúng 4 quyền, tab Assignable scopes là <code>/subscriptions/&lt;SUBSCRIPTION_ID&gt;/resourceGroups/finora-rg</code> → <b>Create</b>.</p></div></div>
+    <div class="row"><div class="k">CLI</div><div class="v">
+      <div class="code"><pre><code>SUB=$(az account show --query id -o tsv)
+sed "s/&lt;SUBSCRIPTION_ID&gt;/$SUB/" vm-power-role.json &gt; /tmp/vm-power-role.json   # không sửa file gốc
+az role definition create --role-definition @/tmp/vm-power-role.json</code></pre></div>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v">
+      <div class="code"><pre><code>az role definition list --custom-role-only true --query "[].{ten:roleName, quyen:permissions[0].actions}" -o jsonc</code></pre></div>
+      <p class="small muted">Role mới có thể mất vài phút mới gán được; nếu bước sau báo "role not found" thì đợi rồi chạy lại.</p>
+    </div></div>
+  </div>
+
+  <div class="step" id="b6">
+    <h3><span class="step-no">Bước 6</span> Gán role cho managed identity và tạo service principal</h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>VM tự deallocate được (managed identity) và hàm Vercel bật được VM (service principal <code>finora-vercel-wake</code>). Cả hai chỉ có quyền trên đúng VM này.</p></div></div>
+    <div class="row"><div class="k">Portal</div><div class="v">
+      <ol>
+        <li><b>VM finora-vm › Access control (IAM)</b> → <b>Add role assignment</b> → role <code>FINORA VM Power</code> → Assign access to: <b>Managed identity</b> → Select members: Virtual machine → <code>finora-vm</code> → Review + assign.</li>
+        <li><b>Microsoft Entra ID › App registrations › New registration</b>: tên <code>finora-vercel-wake</code>, single tenant → Register. Ghi lại <b>Application (client) ID</b> và <b>Directory (tenant) ID</b>.</li>
+        <li>Trong app đó: <b>Certificates &amp; secrets › New client secret</b>, hạn 24 tháng → chép cột <b>Value</b> ngay (chỉ hiện một lần), cất ngoài repo.</li>
+        <li>Quay lại <b>VM › Access control (IAM) › Add role assignment</b> → <code>FINORA VM Power</code> → <b>User, group, or service principal</b> → tìm <code>finora-vercel-wake</code> → assign.</li>
+      </ol>
+    </div></div>
+    <div class="row"><div class="k">CLI</div><div class="v">
+      <div class="code"><pre><code>VM_ID=$(az vm show -g $RG -n $VM --query id -o tsv)
+MI=$(az vm show -g $RG -n $VM --query identity.principalId -o tsv)
+
+# 1) Managed identity của VM
+az role assignment create --assignee-object-id "$MI" --assignee-principal-type ServicePrincipal \
+  --role "FINORA VM Power" --scope "$VM_ID"
+
+# 2) Service principal cho Vercel (secret 2 năm). Kết quả in appId, password, tenant: cất ngay, đừng commit.
+mkdir -p ~/.finora-azure
+az ad sp create-for-rbac --name finora-vercel-wake --role "FINORA VM Power" \
+  --scopes "$VM_ID" --years 2 &gt; ~/.finora-azure/vercel-wake-sp.json</code></pre></div>
+      <p class="small muted">Trong file kết quả: <code>appId</code> → <code>AZURE_CLIENT_ID</code>, <code>password</code> → <code>AZURE_CLIENT_SECRET</code>, <code>tenant</code> → <code>AZURE_TENANT_ID</code> trên Vercel. Không cần mở file ra màn hình; khi đặt biến Vercel có thể đọc từng trường bằng <code>jq -r .appId</code>.</p>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v"><div class="code"><pre><code>az role assignment list --scope "$VM_ID" --query "[].{ai:principalName, kieu:principalType, role:roleDefinitionName}" -o table</code></pre></div><p class="small">Phải thấy 2 dòng <code>FINORA VM Power</code>: một ServicePrincipal là identity của VM, một là <code>finora-vercel-wake</code>.</p></div></div>
+  </div>
+
+  <div class="step" id="b7">
+    <h3><span class="step-no">Bước 7</span> Log Analytics <span class="badge gray">tùy chọn</span></h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Giữ log container khi VM tắt và cho trang "Nhật ký hoạt động" của web quản trị. Bỏ bước này thì hệ thống vẫn chạy, chỉ trang đó báo lỗi 403.</p></div></div>
+    <div class="row"><div class="k">Portal</div><div class="v">
+      <ol>
+        <li><b>Log Analytics workspaces › Create</b>: <code>finora-logs</code>, Malaysia West. Sau đó vào <b>Usage and estimated costs › Data retention</b> = 30 ngày, <b>Daily cap</b> = 0,15 GB.</li>
+        <li><b>Monitor › Data Collection Rules › Create</b>: tên <code>finora-containers-dcr</code>, platform Linux; Resources: thêm <code>finora-vm</code> (Portal tự cài Azure Monitor Agent); Collect and deliver: <b>Linux Syslog</b>, chỉ facility <code>LOG_LOCAL0</code> mức Info trở lên, đích <code>finora-logs</code>.</li>
+        <li><b>finora-logs › Access control (IAM)</b> → gán role <b>Log Analytics Reader</b> cho managed identity của <code>finora-vm</code>.</li>
+      </ol>
+    </div></div>
+    <div class="row"><div class="k">CLI</div><div class="v">
+      <div class="code"><pre><code>az monitor log-analytics workspace create -g $RG -n finora-logs -l $LOC --retention-time 30 --quota 0.15
+WS_ID=$(az monitor log-analytics workspace show -g $RG -n finora-logs --query id -o tsv)
+az vm extension set -g $RG --vm-name $VM -n AzureMonitorLinuxAgent \
+  --publisher Microsoft.Azure.Monitor --enable-auto-upgrade true
+# host/azure-monitor-dcr.json: sửa workspaceResourceId thành $WS_ID trên một bản sao rồi:
+az monitor data-collection rule create -g $RG -n finora-containers-dcr -l $LOC --rule-file /tmp/dcr.json
+az monitor data-collection rule association create --name finora-vm-dcr \
+  --rule-id $(az monitor data-collection rule show -g $RG -n finora-containers-dcr --query id -o tsv) \
+  --resource "$VM_ID"
+az role assignment create --assignee-object-id "$MI" --assignee-principal-type ServicePrincipal \
+  --role "Log Analytics Reader" --scope "$WS_ID"</code></pre></div>
+      <p class="small muted">Lệnh DCR cần extension <code>monitor-control-service</code> của Azure CLI (CLI tự hỏi cài). README không ghi lại lệnh đã dùng để tạo DCR, các lệnh trên là cách tương đương; nếu CLI báo sai tham số thì xem <code>--help</code> hoặc làm trên Portal. Workspace mới có <b>Workspace ID</b> mới, phải sửa <code>ACTIVITY_LOG_WORKSPACE_ID</code> trong <code>docker-compose.azure.yml</code> (đang ghi cứng ID cũ). Phần rsyslog trong VM ở <a href="#b9">bước 9</a>.</p>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v"><p>Sau khi cụm chạy 5–10 phút: Portal → <code>finora-logs</code> → <b>Logs</b> → chạy <code>Syslog | where Facility == "local0" | take 20</code>.</p></div></div>
+  </div>
+
+  <h3 id="phan-vm">Phần B · Trong VM</h3>
+
+  <div class="step" id="b8">
+    <h3><span class="step-no">Bước 8</span> Cài môi trường VM <span class="badge">setup-vm.sh làm bước này</span></h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Một lệnh cài hết phần host: Docker, jq, swap 4 GB, swappiness 10, thư mục <code>/opt/finora/{bin,state/public,src}</code>, file <code>keep-awake</code> (giữ VM thức trong lúc cài), hai script vào <code>/opt/finora/bin</code>, và bật 3 unit systemd <code>finora-status.service</code>, <code>finora-idle-stop.timer</code>, <code>finora-nightly-stop.timer</code>.</p></div></div>
+    <div class="row"><div class="k">Cách làm</div><div class="v">
+      <div class="code"><span class="lbl">Máy dev · Git Bash, trong thư mục Đồ Án</span><pre><code>scp -i $KEY -r deploy azureuser@$DOMAIN:~/deploy
+ssh -i $KEY azureuser@$DOMAIN</code></pre></div>
+      <div class="code"><span class="lbl">Trên VM</span><pre><code>sudo bash ~/deploy/setup-vm.sh
+exit      # thoát rồi SSH lại để nhóm docker có hiệu lực cho azureuser</code></pre></div>
+      <p class="small muted">Từ lần thứ hai trở đi dùng <code>.\finora-azure.ps1 ssh</code> trong PowerShell: nó tự mở luật 22 cho IP hiện tại rồi SSH.</p>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v">
+      <div class="code"><span class="lbl">Trên VM</span><pre><code>docker run --rm hello-world
+swapon --show                                  # /swapfile 4G
+systemctl list-timers 'finora-*'               # idle-stop và nightly-stop có giờ chạy kế tiếp
+systemctl is-active finora-status              # active
+ls -l /opt/finora/state                        # có keep-awake, public/</code></pre></div>
+    </div></div>
+  </div>
+
+  <div class="step" id="b9">
+    <h3><span class="step-no">Bước 9</span> rsyslog cho log container <span class="badge gray">đi cùng bước 7</span></h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Compose gửi log mọi container qua UDP <code>127.0.0.1:514</code> (facility <code>local0</code>). rsyslog nhận, agent đẩy lên <code>finora-logs</code>, rồi chặn để không ghi trùng vào <code>/var/log/syslog</code>. Không làm bước này thì container vẫn chạy (UDP không chặn), <code>docker logs</code> vẫn đọc được.</p></div></div>
+    <div class="row"><div class="k">Cách làm</div><div class="v">
+      <div class="code"><span class="lbl">Trên VM</span><pre><code>sudo cp ~/deploy/host/rsyslog-finora.conf /etc/rsyslog.d/05-finora-docker.conf
+echo 'local0.* stop' | sudo tee /etc/rsyslog.d/45-finora-stop.conf
+sudo systemctl restart rsyslog</code></pre></div>
+      <p class="small muted">Thư mục <code>host/</code> không có sẵn file 45; dòng <code>local0.* stop</code> ở trên là cách viết suy ra từ mô tả trong README (file 45 chạy sau file <code>10-azuremonitoragent*</code> của agent nên agent vẫn nhận log trước).</p>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v"><div class="code"><pre><code>sudo ss -ulpn | grep 514          # rsyslogd nghe 127.0.0.1:514
+logger -p local0.info "thu-finora" &amp;&amp; sudo tail -n 3 /var/log/syslog   # không thấy dòng thu-finora là đúng</code></pre></div></div></div>
+  </div>
+
+  <div class="step" id="b10">
+    <h3><span class="step-no">Bước 10</span> Đưa mã nguồn và các file .env lên VM</h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Đặt mã ở <code>/opt/finora/src/finora-platform</code>, thư mục <code>deploy/</code> nằm bên trong (compose dùng đường dẫn tương đối <code>..</code> tới Dockerfile và <code>finora-*/.env</code>). Chép các file <code>.env</code> nguyên vẹn, không mở ra xem.</p></div></div>
+    <div class="row"><div class="k">Cách làm</div><div class="v">
+      <div class="code"><span class="lbl">Máy dev · Git Bash, trong Đồ Án/finora-platform (cây làm việc sạch)</span><pre><code>R=/opt/finora/src/finora-platform
+git archive --format=tar HEAD | ssh -i $KEY azureuser@$DOMAIN "mkdir -p $R &amp;&amp; tar -xf - -C $R"
+git rev-parse --short HEAD | ssh -i $KEY azureuser@$DOMAIN "cat &gt; $R/.deployed-commit"
+scp -i $KEY -r ../deploy/. azureuser@$DOMAIN:$R/deploy/
+for m in docker finora-ai finora-user finora-loan finora-payment finora-investment finora-notification; do
+  scp -i $KEY "$m/.env" "azureuser@$DOMAIN:$R/$m/.env"
+done
+ssh -i $KEY azureuser@$DOMAIN "chmod 600 $R/*/.env"</code></pre></div>
+      <p class="small muted"><code>finora-blockchain</code> không cần <code>.env</code>: compose truyền thẳng biến cho nó. <code>finora-ai/.env</code> và <code>finora-loan/.env</code> phải có cùng <code>AI_INTERNAL_TOKEN</code>.</p>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v"><div class="code"><span class="lbl">Trên VM</span><pre><code>cat /opt/finora/src/finora-platform/.deployed-commit
+ls -l /opt/finora/src/finora-platform/*/.env      # chỉ xem quyền -rw------- , không cat
+ls /opt/finora/src/finora-platform/deploy         # có docker-compose.azure.yml, Caddyfile, host/</code></pre></div></div></div>
+  </div>
+
+  <div class="step" id="b11">
+    <h3><span class="step-no">Bước 11</span> Tạo <code>deploy/.env</code></h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Compose đọc biến từ <code>deploy/.env</code> (cùng thư mục với file compose). File này bằng <code>docker/.env</code> của máy dev cộng thêm 4 biến riêng của VM. Danh sách tên biến ở <a href="#bien-vm">phụ lục</a>.</p></div></div>
+    <div class="row"><div class="k">Cách làm</div><div class="v">
+      <div class="code"><span class="lbl">Trên VM</span><pre><code>cd /opt/finora/src/finora-platform/deploy
+cp ../docker/.env .env
+cat &gt;&gt; .env &lt;&lt;EOF
+FINORA_DOMAIN=finora-api.malaysiawest.cloudapp.azure.com
+WEB_DOMAIN=finora-web-delta.vercel.app
+FINORA_PIN_TOKEN_SECRET=$(openssl rand -base64 48 | tr -d '\n')
+BLOCKCHAIN_VM_DB_PASSWORD=$(openssl rand -hex 24)
+EOF
+chmod 600 .env</code></pre></div>
+      <p class="small muted">Lần cập nhật code sau: lấy lại đúng 4 giá trị này từ <code>deploy/.env</code> cũ, đừng sinh mới. Đổi <code>BLOCKCHAIN_VM_DB_PASSWORD</code> thì blockchain không vào được volume DB cũ; đổi <code>FINORA_PIN_TOKEN_SECRET</code> thì pin-token đang dùng hết hiệu lực.</p>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v">
+      <div class="code"><pre><code>docker compose -f docker-compose.azure.yml config --quiet &amp;&amp; echo "Đủ biến"</code></pre></div>
+      <p class="small">Thiếu biến bắt buộc thì lệnh báo đúng tên, ví dụ "Thiếu WEB_DOMAIN…". Luôn dùng <code>--quiet</code>: bỏ cờ này thì lệnh in toàn bộ cấu hình kèm mật khẩu ra màn hình.</p>
+    </div></div>
+  </div>
+
+  <div class="step" id="b12">
+    <h3><span class="step-no">Bước 12</span> Build image <span class="badge">build-images.sh làm bước này</span></h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Kéo image có sẵn (caddy, kafka, keycloak, redis, postgres) và build lần lượt 9 image FINORA: fineract, ai, gateway, user, notification, payment, investment, loan, blockchain. Build tuần tự vì mỗi lượt Maven tốn 1–1,5 GB RAM.</p></div></div>
+    <div class="row"><div class="k">Cách làm</div><div class="v">
+      <div class="code"><span class="lbl">Trên VM</span><pre><code>cd /opt/finora/src/finora-platform/deploy
+nohup bash build-images.sh &gt; ~/build.log 2&gt;&amp;1 &amp;     # chạy nền, rớt SSH vẫn build tiếp
+tail -f ~/build.log                                 # Ctrl+C để thôi xem
+docker builder prune -af                            # xong thì dọn cache, ổ chỉ 32 GB</code></pre></div>
+      <p class="small muted">Script chỉ in ra màn hình; README ghi "log ở ~/build.log" nghĩa là tự chuyển hướng như trên. Build lại vài service: <code>bash build-images.sh ai loan</code>.</p>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v"><div class="code"><pre><code>grep -E 'BUILD_(FAIL|DONE)' ~/build.log      # chỉ thấy BUILD_DONE
+docker images 'finora/*'
+df -h /</code></pre></div></div></div>
+  </div>
+
+  <div class="step" id="b13">
+    <h3><span class="step-no">Bước 13</span> Chạy cả cụm lần đầu</h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Tạo 14 container. Từ đây về sau, mỗi lần VM bật cụm tự chạy lại, không cần lệnh này nữa.</p></div></div>
+    <div class="row"><div class="k">Cách làm</div><div class="v">
+      <div class="warn"><p>Trước khi chạy: <b>tắt hẳn cụm ở máy dev</b> (Docker Desktop, service chạy trong IntelliJ). Hai cụm cùng đọc outbox trên Neon sẽ đẩy event vào hai Kafka khác nhau; event rơi vào Kafka máy dev thì VM không bao giờ nhận. Mã mới còn chạy migration Flyway lên Neon dùng chung.</p></div>
+      <div class="code"><span class="lbl">Trên VM</span><pre><code>cd /opt/finora/src/finora-platform/deploy
+docker compose -f docker-compose.azure.yml up -d
+watch -n 10 docker compose -f docker-compose.azure.yml ps     # chờ cột STATUS đều (healthy), khoảng 3–5 phút</code></pre></div>
+      <p class="small muted">Fineract khởi động lâu nhất (healthcheck cho tới 300 s đầu). Cứ giữ phiên SSH tới khi cả cụm healthy: còn SSH thì VM không tự tắt.</p>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v">
+      <div class="code"><span class="lbl">Trên VM</span><pre><code>jq . /opt/finora/state/public/_status.json         # "ready": true, 14 service healthy/running
+free -h                                            # khoảng 4,5 GB dùng</code></pre></div>
+      <div class="code"><span class="lbl">Máy dev</span><pre><code>curl -s https://$DOMAIN/_status.json | jq .ready                    # true; chứng chỉ Let's Encrypt hợp lệ
+curl -s -o /dev/null -w "%{http_code}\n" https://$DOMAIN/api/v1/users/me   # 401 là đúng: đã tới service, chỉ thiếu đăng nhập
+curl -s https://$DOMAIN/                                            # "FINORA API" (404 có chủ đích)</code></pre></div>
+    </div></div>
+  </div>
+
+  <div class="step" id="b14">
+    <h3><span class="step-no">Bước 14</span> Kiểm cơ chế tự tắt <span class="badge">setup-vm.sh đã cài systemd</span></h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Chắc chắn managed identity lấy được token và role cho phép thao tác trên VM, rồi mới bỏ keep-awake.</p></div></div>
+    <div class="row"><div class="k">Cách làm</div><div class="v">
+      <div class="code"><span class="lbl">Trên VM · chỉ in độ dài token và mã HTTP, không in token</span><pre><code>IMDS=http://169.254.169.254/metadata
+TOKEN=$(curl -sf -H Metadata:true "$IMDS/identity/oauth2/token?api-version=2018-02-01&amp;resource=https://management.azure.com/" | jq -r .access_token)
+echo "Độ dài token: ${#TOKEN}"
+VMPATH=$(curl -sf -H Metadata:true "$IMDS/instance/compute?api-version=2021-02-01" | jq -r .resourceId)
+curl -s -o /dev/null -w "instanceView: %{http_code}\n" -H "Authorization: Bearer $TOKEN" \
+  "https://management.azure.com$VMPATH/instanceView?api-version=2024-07-01"     # 200 là role đã gán đúng
+sudo rm /opt/finora/state/keep-awake</code></pre></div>
+      <p class="small muted">Không thử được <code>DRY_RUN=1</code> ngay trong SSH: script thấy phiên đăng nhập (<code>who</code>) nên thoát trước khi tính rảnh. Muốn xem kết quả thật thì thoát SSH, đợi, rồi xem log ở lần bật sau.</p>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v">
+      <div class="code"><pre><code>journalctl -t finora-idle-stop -n 20          # trên VM, ở lần bật sau: "Không có request API trong ... phút, tự tắt VM"
+az vm get-instance-view -g $RG -n $VM --query "instanceView.statuses[?starts_with(code,'PowerState')].code | [0]" -o tsv   # máy dev: PowerState/deallocated</code></pre></div>
+    </div></div>
+  </div>
+
+  <h3 id="phan-vercel">Phần C · Vercel, thử đánh thức, mobile</h3>
+
+  <div class="step" id="b15">
+    <h3><span class="step-no">Bước 15</span> Deploy web lên Vercel</h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Đưa bản web có màn đánh thức lên Vercel. Các file đánh thức (<code>api/wake.js</code>, <code>vercel.json</code>, <code>.vercelignore</code>, <code>src/features/system-wake/</code>, sửa <code>main.tsx</code>) nằm ở commit <code>95121d8</code> nhánh <code>deploy</code>, <b>không có trên main</b>, nên phải ghép vào một bản sao tạm của main.</p></div></div>
+    <div class="row"><div class="k">Cách làm</div><div class="v">
+      <div class="code"><span class="lbl">Máy dev · Git Bash, trong Đồ Án/finora-web</span><pre><code>W=../finora-web-vercel                     # thư mục tạm, xóa được sau khi deploy
+git worktree add --detach $W main
+git diff 95121d8^ 95121d8 -- . ':(exclude)src/features/auth/index.ts' | git -C $W apply
+# src/features/auth/index.ts: chỉ thêm đúng một dòng
+#   export { BrandMark } from './components/BrandMark';
+mkdir -p $W/.vercel &amp;&amp; cp .vercel/project.json $W/.vercel/
+cd $W &amp;&amp; npm ci &amp;&amp; npm run build          # thử build ở máy trước
+vercel --prod</code></pre></div>
+      <p class="small muted">Dựng project mới (chưa có <code>.vercel/project.json</code>): chạy <code>vercel link</code> trong <code>$W</code>, hoặc trên vercel.com chọn <b>Add New › Project</b>, framework Vite. Nếu <code>git apply</code> báo xung đột ở <code>main.tsx</code> thì sửa tay: bọc <code>&lt;App /&gt;</code> trong <code>&lt;SystemWakeGate&gt;</code>. Upload lỗi "fetch failed" (video 6 MB) thì chạy lại vài lần.</p>
+    </div></div>
+    <div class="row"><div class="k">Biến môi trường</div><div class="v">
+      <p>Vercel → Project <code>finora-web</code> → <b>Settings › Environment Variables</b>, môi trường <b>Production</b> (danh sách ở <a href="#bien-vercel">phụ lục</a>). Hoặc dùng CLI, mỗi biến một lệnh, giá trị dán khi được hỏi:</p>
+      <div class="code"><pre><code>vercel env add WAKE_CODE production
+vercel env add AZURE_CLIENT_SECRET production
+# ... tương tự cho các biến còn lại
+vercel --prod        # biến VITE_* nằm trong bản build: đổi biến thì phải deploy lại</code></pre></div>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v">
+      <div class="code"><pre><code>curl -s https://finora-web-delta.vercel.app/api/wake | jq .     # { vm, ready, services, codeRequired: true }
+curl -s -o /dev/null -w "%{http_code}\n" https://finora-web-delta.vercel.app/api/v1/users/me   # 401 khi VM đang chạy</code></pre></div>
+      <p class="small">Chỉ domain production đăng nhập được; link preview của Vercel có domain khác với cookie nên không đăng nhập được.</p>
+    </div></div>
+  </div>
+
+  <div class="step" id="b16">
+    <h3><span class="step-no">Bước 16</span> Thử trọn vòng: tắt → đánh thức → tự tắt</h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Chạy thật cả hai nhánh bật/tắt trước khi giao cho người khác dùng.</p></div></div>
+    <div class="row"><div class="k">Cách làm</div><div class="v">
+      <ol>
+        <li>Thoát mọi phiên SSH, chắc chắn không còn <code>keep-awake</code>. Chạy <code>.\finora-azure.ps1 down</code>, đợi <code>.\finora-azure.ps1 status</code> báo <code>deallocated</code>.</li>
+        <li>Mở web ở cửa sổ ẩn danh → màn "Hệ thống đang tắt" → nhập mã → màn "Đang khởi động" hiện từng service → khoảng 5 phút sau vào màn đăng nhập.</li>
+        <li>Đăng nhập, thử vài thao tác có POST (đăng nhập đã là POST): không được có lỗi 403 CORS.</li>
+        <li>Để yên. Sau ít nhất 30 phút từ lúc bật và 45–50 phút không gọi API, VM phải về <code>deallocated</code>.</li>
+      </ol>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v"><div class="code"><span class="lbl">PowerShell · thư mục Đồ Án/deploy</span><pre><code>.\finora-azure.ps1 status</code></pre></div></div></div>
+  </div>
+
+  <div class="step" id="b17">
+    <h3><span class="step-no">Bước 17</span> Trỏ mobile sang VM</h3>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>App Expo gọi thẳng domain VM. Mobile không có màn đánh thức, nên bật VM trước bằng web hoặc <code>.\finora-azure.ps1 up</code>.</p></div></div>
+    <div class="row"><div class="k">Cách làm</div><div class="v">
+      <p>Trong <code>finora-mobile/.env</code>, đặt 4 biến sau cùng một giá trị <code>https://finora-api.malaysiawest.cloudapp.azure.com/api/v1</code>, rồi chạy lại Expo với <code>--clear</code> để xóa cache biến cũ:</p>
+      <div class="code"><pre><code>EXPO_PUBLIC_API_URL
+EXPO_PUBLIC_AUTH_API_URL
+EXPO_PUBLIC_INVESTMENT_API_URL
+EXPO_PUBLIC_PAYMENT_API_URL</code></pre></div>
+    </div></div>
+    <div class="row"><div class="k">Kiểm tra</div><div class="v"><p>Đăng nhập trên Expo Go; trên VM <code>tail -f /opt/finora/state/api-access.log</code> thấy request tới.</p></div></div>
+  </div>
+</section>
+
+<!-- =============================== 6. KIỂM TRA =============================== -->
+<section id="kiem-tra">
+  <h2>6. Kiểm tra trên Azure</h2>
+  <p>Danh sách này để tự đăng nhập <a href="https://portal.azure.com" rel="noopener">portal.azure.com</a> rồi đối chiếu từng chỗ với hướng dẫn ở mục 5. Mỗi dòng ghi chỗ cần vào, ô cần nhìn, giá trị đúng, lệnh CLI chỉ đọc (<code>show</code>/<code>list</code>) để kiểm bằng dòng lệnh, và cách sửa nếu lệch. Bấm ô vuông khi đã kiểm xong; trình duyệt nhớ các ô đã tick (nếu cho phép lưu).</p>
+  <div class="warn"><p>Các lệnh CLI ở mục này chỉ đọc. Những lệnh có ghi thay đổi chỉ nằm ở dòng "Nếu sai" và chỉ chạy khi thật sự cần sửa.</p></div>
+
+  <div class="chk-bar">
+    <div class="chk-progress"><span id="chkCount">Đã kiểm 0/0</span><span class="bar"><i id="chkBar"></i></span></div>
+    <button class="btn-reset" id="chkReset" type="button">Bỏ tick hết</button>
+  </div>
+
+  <div class="code"><span class="lbl">Git Bash · biến dùng cho các lệnh kiểm (chỉ đọc)</span><pre><code>export MSYS_NO_PATHCONV=1
+RG=finora-rg; VM=finora-vm
+VM_ID=$(az vm show -g $RG -n $VM --query id -o tsv)
+MI=$(az vm show -g $RG -n $VM --query identity.principalId -o tsv)</code></pre></div>
+
+  <h3 id="kt-portal">Trên Portal</h3>
+
+  <h4 class="chk-group">Tài khoản và chi phí</h4>
+  <ol class="checklist">
+    <li class="chk" data-id="az-sub">
+      <div class="chk-head"><input type="checkbox" id="chk-az-sub"><label for="chk-az-sub"><span class="chk-no">1.</span>Subscription Azure for Students đang hoạt động</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd>portal.azure.com → ô tìm kiếm gõ <b>Subscriptions</b> → <b>Azure for Students</b> → <b>Overview</b>.</dd>
+        <dt>Nhìn ô</dt><dd>Subscription name, Status, Offer; khung Spending limit.</dd>
+        <dt>Giá trị đúng</dt><dd>Tên <b>Azure for Students</b>, Status <b>Active</b>, Spending limit <b>On</b> (gói sinh viên luôn bật, hết credit thì tài nguyên dừng chứ không trừ thẻ).</dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>az account show --query "{ten:name, trangThai:state}" -o table</code></pre></div><p>Mong đợi: <code>Azure for Students</code>, <code>Enabled</code>.</p></dd>
+        <dt>Nếu sai</dt><dd>CLI đang trỏ subscription khác: <code>az account set --subscription "&lt;SUBSCRIPTION_ID&gt;"</code>. Status Disabled thường do hết credit hoặc hết hạn 12 tháng: gia hạn gói sinh viên trước, tài nguyên còn nguyên.</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="az-credit">
+      <div class="chk-head"><input type="checkbox" id="chk-az-credit"><label for="chk-az-credit"><span class="chk-no">2.</span>Credit còn lại và chi phí theo resource group</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd>Credit: <b>Subscriptions › Azure for Students › Overview</b> (khung credit của gói sinh viên), hoặc trang <a href="https://www.microsoftazuresponsorships.com/Balance" rel="noopener">microsoftazuresponsorships.com/Balance</a>. Chi phí: <b>Cost Management + Billing › Cost Management › Cost analysis</b>, Scope chọn <code>finora-rg</code>, Group by <b>Resource</b>.</dd>
+        <dt>Nhìn ô</dt><dd>Credit còn lại, ngày hết hạn credit; trong Cost analysis là tổng tháng này và từng dòng tài nguyên.</dd>
+        <dt>Giá trị đúng</dt><dd>Có khoảng 3 dòng chính: VM <code>finora-vm</code> (chỉ tăng vào ngày VM chạy), ổ OS và <code>finora-ip</code> (tăng đều mỗi ngày). Tháng dùng khoảng 60 giờ thì tổng khoảng 11 USD (ước lượng). Log Analytics gần 0.</dd>
+        <dt>CLI</dt><dd><p>Không có lệnh CLI chỉ đọc ổn định cho credit gói sinh viên; xem trên Portal.</p></dd>
+        <dt>Nếu sai</dt><dd>VM tăng tiền cả những ngày không dùng: VM không tự tắt, xem dòng 19 (Activity log) và bẫy "VM không bao giờ tự tắt" ở mục 8. Có tài nguyên lạ tốn tiền: kiểm dòng 4.</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="az-policy">
+      <div class="chk-head"><input type="checkbox" id="chk-az-policy"><label for="chk-az-policy"><span class="chk-no">3.</span>Giới hạn vùng của gói sinh viên</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd><b>Policy › Authoring › Assignments</b>, Scope là subscription Azure for Students.</dd>
+        <dt>Nhìn ô</dt><dd>Assignment có tên kiểu "Allowed resource deployment regions" (tên có thể khác) → Parameters.</dd>
+        <dt>Giá trị đúng</dt><dd>Danh sách 5 vùng được phép có <code>malaysiawest</code>, không có <code>southeastasia</code>.</dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>az policy assignment list --query "[].{ten:displayName, scope:scope}" -o table</code></pre></div></dd>
+        <dt>Nếu sai</dt><dd>Không sửa được policy của gói sinh viên. Chỉ cần mọi tài nguyên FINORA nằm trong một vùng được phép.</dd>
+      </dl>
+    </li>
+  </ol>
+
+  <h4 class="chk-group">Resource group, VM, ổ đĩa</h4>
+  <ol class="checklist">
+    <li class="chk" data-id="az-rg">
+      <div class="chk-head"><input type="checkbox" id="chk-az-rg"><label for="chk-az-rg"><span class="chk-no">4.</span>Resource group finora-rg có đủ tài nguyên</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd><b>Resource groups › finora-rg › Overview</b>, tab <b>Resources</b> (bật "Show hidden types" nếu không thấy DCR).</dd>
+        <dt>Nhìn ô</dt><dd>Location của nhóm; cột Name, Type, Location của từng tài nguyên.</dd>
+        <dt>Giá trị đúng</dt><dd>Location <b>Malaysia West</b>. Có: <code>finora-vm</code> (Virtual machine), <code>finora-ip</code> (Public IP address), <code>finora-nsg</code> (Network security group), một ổ OS (tên tự sinh dạng <code>finora-vm_OsDisk_1_…</code>), một card mạng và một virtual network (tên tự sinh, thường <code>finora-vmVMNic</code>, <code>finora-vmVNET</code>), <code>finora-logs</code> (Log Analytics workspace), <code>finora-containers-dcr</code> (Data collection rule). Tất cả ở Malaysia West.</dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>az resource list -g $RG --query "[].{ten:name, loai:type, vung:location}" -o table</code></pre></div><p>Mong đợi: mọi dòng <code>malaysiawest</code>; không có NSG thứ hai kiểu <code>finora-vmNSG</code> hay IP thứ hai kiểu <code>finora-vmPublicIP</code> (dấu hiệu tạo VM để Azure tự sinh mạng).</p></dd>
+        <dt>Nếu sai</dt><dd>Thiếu tài nguyên nào thì làm lại bước tạo nó: IP bước 2, NSG bước 3, VM bước 4, log bước 7. Có IP hay NSG thừa không gắn vào đâu thì xóa để khỏi tốn tiền IP.</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="az-vm">
+      <div class="chk-head"><input type="checkbox" id="chk-az-vm"><label for="chk-az-vm"><span class="chk-no">5.</span>VM đúng kích cỡ, hệ điều hành, tên miền</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd><b>Resource groups › finora-rg › finora-vm › Overview</b>, phần <b>Essentials</b> và tab <b>Properties</b>.</dd>
+        <dt>Nhìn ô</dt><dd>Status, Location, Size, Operating system, Public IP address, DNS name, Virtual network/subnet.</dd>
+        <dt>Giá trị đúng</dt><dd>Status <b>Running</b> hoặc <b>Stopped (deallocated)</b> (không được là "Stopped" trơn: vẫn tính tiền). Location <b>Malaysia West</b>. Size <b>Standard B2as v2 (2 vcpus, 8 GiB memory)</b>. OS <b>Linux (ubuntu 24.04)</b>. DNS name <code>finora-api.malaysiawest.cloudapp.azure.com</code>. Public IP trùng IP của <code>finora-ip</code>.</dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>az vm show -d -g $RG -n $VM --query "{trangThai:powerState, vung:location, kichCo:hardwareProfile.vmSize, anh:storageProfile.imageReference.offer, fqdn:fqdns}" -o table</code></pre></div><p>Mong đợi: <code>VM running</code> hoặc <code>VM deallocated</code>, <code>malaysiawest</code>, <code>Standard_B2as_v2</code>, <code>ubuntu-24_04-lts</code>, đúng fqdn.</p></dd>
+        <dt>Nếu sai</dt><dd>Status "Stopped" trơn: bấm <b>Stop</b> lần nữa trên Portal hoặc <code>az vm deallocate</code>. Sai size: deallocate rồi <b>Availability + scale › Size</b> chọn B2as_v2 (<code>az vm resize</code>). Sai vùng hay sai ảnh hệ điều hành thì không đổi được, phải tạo lại VM (bước 4).</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="az-disk">
+      <div class="chk-head"><input type="checkbox" id="chk-az-disk"><label for="chk-az-disk"><span class="chk-no">6.</span>Ổ OS 32 GB Standard SSD</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd><b>finora-vm › Settings › Disks</b>.</dd>
+        <dt>Nhìn ô</dt><dd>Dòng OS disk: Size, Storage type.</dd>
+        <dt>Giá trị đúng</dt><dd>Size <b>32 GiB</b>, Storage type <b>Standard SSD LRS</b>. Không có data disk.</dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>az vm show -g $RG -n $VM --query "storageProfile.osDisk.{ten:name, gb:diskSizeGb, loai:managedDisk.storageAccountType}" -o table</code></pre></div><p>Mong đợi: <code>32</code>, <code>StandardSSD_LRS</code>.</p></dd>
+        <dt>Nếu sai</dt><dd>Ổ chỉ tăng được, không giảm: deallocate → bấm vào ổ → <b>Size + performance</b>. Ubuntu tự nới phân vùng ở lần bật sau. Ổ Premium thì đổi về Standard SSD cùng chỗ đó để rẻ hơn.</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="az-autoshutdown">
+      <div class="chk-head"><input type="checkbox" id="chk-az-autoshutdown"><label for="chk-az-autoshutdown"><span class="chk-no">7.</span>Không dùng auto-shutdown của Azure</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd><b>finora-vm › Operations › Auto-shutdown</b>.</dd>
+        <dt>Nhìn ô</dt><dd>Enabled.</dd>
+        <dt>Giá trị đúng</dt><dd>Tắt, hoặc trang báo vùng không hỗ trợ. Việc tự tắt do systemd trong VM làm (dòng 22).</dd>
+        <dt>CLI</dt><dd><p>Không cần.</p></dd>
+        <dt>Nếu sai</dt><dd>Không có gì để sửa; đừng trông vào tính năng này ở Malaysia West.</dd>
+      </dl>
+    </li>
+  </ol>
+
+  <h4 class="chk-group">Mạng</h4>
+  <ol class="checklist">
+    <li class="chk" data-id="az-ip">
+      <div class="chk-head"><input type="checkbox" id="chk-az-ip"><label for="chk-az-ip"><span class="chk-no">8.</span>IP tĩnh và DNS label</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd><b>finora-rg › finora-ip › Overview</b> và <b>Settings › Configuration</b>.</dd>
+        <dt>Nhìn ô</dt><dd>SKU, IP address, DNS name, Associated to; trong Configuration là Assignment và DNS name label.</dd>
+        <dt>Giá trị đúng</dt><dd>SKU <b>Standard</b>, Assignment <b>Static</b>, DNS name label <code>finora-api</code> (DNS name đủ là <code>finora-api.malaysiawest.cloudapp.azure.com</code>), Associated to card mạng của <code>finora-vm</code>. IP vẫn hiện số kể cả khi VM đang deallocated.</dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>az network public-ip show -g $RG -n finora-ip --query "{sku:sku.name, kieu:publicIPAllocationMethod, ip:ipAddress, fqdn:dnsSettings.fqdn}" -o table
+nslookup finora-api.malaysiawest.cloudapp.azure.com</code></pre></div><p>Mong đợi: <code>Standard</code>, <code>Static</code>, và nslookup trả đúng IP ở cột <code>ip</code>.</p></dd>
+        <dt>Nếu sai</dt><dd>Dynamic: <b>Configuration</b> chọn Static rồi Save (IP Basic động sẽ đổi số mỗi lần deallocate làm Caddy mất chứng chỉ). Thiếu DNS label: điền <code>finora-api</code> ở Configuration. Không gắn vào VM: làm lại bước 2 và gắn ở <b>finora-vm › Networking › Network settings</b> → bấm card mạng → IP configurations.</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="az-nsg-assoc">
+      <div class="chk-head"><input type="checkbox" id="chk-az-nsg-assoc"><label for="chk-az-nsg-assoc"><span class="chk-no">9.</span>NSG finora-nsg gắn vào card mạng của VM</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd><b>finora-rg › finora-nsg › Settings › Network interfaces</b> (và <b>Subnets</b>).</dd>
+        <dt>Nhìn ô</dt><dd>Danh sách card mạng đang gắn; Virtual machine tương ứng.</dd>
+        <dt>Giá trị đúng</dt><dd>Một card mạng, Virtual machine <code>finora-vm</code>. Subnet không gắn NSG khác (nếu có thì luật của cả hai NSG cùng phải cho qua).</dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>NIC=$(az vm show -g $RG -n $VM --query "networkProfile.networkInterfaces[0].id" -o tsv)
+az network nic show --ids "$NIC" --query "networkSecurityGroup.id" -o tsv</code></pre></div><p>Mong đợi: dòng kết thúc bằng <code>/networkSecurityGroups/finora-nsg</code>.</p></dd>
+        <dt>Nếu sai</dt><dd>Card mạng → <b>Network security group</b> → chọn <code>finora-nsg</code> → Save.</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="az-nsg-rules">
+      <div class="chk-head"><input type="checkbox" id="chk-az-nsg-rules"><label for="chk-az-nsg-rules"><span class="chk-no">10.</span>Luật NSG: 22 chỉ IP của Hải, 80 và 443 mở</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd><b>finora-nsg › Settings › Inbound security rules</b>. Mở <a href="https://api.ipify.org" rel="noopener">api.ipify.org</a> ở tab khác để biết IP hiện tại của máy.</dd>
+        <dt>Nhìn ô</dt><dd>Priority, Name, Port, Protocol, Source, Action.</dd>
+        <dt>Giá trị đúng</dt><dd>
+          <ul>
+            <li><code>default-allow-ssh</code>: port <b>22</b>, TCP, Source là <b>đúng một IP</b> <code>&lt;IP_CUA_HAI&gt;</code> (không phải Any, không phải <code>*</code>), Allow.</li>
+            <li>Một luật port <b>80</b>, Source Any, Allow.</li>
+            <li>Một luật port <b>443</b>, Source Any, Allow (TCP hoặc Any để có cả HTTP/3).</li>
+            <li>Ba luật mặc định 65000/65001/65500 giữ nguyên. Outbound giữ mặc định (VM cần ra Internet tới Neon, Let's Encrypt, Docker Hub).</li>
+          </ul>
+          <p class="small muted">Tên luật 80/443 trên hệ thống thật có thể khác tên ở bước 3; quan trọng là cổng, nguồn và Allow.</p>
+        </dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>az network nsg rule list -g $RG --nsg-name finora-nsg \
+  --query "[].{uuTien:priority, ten:name, cong:destinationPortRange, cacCong:join(',', destinationPortRanges), nguon:sourceAddressPrefix, nguonKhac:join(',', sourceAddressPrefixes), choPhep:access}" -o table
+curl -s https://api.ipify.org; echo</code></pre></div><p>Mong đợi: dòng 22 có nguồn bằng đúng IP in ra ở lệnh curl.</p></dd>
+        <dt>Nếu sai</dt><dd>IP nhà mạng đổi: chạy <code>.\finora-azure.ps1 ssh</code> (tự sửa nguồn luật 22). Nguồn 22 là Any: sửa ngay về IP của máy (bot dò mật khẩu SSH liên tục). Thiếu 80 hoặc 443: thêm như bước 3; thiếu 80 thì Caddy không xin được chứng chỉ.</dd>
+      </dl>
+    </li>
+  </ol>
+
+  <h4 class="chk-group">Danh tính và phân quyền</h4>
+  <ol class="checklist">
+    <li class="chk" data-id="az-mi">
+      <div class="chk-head"><input type="checkbox" id="chk-az-mi"><label for="chk-az-mi"><span class="chk-no">11.</span>Managed identity của VM đang On và có đủ role</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd><b>finora-vm › Security › Identity</b>, tab <b>System assigned</b>, rồi bấm nút <b>Azure role assignments</b>.</dd>
+        <dt>Nhìn ô</dt><dd>Status; Object (principal) ID; danh sách role.</dd>
+        <dt>Giá trị đúng</dt><dd>Status <b>On</b>, có Object ID <code>&lt;PRINCIPAL_ID&gt;</code>. Role: <b>FINORA VM Power</b> với scope là <code>finora-vm</code>, và <b>Log Analytics Reader</b> với scope là <code>finora-logs</code> (nếu dùng trang Nhật ký hoạt động).</dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>az vm identity show -g $RG -n $VM --query "{kieu:type, principalId:principalId}" -o table
+az role assignment list --assignee "$MI" --all --query "[].{role:roleDefinitionName, scope:scope}" -o table</code></pre></div><p>Mong đợi: <code>SystemAssigned</code>; hai dòng role, scope một dòng kết thúc bằng <code>/virtualMachines/finora-vm</code>, một dòng kết thúc bằng <code>/workspaces/finora-logs</code>.</p></dd>
+        <dt>Nếu sai</dt><dd>Status Off: bật lại (bước 4); lưu ý bật lại sinh Object ID mới, phải gán lại cả hai role. Thiếu FINORA VM Power: VM không tự tắt được, làm bước 6 phần 1. Thiếu Log Analytics Reader: trang Nhật ký hoạt động báo 403, làm cuối bước 7.</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="az-role">
+      <div class="chk-head"><input type="checkbox" id="chk-az-role"><label for="chk-az-role"><span class="chk-no">12.</span>Custom role FINORA VM Power có đúng 4 quyền</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd><b>finora-rg › Access control (IAM)</b>, tab <b>Roles</b>, ô tìm gõ <code>FINORA</code> → bấm role → <b>Permissions</b> và <b>JSON</b>.</dd>
+        <dt>Nhìn ô</dt><dd>Type, danh sách Actions, AssignableScopes.</dd>
+        <dt>Giá trị đúng</dt><dd>Type <b>CustomRole</b>. Đúng 4 action, không hơn:
+          <ul>
+            <li><code>Microsoft.Compute/virtualMachines/read</code></li>
+            <li><code>Microsoft.Compute/virtualMachines/instanceView/read</code></li>
+            <li><code>Microsoft.Compute/virtualMachines/start/action</code></li>
+            <li><code>Microsoft.Compute/virtualMachines/deallocate/action</code></li>
+          </ul>
+          AssignableScopes là <code>/subscriptions/&lt;SUBSCRIPTION_ID&gt;/resourceGroups/finora-rg</code>.</dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>az role definition list --name "FINORA VM Power" --query "[0].{loai:roleType, quyen:permissions[0].actions, phamVi:assignableScopes}" -o jsonc</code></pre></div></dd>
+        <dt>Nếu sai</dt><dd>Không có role: bước 5. Thừa hoặc thiếu quyền: sửa bản sao <code>vm-power-role.json</code> rồi <code>az role definition update --role-definition @/tmp/vm-power-role.json</code> (bản sao phải có thêm trường <code>"Id"</code> của role, lấy từ lệnh list ở trên).</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="az-assign">
+      <div class="chk-head"><input type="checkbox" id="chk-az-assign"><label for="chk-az-assign"><span class="chk-no">13.</span>Role đã gán cho identity của VM và cho finora-vercel-wake</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd><b>finora-vm › Access control (IAM)</b>, tab <b>Role assignments</b>, lọc Role = <code>FINORA VM Power</code>.</dd>
+        <dt>Nhìn ô</dt><dd>Name, Type, Scope.</dd>
+        <dt>Giá trị đúng</dt><dd>Hai dòng: <code>finora-vm</code> (Type: managed identity / Virtual machine) và <code>finora-vercel-wake</code> (Type: App). Scope "This resource". Nếu scope là "Resource group (Inherited)" thì vẫn chạy, nhưng rộng hơn cần.</dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>az role assignment list --scope "$VM_ID" --include-inherited \
+  --query "[?roleDefinitionName=='FINORA VM Power'].{ai:principalName, kieu:principalType, scope:scope}" -o table</code></pre></div><p>Mong đợi: 2 dòng <code>ServicePrincipal</code>, một có tên là một GUID (identity của VM), một là ID ứng dụng của <code>finora-vercel-wake</code>.</p></dd>
+        <dt>Nếu sai</dt><dd>Thiếu dòng nào thì làm lại phần tương ứng của bước 6. Thiếu dòng của Vercel thì trang đánh thức báo "Không liên lạc được với Azure" (hàm trả 502).</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="az-app">
+      <div class="chk-head"><input type="checkbox" id="chk-az-app"><label for="chk-az-app"><span class="chk-no">14.</span>App registration finora-vercel-wake và hạn secret</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd>Ô tìm kiếm gõ <b>Microsoft Entra ID</b> → <b>Manage › App registrations</b> → tab <b>All applications</b> → <code>finora-vercel-wake</code>. Xem <b>Overview</b>, rồi <b>Manage › Certificates &amp; secrets</b> → tab <b>Client secrets</b>.</dd>
+        <dt>Nhìn ô</dt><dd>Application (client) ID, Directory (tenant) ID; cột Expires của secret.</dd>
+        <dt>Giá trị đúng</dt><dd>Application ID trùng biến <code>AZURE_CLIENT_ID</code> trên Vercel, Directory ID trùng <code>AZURE_TENANT_ID</code>. Có <b>một</b> client secret còn hạn; README ghi hạn 2 năm kể từ lúc tạo (15/10/2026), nên Expires khoảng tháng 10/2028. Không cần (và không thể) xem lại giá trị secret.</dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>APP_ID=$(az ad app list --display-name finora-vercel-wake --query "[0].appId" -o tsv)
+az ad app credential list --id "$APP_ID" --query "[].{batDau:startDateTime, hetHan:endDateTime}" -o table</code></pre></div><p>Mong đợi: một dòng, <code>hetHan</code> còn ở tương lai.</p></dd>
+        <dt>Nếu sai</dt><dd>Secret hết hạn hoặc nghi lộ: <b>New client secret</b> (hoặc <code>az ad app credential reset --id "$APP_ID" --years 2</code>), cập nhật <code>AZURE_CLIENT_SECRET</code> trên Vercel, chạy <code>vercel --prod</code>, rồi xóa secret cũ. Đặt lịch nhắc trước ngày hết hạn.</dd>
+      </dl>
+    </li>
+  </ol>
+
+  <h4 class="chk-group">Log và lịch sử bật/tắt</h4>
+  <ol class="checklist">
+    <li class="chk" data-id="az-ext">
+      <div class="chk-head"><input type="checkbox" id="chk-az-ext"><label for="chk-az-ext"><span class="chk-no">15.</span>Azure Monitor Agent đã cài trên VM</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd><b>finora-vm › Settings › Extensions + applications</b>, tab <b>Extensions</b>.</dd>
+        <dt>Nhìn ô</dt><dd>Name, Status, Automatic upgrade.</dd>
+        <dt>Giá trị đúng</dt><dd><code>AzureMonitorLinuxAgent</code>, Status <b>Provisioning succeeded</b>, tự nâng cấp bật.</dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>az vm extension list -g $RG --vm-name $VM --query "[].{ten:name, trangThai:provisioningState, tuNangCap:enableAutomaticUpgrade}" -o table</code></pre></div></dd>
+        <dt>Nếu sai</dt><dd>Thiếu hoặc Failed: cài lại như bước 7 (khi VM đang chạy).</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="az-law">
+      <div class="chk-head"><input type="checkbox" id="chk-az-law"><label for="chk-az-law"><span class="chk-no">16.</span>Log Analytics workspace finora-logs</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd><b>finora-rg › finora-logs › Overview</b>; rồi <b>Settings › Usage and estimated costs</b> → nút <b>Data Retention</b> và <b>Daily cap</b>.</dd>
+        <dt>Nhìn ô</dt><dd>Location, Pricing tier, Workspace ID; số ngày lưu; trần mỗi ngày.</dd>
+        <dt>Giá trị đúng</dt><dd>Location <b>Malaysia West</b>, Pricing tier Pay-as-you-go (Per GB 2018), lưu <b>30 ngày</b>, Daily cap <b>0,15 GB</b>. Workspace ID <code>&lt;WORKSPACE_ID&gt;</code> phải trùng <code>ACTIVITY_LOG_WORKSPACE_ID</code> trong <code>docker-compose.azure.yml</code>.</dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>az monitor log-analytics workspace show -g $RG -n finora-logs \
+  --query "{vung:location, goi:sku.name, luuNgay:retentionInDays, tranGB:workspaceCapping.dailyQuotaGb, workspaceId:customerId}" -o table
+grep -n ACTIVITY_LOG_WORKSPACE_ID docker-compose.azure.yml    # chạy trong thư mục Đồ Án/deploy, so với cột workspaceId</code></pre></div></dd>
+        <dt>Nếu sai</dt><dd>Sửa retention/daily cap ở trang Usage and estimated costs. Workspace ID lệch: sửa compose rồi trên VM <code>docker compose -f docker-compose.azure.yml up -d --no-deps user</code>.</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="az-dcr">
+      <div class="chk-head"><input type="checkbox" id="chk-az-dcr"><label for="chk-az-dcr"><span class="chk-no">17.</span>Data collection rule finora-containers-dcr</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd>Ô tìm kiếm gõ <b>Monitor</b> → <b>Settings › Data Collection Rules</b> → <code>finora-containers-dcr</code>. Xem <b>Configuration › Data sources</b> và <b>Configuration › Resources</b>.</dd>
+        <dt>Nhìn ô</dt><dd>Platform; Data source và Destination; danh sách Resources.</dd>
+        <dt>Giá trị đúng</dt><dd>Platform <b>Linux</b>, vùng Malaysia West. Data source <b>Linux Syslog</b>, chỉ facility <b>LOG_LOCAL0</b>, mức thấp nhất <b>Info</b> (các facility khác "none"). Destination Azure Monitor Logs → <code>finora-logs</code>. Resources có <code>finora-vm</code>.</dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>az monitor data-collection rule show -g $RG -n finora-containers-dcr \
+  --query "{vung:location, facility:dataSources.syslog[0].facilityNames, dich:destinations.logAnalytics[0].name}" -o jsonc
+az monitor data-collection rule association list --resource "$VM_ID" -o table</code></pre></div><p>Mong đợi: <code>["local0"]</code>, đích <code>finoraLogs</code>; có một association trỏ tới DCR này.</p></dd>
+        <dt>Nếu sai</dt><dd>Làm lại phần DCR của bước 7; thiếu association thì thêm <code>finora-vm</code> ở tab Resources.</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="az-logs">
+      <div class="chk-head"><input type="checkbox" id="chk-az-logs"><label for="chk-az-logs"><span class="chk-no">18.</span>Log container đang về workspace</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd><b>finora-logs › Logs</b>, chọn chế độ <b>KQL</b>, khi VM đã chạy ít nhất 10 phút.</dd>
+        <dt>Nhìn ô</dt><dd>Kết quả của câu truy vấn bên dưới.</dd>
+        <dt>Giá trị đúng</dt><dd>Có các dòng <code>ProcessName</code> dạng <code>finora-gateway-1</code>, <code>finora-loan-1</code>… với số đếm lớn hơn 0.</dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>Syslog
+| where TimeGenerated &gt; ago(1h) and Facility == "local0"
+| summarize n = count() by ProcessName
+| order by n desc</code></pre></div><p class="small muted">Dán câu này vào trang Logs. Bằng CLI: <code>az monitor log-analytics query -w &lt;WORKSPACE_ID&gt; --analytics-query "…"</code>.</p></dd>
+        <dt>Nếu sai</dt><dd>Không có dòng nào: kiểm dòng 15, 17; trong VM kiểm rsyslog (bước 9). Nhớ log chậm 2–5 phút và dừng nhận khi chạm trần 0,15 GB trong ngày.</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="az-activity">
+      <div class="chk-head"><input type="checkbox" id="chk-az-activity"><label for="chk-az-activity"><span class="chk-no">19.</span>Activity log có các lần Start và Deallocate</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd><b>finora-vm › Activity log</b>, Timespan <b>Last week</b>.</dd>
+        <dt>Nhìn ô</dt><dd>Operation name, Status, Time stamp, Event initiated by.</dd>
+        <dt>Giá trị đúng</dt><dd>Các cặp <b>Start Virtual Machine</b> (người khởi tạo là <code>finora-vercel-wake</code> hoặc Application ID của nó khi bật từ web; là tài khoản của Hải khi bật bằng ps1/Portal) và <b>Deallocate Virtual Machine</b> (người khởi tạo là identity của VM khi tự tắt), Status <b>Succeeded</b>. Ngày nào có dùng thì phải có Deallocate, muộn nhất khoảng 00:00 giờ VN.</dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>az monitor activity-log list --resource-id "$VM_ID" --offset 7d \
+  --query "[?status.value=='Succeeded' &amp;&amp; (contains(operationName.value,'start') || contains(operationName.value,'deallocate'))].{luc:eventTimestamp, viec:operationName.localizedValue, ai:caller}" -o table</code></pre></div></dd>
+        <dt>Nếu sai</dt><dd>Start không có Deallocate theo sau: VM không tự tắt (keep-awake còn đó, SSH treo, timer hỏng, identity mất role). Xem dòng 11, 22 và bẫy ở mục 8. Start từ Vercel bị Failed: kiểm dòng 13, 14.</dd>
+      </dl>
+    </li>
+  </ol>
+
+  <h3 id="kt-ngoai">Ngoài Portal</h3>
+  <ol class="checklist">
+    <li class="chk" data-id="ext-https">
+      <div class="chk-head"><input type="checkbox" id="chk-ext-https"><label for="chk-ext-https"><span class="chk-no">20.</span>HTTPS của domain VM</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd>Khi VM đang chạy, mở trình duyệt tới <a href="https://finora-api.malaysiawest.cloudapp.azure.com/" rel="noopener">https://finora-api.malaysiawest.cloudapp.azure.com/</a> và <code>/_status.json</code>; bấm biểu tượng ổ khóa → thông tin chứng chỉ.</dd>
+        <dt>Nhìn ô</dt><dd>Nội dung trang, trạng thái ổ khóa, Issued by.</dd>
+        <dt>Giá trị đúng</dt><dd>Trang chỉ có chữ <b>FINORA API</b> (404 có chủ đích). Ổ khóa hợp lệ, chứng chỉ do <b>Let's Encrypt</b> cấp cho đúng domain. <code>/_status.json</code> có <code>"ready": true</code>. Mở bằng <code>http://</code> thì tự chuyển sang <code>https://</code>.</dd>
+        <dt>Lệnh</dt><dd><div class="code"><pre><code>curl -sI http://finora-api.malaysiawest.cloudapp.azure.com/ | head -n 3     # 308 Permanent Redirect, Location: https://...
+curl -svo /dev/null https://finora-api.malaysiawest.cloudapp.azure.com/ 2&gt;&amp;1 | grep -i "issuer"   # Let's Encrypt
+curl -s https://finora-api.malaysiawest.cloudapp.azure.com/_status.json | jq .ready                  # true</code></pre></div></dd>
+        <dt>Nếu sai</dt><dd>Lỗi chứng chỉ: kiểm luật 80/443 (dòng 10), DNS (dòng 8), rồi xem <code>docker compose -f docker-compose.azure.yml logs caddy</code> trên VM. Không kết nối được: VM đang tắt hoặc Caddy chưa chạy.</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="ext-compose">
+      <div class="chk-head"><input type="checkbox" id="chk-ext-compose"><label for="chk-ext-compose"><span class="chk-no">21.</span>SSH vào VM: đủ 14 container</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd>PowerShell trong <code>Đồ Án/deploy</code>: <code>.\finora-azure.ps1 ssh</code>.</dd>
+        <dt>Nhìn ô</dt><dd>Cột SERVICE và STATUS.</dd>
+        <dt>Giá trị đúng</dt><dd>14 dòng: caddy, kafka, keycloak, redis, fineract, ai, user, notification, payment, investment, loan, blockchain-db, blockchain, gateway. 13 dòng <b>Up … (healthy)</b>; riêng <b>caddy</b> chỉ "Up" vì không khai healthcheck. Không có <code>fineract-db</code>.</dd>
+        <dt>Lệnh</dt><dd><div class="code"><span class="lbl">Trên VM</span><pre><code>cd /opt/finora/src/finora-platform/deploy
+docker compose -f docker-compose.azure.yml ps --format "table {{.Service}}\t{{.Status}}"
+docker compose -f docker-compose.azure.yml ps --services --status running | wc -l    # 14
+cat /opt/finora/src/finora-platform/.deployed-commit                                  # mã đang chạy
+free -h; df -h /</code></pre></div></dd>
+        <dt>Nếu sai</dt><dd>Service unhealthy hay Restarting: <code>docker compose -f docker-compose.azure.yml logs --tail 100 &lt;service&gt;</code>; thiếu container: <code>docker compose -f docker-compose.azure.yml up -d</code> (bước 13). Ổ trên 85%: dọn như mục 7.</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="ext-systemd">
+      <div class="chk-head"><input type="checkbox" id="chk-ext-systemd"><label for="chk-ext-systemd"><span class="chk-no">22.</span>systemd: timer tự tắt và finora-status</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd>Trong phiên SSH ở dòng 21.</dd>
+        <dt>Nhìn ô</dt><dd>Cột NEXT và UNIT của list-timers; kết quả is-enabled/is-active; file keep-awake.</dd>
+        <dt>Giá trị đúng</dt><dd><code>finora-idle-stop.timer</code> có lần chạy kế tiếp trong vòng 5 phút; <code>finora-nightly-stop.timer</code> chạy lúc <b>17:00 UTC</b> (00:00 giờ VN). Ba unit đều <code>enabled</code>, <code>finora-status</code> là <code>active</code>. Không có file <code>keep-awake</code> (trừ khi đang bảo trì).</dd>
+        <dt>Lệnh</dt><dd><div class="code"><span class="lbl">Trên VM</span><pre><code>systemctl list-timers 'finora-*'
+systemctl is-enabled finora-status finora-idle-stop.timer finora-nightly-stop.timer   # enabled x3
+systemctl is-active finora-status                                                      # active
+ls -l /opt/finora/state/keep-awake 2&gt;&amp;1                                                # No such file or directory
+journalctl -t finora-idle-stop -n 10 --no-pager                                        # các lần tự tắt trước</code></pre></div></dd>
+        <dt>Nếu sai</dt><dd>Timer không có: chạy lại <code>sudo bash setup-vm.sh</code> trong <code>deploy/</code> (bước 8, chạy lại an toàn). Có keep-awake mà không bảo trì: <code>sudo rm</code> nó.</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="ext-status">
+      <div class="chk-head"><input type="checkbox" id="chk-ext-status"><label for="chk-ext-status"><span class="chk-no">23.</span>finora-status.sh khớp compose và ghi trạng thái mới</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd>Trong phiên SSH.</dd>
+        <dt>Nhìn ô</dt><dd><code>ready</code>, <code>updatedAt</code>, số service trong <code>_status.json</code>; kết quả so danh sách.</dd>
+        <dt>Giá trị đúng</dt><dd><code>ready: true</code>, <code>updatedAt</code> cách giờ hiện tại dưới 10–20 giây, 14 service. Lệnh so danh sách không in gì (hai danh sách trùng nhau).</dd>
+        <dt>Lệnh</dt><dd><div class="code"><span class="lbl">Trên VM, trong thư mục deploy</span><pre><code>jq '{ready, updatedAt, soService: (.services | length), services}' /opt/finora/state/public/_status.json
+date -u +%FT%TZ
+diff &lt;(grep -oP '^SERVICES=\(\K[^)]*' /opt/finora/bin/finora-status.sh | tr ' ' '\n' | sort) \
+     &lt;(docker compose -f docker-compose.azure.yml config --services | sort) &amp;&amp; echo "Khớp"</code></pre></div></dd>
+        <dt>Nếu sai</dt><dd>Lệch danh sách: sửa <code>SERVICES</code> trong <code>host/finora-status.sh</code>, chép lại bằng <code>sudo install -m 0755 host/finora-status.sh /opt/finora/bin/</code>, rồi <code>sudo systemctl restart finora-status</code>. <code>updatedAt</code> cũ: service đứng, xem <code>journalctl -u finora-status -n 20</code>.</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="ext-vercel">
+      <div class="chk-head"><input type="checkbox" id="chk-ext-vercel"><label for="chk-ext-vercel"><span class="chk-no">24.</span>Vercel: biến môi trường, domain, hàm wake</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd><a href="https://vercel.com/dashboard" rel="noopener">vercel.com/dashboard</a> → project <code>finora-web</code>: <b>Settings › Environment Variables</b>, <b>Settings › Domains</b>, <b>Settings › Functions</b>, tab <b>Deployments</b>.</dd>
+        <dt>Nhìn ô</dt><dd>Tên biến và môi trường áp dụng; domain gắn Production; Function Region; trạng thái bản deploy mới nhất.</dd>
+        <dt>Giá trị đúng</dt><dd>Đủ 10 biến cho Production: <code>VITE_SYSTEM_WAKE</code>, <code>VITE_AI_API_URL</code>, <code>AZURE_TENANT_ID</code>, <code>AZURE_CLIENT_ID</code>, <code>AZURE_CLIENT_SECRET</code>, <code>AZURE_SUBSCRIPTION_ID</code>, <code>AZURE_RESOURCE_GROUP</code>, <code>AZURE_VM_NAME</code>, <code>FINORA_API_DOMAIN</code>, <code>WAKE_CODE</code> (giá trị ẩn, không cần mở). Domain <code>finora-web-delta.vercel.app</code> gắn Production. Function Region Singapore (<code>sin1</code>). Bản Production mới nhất <b>Ready</b>.</dd>
+        <dt>Lệnh</dt><dd><div class="code"><span class="lbl">Máy dev, trong thư mục đã link project</span><pre><code>vercel env ls production                                      # chỉ liệt kê tên, giá trị hiện "Encrypted"
+curl -s https://finora-web-delta.vercel.app/api/wake | jq .    # có vm, ready, services, "codeRequired": true</code></pre></div></dd>
+        <dt>Nếu sai</dt><dd>Thiếu biến: thêm như bước 15 rồi <code>vercel --prod</code>. <code>/api/wake</code> trả <code>AZURE_UNAVAILABLE</code>: kiểm dòng 13, 14 (role, secret). <code>codeRequired: false</code>: thiếu <code>WAKE_CODE</code>, ai vào web cũng bật được VM.</dd>
+      </dl>
+    </li>
+    <li class="chk" data-id="ext-wake">
+      <div class="chk-head"><input type="checkbox" id="chk-ext-wake"><label for="chk-ext-wake"><span class="chk-no">25.</span>Thử đánh thức thật và nhìn VM đổi trạng thái</label></div>
+      <dl>
+        <dt>Vào đâu</dt><dd>Tab 1: Portal <b>finora-vm › Overview</b>. Tab 2 (cửa sổ ẩn danh): <code>https://finora-web-delta.vercel.app</code>.</dd>
+        <dt>Nhìn ô</dt><dd>Ô Status của VM (bấm <b>Refresh</b>); màn đánh thức trên web; Activity log.</dd>
+        <dt>Giá trị đúng</dt><dd>
+          <ol>
+            <li>Trước khi thử: Status <b>Stopped (deallocated)</b> (tắt bằng <code>.\finora-azure.ps1 down</code> nếu đang chạy, không mở SSH).</li>
+            <li>Web hiện "Hệ thống đang tắt" → nhập mã → Status chuyển <b>Starting</b> rồi <b>Running</b> trong khoảng 1 phút; Activity log có dòng "Start Virtual Machine" mới.</li>
+            <li>Web hiện "Đang khởi động" với từng service, khoảng 5 phút sau vào màn đăng nhập; đăng nhập không bị 403.</li>
+            <li>Để yên, sau 45–50 phút không gọi API (và đã qua 30 phút từ lúc bật): Status <b>Deallocating</b> rồi <b>Stopped (deallocated)</b>; Activity log có "Deallocate Virtual Machine" do identity của VM.</li>
+          </ol>
+        </dd>
+        <dt>CLI</dt><dd><div class="code"><pre><code>az vm get-instance-view -g $RG -n $VM --query "instanceView.statuses[?starts_with(code,'PowerState')].displayStatus | [0]" -o tsv
+# VM deallocated → VM starting → VM running → (sau khi rảnh) VM deallocating → VM deallocated</code></pre></div></dd>
+        <dt>Nếu sai</dt><dd>Nhập mã báo sai: so <code>WAKE_CODE</code> trên Vercel. Status không đổi sau khi nhập mã: dòng 13, 14, 24. Kẹt "Đang khởi động" quá 12 phút: dòng 21, 23. Không tự tắt: dòng 11, 19, 22.</dd>
+      </dl>
+    </li>
+  </ol>
+</section>
+
+<!-- =============================== 7. VẬN HÀNH =============================== -->
+<section id="van-hanh">
+  <h2>7. Vận hành hằng ngày</h2>
+
+  <h3>Bật, tắt, xem trạng thái</h3>
+  <div class="code"><span class="lbl">PowerShell · thư mục Đồ Án/deploy (cần az login)</span><pre><code>.\finora-azure.ps1 status   # trạng thái VM và từng container
+.\finora-azure.ps1 up       # bật VM, chờ tới khi mọi dịch vụ sẵn sàng (tối đa 12 phút)
+.\finora-azure.ps1 down     # deallocate: Azure ngừng tính tiền giờ
+.\finora-azure.ps1 ssh      # mở luật 22 cho IP hiện tại rồi SSH</code></pre></div>
+  <p>Trên Portal: VM → <b>Start</b> / <b>Stop</b> (nút Stop của Portal là deallocate). Với CLI luôn dùng <code>az vm deallocate</code>, không dùng <code>az vm stop</code>: lệnh stop chỉ tắt hệ điều hành, Azure vẫn tính tiền giờ.</p>
+
+  <h3>Giữ VM thức khi sửa lâu</h3>
+  <div class="code"><span class="lbl">Trên VM</span><pre><code>sudo touch /opt/finora/state/keep-awake    # chặn cả tự tắt khi rảnh lẫn lần tắt 00:00
+sudo rm /opt/finora/state/keep-awake       # xong việc nhớ xóa</code></pre></div>
+
+  <h3>Xem log</h3>
+  <div class="code"><span class="lbl">Trên VM</span><pre><code>cd /opt/finora/src/finora-platform/deploy
+docker compose -f docker-compose.azure.yml ps
+docker compose -f docker-compose.azure.yml logs -f --tail 100 loan
+tail -n 5 /opt/finora/state/api-access.log | jq '{ts, uri: .request.uri, status}'
+journalctl -t finora-idle-stop --since today
+journalctl -u finora-status -n 20</code></pre></div>
+  <p>Log còn lại khi VM tắt: Portal → <code>finora-logs</code> → <b>Logs</b>, ví dụ <code>Syslog | where ProcessName == "finora-loan-1" | order by TimeGenerated desc</code>; câu truy vấn nhật ký API mẫu ở <code>host/kql-nhat-ky-api.kql</code>. Log tới chậm 2–5 phút.</p>
+
+  <h3>Vào trang quản trị Keycloak / Fineract</h3>
+  <div class="code"><span class="lbl">Máy dev</span><pre><code>ssh -i ~/.ssh/finora_azure -L 8180:localhost:8180 -L 18443:localhost:18443 azureuser@finora-api.malaysiawest.cloudapp.azure.com
+# rồi mở http://localhost:8180 (Keycloak) trên máy dev</code></pre></div>
+
+  <h3>Cập nhật code (theo README, lần gần nhất 02/11 mã 64ff5ac)</h3>
+  <ol>
+    <li>Bật VM. Cụm cũ tự chạy lại ngay, nên dừng service ứng dụng trước để mã cũ không ghi vào Neon.</li>
+    <li>Giải nén mã mới vào thư mục riêng rồi đổi tên, để file đã xóa trong repo không sót lại.</li>
+    <li>Build, chạy lại, dọn cache, bỏ keep-awake.</li>
+  </ol>
+  <div class="code"><span class="lbl">Trên VM · bước 1</span><pre><code>sudo touch /opt/finora/state/keep-awake
+cd /opt/finora/src/finora-platform/deploy
+docker compose -f docker-compose.azure.yml stop gateway loan payment investment user notification ai fineract</code></pre></div>
+  <div class="code"><span class="lbl">Máy dev · bước 2</span><pre><code>git archive --format=tar HEAD | ssh -i ~/.ssh/finora_azure azureuser@finora-api.malaysiawest.cloudapp.azure.com \
+  "mkdir -p /opt/finora/src/finora-platform.new &amp;&amp; tar -xf - -C /opt/finora/src/finora-platform.new"
+# chép Đồ Án/deploy vào finora-platform.new/deploy; chép docker/.env và finora-*/.env (không mở file)
+# deploy/.env = docker/.env mới + FINORA_DOMAIN, WEB_DOMAIN, FINORA_PIN_TOKEN_SECRET, BLOCKCHAIN_VM_DB_PASSWORD lấy từ deploy/.env cũ</code></pre></div>
+  <div class="code"><span class="lbl">Trên VM · bước 3</span><pre><code>cd /opt/finora/src &amp;&amp; mv finora-platform finora-platform.&lt;commit-cu&gt; &amp;&amp; mv finora-platform.new finora-platform
+cd finora-platform/deploy
+bash build-images.sh ai gateway user notification payment investment loan blockchain &gt; ~/build.log 2&gt;&amp;1
+docker compose -f docker-compose.azure.yml up -d --remove-orphans
+docker builder prune -af
+sudo rm /opt/finora/state/keep-awake</code></pre></div>
+  <div class="warn"><p>Đổi tên thư mục làm đường bind-mount <code>./Caddyfile</code> của container caddy trỏ vào thư mục cũ. Lệnh <code>up -d</code> thường tạo lại caddy vì cấu hình đổi; nếu Caddy vẫn chạy cấu hình cũ thì <code>docker compose -f docker-compose.azure.yml up -d --no-deps --force-recreate caddy</code>.</p></div>
+
+  <h3>Dọn ổ đĩa (32 GB)</h3>
+  <div class="code"><span class="lbl">Trên VM</span><pre><code>df -h /
+docker system df
+docker builder prune -af            # cache build, thường lớn nhất
+docker image prune -f               # image không còn tag
+rm -rf /opt/finora/src/finora-platform.&lt;commit-cu&gt;   # mã cũ khi bản mới đã chạy ổn</code></pre></div>
+
+  <h3>Chi phí (ước lượng, giá niêm yết 15/10/2026)</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Khoản</th><th>Đơn giá</th><th>Tính khi nào</th><th>60 giờ chạy/tháng</th></tr></thead>
+    <tbody>
+      <tr><td>VM B2as_v2</td><td>0,0855 USD/giờ</td><td>chỉ khi đang chạy</td><td>khoảng 5,1 USD</td></tr>
+      <tr><td>Ổ Standard SSD 32 GB</td><td>2,4 USD/tháng</td><td>cả khi VM tắt</td><td>2,4 USD</td></tr>
+      <tr><td>IP tĩnh Standard</td><td>3,65 USD/tháng</td><td>cả khi VM tắt</td><td>3,65 USD</td></tr>
+      <tr><td>Log Analytics</td><td>miễn phí tới 5 GB/tháng</td><td>trần 0,15 GB/ngày</td><td>0 USD</td></tr>
+      <tr><td>Tổng</td><td colspan="2" class="muted">trừ vào credit Azure for Students</td><td><b>khoảng 11 USD</b></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small muted">Kiểm số thật ở Portal → <b>Cost Management › Cost analysis</b>, lọc theo resource group <code>finora-rg</code>. Vercel và Neon dùng gói miễn phí.</p>
+</section>
+
+<!-- =============================== 8. BẪY =============================== -->
+<section id="bay">
+  <h2>8. Bẫy đã gặp và cách xử lý</h2>
+
+  <div class="trap"><h4>Không tạo được tài nguyên ở Singapore</h4><p>Azure for Students chỉ cho 5 vùng, không có Southeast Asia.</p><p class="fix">Dùng malaysiawest, vùng gần Neon (ap-southeast-1) nhất.</p></div>
+  <div class="trap"><h4><code>--scope /subscriptions/…</code> bị đổi thành đường dẫn Windows</h4><p>Git Bash tự đổi chuỗi bắt đầu bằng <code>/</code> thành <code>C:/Program Files/Git/…</code>, lệnh gán role báo scope sai.</p><p class="fix">Đặt <code>export MSYS_NO_PATHCONV=1</code> trước các lệnh az (finora-azure.ps1 cũng đặt).</p></div>
+  <div class="trap"><h4>Không có tự tắt theo lịch của Azure</h4><p>Tính năng auto-shutdown (DevTest Labs) không có ở Malaysia West.</p><p class="fix">VM tự tắt bằng <code>finora-nightly-stop.timer</code> lúc 17:00 UTC.</p></div>
+  <div class="trap"><h4>VM không bao giờ tự tắt</h4><p>Nguyên nhân thường gặp: quên xóa <code>keep-awake</code>; còn phiên SSH (kể cả tmux/VS Code Remote treo); hoặc trước đây script đo rảnh bằng giờ sửa <code>api-access.log</code>, trong khi bot quét cổng 80 làm Caddy ghi vào file liên tục.</p><p class="fix">Xóa keep-awake, kiểm <code>who</code>; script hiện tại chỉ tính <code>ts</code> của request <code>/api/v1</code> cuối cùng.</p></div>
+  <div class="trap"><h4>Mọi POST từ web bị 403 "Invalid CORS request"</h4><p>Rewrite của Vercel đổi Host sang domain VM nhưng giữ Origin là domain Vercel, Spring coi là gọi chéo origin. Thử bằng curl không thấy lỗi vì curl không gửi Origin.</p><p class="fix">Caddy bỏ Origin khi đúng bằng <code>https://&lt;WEB_DOMAIN&gt;</code>. Khi thử bằng curl thêm <code>-H "Origin: https://finora-web-delta.vercel.app"</code>. Đổi domain web thì sửa <code>WEB_DOMAIN</code> rồi tạo lại cả <code>caddy</code> và <code>user</code> (user dùng nó làm domain cookie).</p></div>
+  <div class="trap"><h4>Web kẹt ở màn "Đang khởi động"</h4><p><code>finora-status.sh</code> chờ một service không có trong compose (ví dụ còn <code>fineract-db</code> sau khi Fineract chuyển sang Neon), nên <code>ready</code> mãi là false.</p><p class="fix">Danh sách <code>SERVICES</code> trong script phải khớp compose (hiện 14 tên). Sửa xong chép lại vào <code>/opt/finora/bin</code> và <code>sudo systemctl restart finora-status</code>.</p></div>
+  <div class="trap"><h4>Build Fineract rất chậm</h4><p>archive.apache.org chỉ tải khoảng 200 KB/s từ Azure.</p><p class="fix">Compose truyền build arg <code>FINERACT_MIRROR=https://downloads.apache.org</code>. Nếu bản 1.15.0 bị gỡ khỏi mirror thì bỏ dòng đó để quay về archive.</p></div>
+  <div class="trap"><h4>Image AI nặng 3 GB, ổ đầy</h4><p>xgboost kéo theo <code>nvidia-nccl-cu12</code>; thêm cache build Maven/pip làm ổ 32 GB đầy nhanh.</p><p class="fix"><code>docker builder prune -af</code> sau mỗi lần build; có thể đổi sang gói <code>xgboost-cpu</code> để image nhỏ lại.</p></div>
+  <div class="trap"><h4>Fineract bị OOM hoặc build hết RAM</h4><p>Fineract vừa khởi động đã dùng khoảng 1,15 GB; build song song nhiều service Maven làm VM 8 GB cạn RAM.</p><p class="fix"><code>mem_limit: 1700m</code> cho Fineract; <code>build-images.sh</code> build tuần tự; swap 4 GB.</p></div>
+  <div class="trap"><h4>Caddy chạy cấu hình cũ sau khi đổi thư mục</h4><p>Container caddy bind-mount <code>./Caddyfile</code> theo đường dẫn tuyệt đối lúc tạo.</p><p class="fix"><code>docker compose -f docker-compose.azure.yml up -d --no-deps caddy</code> (thêm <code>--force-recreate</code> nếu cần).</p></div>
+  <div class="trap"><h4>Event Kafka "biến mất"</h4><p>Cụm ở máy dev và cụm trên VM cùng đọc outbox trên Neon, event bị đẩy vào Kafka máy dev.</p><p class="fix">Không chạy hai cụm song song. Tắt cụm local (<code>docker compose -p finora-app stop</code>, service trong IntelliJ) khi dùng VM.</p></div>
+  <div class="trap"><h4>Chạy mã mới làm đổi schema Neon dùng chung</h4><p>Mỗi service chạy migration Flyway khi khởi động, Neon là DB thật dùng chung với máy dev.</p><p class="fix">Dừng service ứng dụng trước khi đổi mã, giải nén thư mục mới rồi đổi tên (mục <a href="#van-hanh">Cập nhật code</a>), và biết trước migration nào sẽ chạy.</p></div>
+  <div class="trap"><h4>Fineract không đọc được tenant</h4><p><code>FINERACT_DEFAULT_MASTER_PASSWORD</code> mã hóa mật khẩu tenant đã lưu trong <code>fineract_tenants</code>.</p><p class="fix">Giữ đúng giá trị cũ, không sinh mới khi dựng lại.</p></div>
+  <div class="trap"><h4>Loan chấm điểm bị AI từ chối</h4><p><code>finora-ai/.env</code> và <code>finora-loan/.env</code> lệch <code>AI_INTERNAL_TOKEN</code>.</p><p class="fix">Chép cả hai file từ cùng một máy dev. Caddy bỏ header <code>X-Internal-Token</code> ở cổng Internet nên mã này không bị dùng từ ngoài.</p></div>
+  <div class="trap"><h4>Mobile vẫn gọi localhost</h4><p>Expo giữ cache biến <code>EXPO_PUBLIC_*</code>.</p><p class="fix">Đặt 4 biến <code>EXPO_PUBLIC_*_API_URL</code> thành <code>https://finora-api.malaysiawest.cloudapp.azure.com/api/v1</code> và chạy Expo với <code>--clear</code>.</p></div>
+  <div class="trap"><h4>Đổi biến Vercel mà web không đổi</h4><p>Biến <code>VITE_*</code> được nhúng lúc build.</p><p class="fix">Chạy <code>vercel --prod</code> lại sau khi đổi biến. Link preview không đăng nhập được vì khác domain cookie.</p></div>
+  <div class="trap"><h4>Trang "Nhật ký hoạt động" báo HTTP 403</h4><p>Managed identity của VM thiếu role Log Analytics Reader trên <code>finora-logs</code>, hoặc <code>ACTIVITY_LOG_WORKSPACE_ID</code> trỏ workspace khác.</p><p class="fix">Gán role (bước 7) và kiểm ID workspace trong compose.</p></div>
+  <div class="trap"><h4>Log không còn lên Azure giữa ngày</h4><p>Hết trần 0,15 GB/ngày, Azure ngừng nhận tới hôm sau.</p><p class="fix">Bình thường với gói miễn phí; giảm log hoặc tắt <code>API_LOG_STDOUT=false</code> ở gateway nếu cần.</p></div>
+</section>
+
+<!-- =============================== 9. PHỤ LỤC =============================== -->
+<section id="phu-luc">
+  <h2>9. Phụ lục: biến môi trường và thư mục</h2>
+
+  <h3 id="bien-vercel">Biến môi trường trên Vercel (project finora-web)</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Tên biến</th><th>Giá trị</th><th>Ai dùng</th></tr></thead>
+    <tbody>
+      <tr><td><code>VITE_SYSTEM_WAKE</code></td><td><code>true</code></td><td>Bản build web: bật màn đánh thức</td></tr>
+      <tr><td><code>VITE_AI_API_URL</code></td><td><code>/api/v1/ai</code></td><td>Bản build web</td></tr>
+      <tr><td><code>AZURE_TENANT_ID</code></td><td><code>&lt;TENANT_ID&gt;</code> (trường <code>tenant</code> của SP)</td><td>api/wake.js</td></tr>
+      <tr><td><code>AZURE_CLIENT_ID</code></td><td><code>&lt;APP_ID&gt;</code> (trường <code>appId</code>)</td><td>api/wake.js</td></tr>
+      <tr><td><code>AZURE_CLIENT_SECRET</code></td><td><code>&lt;CLIENT_SECRET&gt;</code> (trường <code>password</code>)</td><td>api/wake.js</td></tr>
+      <tr><td><code>AZURE_SUBSCRIPTION_ID</code></td><td><code>&lt;SUBSCRIPTION_ID&gt;</code></td><td>api/wake.js</td></tr>
+      <tr><td><code>AZURE_RESOURCE_GROUP</code></td><td><code>finora-rg</code></td><td>api/wake.js</td></tr>
+      <tr><td><code>AZURE_VM_NAME</code></td><td><code>finora-vm</code></td><td>api/wake.js</td></tr>
+      <tr><td><code>FINORA_API_DOMAIN</code></td><td><code>finora-api.malaysiawest.cloudapp.azure.com</code></td><td>api/wake.js đọc <code>/_status.json</code></td></tr>
+      <tr><td><code>WAKE_CODE</code></td><td><code>&lt;MA_BAT_HE_THONG&gt;</code></td><td>api/wake.js; bỏ biến này thì ai vào web cũng bật được VM</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small muted">Rewrite <code>/api/v1</code> ghi cứng domain VM trong <code>vercel.json</code>, không lấy từ biến.</p>
+
+  <h3 id="bien-vm">Tên biến trong <code>deploy/.env</code> trên VM</h3>
+  <p>Lấy từ <code>docker-compose.azure.yml</code>. Cột "Nguồn" cho biết biến đến từ <code>docker/.env</code> của máy dev hay thêm riêng trên VM.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Nhóm</th><th>Tên biến</th><th>Nguồn</th></tr></thead>
+    <tbody>
+      <tr><td>Riêng VM (bắt buộc)</td><td><code>FINORA_DOMAIN</code>, <code>WEB_DOMAIN</code>, <code>FINORA_PIN_TOKEN_SECRET</code>, <code>BLOCKCHAIN_VM_DB_PASSWORD</code></td><td>Thêm trên VM (bước 11)</td></tr>
+      <tr><td>Keycloak</td><td><code>KEYCLOAK_ADMIN</code>, <code>KEYCLOAK_ADMIN_PASSWORD</code>, <code>KEYCLOAK_DB_HOST</code>, <code>KEYCLOAK_DB_PORT</code>, <code>KEYCLOAK_DB_NAME</code>, <code>KEYCLOAK_DB_PARAMS</code>, <code>KEYCLOAK_DB_USERNAME</code>, <code>KEYCLOAK_DB_PASSWORD</code></td><td>docker/.env</td></tr>
+      <tr><td>Fineract (Neon)</td><td><code>FINERACT_DB_HOST</code> (bắt buộc), <code>FINERACT_DB_PORT</code>, <code>FINERACT_DB_USERNAME</code>, <code>FINERACT_DB_PASSWORD</code>, <code>FINERACT_DB_SSLMODE</code>, <code>FINERACT_TENANTS_DB_NAME</code>, <code>FINERACT_DEFAULT_DB_NAME</code>, <code>FINERACT_DEFAULT_MASTER_PASSWORD</code>, <code>FINERACT_API_USERNAME</code>, <code>FINERACT_API_PASSWORD</code></td><td>docker/.env</td></tr>
+      <tr><td>Client Keycloak của AI</td><td><code>KEYCLOAK_AI_CLIENT_SECRET</code> (bắt buộc), <code>KEYCLOAK_AI_CLIENT_ID</code></td><td>docker/.env</td></tr>
+      <tr><td>CIC (tùy chọn)</td><td><code>CIC_SERVICE_URL</code>, <code>USER_CIC_MAPPING_ENABLED</code>, <code>CIC_INTERNAL_API_KEY</code></td><td>docker/.env, có mặc định</td></tr>
+      <tr><td>Nghiệp vụ (tùy chọn)</td><td><code>FINERACT_BOOKING_PROVIDER</code>, <code>FINERACT_*_ID</code>, <code>PAYMENT_*</code>, <code>LOAN_*</code>, tên topic <code>*_TOPIC</code>, <code>FINORA_BORROWER_PROFILE_PROVIDER</code></td><td>Có mặc định trong compose</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small muted">Ngoài ra mỗi service có file riêng <code>finora-ai/.env</code>, <code>finora-user/.env</code>, <code>finora-loan/.env</code>, <code>finora-payment/.env</code>, <code>finora-investment/.env</code>, <code>finora-notification/.env</code>, chép nguyên từ máy dev (compose nạp bằng <code>env_file</code>).</p>
+
+  <h3>Thư mục trên VM</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Đường dẫn</th><th>Nội dung</th></tr></thead>
+    <tbody>
+      <tr><td><code>/opt/finora/src/finora-platform</code></td><td>Mã nguồn (bản <code>git archive</code>), commit ghi ở <code>.deployed-commit</code></td></tr>
+      <tr><td><code>…/finora-platform/deploy</code></td><td>Compose, Caddyfile, script, <code>deploy/.env</code> (quyền 600)</td></tr>
+      <tr><td><code>/opt/finora/state</code></td><td><code>api-access.log</code> (Caddy), <code>public/_status.json</code>, <code>keep-awake</code></td></tr>
+      <tr><td><code>/opt/finora/bin</code></td><td><code>finora-status.sh</code>, <code>finora-idle-stop.sh</code></td></tr>
+      <tr><td><code>/etc/systemd/system/finora-*</code></td><td>3 service + 2 timer từ thư mục <code>host/</code></td></tr>
+      <tr><td><code>/etc/rsyslog.d/05-finora-docker.conf</code>, <code>45-finora-stop.conf</code></td><td>Nhận log container qua UDP 514, chặn ghi trùng</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>14 container trong <code>docker-compose.azure.yml</code></h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Service</th><th>Image</th><th>RAM giới hạn</th><th>Ghi chú</th></tr></thead>
+    <tbody>
+      <tr><td>caddy</td><td>caddy:2</td><td>128m</td><td>Cổng 80, 443, 443/udp</td></tr>
+      <tr><td>kafka</td><td>apache/kafka:3.9.1</td><td>640m</td><td>KRaft một node, heap 256 MB</td></tr>
+      <tr><td>keycloak</td><td>keycloak:23.0</td><td>900m</td><td>127.0.0.1:8180, DB Neon</td></tr>
+      <tr><td>redis</td><td>redis:7-alpine</td><td>128m</td><td>appendonly</td></tr>
+      <tr><td>fineract</td><td>finora/fineract:1.15.0 (build)</td><td>1700m</td><td>127.0.0.1:18443, DB Neon</td></tr>
+      <tr><td>ai</td><td>finora/ai:azure (build)</td><td>1g</td><td>FastAPI :8000, eKYC OpenCV/Tesseract</td></tr>
+      <tr><td>user</td><td>finora/user:azure</td><td>700m</td><td>:8085, cookie domain = WEB_DOMAIN</td></tr>
+      <tr><td>notification</td><td>finora/notification:azure</td><td>550m</td><td>:8086, gửi OTP email</td></tr>
+      <tr><td>payment</td><td>finora/payment:azure</td><td>700m</td><td>:8082</td></tr>
+      <tr><td>investment</td><td>finora/investment:azure</td><td>700m</td><td>:8084, SSE sổ lệnh</td></tr>
+      <tr><td>loan</td><td>finora/loan:azure</td><td>800m</td><td>:8081, profile local</td></tr>
+      <tr><td>blockchain-db</td><td>postgres:18</td><td>256m</td><td>DB proof trong VM</td></tr>
+      <tr><td>blockchain</td><td>finora/blockchain:azure</td><td>450m</td><td>:8083, ledger MOCK</td></tr>
+      <tr><td>gateway</td><td>finora/gateway:azure</td><td>450m</td><td>:8080, profile docker</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small muted"><code>fineract-db</code> (postgres:18, dữ liệu ngày 15/10) chỉ còn ở profile <code>legacy</code>, không chạy.</p>
+
+  <hr>
+  <footer>
+    <p>Nguồn: thư mục <code>Đồ Án/deploy</code> (README.md, docker-compose.azure.yml, Caddyfile, setup-vm.sh, build-images.sh, finora-azure.ps1, vm-power-role.json, host/) và commit <code>95121d8</code> nhánh <code>deploy</code> của finora-web. Không chứa secret; mọi giá trị trong dấu <code>&lt;…&gt;</code> là giữ chỗ.</p>
+  </footer>
+</section>
+
+  </main>
+</div>
+
+<button class="to-top" id="toTop" type="button" aria-label="Lên đầu trang">↑</button>
+
+<script>
+(function () {
+  // Chế độ sáng/tối: tự động theo hệ thống, hoặc chọn tay (nhớ trong trình duyệt nếu được).
+  var root = document.documentElement;
+  var btn = document.getElementById('themeBtn');
+  var modes = ['auto', 'light', 'dark'];
+  var names = { auto: 'tự động', light: 'sáng', dark: 'tối' };
+  var mode = 'auto';
+  try { mode = localStorage.getItem('finora-deploy-theme') || 'auto'; } catch (e) {}
+  function apply() {
+    if (mode === 'auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', mode);
+    btn.textContent = 'Giao diện: ' + names[mode];
+  }
+  apply();
+  btn.addEventListener('click', function () {
+    mode = modes[(modes.indexOf(mode) + 1) % modes.length];
+    try { localStorage.setItem('finora-deploy-theme', mode); } catch (e) {}
+    apply();
+  });
+
+  // Nút sao chép cho mọi khối lệnh.
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    return new Promise(function (resolve, reject) {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy') ? resolve() : reject(); } catch (e) { reject(e); }
+      document.body.removeChild(ta);
+    });
+  }
+  document.querySelectorAll('.code').forEach(function (box) {
+    var pre = box.querySelector('pre');
+    if (!pre) return;
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'copy-btn'; b.textContent = 'Sao chép';
+    b.addEventListener('click', function () {
+      copyText(pre.innerText.replace(/\n$/, '')).then(function () {
+        b.textContent = 'Đã chép'; b.classList.add('done');
+        setTimeout(function () { b.textContent = 'Sao chép'; b.classList.remove('done'); }, 1600);
+      }, function () { b.textContent = 'Không chép được'; });
+    });
+    box.appendChild(b);
+  });
+
+  // Checklist "Kiểm tra trên Azure": ô tick nhớ trong localStorage (nếu trình duyệt cho phép).
+  var CHK_KEY = 'finora-deploy-checklist-v1';
+  var items = Array.prototype.slice.call(document.querySelectorAll('.chk'));
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem(CHK_KEY) || '{}') || {}; } catch (e) { saved = {}; }
+  var countEl = document.getElementById('chkCount');
+  var barEl = document.getElementById('chkBar');
+  function refreshCount() {
+    var done = items.filter(function (li) { return li.querySelector('input').checked; }).length;
+    countEl.textContent = 'Đã kiểm ' + done + '/' + items.length;
+    barEl.style.width = (items.length ? Math.round(done * 100 / items.length) : 0) + '%';
+  }
+  function save() {
+    var state = {};
+    items.forEach(function (li) { if (li.querySelector('input').checked) state[li.getAttribute('data-id')] = true; });
+    try { localStorage.setItem(CHK_KEY, JSON.stringify(state)); } catch (e) {}
+  }
+  items.forEach(function (li) {
+    var box = li.querySelector('input');
+    box.checked = saved[li.getAttribute('data-id')] === true;
+    li.classList.toggle('done', box.checked);
+    box.addEventListener('change', function () {
+      li.classList.toggle('done', box.checked);
+      save(); refreshCount();
+    });
+  });
+  document.getElementById('chkReset').addEventListener('click', function () {
+    items.forEach(function (li) { li.querySelector('input').checked = false; li.classList.remove('done'); });
+    try { localStorage.removeItem(CHK_KEY); } catch (e) {}
+    refreshCount();
+  });
+  refreshCount();
+
+  // Mục lục: thu gọn trên màn hình hẹp, đánh dấu mục đang đọc.
+  var det = document.getElementById('tocDetails');
+  if (window.matchMedia('(max-width: 960px)').matches) det.removeAttribute('open');
+  var links = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+  var targets = links.map(function (a) { return document.getElementById(a.getAttribute('href').slice(1)); });
+  links.forEach(function (a) {
+    a.addEventListener('click', function () {
+      if (window.matchMedia('(max-width: 960px)').matches) det.removeAttribute('open');
+    });
+  });
+  var toTop = document.getElementById('toTop');
+  function onScroll() {
+    var y = window.scrollY + 80, current = 0;
+    targets.forEach(function (t, i) { if (t && t.getBoundingClientRect().top + window.scrollY <= y) current = i; });
+    links.forEach(function (a, i) { a.classList.toggle('active', i === current); });
+    toTop.classList.toggle('show', window.scrollY > 600);
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+  toTop.addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
+})();
+</script>
+</body>
+</html>

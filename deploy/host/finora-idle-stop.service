@@ -1,0 +1,6 @@
+[Unit]
+Description=FINORA: tu tat VM khi khong ai dung API
+
+[Service]
+Type=oneshot
+ExecStart=/opt/finora/bin/finora-idle-stop.sh

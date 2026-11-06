@@ -1,0 +1,61 @@
+# Caddy cho FINORA trên Azure: HTTPS (Let's Encrypt) cho API và file trạng thái cho trang
+# đánh thức trên Vercel. Domain lấy từ biến FINORA_DOMAIN trong deploy/.env.
+
+{$FINORA_DOMAIN} {
+	encode zstd gzip
+
+	# X-Internal-Token chỉ dùng giữa Loan và finora-ai trong mạng docker. Bỏ header này ở cổng
+	# Internet để mã có lộ ra ngoài cũng không mở được POST /api/v1/ai/credit/explain.
+	request_header -X-Internal-Token
+
+	# Web trên Vercel gọi API qua rewrite, nên với trình duyệt đây là cùng origin. Nhưng Vercel đổi
+	# Host sang domain VM, nên Spring thấy Origin (domain Vercel) khác Host và coi là gọi chéo
+	# origin, rồi chặn bằng 403 "Invalid CORS request" (mọi POST và các GET có Origin). Bỏ Origin
+	# của chính web; origin lạ vẫn để CORS của gateway/service kiểm như cũ.
+	@fromWeb header Origin https://{$WEB_DOMAIN}
+	request_header @fromWeb -Origin
+
+	# Chỉ ghi log các request /api/v1 (lượt chuyển http→https ở cổng 80 vẫn bị Caddy ghi vào
+	# đây). Script tự tắt VM tìm request /api/v1 cuối cùng trong file để biết lần cuối có
+	# người dùng.
+	log {
+		output file /state/api-access.log {
+			roll_size 5MiB
+			roll_keep 2
+		}
+		format json
+	}
+	@notApi not path /api/v1/*
+	log_skip @notApi
+
+	# Trạng thái container do finora-status.sh trên VM ghi ra mỗi 10 giây; hàm /api/wake
+	# trên Vercel đọc file này để biết hệ thống đã sẵn sàng chưa.
+	handle /_status.json {
+		root * /state/public
+		header Cache-Control "no-store"
+		file_server
+	}
+
+	# Luồng SSE sổ lệnh đi thẳng tới investment. Trên máy dev, web và mobile cũng gọi thẳng
+	# investment, nên luồng này chưa từng chạy qua gateway.
+	@orderBookStream path_regexp ^/api/v1/investments/order-books/[^/]+/stream$
+	handle @orderBookStream {
+		reverse_proxy investment:8084
+	}
+
+	# Từ bản 15/10: repayments và đối soát trả nợ đi thẳng payment. Gateway mã 02/11 đã có route
+	# cho các đường này; giữ nguyên vì đã chạy ổn. Notifications từ 02/11 đi qua gateway để CORS
+	# xử lý một chỗ (notification tự chặn origin localhost của bản web Expo dùng khi kiểm thử).
+	@payment path /api/v1/repayments /api/v1/repayments/* /api/v1/admin/repayment-reconciliation /api/v1/admin/repayment-reconciliation/*
+	handle @payment {
+		reverse_proxy payment:8082
+	}
+
+	handle /api/v1/* {
+		reverse_proxy gateway:8080
+	}
+
+	handle {
+		respond "FINORA API" 404
+	}
+}

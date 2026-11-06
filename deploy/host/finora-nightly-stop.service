@@ -1,0 +1,10 @@
+[Unit]
+Description=FINORA: tat VM luc 00:00 gio Viet Nam (luoi an toan khi co request lam VM khong ranh)
+
+[Service]
+Type=oneshot
+# Bỏ qua thời gian rảnh và thời gian chờ khởi động: cứ đến giờ là tắt, trừ khi có phiên SSH
+# hoặc file keep-awake (xem finora-idle-stop.sh).
+Environment=IDLE_MINUTES=0
+Environment=BOOT_GRACE_MINUTES=0
+ExecStart=/opt/finora/bin/finora-idle-stop.sh

@@ -1,0 +1,9 @@
+[Unit]
+Description=FINORA: kiem tra moi 5 phut, tu tat VM khi khong ai dung
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

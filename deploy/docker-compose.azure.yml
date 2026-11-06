@@ -1,0 +1,518 @@
+# =============================================================================
+# FINORA trên Azure — một VM chạy toàn bộ backend, Caddy lo HTTPS.
+#
+# Khác docker-compose.app.yml (bản chạy trên máy dev):
+# - Có thêm notification (user gửi OTP email qua service này) và blockchain (ledger MOCK) kèm một
+#   PostgreSQL nhỏ trong VM cho proof. Fineract dùng hai database trên Neon như máy dev (từ 02/11);
+#   PostgreSQL cũ của Fineract (fineract-db, dữ liệu 15/10) chỉ giữ lại ở profile `legacy`.
+# - Không mở cổng service ra Internet; chỉ Caddy nghe 80/443. Keycloak và Fineract chỉ
+#   mở ở 127.0.0.1 của VM để vào bằng SSH tunnel.
+# - Giới hạn RAM từng container cho vừa VM 8 GB: mặc định mỗi JVM lấy heap tới 25% RAM máy.
+# - Pool kết nối nhỏ lại vì cả cụm dùng chung một compute Neon 0,25 CU.
+# - Log Docker xoay vòng để không làm đầy ổ 32 GB.
+#
+# Image ứng dụng lấy từ GHCR theo tag commit (CD-001): workflow .github/workflows/cd.yml build và đẩy image,
+# VM chỉ kéo về. Tag từng service nằm trong /opt/finora/state/images.env. Chạy compose trên VM qua
+# /opt/finora/bin/finora-compose (nạp đúng file env); build tay trên VM dùng thêm docker-compose.azure.build.yml.
+#
+# Biến dùng chung (domain, secret PIN, mật khẩu Keycloak/Fineract) nằm trong /opt/finora/env/deploy.env,
+# biến từng service trong /opt/finora/env/finora-<service>.env; không commit. Hướng dẫn: deploy/README.md
+# =============================================================================
+name: finora
+
+# Log container gửi sang rsyslog của VM qua UDP localhost (facility local0); Azure Monitor Agent đẩy tiếp vào Log
+# Analytics workspace finora-logs (DCR finora-containers-dcr). UDP không chặn container khởi động khi rsyslog chưa
+# sẵn sàng; `docker logs` vẫn đọc được nhờ bộ đệm dual logging của Docker. Cấu hình rsyslog: host/rsyslog-finora.conf.
+x-logging: &logging
+  driver: syslog
+  options:
+    syslog-address: "udp://127.0.0.1:514"
+    syslog-facility: local0
+    syslog-format: rfc3164
+    tag: "{{.Name}}"
+    mode: non-blocking
+
+x-java-service: &java-service
+  restart: unless-stopped
+  logging: *logging
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  networks:
+    - finora
+
+# Biến chung cho các service Spring có database và kiểm JWT.
+# Healthcheck service Java gọi /actuator/health/readiness (DB, Redis của User), như docker-compose.app.yml.
+x-readiness-check: &readiness-check
+  interval: 10s
+  timeout: 5s
+  retries: 30
+  start_period: 90s
+
+x-spring-env: &spring-env
+  # Heap tính theo mem_limit của từng container; SerialGC tốn ít bộ nhớ nhất với heap nhỏ.
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=60 -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
+  SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE: "5"
+  SPRING_DATASOURCE_HIKARI_MINIMUMIDLE: "1"
+  # Khóa ký pin-token phải giống nhau ở user (bên cấp) và loan/payment/investment (bên kiểm).
+  FINORA_PIN_TOKEN_SECRET: "${FINORA_PIN_TOKEN_SECRET:?Thiếu FINORA_PIN_TOKEN_SECRET trong deploy/.env}"
+  # JWT được kiểm `iss` bằng địa chỉ cố định của Keycloak, còn khóa ký tải qua tên nội bộ.
+  KEYCLOAK_ISSUER_URI: http://localhost:8180/realms/finora
+  KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/finora/protocol/openid-connect/certs
+
+services:
+  # ============================ CỔNG VÀO ============================
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 128m
+    environment:
+      FINORA_DOMAIN: "${FINORA_DOMAIN:?Thiếu FINORA_DOMAIN trong deploy/.env}"
+      WEB_DOMAIN: "${WEB_DOMAIN:?Thiếu WEB_DOMAIN (domain Vercel của web) trong deploy/.env}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      # Đường dẫn cố định ngoài thư mục release: đổi bản deploy không tạo lại Caddy; cd-deploy.sh chép Caddyfile mới
+      # vào đây rồi `caddy reload`.
+      - ${FINORA_CADDYFILE:-./Caddyfile}:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+      # Log truy cập API (để tự tắt VM khi rảnh) và file trạng thái cho trang đánh thức.
+      - /opt/finora/state:/state
+    networks:
+      - finora
+
+  # ============================ HẠ TẦNG ============================
+  kafka:
+    image: apache/kafka:3.9.1
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 640m
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: CONTROLLER://:29093,PLAINTEXT://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      # Mặc định Kafka giữ heap 1 GB; một broker demo chỉ cần 256 MB.
+      KAFKA_HEAP_OPTS: "-Xmx256m -Xms256m"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:29092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    networks:
+      - finora
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 900m
+    command: ["start-dev"]
+    environment:
+      KEYCLOAK_ADMIN: "${KEYCLOAK_ADMIN}"
+      KEYCLOAK_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD}"
+      KC_DB: postgres
+      KC_DB_URL: "jdbc:postgresql://${KEYCLOAK_DB_HOST}:${KEYCLOAK_DB_PORT:-5432}/${KEYCLOAK_DB_NAME}${KEYCLOAK_DB_PARAMS:-}"
+      KC_DB_USERNAME: "${KEYCLOAK_DB_USERNAME}"
+      KC_DB_PASSWORD: "${KEYCLOAK_DB_PASSWORD}"
+      KC_DB_POOL_MAX_SIZE: "10"
+      KC_HEALTH_ENABLED: "true"
+      # Giữ issuer như máy dev; Keycloak không mở ra Internet, trang quản trị vào bằng
+      # `ssh -L 8180:localhost:8180` nên địa chỉ này vẫn đúng.
+      KC_HOSTNAME_URL: http://localhost:8180
+      KC_HOSTNAME_STRICT: "true"
+    ports:
+      - "127.0.0.1:8180:8080"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8080;
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q '200 OK'"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    networks:
+      - finora
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 128m
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - finora
+
+  # PostgreSQL cũ của Fineract (pg_dump 15/10). Từ 02/11 Fineract dùng Neon như máy dev, nên
+  # container này không chạy; giữ để còn volume nếu cần quay lại (`--profile legacy`).
+  fineract-db:
+    profiles: ["legacy"]
+    image: postgres:18
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 384m
+    environment:
+      POSTGRES_USER: "${FINERACT_DB_USERNAME:-fineract}"
+      POSTGRES_PASSWORD: "${FINERACT_DB_PASSWORD:?Thiếu FINERACT_DB_PASSWORD trong deploy/.env}"
+      POSTGRES_DB: fineract_tenants
+    volumes:
+      - fineract-db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d fineract_tenants"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - finora
+
+  fineract:
+    image: ${FINORA_REGISTRY:-ghcr.io/huuthai2910}/finora-fineract:${FINERACT_TAG:?Thiếu FINERACT_TAG trong images.env}
+    restart: unless-stopped
+    logging: *logging
+    # Đo 15/10: vừa khởi động xong đã dùng khoảng 1,15 GB (heap + metaspace lớn của Fineract).
+    mem_limit: 1700m
+    environment:
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=55 -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
+      FINERACT_HIKARI_DRIVER_SOURCE_CLASS_NAME: org.postgresql.Driver
+      # Hai database Neon như docker-compose.app.yml: fineract_tenants giữ metadata tenant,
+      # fineract_default giữ dữ liệu lending. Thông tin kết nối lấy từ docker/.env.
+      FINERACT_HIKARI_JDBC_URL: "jdbc:postgresql://${FINERACT_DB_HOST:?Thiếu FINERACT_DB_HOST}:${FINERACT_DB_PORT:-5432}/${FINERACT_TENANTS_DB_NAME:-fineract_tenants}?sslmode=${FINERACT_DB_SSLMODE:-require}"
+      FINERACT_HIKARI_USERNAME: "${FINERACT_DB_USERNAME}"
+      FINERACT_HIKARI_PASSWORD: "${FINERACT_DB_PASSWORD}"
+      FINERACT_DEFAULT_TENANTDB_HOSTNAME: "${FINERACT_DB_HOST}"
+      FINERACT_DEFAULT_TENANTDB_PORT: "${FINERACT_DB_PORT:-5432}"
+      FINERACT_DEFAULT_TENANTDB_UID: "${FINERACT_DB_USERNAME}"
+      FINERACT_DEFAULT_TENANTDB_PWD: "${FINERACT_DB_PASSWORD}"
+      FINERACT_DEFAULT_TENANTDB_CONN_PARAMS: "sslmode=${FINERACT_DB_SSLMODE:-require}"
+      FINERACT_DEFAULT_TENANTDB_TIMEZONE: Asia/Ho_Chi_Minh
+      FINERACT_DEFAULT_TENANTDB_IDENTIFIER: default
+      FINERACT_DEFAULT_TENANTDB_NAME: "${FINERACT_DEFAULT_DB_NAME:-fineract_default}"
+      FINERACT_DEFAULT_TENANTDB_DESCRIPTION: FINORA Neon Tenant
+      # Phải giữ đúng giá trị cũ: nó mã hóa mật khẩu tenant đã lưu trong fineract_tenants.
+      FINERACT_DEFAULT_MASTER_PASSWORD: "${FINERACT_DEFAULT_MASTER_PASSWORD:-fineract}"
+      FINERACT_SERVER_SSL_ENABLED: "false"
+      FINERACT_SERVER_PORT: "8443"
+      FINERACT_MANAGEMENT_ENDPOINT_WEB_EXPOSURE_INCLUDE: health,info
+      FINERACT_NODE_ID: "1"
+      SPRING_PROFILES_ACTIVE: test,diagnostics
+      FINORA_READINESS_API_USERNAME: "${FINERACT_API_USERNAME:-mifos}"
+      FINORA_READINESS_API_PASSWORD: "${FINERACT_API_PASSWORD:-password}"
+      FINORA_READINESS_TENANT_ID: default
+    ports:
+      - "127.0.0.1:18443:8443"
+    healthcheck:
+      # Fineract khởi tạo API lười ở request đầu; mở cổng chưa có nghĩa là Loan gọi được.
+      test: ["CMD", "/usr/local/bin/finora-fineract-readiness"]
+      interval: 15s
+      timeout: 20s
+      # Kết nối Neon qua SSL chậm hơn PostgreSQL trong VM.
+      retries: 80
+      start_period: 300s
+    networks:
+      - finora
+
+  # ============================ SERVICE ============================
+  ai:
+    image: ${FINORA_REGISTRY:-ghcr.io/huuthai2910}/finora-ai:${AI_TAG:?Thiếu AI_TAG trong images.env}
+    restart: unless-stopped
+    logging: *logging
+    # eKYC v2 thêm OpenCV, model khuôn mặt và Tesseract.
+    mem_limit: 1g
+    env_file: ${FINORA_ENV_DIR:-/opt/finora/env}/finora-ai.env
+    environment:
+      USER_SERVICE_URL: http://user:8085
+      CIC_SERVICE_URL: ${CIC_SERVICE_URL:-https://cic-service-node.vercel.app}
+      KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/finora/protocol/openid-connect/token
+      # Lần lấy token đầu tiên sau khi Keycloak khởi động mất khoảng 3 giây.
+      USER_TIMEOUT_SECONDS: "10"
+      # Client riêng của AI và kiểm token request tới AI (D34, D35); secret lấy từ docker/.env.
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_AI_CLIENT_ID:-finora-ai-client}
+      KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_AI_CLIENT_SECRET:?Thiếu KEYCLOAK_AI_CLIENT_SECRET}"
+      KEYCLOAK_ISSUER_URI: http://localhost:8180/realms/finora
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/finora/protocol/openid-connect/certs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - finora
+
+  user:
+    <<: *java-service
+    image: ${FINORA_REGISTRY:-ghcr.io/huuthai2910}/finora-user:${USER_TAG:?Thiếu USER_TAG trong images.env}
+    mem_limit: 700m
+    env_file: ${FINORA_ENV_DIR:-/opt/finora/env}/finora-user.env
+    environment:
+      <<: *spring-env
+      KEYCLOAK_SERVER_URL: http://keycloak:8080
+      USER_REDIS_HOST: redis
+      USER_REDIS_PORT: "6379"
+      AI_SERVICE_URL: http://ai:8000
+      # Không lưu ảnh/video bằng chứng eKYC (như máy dev, không có kho S3).
+      EKYC_EVIDENCE_ENABLED: "false"
+      NOTIFICATION_SERVICE_URL: http://notification:8086
+      # Nhật ký hoạt động của web quản trị: đọc Log Analytics finora-logs bằng managed identity của VM
+      # (role "Log Analytics Reader" trên workspace).
+      ACTIVITY_LOG_WORKSPACE_ID: e4914452-f027-426c-8315-6e8fa9ff614f
+      CIC_SERVICE_URL: ${CIC_SERVICE_URL:-https://cic-service-node.vercel.app}
+      USER_CIC_MAPPING_ENABLED: "${USER_CIC_MAPPING_ENABLED:-false}"
+      CIC_INTERNAL_API_KEY: "${CIC_INTERNAL_API_KEY:-}"
+      # Web chạy trên Vercel và gọi API qua rewrite của Vercel, nên cookie phải mang domain
+      # của web; domain mặc định `localhost` sẽ bị trình duyệt bỏ.
+      AUTH_COOKIE_DOMAIN: "${WEB_DOMAIN:?Thiếu WEB_DOMAIN (domain Vercel của web) trong deploy/.env}"
+      AUTH_COOKIE_SECURE: "true"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      <<: *readiness-check
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8085;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+  notification:
+    <<: *java-service
+    image: ${FINORA_REGISTRY:-ghcr.io/huuthai2910}/finora-notification:${NOTIFICATION_TAG:?Thiếu NOTIFICATION_TAG trong images.env}
+    mem_limit: 550m
+    env_file: ${FINORA_ENV_DIR:-/opt/finora/env}/finora-notification.env
+    environment:
+      <<: *spring-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      NOTIFICATION_PORT: "8086"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      <<: *readiness-check
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8086;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+  payment:
+    <<: *java-service
+    image: ${FINORA_REGISTRY:-ghcr.io/huuthai2910}/finora-payment:${PAYMENT_TAG:?Thiếu PAYMENT_TAG trong images.env}
+    mem_limit: 700m
+    env_file: ${FINORA_ENV_DIR:-/opt/finora/env}/finora-payment.env
+    environment:
+      <<: *spring-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      FINERACT_BASE_URL: http://fineract:8443/fineract-provider/api/v1
+      FINERACT_REPAYMENT_PAYMENT_TYPE_ID: ${FINERACT_REPAYMENT_PAYMENT_TYPE_ID:-1}
+      # Provider payout giả lập gọi lại chính Payment qua tên service trong mạng Docker (R4).
+      PAYMENT_MOCK_PAYOUT_CALLBACK_URL: http://payment:8082/api/v1/wallets/callbacks/mock-payout
+      INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC: ${INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC:-finora.investment.note-ownership-changed}
+      PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:-finora.payment.repayment-distributed}
+      PAYMENT_SERVICING_GROUP: ${PAYMENT_SERVICING_GROUP:-payment-servicing}
+      PAYMENT_REPAYMENT_WORKER_DELAY: ${PAYMENT_REPAYMENT_WORKER_DELAY:-3000}
+      PAYMENT_RECONCILIATION_WORKER_DELAY: ${PAYMENT_RECONCILIATION_WORKER_DELAY:-30000}
+      PAYMENT_EARLY_SETTLEMENT_POLICY_VERSION: ${PAYMENT_EARLY_SETTLEMENT_POLICY_VERSION:-AGRIBANK_REFERENCE_FINORA_2026_V2}
+      PAYMENT_EARLY_SETTLEMENT_QUOTE_TTL: ${PAYMENT_EARLY_SETTLEMENT_QUOTE_TTL:-15m}
+      PAYMENT_EARLY_SETTLEMENT_SHORT_FIRST_RATE: ${PAYMENT_EARLY_SETTLEMENT_SHORT_FIRST_RATE:-0.01}
+      PAYMENT_EARLY_SETTLEMENT_SHORT_SECOND_RATE: ${PAYMENT_EARLY_SETTLEMENT_SHORT_SECOND_RATE:-0.005}
+      PAYMENT_EARLY_SETTLEMENT_SHORT_FIRST_END: ${PAYMENT_EARLY_SETTLEMENT_SHORT_FIRST_END:-0.50}
+      PAYMENT_EARLY_SETTLEMENT_SHORT_FREE_AFTER: ${PAYMENT_EARLY_SETTLEMENT_SHORT_FREE_AFTER:-0.70}
+      PAYMENT_EARLY_SETTLEMENT_MEDIUM_YEAR_ONE_RATE: ${PAYMENT_EARLY_SETTLEMENT_MEDIUM_YEAR_ONE_RATE:-0.02}
+      PAYMENT_EARLY_SETTLEMENT_MEDIUM_YEAR_TWO_RATE: ${PAYMENT_EARLY_SETTLEMENT_MEDIUM_YEAR_TWO_RATE:-0.015}
+      PAYMENT_EARLY_SETTLEMENT_MINIMUM_FEE: ${PAYMENT_EARLY_SETTLEMENT_MINIMUM_FEE:-100000}
+      PAYMENT_EARLY_SETTLEMENT_INVESTOR_SHARE_RATE: ${PAYMENT_EARLY_SETTLEMENT_INVESTOR_SHARE_RATE:-0.80}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      fineract:
+        condition: service_started
+    healthcheck:
+      <<: *readiness-check
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8082;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+  investment:
+    <<: *java-service
+    image: ${FINORA_REGISTRY:-ghcr.io/huuthai2910}/finora-investment:${INVESTMENT_TAG:?Thiếu INVESTMENT_TAG trong images.env}
+    mem_limit: 700m
+    env_file: ${FINORA_ENV_DIR:-/opt/finora/env}/finora-investment.env
+    environment:
+      <<: *spring-env
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC: ${LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC:-finora.loan.reschedule-consent-requested}
+      INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC: ${INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC:-finora.investment.reschedule-consent-completed}
+      PAYMENT_SERVICE_URL: http://payment:8082/api/v1
+      KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/finora/protocol/openid-connect/token
+      INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC: ${INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC:-finora.investment.note-ownership-changed}
+      PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:-finora.payment.repayment-distributed}
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      <<: *readiness-check
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8084;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+  loan:
+    <<: *java-service
+    image: ${FINORA_REGISTRY:-ghcr.io/huuthai2910}/finora-loan:${LOAN_TAG:?Thiếu LOAN_TAG trong images.env}
+    mem_limit: 800m
+    env_file: ${FINORA_ENV_DIR:-/opt/finora/env}/finora-loan.env
+    environment:
+      <<: *spring-env
+      # Profile `local` bật bản giả hồ sơ người vay — Loan chưa có provider nào khác.
+      SPRING_PROFILES_ACTIVE: local
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      AI_SERVICE_URL: http://ai:8000
+      # Worker chấm điểm lấy token client_credentials của finora-loan-client (D34) qua tên nội bộ.
+      KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/finora/protocol/openid-connect/token
+      # eKYC người vay đọc từ User khi nộp hồ sơ (W2-KYC).
+      FINORA_BORROWER_PROFILE_PROVIDER: ${FINORA_BORROWER_PROFILE_PROVIDER:-user}
+      USER_SERVICE_URL: http://user:8085
+      FINERACT_BASE_URL: http://fineract:8443/fineract-provider/api/v1
+      FINERACT_BOOKING_PROVIDER: ${FINERACT_BOOKING_PROVIDER:-mock}
+      FINERACT_OFFICE_ID: ${FINERACT_OFFICE_ID:-1}
+      FINERACT_DISBURSEMENT_PAYMENT_TYPE_ID: ${FINERACT_DISBURSEMENT_PAYMENT_TYPE_ID:-1}
+      FINERACT_CLIENT_LEGAL_FORM_ID: ${FINERACT_CLIENT_LEGAL_FORM_ID:-1}
+      LOAN_DELINQUENCY_CHANGED_TOPIC: ${LOAN_DELINQUENCY_CHANGED_TOPIC:-finora.loan.delinquency-changed}
+      LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC: ${LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC:-finora.loan.reschedule-consent-requested}
+      INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC: ${INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC:-finora.investment.reschedule-consent-completed}
+      LOAN_SERVICING_SYNC_ENABLED: ${LOAN_SERVICING_SYNC_ENABLED:-true}
+      LOAN_SERVICING_SYNC_WORKER_DELAY: ${LOAN_SERVICING_SYNC_WORKER_DELAY:-60000}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      # Không chờ Fineract healthy (mất khoảng 3 phút): Loan gọi Fineract khi cần và tự thử lại.
+      fineract:
+        condition: service_started
+    healthcheck:
+      <<: *readiness-check
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8081;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+  # Database của proof blockchain, nằm trong VM (máy dev cũng để ở PostgreSQL local, không ở Neon).
+  blockchain-db:
+    image: postgres:18
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 256m
+    environment:
+      POSTGRES_USER: finora_blockchain
+      POSTGRES_PASSWORD: "${BLOCKCHAIN_VM_DB_PASSWORD:?Thiếu BLOCKCHAIN_VM_DB_PASSWORD trong deploy/.env}"
+      POSTGRES_DB: finora_blockchain
+    volumes:
+      - blockchain-db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finora_blockchain -d finora_blockchain"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - finora
+
+  # Proof bốn mốc nghiệp vụ và hash giấy chuyển nhượng Note. Ledger MOCK: VM không chạy mạng Fabric.
+  blockchain:
+    <<: *java-service
+    image: ${FINORA_REGISTRY:-ghcr.io/huuthai2910}/finora-blockchain:${BLOCKCHAIN_TAG:?Thiếu BLOCKCHAIN_TAG trong images.env}
+    mem_limit: 450m
+    environment:
+      <<: *spring-env
+      BLOCKCHAIN_DB_URL: jdbc:postgresql://blockchain-db:5432/finora_blockchain
+      BLOCKCHAIN_DB_USERNAME: finora_blockchain
+      BLOCKCHAIN_DB_PASSWORD: "${BLOCKCHAIN_VM_DB_PASSWORD}"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      BLOCKCHAIN_KAFKA_LISTENER_ENABLED: "true"
+      BLOCKCHAIN_PROOF_WORKER_ENABLED: "true"
+      BLOCKCHAIN_PROOF_PROVIDER: MOCK
+    depends_on:
+      kafka:
+        condition: service_healthy
+      blockchain-db:
+        condition: service_healthy
+    healthcheck:
+      <<: *readiness-check
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8083;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+  gateway:
+    <<: *java-service
+    image: ${FINORA_REGISTRY:-ghcr.io/huuthai2910}/finora-gateway:${GATEWAY_TAG:?Thiếu GATEWAY_TAG trong images.env}
+    mem_limit: 450m
+    environment:
+      # 02/11: gateway thỉnh thoảng trả 500 (NullPointerException ở Http1Exchange.bodySubscriber của JDK HttpClient).
+      # 03/11 đã sửa trong mã: gateway gọi service phía sau bằng Apache HttpClient 5 (UpstreamHttpClientConfig).
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=60 -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
+      # application-docker.yml trỏ route tới tên service trong mạng Docker.
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      - user
+      - loan
+      - payment
+      - investment
+      - ai
+      - notification
+      - blockchain
+    healthcheck:
+      <<: *readiness-check
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/8080;
+          printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200'"
+
+volumes:
+  kafka-data:
+  redis-data:
+  fineract-db-data:
+  blockchain-db-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  finora:
+    driver: bridge

@@ -1,0 +1,423 @@
+# CD của finora-platform lên VM Azure (CD-001, D88).
+#
+# Khi có commit vào main:
+#   - gate:   commit phải đến từ PR đã merge và check "CI passed" của PR đó xanh (CI chỉ chạy ở PR, CI-001)
+#   - plan:   so nội dung từng image với bản mới nhất trên GHCR (nhãn revision của tag `main`) để biết service nào build lại
+#   - build:  build + đẩy image lên GHCR, tag sha-<7 ký tự commit>
+#   - retag:  service không đổi được gắn thêm tag sha-<commit> trỏ tới image hiện có, để commit nào cũng đủ 9 tag
+#             (quay lại bản cũ không phải build lại)
+#   - deploy: đăng nhập Azure bằng OIDC, bật VM nếu đang tắt, chạy deploy/cd-deploy.sh trong VM qua run-command
+#             (không cần SSH), đợi /_status.json báo sẵn sàng, VM vốn tắt thì tắt lại
+# Không có bước duyệt tay. Secret của service nằm trong /opt/finora/env trên VM, workflow không thấy.
+#
+# Chạy tay (Run workflow): chọn commit trên main và danh sách service (`all` khi quay lại bản cũ hoặc deploy lần đầu).
+# Cần biến repo AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID (app registration finora-github-cd, xem
+# deploy/README.md mục "CD từ GitHub Actions").
+#
+# Mọi action pin theo commit SHA (tag ghi ở comment), bản phát hành ít nhất hai tuần như CI (D55).
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Commit trên main cần deploy (để trống = commit mới nhất của main)"
+        required: false
+        default: ""
+      services:
+        description: "Service cần thay: để trống = theo thay đổi; all = cả 9; hoặc danh sách như loan,user"
+        required: false
+        default: ""
+      skip_ci_check:
+        description: "Bỏ qua kiểm CI của PR (commit đẩy thẳng main, lần deploy đầu)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Một lần deploy tại một thời điểm; lần mới xếp hàng chứ không hủy lần đang chạy giữa chừng.
+concurrency:
+  group: cd-azure
+  cancel-in-progress: false
+
+env:
+  AZURE_RESOURCE_GROUP: finora-rg
+  AZURE_VM_NAME: finora-vm
+  FINORA_DOMAIN: finora-api.malaysiawest.cloudapp.azure.com
+
+jobs:
+  gate:
+    name: Kiểm CI của commit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+    outputs:
+      sha: ${{ steps.check.outputs.sha }}
+    steps:
+      - name: Tìm PR và kết quả CI
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          INPUT_COMMIT: ${{ inputs.commit }}
+          SKIP_CI_CHECK: ${{ inputs.skip_ci_check }}
+        run: |
+          set -euo pipefail
+          sha="$(gh api "repos/${REPO}/commits/${INPUT_COMMIT:-${GITHUB_SHA}}" --jq .sha)"
+          # Chạy tay có thể truyền commit bất kỳ: chỉ nhận commit đã nằm trong main.
+          status="$(gh api "repos/${REPO}/compare/${sha}...main" --jq .status)"
+          if [[ "${status}" != "ahead" && "${status}" != "identical" ]]; then
+            echo "::error title=CD::Commit ${sha} không nằm trên main (compare: ${status})"
+            exit 1
+          fi
+          echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
+          echo "### Commit ${sha:0:7}" >> "${GITHUB_STEP_SUMMARY}"
+
+          if [[ "${SKIP_CI_CHECK}" == "true" ]]; then
+            echo "::warning title=CD::Bỏ qua kiểm CI theo yêu cầu chạy tay"
+            echo "Bỏ qua kiểm CI (chạy tay)." >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          # CI chạy trên commit đầu (head) của PR, nên kết quả nằm ở head chứ không ở commit merge.
+          pr="$(gh api "repos/${REPO}/commits/${sha}/pulls" \
+                --jq '[.[] | select(.merged_at != null and .base.ref == "main")] | sort_by(.merged_at) | last // empty')"
+          if [[ -z "${pr}" ]]; then
+            echo "::error title=CD::Commit ${sha:0:7} không đến từ PR đã merge vào main (đẩy thẳng main?), không có kết quả CI"
+            echo "Không deploy: commit không đến từ PR." >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+          number="$(jq -r .number <<< "${pr}")"
+          head="$(jq -r .head.sha <<< "${pr}")"
+          conclusion="$(gh api "repos/${REPO}/commits/${head}/check-runs?check_name=CI%20passed&filter=latest" \
+                        --jq '.check_runs | sort_by(.completed_at // "") | last | .conclusion // "none"')"
+          echo "PR #${number}, head ${head:0:7}, CI passed: ${conclusion}" >> "${GITHUB_STEP_SUMMARY}"
+          if [[ "${conclusion}" != "success" ]]; then
+            echo "::error title=CD::CI của PR #${number} không xanh (${conclusion}), không deploy"
+            exit 1
+          fi
+
+  plan:
+    name: Chọn service
+    needs: gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      registry: ${{ steps.plan.outputs.registry }}
+      tag: ${{ steps.plan.outputs.tag }}
+      build: ${{ steps.plan.outputs.build }}
+      retag: ${{ steps.plan.outputs.retag }}
+      deploy_services: ${{ steps.plan.outputs.deploy_services }}
+      deploy: ${{ steps.plan.outputs.deploy }}
+      move_main: ${{ steps.plan.outputs.move_main }}
+    steps:
+      - name: Checkout toàn bộ lịch sử
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Đăng nhập GHCR (đọc image hiện có)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: So image với commit
+        id: plan
+        env:
+          SHA: ${{ needs.gate.outputs.sha }}
+          INPUT_SERVICES: ${{ inputs.services }}
+          BEFORE: ${{ github.event.before }}
+        # Đường dẫn trong paths_for khớp những gì Dockerfile/.dockerignore đưa vào image: đổi test, tài liệu hay plan
+        # của module không build lại image.
+        run: |
+          set -euo pipefail
+          registry="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
+          tag="sha-${SHA:0:7}"
+          all=(fineract ai user notification payment investment loan blockchain gateway)
+
+          paths_for() {
+            case "$1" in
+              fineract) echo '^docker/fineract/' ;;
+              ai) echo '^(finora-ai/(main\.py|requirements\.txt|app/|scripts/download_face_models\.py|models/|config/)|docker/Dockerfile\.ai)' ;;
+              gateway) echo '^(finora-gateway/(pom\.xml|src/main/)|pom\.xml$|docker/Dockerfile\.java-service$|\.dockerignore$)' ;;
+              *) echo "^(finora-$1/(pom\.xml|src/main/)|finora-common/(pom\.xml|src/main/)|pom\.xml$|docker/Dockerfile\.java-service$|\.dockerignore$)" ;;
+            esac
+          }
+          exists() { docker buildx imagetools inspect "$1" > /dev/null 2>&1; }
+          revision_of() {
+            docker buildx imagetools inspect "$1" --format '{{ json .Image }}' 2> /dev/null \
+              | jq -r '.config.Labels["org.opencontainers.image.revision"] // empty' 2> /dev/null || true
+          }
+          to_json() { printf '%s\n' "$@" | jq -Rnc '[inputs | select(length > 0)]'; }
+
+          build=()
+          retag=()
+          deploy=()
+          deploy_flag=false
+          move_main=false
+          before_ok=false
+          if [[ -n "${BEFORE}" && ! "${BEFORE}" =~ ^0+$ ]] && git cat-file -e "${BEFORE}^{commit}" 2> /dev/null; then
+            before_ok=true
+          fi
+
+          if [[ -z "${INPUT_SERVICES// /}" ]]; then
+            # Tự chọn: build service có nội dung image khác bản `main` hiện có trên GHCR. So với nhãn revision thay vì
+            # commit trước, nên lần CD bị gate chặn không làm sót thay đổi.
+            [[ "${GITHUB_EVENT_NAME}" == "push" ]] && move_main=true
+            for svc in "${all[@]}"; do
+              image="${registry}/finora-${svc}"
+              if exists "${image}:${tag}"; then
+                # Chạy lại cho cùng commit: image đã có; chỉ deploy nếu chính commit này build ra nó.
+                [[ "$(revision_of "${image}:${tag}")" == "${SHA}" ]] && deploy+=("${svc}")
+                continue
+              fi
+              rev="$(revision_of "${image}:main")"
+              if [[ -z "${rev}" ]] || ! git cat-file -e "${rev}^{commit}" 2> /dev/null; then
+                build+=("${svc}")
+              elif git diff --name-only "${rev}" "${SHA}" | grep -Eq "$(paths_for "${svc}")"; then
+                build+=("${svc}")
+              else
+                retag+=("${svc}")
+              fi
+            done
+            deploy+=("${build[@]}")
+            if (( ${#deploy[@]} )); then
+              deploy_flag=true
+            elif [[ "${before_ok}" == "true" ]] && git diff --name-only "${BEFORE}" "${SHA}" -- deploy/ | grep -q .; then
+              deploy_flag=true
+            elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+              deploy_flag=true
+            fi
+          else
+            # Chỉ định: dùng image sha-<commit> nếu đã có (quay lại bản cũ), thiếu thì build từ commit đó.
+            if [[ "${INPUT_SERVICES// /}" == "all" ]]; then
+              requested=("${all[@]}")
+            else
+              IFS=, read -ra requested <<< "${INPUT_SERVICES// /}"
+            fi
+            for svc in "${requested[@]}"; do
+              if [[ " ${all[*]} " != *" ${svc} "* ]]; then
+                echo "::error title=CD::Service lạ: ${svc}"
+                exit 1
+              fi
+              exists "${registry}/finora-${svc}:${tag}" || build+=("${svc}")
+              deploy+=("${svc}")
+            done
+            deploy_flag=true
+          fi
+
+          if [[ "${INPUT_SERVICES// /}" == "all" ]]; then
+            deploy_services=all
+          elif (( ${#deploy[@]} )); then
+            deploy_services="$(IFS=,; echo "${deploy[*]}")"
+          else
+            deploy_services=-
+          fi
+          {
+            echo "registry=${registry}"
+            echo "tag=${tag}"
+            echo "build=$(to_json "${build[@]}")"
+            echo "retag=$(to_json "${retag[@]}")"
+            echo "deploy_services=${deploy_services}"
+            echo "deploy=${deploy_flag}"
+            echo "move_main=${move_main}"
+          } | tee -a "${GITHUB_OUTPUT}"
+
+          {
+            echo "### Kế hoạch"
+            echo "- Build: ${build[*]:-(không)}"
+            echo "- Gắn tag ${tag} cho image có sẵn: ${retag[*]:-(không)}"
+            echo "- Thay trên VM: ${deploy_services}; deploy: ${deploy_flag}"
+            if [[ "${before_ok}" == "true" ]]; then
+              migrations="$(git diff --name-only --diff-filter=A "${BEFORE}" "${SHA}" | grep '/src/main/resources/db/migration/' || true)"
+              echo "- Migration Flyway mới (chạy lên Neon khi service khởi động): ${migrations:-(không)}"
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  build:
+    name: Build ${{ matrix.service }}
+    needs: [gate, plan]
+    if: needs.plan.outputs.build != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.plan.outputs.build) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+      - name: Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Đăng nhập GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Dockerfile và tag
+        id: spec
+        env:
+          SERVICE: ${{ matrix.service }}
+          REGISTRY: ${{ needs.plan.outputs.registry }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          MOVE_MAIN: ${{ needs.plan.outputs.move_main }}
+        run: |
+          set -euo pipefail
+          case "${SERVICE}" in
+            fineract)
+              context=docker/fineract; file=docker/fineract/Dockerfile
+              # Mirror nhanh hơn archive.apache.org (như docker-compose.azure.build.yml).
+              build_args=FINERACT_MIRROR=https://downloads.apache.org ;;
+            ai)
+              context=.; file=docker/Dockerfile.ai; build_args= ;;
+            *)
+              context=.; file=docker/Dockerfile.java-service; build_args="SERVICE_MODULE=finora-${SERVICE}" ;;
+          esac
+          {
+            echo "context=${context}"
+            echo "file=${file}"
+            echo "build_args=${build_args}"
+            echo "tags<<EOF"
+            echo "${REGISTRY}/finora-${SERVICE}:${TAG}"
+            # Tag `main` = image mới nhất của nhánh main, bước plan so nội dung với nó. Chạy tay commit cũ (quay lại
+            # bản trước) không dời tag này, trừ khi service chưa có tag `main` (lần build đầu).
+            if [[ "${MOVE_MAIN}" == "true" ]] || ! docker buildx imagetools inspect "${REGISTRY}/finora-${SERVICE}:main" > /dev/null 2>&1; then
+              echo "${REGISTRY}/finora-${SERVICE}:main"
+            fi
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+      - name: Build và đẩy image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ steps.spec.outputs.context }}
+          file: ${{ steps.spec.outputs.file }}
+          build-args: ${{ steps.spec.outputs.build_args }}
+          push: true
+          # Một manifest đơn (không kèm attestation) để bước plan đọc được nhãn revision bằng imagetools.
+          provenance: false
+          sbom: false
+          tags: ${{ steps.spec.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.gate.outputs.sha }}
+          cache-from: type=gha,scope=finora-${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=finora-${{ matrix.service }}
+
+  retag:
+    name: Gắn tag commit cho image không đổi
+    needs: [gate, plan, build]
+    if: >-
+      always() && needs.plan.result == 'success' && needs.plan.outputs.retag != '[]'
+      && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Đăng nhập GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Gắn tag
+        env:
+          REGISTRY: ${{ needs.plan.outputs.registry }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          RETAG: ${{ needs.plan.outputs.retag }}
+        run: |
+          set -euo pipefail
+          for svc in $(jq -r '.[]' <<< "${RETAG}"); do
+            docker buildx imagetools create -t "${REGISTRY}/finora-${svc}:${TAG}" "${REGISTRY}/finora-${svc}:main"
+          done
+
+  deploy:
+    name: Deploy lên VM
+    needs: [gate, plan, build, retag]
+    if: >-
+      always() && needs.gate.result == 'success' && needs.plan.result == 'success' && needs.plan.outputs.deploy == 'true'
+      && (needs.build.result == 'success' || needs.build.result == 'skipped')
+      && (needs.retag.result == 'success' || needs.retag.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      SHA: ${{ needs.gate.outputs.sha }}
+      SERVICES: ${{ needs.plan.outputs.deploy_services }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+      - name: Đăng nhập Azure (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Bật VM nếu đang tắt
+        id: power
+        run: |
+          set -euo pipefail
+          state="$(az vm get-instance-view -g "${AZURE_RESOURCE_GROUP}" -n "${AZURE_VM_NAME}" \
+                   --query "instanceView.statuses[?starts_with(code, 'PowerState/')].code | [0]" -o tsv)"
+          echo "Trạng thái VM: ${state}"
+          if [[ "${state}" == "PowerState/running" ]]; then
+            echo "was_off=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "was_off=true" >> "${GITHUB_OUTPUT}"
+            az vm start -g "${AZURE_RESOURCE_GROUP}" -n "${AZURE_VM_NAME}"
+          fi
+      - name: Chạy cd-deploy.sh trong VM
+        # Run-command báo thành công kể cả khi script lỗi, nên kiểm dòng FINORA_CD_RESULT ở cuối output.
+        run: |
+          set -euo pipefail
+          az vm run-command invoke -g "${AZURE_RESOURCE_GROUP}" -n "${AZURE_VM_NAME}" \
+            --command-id RunShellScript --scripts @deploy/cd-deploy.sh \
+            --parameters "${SHA}" "${SERVICES}" "${GITHUB_REPOSITORY}" \
+            --query 'value[0].message' -o tsv | tee run-command.txt
+          result="$(grep -o 'FINORA_CD_RESULT=[a-z-]*' run-command.txt | tail -n 1 || true)"
+          echo "Kết quả trên VM: ${result:-không có}" >> "${GITHUB_STEP_SUMMARY}"
+          if [[ "${result}" != "FINORA_CD_RESULT=ok" ]]; then
+            echo "::error title=CD::Deploy trên VM không thành công (${result:-không có kết quả}); log đầy đủ: /opt/finora/state/deploy-${SHA:0:7}.log hoặc Log Analytics (ProcessName finora-cd)"
+            exit 1
+          fi
+      - name: Kiểm /_status.json
+        run: |
+          set -euo pipefail
+          for _ in $(seq 60); do
+            if curl -fsS --max-time 10 "https://${FINORA_DOMAIN}/_status.json" \
+                | jq -e '.ready == true and (now - (.updatedAt | fromdateiso8601)) < 120' > /dev/null; then
+              echo "Hệ thống sẵn sàng"
+              exit 0
+            fi
+            sleep 10
+          done
+          curl -fsS --max-time 10 "https://${FINORA_DOMAIN}/_status.json" || true
+          echo "::error title=CD::/_status.json chưa báo sẵn sàng sau 10 phút"
+          exit 1
+      - name: Tắt VM lại
+        if: always() && steps.power.outputs.was_off == 'true'
+        run: az vm deallocate -g "${AZURE_RESOURCE_GROUP}" -n "${AZURE_VM_NAME}" --no-wait
