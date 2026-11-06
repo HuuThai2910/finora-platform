@@ -1,9 +1,10 @@
 package com.finora.loan.config;
 
-import java.time.Duration;
-import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
+
+import java.time.Duration;
+import java.util.List;
 
 /**
  * Giám sát job cuối ngày của Fineract (W3E, D57; D25).

@@ -1,18 +1,19 @@
 package com.finora.loan.repository.disbursement;
 
-import com.finora.loan.domain.disbursement.DisbursementSaga;
-import com.finora.loan.domain.disbursement.DisbursementSagaStatus;
+import com.finora.loan.domain.disbursement.entity.DisbursementSaga;
+import com.finora.loan.domain.disbursement.enums.DisbursementSagaStatus;
 import jakarta.persistence.LockModeType;
-import java.time.Instant;
-import java.util.Collection;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 public interface DisbursementSagaRepository extends JpaRepository<DisbursementSaga, Long> {
     Optional<DisbursementSaga> findByLoanApplicationId(Long loanApplicationId);

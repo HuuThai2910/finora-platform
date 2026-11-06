@@ -1,0 +1,218 @@
+package com.finora.payment.service.topup.impl;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finora.common.environment.FinoraEnvironment;
+import com.finora.common.exception.BusinessException;
+import com.finora.common.security.SecurityUtils;
+import com.finora.payment.config.TopUpProperties;
+import com.finora.payment.config.ZaloPayProperties;
+import com.finora.payment.domain.ledger.enums.LedgerBalanceBucket;
+import com.finora.payment.domain.ledger.enums.LedgerDirection;
+import com.finora.payment.domain.ledger.enums.LedgerTransactionType;
+import com.finora.payment.domain.topup.entity.PaymentTopUp;
+import com.finora.payment.domain.wallet.entity.PaymentWallet;
+import com.finora.payment.dto.response.TopUpResponse;
+import com.finora.payment.integration.topup.ZaloPayMac;
+import com.finora.payment.integration.topup.client.TopUpProvider;
+import com.finora.payment.repository.topup.PaymentTopUpRepository;
+import com.finora.payment.repository.wallet.PaymentWalletRepository;
+import com.finora.payment.service.ledger.LedgerPostingCommand;
+import com.finora.payment.service.ledger.LedgerPostingEntryCommand;
+import com.finora.payment.service.ledger.LedgerPostingService;
+import com.finora.payment.service.topup.TopUpService;
+import com.finora.payment.service.wallet.WalletAccountService;
+import com.finora.payment.service.wallet.WalletOwnerResolver;
+import com.finora.payment.service.wallet.WalletView;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Clock;
+import java.time.format.DateTimeFormatter;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * Nạp tiền vào ví qua provider nạp tiền (mock hoặc ZaloPay).
+ * <p>
+ * Lệnh nạp được lưu trước khi gọi provider (ngoài transaction); provider lỗi thì lệnh ghi
+ * {@code TOPUP_PROVIDER_UNCERTAIN}. Ghi có ví dùng khóa idempotency {@code TOPUP:<topUpId>} và chỉ chạy khi lệnh chuyển
+ * sang hoàn tất lần đầu, nên callback lặp không cộng tiền hai lần. Mã đơn ZaloPay bắt đầu bằng ngày {@code yyMMdd} theo
+ * múi giờ nghiệp vụ.
+ */
+@Service
+@RequiredArgsConstructor
+public class TopUpServiceImpl implements TopUpService {
+    private final PaymentTopUpRepository paymentTopUpRepository;
+    private final PaymentWalletRepository paymentWalletRepository;
+    private final WalletAccountService walletAccountService;
+    private final WalletOwnerResolver walletOwnerResolver;
+    private final LedgerPostingService ledgerPostingService;
+    private final TopUpProvider topUpProvider;
+    private final TopUpProperties topUpProperties;
+    private final ZaloPayProperties zaloPayProperties;
+    private final ObjectMapper objectMapper;
+    private final TransactionTemplate transactionTemplate;
+    private final Clock clock;
+    private final FinoraEnvironment finoraEnvironment;
+
+    @Override
+    public TopUpResponse create(BigDecimal amount, String idempotencyKey) {
+        String ownerId = SecurityUtils.getCurrentUserId();
+        BigDecimal normalized = validateAmount(amount);
+        String hash = sha256(ownerId + "|" + normalized.toPlainString() + "|VND");
+        PaymentTopUp prepared = transactionTemplate.execute(status ->
+                prepare(ownerId, normalized, requireText(idempotencyKey, "Idempotency-Key"), hash));
+        if (prepared == null) throw new IllegalStateException("Không tạo được lệnh nạp tiền");
+        if (!prepared.getStatus().name().equals("PROVIDER_PENDING")) return response(prepared);
+
+        try {
+            TopUpProvider.TopUpProviderResult result = topUpProvider.create(new TopUpProvider.TopUpProviderCommand(
+                    prepared.getTopUpId(), prepared.getProviderOrderId(), ownerId, normalized, "VND"));
+            return transactionTemplate.execute(status -> {
+                PaymentTopUp locked = paymentTopUpRepository.findByTopUpIdForUpdate(prepared.getTopUpId())
+                        .orElseThrow();
+                locked.awaitingPayment(result.checkoutUrl(), result.qrPayload(), result.expiresAt(), clock.instant());
+                return response(locked);
+            });
+        } catch (RuntimeException exception) {
+            transactionTemplate.executeWithoutResult(status -> {
+                PaymentTopUp locked = paymentTopUpRepository.findByTopUpIdForUpdate(prepared.getTopUpId())
+                        .orElseThrow();
+                locked.fail("TOPUP_PROVIDER_UNCERTAIN", exception.getMessage(), true, clock.instant());
+            });
+            throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "TOPUP_PROVIDER_UNAVAILABLE",
+                    "Chưa xác định được kết quả tạo giao dịch nạp tiền; vui lòng kiểm tra lại");
+        }
+    }
+
+    @Override
+    public TopUpResponse get(UUID topUpId) {
+        String ownerId = SecurityUtils.getCurrentUserId();
+        PaymentTopUp topUp = paymentTopUpRepository.findByTopUpId(topUpId)
+                .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "TOPUP_NOT_FOUND", "Không tìm thấy lệnh nạp tiền"));
+        requireOwner(topUp, ownerId);
+        return response(topUp);
+    }
+
+    @Override
+    public TopUpResponse completeMock(UUID topUpId) {
+        if (!mockCompletionEnabled()) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "TOPUP_MOCK_COMPLETION_UNAVAILABLE",
+                    "Môi trường này không có chức năng giả lập thanh toán");
+        }
+        String ownerId = SecurityUtils.getCurrentUserId();
+        return transactionTemplate.execute(status -> {
+            PaymentTopUp topUp = paymentTopUpRepository.findByTopUpIdForUpdate(topUpId)
+                    .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "TOPUP_NOT_FOUND", "Không tìm thấy lệnh nạp tiền"));
+            requireOwner(topUp, ownerId);
+            if (!"MOCK".equals(topUp.getProvider())) {
+                throw new BusinessException(HttpStatus.CONFLICT, "TOPUP_NOT_MOCK", "Chỉ lệnh mock mới được xác nhận thủ công");
+            }
+            if (topUp.isExpired(clock.instant())) {
+                throw new BusinessException(HttpStatus.CONFLICT, "TOPUP_EXPIRED", "Lệnh nạp tiền đã hết hạn thanh toán");
+            }
+            credit(topUp, "MOCK-" + topUp.getTopUpId());
+            return response(topUp);
+        });
+    }
+
+    private boolean mockCompletionEnabled() {
+        return finoraEnvironment.allowsSimulation() && "mock".equals(topUpProperties.provider());
+    }
+
+    private TopUpResponse response(PaymentTopUp topUp) {
+        return TopUpResponse.from(topUp, mockCompletionEnabled(), clock.instant());
+    }
+
+    @Override
+    public boolean processZaloPayCallback(String data, String mac) {
+        if (zaloPayProperties.key2() == null || zaloPayProperties.key2().isBlank()) return false;
+        String expected = ZaloPayMac.hmacSha256(data == null ? "" : data,
+                zaloPayProperties.key2());
+        if (!ZaloPayMac.matches(expected, mac)) return false;
+        try {
+            JsonNode payload = objectMapper.readTree(data);
+            String orderId = payload.path("app_trans_id").asText();
+            BigDecimal amount = payload.path("amount").decimalValue().setScale(2);
+            String reference = payload.path("zp_trans_id").asText();
+            transactionTemplate.executeWithoutResult(status -> {
+                PaymentTopUp topUp = paymentTopUpRepository.findByProviderOrderForUpdate("ZALOPAY", orderId)
+                        .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy app_trans_id"));
+                if (topUp.getAmount().compareTo(amount) != 0) {
+                    throw new IllegalArgumentException("Số tiền callback không khớp đơn nạp");
+                }
+                credit(topUp, reference);
+            });
+            return true;
+        } catch (RuntimeException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new IllegalArgumentException("Callback ZaloPay không đúng JSON", exception);
+        }
+    }
+
+    private PaymentTopUp prepare(String ownerId, BigDecimal amount, String key, String hash) {
+        PaymentTopUp existing = paymentTopUpRepository.findByIdempotencyKey(key).orElse(null);
+        if (existing != null) {
+            requireOwner(existing, ownerId);
+            if (!existing.getRequestHash().equals(hash)) {
+                throw new BusinessException(HttpStatus.CONFLICT, "TOPUP_IDEMPOTENCY_CONFLICT",
+                        "Idempotency-Key đã được dùng cho lệnh nạp khác");
+            }
+            return existing;
+        }
+        WalletView wallet = walletAccountService.open(walletOwnerResolver.currentOwnerType(), ownerId, "VND");
+        PaymentWallet entity = paymentWalletRepository.findByWalletId(wallet.walletId()).orElseThrow();
+        UUID id = UUID.randomUUID();
+        // ZaloPay yêu cầu app_trans_id bắt đầu bằng ngày yyMMdd theo GMT+7; dùng ngày nghiệp vụ của clock.
+        String prefix = DateTimeFormatter.ofPattern("yyMMdd").withZone(clock.getZone()).format(clock.instant());
+        String providerOrderId = prefix + "_" + id.toString().replace("-", "").substring(0, 20);
+        return paymentTopUpRepository.save(PaymentTopUp.prepare(
+                id, entity, amount, topUpProvider.name(), providerOrderId, key, hash, clock.instant()));
+    }
+
+    private void credit(PaymentTopUp topUp, String providerReference) {
+        if (!topUp.complete(providerReference, clock.instant())) return;
+        ledgerPostingService.post(new LedgerPostingCommand(
+                "TOPUP:" + topUp.getTopUpId(), LedgerTransactionType.DEPOSIT,
+                "TOP_UP", topUp.getTopUpId().toString(), topUp.getCurrency(), List.of(
+                new LedgerPostingEntryCommand(null, "PROVIDER_CLEARING", LedgerBalanceBucket.CLEARING,
+                        LedgerDirection.DEBIT, topUp.getAmount()),
+                new LedgerPostingEntryCommand(topUp.getWallet().getWalletId(), null, LedgerBalanceBucket.AVAILABLE,
+                        LedgerDirection.CREDIT, topUp.getAmount()))));
+    }
+
+    private BigDecimal validateAmount(BigDecimal amount) {
+        if (amount == null || amount.scale() > 0) throw new IllegalArgumentException("Số tiền nạp phải là số nguyên đồng");
+        BigDecimal normalized = amount.setScale(2);
+        if (normalized.compareTo(topUpProperties.minimumAmount()) < 0
+                || normalized.compareTo(topUpProperties.maximumAmount()) > 0) {
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, "TOPUP_AMOUNT_OUT_OF_RANGE", "Số tiền nạp ngoài giới hạn cho phép");
+        }
+        return normalized;
+    }
+
+    private static void requireOwner(PaymentTopUp topUp, String ownerId) {
+        if (!topUp.getOwnerId().equals(ownerId)) throw new BusinessException(HttpStatus.FORBIDDEN, "TOPUP_ACCESS_DENIED", "Bạn không sở hữu lệnh nạp này");
+    }
+
+    private static String requireText(String value, String field) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " không được để trống");
+        return value.trim();
+    }
+
+    private static String sha256(String value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception exception) {
+            throw new IllegalStateException("JVM không hỗ trợ SHA-256", exception);
+        }
+    }
+}

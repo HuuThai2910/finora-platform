@@ -1,12 +1,12 @@
 package com.finora.loan.controller;
 
-import com.finora.loan.dto.application.request.CreateLoanApplicationRequest;
-import com.finora.loan.dto.application.request.WithdrawLoanApplicationRequest;
 import com.finora.loan.dto.application.request.ConfirmLoanTermsRequest;
+import com.finora.loan.dto.application.request.CreateLoanApplicationRequest;
 import com.finora.loan.dto.application.request.DeclineLoanTermsRequest;
+import com.finora.loan.dto.application.request.WithdrawLoanApplicationRequest;
 import com.finora.loan.dto.application.response.LoanApplicationHistoryResponse;
 import com.finora.loan.dto.application.response.LoanApplicationResponse;
-import com.finora.loan.dto.common.PageResponse;
+import com.finora.loan.dto.response.PageResponse;
 import com.finora.loan.service.application.LoanApplicationService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -32,7 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class LoanApplicationController {
 
-    private final LoanApplicationService service;
+    private final LoanApplicationService loanApplicationService;
 
     /** Một lần gửi form tạo thẳng hồ sơ SUBMITTED; form dang dở chỉ được giữ ở phía giao diện. */
     @PostMapping
@@ -40,54 +40,54 @@ public class LoanApplicationController {
             @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 150) String idempotencyKey,
             @Valid @RequestBody CreateLoanApplicationRequest request
     ) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(service.submit(request, idempotencyKey));
+        return ResponseEntity.status(HttpStatus.CREATED).body(loanApplicationService.submit(request, idempotencyKey));
     }
 
     @PostMapping("/{applicationNumber}/withdraw")
-    public LoanApplicationResponse withdraw(
+    public ResponseEntity<LoanApplicationResponse> withdraw(
             @PathVariable String applicationNumber,
             @Valid @RequestBody WithdrawLoanApplicationRequest request
     ) {
-        return service.withdraw(applicationNumber, request);
+        return ResponseEntity.ok(loanApplicationService.withdraw(applicationNumber, request));
     }
 
     @PostMapping("/{applicationNumber}/terms/accept")
-    public LoanApplicationResponse acceptTerms(
+    public ResponseEntity<LoanApplicationResponse> acceptTerms(
             @PathVariable String applicationNumber,
             @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 150) String idempotencyKey,
             @Valid @RequestBody ConfirmLoanTermsRequest request
     ) {
-        return service.acceptTerms(applicationNumber, request, idempotencyKey);
+        return ResponseEntity.ok(loanApplicationService.acceptTerms(applicationNumber, request, idempotencyKey));
     }
 
     @PostMapping("/{applicationNumber}/terms/decline")
-    public LoanApplicationResponse declineTerms(
+    public ResponseEntity<LoanApplicationResponse> declineTerms(
             @PathVariable String applicationNumber,
             @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 150) String idempotencyKey,
             @Valid @RequestBody DeclineLoanTermsRequest request
     ) {
-        return service.declineTerms(applicationNumber, request, idempotencyKey);
+        return ResponseEntity.ok(loanApplicationService.declineTerms(applicationNumber, request, idempotencyKey));
     }
 
     @GetMapping("/{applicationNumber}")
-    public LoanApplicationResponse getMine(@PathVariable String applicationNumber) {
-        return service.getMine(applicationNumber);
+    public ResponseEntity<LoanApplicationResponse> getMine(@PathVariable String applicationNumber) {
+        return ResponseEntity.ok(loanApplicationService.getMine(applicationNumber));
     }
 
     @GetMapping("/me")
-    public PageResponse<LoanApplicationResponse> listMine(
+    public ResponseEntity<PageResponse<LoanApplicationResponse>> listMine(
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
-        return service.listMine(page, size);
+        return ResponseEntity.ok(loanApplicationService.listMine(page, size));
     }
 
     @GetMapping("/{applicationNumber}/history")
-    public PageResponse<LoanApplicationHistoryResponse> history(
+    public ResponseEntity<PageResponse<LoanApplicationHistoryResponse>> history(
             @PathVariable String applicationNumber,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
-        return service.history(applicationNumber, page, size);
+        return ResponseEntity.ok(loanApplicationService.history(applicationNumber, page, size));
     }
 }

@@ -1,7 +1,8 @@
 package com.finora.payment.config;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
 
 /** Provider chi tiền ra ngân hàng (R4). Chỉ có {@code mock}; payout thật chờ legal review LEGAL-PAYMENT-01. */
 @ConfigurationProperties(prefix = "finora.payment.payout")

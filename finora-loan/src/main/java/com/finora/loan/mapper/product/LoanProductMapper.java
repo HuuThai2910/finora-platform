@@ -1,17 +1,17 @@
 package com.finora.loan.mapper.product;
 
 import com.finora.loan.config.LoanPricingDisclosureProperties;
-import com.finora.loan.domain.product.LoanProduct;
+import com.finora.loan.domain.product.entity.LoanProduct;
 import com.finora.loan.dto.product.response.LoanProductCatalogResponse;
 import com.finora.loan.dto.product.response.LoanProductResponse;
-import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
 public class LoanProductMapper {
 
-    private final LoanPricingDisclosureProperties disclosureProperties;
+    private final LoanPricingDisclosureProperties loanPricingDisclosureProperties;
 
     public LoanProductResponse toResponse(LoanProduct product) {
         return new LoanProductResponse(
@@ -52,9 +52,9 @@ public class LoanProductMapper {
                 product.getMinAnnualInterestRate(),
                 product.getAnnualInterestRate(),
                 product.getMaxAnnualInterestRate(),
-                disclosureProperties.interestRateUnit(),
+                loanPricingDisclosureProperties.interestRateUnit(),
                 product.getRepaymentMethod(),
-                disclosureProperties.rateNotice()
+                loanPricingDisclosureProperties.rateNotice()
         );
     }
 }

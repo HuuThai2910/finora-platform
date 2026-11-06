@@ -1,7 +1,8 @@
 package com.finora.payment.config;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
 
 /**
  * Retry, lease và đối soát của lệnh giải ngân.

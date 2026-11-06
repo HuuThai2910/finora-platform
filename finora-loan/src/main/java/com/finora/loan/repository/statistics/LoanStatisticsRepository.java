@@ -1,20 +1,21 @@
 package com.finora.loan.repository.statistics;
 
 import com.finora.common.statistics.StatisticsPeriod;
-import com.finora.loan.domain.application.LoanApplicationStatus;
-import com.finora.loan.domain.application.LoanFundingStatus;
-import com.finora.loan.domain.application.TermsConfirmationStatus;
-import com.finora.loan.domain.scoring.CreditAssessmentStatus;
-import com.finora.loan.domain.servicing.FinoraLoanStatus;
+import com.finora.loan.domain.application.enums.LoanApplicationStatus;
+import com.finora.loan.domain.application.enums.LoanFundingStatus;
+import com.finora.loan.domain.application.enums.TermsConfirmationStatus;
+import com.finora.loan.domain.scoring.enums.CreditAssessmentStatus;
+import com.finora.loan.domain.servicing.enums.FinoraLoanStatus;
+import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.stereotype.Repository;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
-import lombok.RequiredArgsConstructor;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.stereotype.Repository;
 
 /**
  * Câu đếm/tổng hợp cho API thống kê quản trị Loan.
@@ -36,12 +37,12 @@ public class LoanStatisticsRepository {
     /** Múi giờ cắt cột; phải trùng {@link StatisticsPeriod#VIETNAM} để cột SQL khớp cột Java khi trải. */
     private static final String VIETNAM_ZONE_SQL = "'Asia/Ho_Chi_Minh'";
 
-    private final NamedParameterJdbcTemplate jdbc;
+    private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
 
     // ---------- Ảnh chụp hiện tại ----------
 
     public List<ApplicationStatusRow> countApplicationsByStatusAndFunding() {
-        return jdbc.query("""
+        return namedParameterJdbcTemplate.query("""
                 SELECT status, funding_status, COUNT(*) AS total
                 FROM loan_applications
                 GROUP BY status, funding_status
@@ -61,7 +62,7 @@ public class LoanStatisticsRepository {
     public List<OutstandingByProductDpdRow> sumOutstandingByProductAndDpd() {
         // Nhóm của đợt quá hạn đang mở (D29) đọc từ hồ sơ thu hồi; mỗi khoản vay có tối đa một hồ sơ OPEN
         // (uq_collection_one_open_per_loan) nên LEFT JOIN không nhân dòng.
-        return jdbc.query("""
+        return namedParameterJdbcTemplate.query("""
                 SELECT a.loan_product_id,
                        p.days_past_due,
                        c.debt_group AS episode_debt_group,
@@ -84,7 +85,7 @@ public class LoanStatisticsRepository {
     }
 
     public List<OutstandingByGradeRow> sumOutstandingByCreditGrade() {
-        return jdbc.query("""
+        return namedParameterJdbcTemplate.query("""
                 SELECT a.pricing_credit_grade AS grade,
                        COUNT(*) AS loans,
                        COALESCE(SUM(p.principal_outstanding), 0) AS principal_outstanding
@@ -99,7 +100,7 @@ public class LoanStatisticsRepository {
 
     /** Toàn bộ danh mục sản phẩm (vài dòng) kèm số hồ sơ, để sản phẩm chưa có hồ sơ vẫn hiện số 0. */
     public List<ProductApplicationsRow> countApplicationsByProduct() {
-        return jdbc.query("""
+        return namedParameterJdbcTemplate.query("""
                 SELECT lp.id, lp.code, lp.name, COUNT(a.id) AS applications
                 FROM loan_products lp
                 LEFT JOIN loan_applications a ON a.loan_product_id = lp.id
@@ -110,7 +111,7 @@ public class LoanStatisticsRepository {
     }
 
     public List<CollectionCaseRow> countCollectionCasesByStageAndStatus() {
-        return jdbc.query("""
+        return namedParameterJdbcTemplate.query("""
                 SELECT stage, status, COUNT(*) AS total
                 FROM loan_collection_cases
                 GROUP BY stage, status
@@ -132,7 +133,7 @@ public class LoanStatisticsRepository {
      * của điểm (tối đa 101 giá trị) để Java chia 10 cột, giữ quy tắc cột cuối gồm cả 100 ở một chỗ có test.
      */
     public List<ScoreRow> countLatestSucceededScoresByGradeAndScore() {
-        return jdbc.query("""
+        return namedParameterJdbcTemplate.query("""
                 SELECT s.credit_grade AS grade,
                        CAST(FLOOR(s.evaluation_score) AS integer) AS score,
                        COUNT(*) AS total
@@ -152,7 +153,7 @@ public class LoanStatisticsRepository {
      * "số hồ sơ nộp" của cùng cột, không lệch vì hai lần đọc khác nhau.
      */
     public List<BucketProductCountRow> countSubmittedByBucketAndProduct(StatisticsPeriod period) {
-        return jdbc.query("""
+        return namedParameterJdbcTemplate.query("""
                 SELECT CAST(date_trunc(:unit, submitted_at AT TIME ZONE %s) AS date) AS bucket_start,
                        loan_product_id,
                        COUNT(*) AS total,
@@ -175,7 +176,7 @@ public class LoanStatisticsRepository {
         MapSqlParameterSource params = periodParams(period)
                 .addValue("approved", LoanApplicationStatus.APPROVED.name())
                 .addValue("rejected", LoanApplicationStatus.REJECTED.name());
-        return jdbc.query("""
+        return namedParameterJdbcTemplate.query("""
                 SELECT CAST(date_trunc(:unit, decided_at AT TIME ZONE %s) AS date) AS bucket_start,
                        COUNT(*) FILTER (WHERE status = :approved) AS approved,
                        COUNT(*) FILTER (WHERE status = :rejected) AS rejected
@@ -191,7 +192,7 @@ public class LoanStatisticsRepository {
     }
 
     public List<BucketProductDisbursementRow> sumDisbursedByBucketAndProduct(StatisticsPeriod period) {
-        return jdbc.query("""
+        return namedParameterJdbcTemplate.query("""
                 SELECT CAST(date_trunc(:unit, l.disbursed_at AT TIME ZONE %s) AS date) AS bucket_start,
                        a.loan_product_id,
                        COUNT(*) AS loans,
@@ -216,7 +217,7 @@ public class LoanStatisticsRepository {
                 .addValue("termsAccepted", List.of(
                         TermsConfirmationStatus.ACCEPTED.name(), TermsConfirmationStatus.AUTO_AUTHORIZED.name()))
                 .addValue("fullyFunded", LoanFundingStatus.FULLY_FUNDED.name());
-        return jdbc.queryForObject("""
+        return namedParameterJdbcTemplate.queryForObject("""
                 SELECT COUNT(*) AS submitted,
                        COUNT(*) FILTER (WHERE s.status = :succeeded) AS scored,
                        COUNT(*) FILTER (WHERE a.status = :approved) AS approved,
@@ -241,7 +242,7 @@ public class LoanStatisticsRepository {
      * thái hay ngày đáo hạn đổi nghĩa là lịch sử trên core đã đổi và bản đọc cũ phải bỏ.
      */
     public List<HistoryLoanRow> findLoansDisbursedBefore(Instant endExclusive) {
-        return jdbc.query("""
+        return namedParameterJdbcTemplate.query("""
                 SELECT l.id, l.fineract_loan_id, l.contract_number,
                        p.principal_paid, p.interest_paid, p.fineract_status_code, p.maturity_date
                 FROM finora_loans l
@@ -258,7 +259,7 @@ public class LoanStatisticsRepository {
     }
 
     private List<KeyCountRow> keyCounts(String sql) {
-        return jdbc.query(sql, new MapSqlParameterSource(),
+        return namedParameterJdbcTemplate.query(sql, new MapSqlParameterSource(),
                 (rs, i) -> new KeyCountRow(rs.getString("value_key"), rs.getLong("total")));
     }
 

@@ -3,26 +3,26 @@ package com.finora.loan.service.decision.impl;
 import com.finora.common.exception.ResourceNotFoundException;
 import com.finora.common.security.SecurityUtils;
 import com.finora.common.security.ops.OpsFunction;
-import com.finora.loan.domain.application.LoanApplication;
-import com.finora.loan.domain.application.LoanApplicationStatus;
-import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
-import com.finora.loan.domain.core.ScheduleCalculationPurpose;
-import com.finora.loan.domain.scoring.BorrowerCreditProfile;
-import com.finora.loan.domain.scoring.BorrowerEligibilityCheck;
-import com.finora.loan.domain.scoring.CreditScoringAssessment;
-import com.finora.loan.dto.common.PageResponse;
+import com.finora.loan.domain.application.entity.LoanApplication;
+import com.finora.loan.domain.application.enums.LoanApplicationStatus;
+import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
+import com.finora.loan.domain.core.enums.ScheduleCalculationPurpose;
+import com.finora.loan.domain.scoring.entity.BorrowerCreditProfile;
+import com.finora.loan.domain.scoring.entity.BorrowerEligibilityCheck;
+import com.finora.loan.domain.scoring.entity.CreditScoringAssessment;
 import com.finora.loan.dto.decision.request.ApproveLoanApplicationRequest;
 import com.finora.loan.dto.decision.request.RejectLoanApplicationRequest;
+import com.finora.loan.dto.decision.response.AdminAssessmentExplanationResponse;
 import com.finora.loan.dto.decision.response.AdminLoanDecisionResponse;
 import com.finora.loan.dto.decision.response.AdminLoanReviewDetailResponse;
 import com.finora.loan.dto.decision.response.AdminLoanReviewSummaryResponse;
+import com.finora.loan.dto.response.PageResponse;
+import com.finora.loan.exception.LoanBusinessException;
+import com.finora.loan.integration.ai.contract.StoredAiCreditResponse;
 import com.finora.loan.mapper.application.LoanApplicationMapper;
 import com.finora.loan.mapper.decision.AdminLoanDecisionMapper;
 import com.finora.loan.mapper.scoring.StoredAiCreditResponseReader;
 import com.finora.loan.repository.application.LoanApplicationRepository;
-import com.finora.loan.dto.decision.response.AdminAssessmentExplanationResponse;
-import com.finora.loan.exception.LoanBusinessException;
-import com.finora.loan.integration.ai.contract.StoredAiCreditResponse;
 import com.finora.loan.repository.application.LoanApplicationStatusHistoryRepository;
 import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
@@ -32,10 +32,7 @@ import com.finora.loan.repository.scoring.CreditScoringAssessmentRepository;
 import com.finora.loan.service.decision.AdminDecisionResult;
 import com.finora.loan.service.decision.AdminLoanDecisionService;
 import com.finora.loan.service.decision.AdminLoanDecisionStateService;
-import com.finora.loan.support.HashingService;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import com.finora.loan.util.HashingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -45,6 +42,17 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+/**
+ * Use case dành cho admin đọc evidence và quyết định hồ sơ; AI chỉ cung cấp đầu vào.
+ *
+ * <p>Các bước ghi đi qua {@link AdminLoanDecisionStateService}; request trùng {@code Idempotency-Key} chạm unique key
+ * thì đọc lại quyết định đã commit.</p>
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -52,23 +60,19 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
 
     private static final int HISTORY_LIMIT = 20;
 
-    private final LoanApplicationRepository applicationRepository;
-    private final ScheduleCalculationSnapshotRepository scheduleRepository;
-    private final BorrowerEligibilityCheckRepository eligibilityRepository;
-    private final BorrowerCreditProfileRepository creditProfileRepository;
-    private final CreditScoringAssessmentRepository assessmentRepository;
-    private final LoanApplicationStatusHistoryRepository historyRepository;
-    private final LoanContractRepository contractRepository;
-    private final AdminLoanDecisionStateService stateService;
-    private final AdminLoanDecisionMapper mapper;
-    private final LoanApplicationMapper applicationMapper;
+    private final LoanApplicationRepository loanApplicationRepository;
+    private final ScheduleCalculationSnapshotRepository scheduleCalculationSnapshotRepository;
+    private final BorrowerEligibilityCheckRepository borrowerEligibilityCheckRepository;
+    private final BorrowerCreditProfileRepository borrowerCreditProfileRepository;
+    private final CreditScoringAssessmentRepository creditScoringAssessmentRepository;
+    private final LoanApplicationStatusHistoryRepository loanApplicationStatusHistoryRepository;
+    private final LoanContractRepository loanContractRepository;
+    private final AdminLoanDecisionStateService adminLoanDecisionStateService;
+    private final AdminLoanDecisionMapper adminLoanDecisionMapper;
+    private final LoanApplicationMapper loanApplicationMapper;
     private final HashingService hashingService;
-    private final StoredAiCreditResponseReader snapshotReader;
+    private final StoredAiCreditResponseReader storedAiCreditResponseReader;
 
-    /**
-     * Không truyền trạng thái nghĩa là xem tất cả hồ sơ, nhưng vẫn chỉ đọc một page có giới hạn.
-     * Assessment được tải theo batch để số query không tăng theo số hồ sơ trên trang.
-     */
     @Override
     @Transactional(readOnly = true)
     public PageResponse<AdminLoanReviewSummaryResponse> listApplications(
@@ -76,61 +80,81 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
             int page,
             int size
     ) {
+        return listApplications(status, null, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<AdminLoanReviewSummaryResponse> listApplications(
+            LoanApplicationStatus status,
+            String borrowerId,
+            int page,
+            int size
+    ) {
+        String borrower = borrowerId == null || borrowerId.isBlank() ? null : borrowerId.trim();
         PageRequest pageable = PageRequest.of(
                 page,
                 size,
                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))
         );
-        Page<LoanApplication> applications = status == null
-                ? applicationRepository.findAll(pageable)
-                : applicationRepository.findByStatus(status, pageable);
-        Map<Long, CreditScoringAssessment> assessments = assessmentRepository
+        Page<LoanApplication> applications;
+        if (borrower != null) {
+            applications = status == null
+                    ? loanApplicationRepository.findByBorrowerId(borrower, pageable)
+                    : loanApplicationRepository.findByBorrowerIdAndStatus(borrower, status, pageable);
+        } else {
+            applications = status == null
+                    ? loanApplicationRepository.findAll(pageable)
+                    : loanApplicationRepository.findByStatus(status, pageable);
+        }
+        Map<Long, CreditScoringAssessment> assessments = creditScoringAssessmentRepository
                 .findAllById(applications.getContent().stream()
                         .map(LoanApplication::getLatestCreditAssessmentId)
                         .filter(java.util.Objects::nonNull)
                         .toList())
                 .stream()
                 .collect(Collectors.toMap(CreditScoringAssessment::getId, Function.identity()));
-        return PageResponse.from(applications.map(application -> mapper.toSummary(
+        return PageResponse.from(applications.map(application -> adminLoanDecisionMapper.toSummary(
                 application, assessments.get(application.getLatestCreditAssessmentId()))));
     }
 
-    /**
-     * Detail dùng số query cố định và chỉ đọc snapshot local; không gọi User, AI hoặc Fineract.
-     * Số hợp đồng lấy bằng một query theo khóa duy nhất {@code application_id}, không tải cả Contract.
-     */
     @Override
     @Transactional(readOnly = true)
     public AdminLoanReviewDetailResponse reviewDetail(String applicationNumber) {
         LoanApplication application = application(applicationNumber);
-        ScheduleCalculationSnapshot initialSchedule = scheduleRepository.findByApplicationIdAndPurpose(
-                        application.getId(), ScheduleCalculationPurpose.SUBMISSION_SCORING)
+        ScheduleCalculationSnapshot initialSchedule = scheduleCalculationSnapshotRepository
+                .findByApplicationIdAndPurpose(application.getId(), ScheduleCalculationPurpose.SUBMISSION_SCORING)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Schedule Calculation Snapshot", "applicationId", application.getId()));
-        ScheduleCalculationSnapshot finalSchedule = scheduleRepository.findByApplicationIdAndPurpose(
+        ScheduleCalculationSnapshot finalSchedule = scheduleCalculationSnapshotRepository.findByApplicationIdAndPurpose(
                         application.getId(), ScheduleCalculationPurpose.CONTRACT)
                 .orElse(null);
-        BorrowerEligibilityCheck eligibility = eligibilityRepository
+        BorrowerEligibilityCheck eligibility = borrowerEligibilityCheckRepository
                 .findFirstByApplicationIdOrderByCreatedAtDescIdDesc(application.getId())
                 .orElse(null);
-        BorrowerCreditProfile creditProfile = creditProfileRepository
+        BorrowerCreditProfile creditProfile = borrowerCreditProfileRepository
                 .findByBorrowerId(application.getBorrowerId())
                 .orElse(null);
         CreditScoringAssessment assessment = application.getLatestCreditAssessmentId() == null
                 ? null
-                : assessmentRepository.findByIdAndApplicationId(
+                : creditScoringAssessmentRepository.findByIdAndApplicationId(
                         application.getLatestCreditAssessmentId(), application.getId()).orElse(null);
-        var history = historyRepository.findByLoanApplicationId(
+        var history = loanApplicationStatusHistoryRepository.findByLoanApplicationId(
                         application.getId(),
                         PageRequest.of(0, HISTORY_LIMIT,
                                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))))
-                .map(applicationMapper::toHistoryResponse)
+                .map(loanApplicationMapper::toHistoryResponse)
                 .getContent();
-        String contractNumber = contractRepository.findContractNumberByApplicationId(application.getId())
+        String contractNumber = loanContractRepository.findContractNumberByApplicationId(application.getId())
                 .orElse(null);
-        return mapper.toDetail(
+        // Lý do chuyển thẩm định chỉ nằm trong snapshot response AI đã lưu; snapshot cũ không có thì để rỗng.
+        StoredAiCreditResponse snapshot = assessment == null ? null : storedAiCreditResponseReader.read(assessment);
+        List<String> reviewReasons = snapshot == null || snapshot.reviewReasons() == null
+                ? List.of()
+                : snapshot.reviewReasons();
+        return adminLoanDecisionMapper.toDetail(
                 application, initialSchedule, finalSchedule, eligibility, creditProfile, assessment, history,
-                contractNumber);
+                contractNumber, reviewReasons);
     }
 
     @Override
@@ -142,14 +166,14 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
                     "Credit Scoring Assessment", "applicationNumber", applicationNumber);
         }
 
-        CreditScoringAssessment assessment = assessmentRepository
+        CreditScoringAssessment assessment = creditScoringAssessmentRepository
                 .findByIdAndApplicationId(application.getLatestCreditAssessmentId(), application.getId())
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Credit Scoring Assessment", "applicationNumber", applicationNumber));
 
         // Lần chấm hỏng hoặc đang chờ thì chưa có gì để giải thích. Phân biệt với hồ sơ
         // chưa từng chấm ở trên để admin biết nên đợi hay nên yêu cầu chấm lại.
-        StoredAiCreditResponse snapshot = snapshotReader.read(assessment);
+        StoredAiCreditResponse snapshot = storedAiCreditResponseReader.read(assessment);
         if (snapshot == null) {
             throw LoanBusinessException.badRequest(
                     "ASSESSMENT_EXPLANATION_UNAVAILABLE",
@@ -178,14 +202,14 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
         String requestHash = hashingService.sha256(new DecisionFingerprint("APPROVE", request));
         AdminDecisionResult result = executeWithDuplicateRecovery(
                 applicationNumber, normalizedKey, requestHash,
-                () -> stateService.approve(
+                () -> adminLoanDecisionStateService.approve(
                         applicationNumber, normalizedKey, requestHash, request, adminId));
         log.info("Admin đã duyệt hồ sơ: applicationNumber={}, contractNumber={}, termsConfirmationStatus={}, actorId={}",
                 applicationNumber,
                 result.contract() == null ? null : result.contract().getContractNumber(),
                 result.application().getTermsConfirmationStatus(),
                 adminId);
-        return mapper.toDecision(result.application(), result.contract());
+        return adminLoanDecisionMapper.toDecision(result.application(), result.contract());
     }
 
     @Override
@@ -200,11 +224,11 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
         String requestHash = hashingService.sha256(new DecisionFingerprint("REJECT", request));
         AdminDecisionResult result = executeWithDuplicateRecovery(
                 applicationNumber, normalizedKey, requestHash,
-                () -> stateService.reject(
+                () -> adminLoanDecisionStateService.reject(
                         applicationNumber, normalizedKey, requestHash, request, adminId));
         log.info("Admin đã từ chối hồ sơ: applicationNumber={}, reasonCode={}, actorId={}",
                 applicationNumber, request.reasonCode(), adminId);
-        return mapper.toDecision(result.application(), null);
+        return adminLoanDecisionMapper.toDecision(result.application(), null);
     }
 
     private AdminDecisionResult executeWithDuplicateRecovery(
@@ -216,7 +240,7 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
         try {
             return command.get();
         } catch (DataIntegrityViolationException conflict) {
-            AdminDecisionResult committed = stateService.findCommittedByKey(
+            AdminDecisionResult committed = adminLoanDecisionStateService.findCommittedByKey(
                     applicationNumber, idempotencyKey, requestHash);
             if (committed != null
                     && committed.application().getApplicationNumber().equals(applicationNumber)) {
@@ -227,7 +251,7 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
     }
 
     private LoanApplication application(String applicationNumber) {
-        return applicationRepository.findByApplicationNumber(applicationNumber)
+        return loanApplicationRepository.findByApplicationNumber(applicationNumber)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Loan Application", "applicationNumber", applicationNumber));
     }

@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class RepaymentPreviewMapper {
 
-    private final LoanPricingDisclosureProperties disclosureProperties;
+    private final LoanPricingDisclosureProperties loanPricingDisclosureProperties;
 
     public RepaymentPreviewResponse toResponse(long productId, ScheduleCalculationResult result) {
         return new RepaymentPreviewResponse(
@@ -20,7 +20,7 @@ public class RepaymentPreviewMapper {
                 result.amount(),
                 result.termMonths(),
                 result.annualInterestRate(),
-                disclosureProperties.interestRateUnit(),
+                loanPricingDisclosureProperties.interestRateUnit(),
                 result.repaymentMethod(),
                 result.estimatedDisbursementDate(),
                 result.firstInstallment(),

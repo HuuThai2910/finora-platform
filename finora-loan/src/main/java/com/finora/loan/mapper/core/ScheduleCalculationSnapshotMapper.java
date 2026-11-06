@@ -3,24 +3,23 @@ package com.finora.loan.mapper.core;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
+import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
 import com.finora.loan.dto.application.response.ScheduleCalculationSnapshotResponse;
 import com.finora.loan.dto.core.response.SchedulePeriodResponse;
-import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 /** Chuyển snapshot lịch trả đã đóng băng trong Loan DB thành response có kiểu rõ ràng. */
 @Component
+@RequiredArgsConstructor
 public class ScheduleCalculationSnapshotMapper {
 
     private static final TypeReference<List<SchedulePeriodResponse>> PERIOD_LIST_TYPE = new TypeReference<>() {
     };
 
     private final ObjectMapper objectMapper;
-
-    public ScheduleCalculationSnapshotMapper(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
-    }
 
     public ScheduleCalculationSnapshotResponse toResponse(ScheduleCalculationSnapshot snapshot) {
         if (snapshot == null) {

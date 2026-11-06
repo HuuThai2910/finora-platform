@@ -1,7 +1,8 @@
 package com.finora.payment.dto.response;
 
-import com.finora.payment.domain.withdrawal.PaymentWithdrawal;
-import com.finora.payment.domain.withdrawal.WithdrawalStatus;
+import com.finora.payment.domain.withdrawal.entity.PaymentWithdrawal;
+import com.finora.payment.domain.withdrawal.enums.WithdrawalStatus;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;

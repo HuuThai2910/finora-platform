@@ -1,6 +1,6 @@
 package com.finora.investment.service.messaging;
 
-import com.finora.investment.domain.order.InvestmentCommitment;
+import com.finora.investment.domain.order.entity.InvestmentCommitment;
 import com.finora.investment.messaging.event.FundingAllocationEventData;
 
 import java.util.List;

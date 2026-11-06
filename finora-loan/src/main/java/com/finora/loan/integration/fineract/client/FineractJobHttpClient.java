@@ -1,16 +1,18 @@
 package com.finora.loan.integration.fineract.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.finora.loan.integration.fineract.FineractIntegrationException;
 import com.finora.loan.integration.fineract.contract.FineractJob;
 import com.finora.loan.integration.fineract.contract.FineractJobRun;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
-import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
 /**
  * Adapter đọc job lập lịch của Fineract 1.15 (W3E, D57).
@@ -22,18 +24,18 @@ import org.springframework.web.client.RestClient;
 @Component
 public class FineractJobHttpClient implements FineractJobGateway {
 
-    private final RestClient client;
-    private final FineractRequestExecutor executor;
+    private final RestClient restClient;
+    private final FineractRequestExecutor fineractRequestExecutor;
 
-    public FineractJobHttpClient(RestClient fineractRestClient, FineractRequestExecutor executor) {
-        this.client = fineractRestClient;
-        this.executor = executor;
+    public FineractJobHttpClient(RestClient fineractRestClient, FineractRequestExecutor fineractRequestExecutor) {
+        this.restClient = fineractRestClient;
+        this.fineractRequestExecutor = fineractRequestExecutor;
     }
 
     @Override
     public List<FineractJob> listJobs() {
-        JsonNode jobs = call(() -> client.get().uri("/jobs")
-                .headers(executor::authenticate).retrieve().body(JsonNode.class));
+        JsonNode jobs = call(() -> restClient.get().uri("/jobs")
+                .headers(fineractRequestExecutor::authenticate).retrieve().body(JsonNode.class));
         if (jobs == null || !jobs.isArray()) {
             throw invalid("Fineract không trả danh sách job");
         }
@@ -52,14 +54,14 @@ public class FineractJobHttpClient implements FineractJobGateway {
     @Override
     public List<FineractJobRun> recentRuns(long jobId, int limit) {
         // orderBy=id DESC: không có ORDER BY thì PostgreSQL trả theo thứ tự tùy ý, trang đầu có thể chỉ gồm lần chạy cũ.
-        JsonNode page = call(() -> client.get()
+        JsonNode page = call(() -> restClient.get()
                 .uri(builder -> builder.path("/jobs/{jobId}/runhistory")
                         .queryParam("offset", 0)
                         .queryParam("limit", limit)
                         .queryParam("orderBy", "id")
                         .queryParam("sortOrder", "DESC")
                         .build(jobId))
-                .headers(executor::authenticate).retrieve().body(JsonNode.class));
+                .headers(fineractRequestExecutor::authenticate).retrieve().body(JsonNode.class));
         if (page == null || !page.path("pageItems").isArray()) {
             throw invalid("Fineract không trả lịch sử chạy job");
         }
@@ -79,7 +81,7 @@ public class FineractJobHttpClient implements FineractJobGateway {
         } catch (FineractIntegrationException exception) {
             throw exception;
         } catch (RuntimeException exception) {
-            throw executor.mapException(exception);
+            throw fineractRequestExecutor.mapException(exception);
         }
     }
 

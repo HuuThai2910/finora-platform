@@ -1,16 +1,17 @@
 package com.finora.investment.repository;
 
-import com.finora.investment.domain.note.InvestmentNote;
 import com.finora.common.enums.investment.NoteStatus;
-import java.math.BigDecimal;
-import java.util.List;
+import com.finora.investment.domain.note.entity.InvestmentNote;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import jakarta.persistence.LockModeType;
+
+import java.math.BigDecimal;
+import java.util.List;
 
 public interface InvestmentNoteRepository extends JpaRepository<InvestmentNote, Long> {
 

@@ -21,13 +21,13 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class OrderIncidentServiceImpl implements OrderIncidentService {
 
-    private final InvestmentOrderRepository orders;
-    private final OrderTransactionService transactions;
+    private final InvestmentOrderRepository investmentOrderRepository;
+    private final OrderTransactionService orderTransactionService;
 
     @Override
     @Transactional(readOnly = true)
     public PageResponse<OrderIncidentResponse> list(int page, int size) {
-        Page<OrderIncidentResponse> result = orders.findIncidents(ATTEMPT_THRESHOLD, PageRequest.of(page, size))
+        Page<OrderIncidentResponse> result = investmentOrderRepository.findIncidents(ATTEMPT_THRESHOLD, PageRequest.of(page, size))
                 .map(OrderIncidentResponse::from);
         return PageResponse.<OrderIncidentResponse>builder()
                 .content(result.getContent()).page(result.getNumber()).size(result.getSize())
@@ -37,7 +37,7 @@ public class OrderIncidentServiceImpl implements OrderIncidentService {
 
     @Override
     public OrderIncidentResponse retry(String orderReference) {
-        var order = transactions.retryIncident(orderReference);
+        var order = orderTransactionService.retryIncident(orderReference);
         log.warn("Admin hẹn worker thử lại lệnh góp vốn: orderReference={}, status={}, releaseErrorCode={}",
                 order.getOrderReference(), order.getStatus(), order.getReleaseErrorCode());
         return OrderIncidentResponse.from(order);

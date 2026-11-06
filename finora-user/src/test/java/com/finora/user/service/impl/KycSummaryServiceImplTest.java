@@ -1,15 +1,12 @@
 package com.finora.user.service.impl;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-
 import com.finora.common.enums.user.EkycStatus;
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.user.domain.UserProfile;
+import com.finora.user.domain.entity.UserProfile;
 import com.finora.user.dto.response.KycSummaryResponse;
 import com.finora.user.repository.UserProfileRepository;
+import org.junit.jupiter.api.Test;
+
 import java.lang.reflect.RecordComponent;
 import java.time.Clock;
 import java.time.Instant;
@@ -18,7 +15,11 @@ import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.UUID;
-import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /** W2-KYC: tóm tắt eKYC cho Loan chỉ có trạng thái và tuổi theo ngày Việt Nam, không có dữ liệu định danh. */
 class KycSummaryServiceImplTest {
@@ -28,7 +29,7 @@ class KycSummaryServiceImplTest {
     private static final UUID KEYCLOAK_ID = UUID.fromString("6f1c8a2e-0000-4000-8000-000000000042");
 
     private final UserProfileRepository repository = mock(UserProfileRepository.class);
-    private final KycSummaryServiceImpl service = new KycSummaryServiceImpl(repository, CLOCK);
+    private final KycSummaryServiceImpl service = new KycSummaryServiceImpl(repository, org.mockito.Mockito.mock(com.finora.user.repository.EkycAttemptRepository.class), CLOCK);
 
     @Test
     void returnsStatusAndAgeOnTheVietnameseDate() {

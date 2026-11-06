@@ -1,6 +1,6 @@
 package com.finora.investment.service.orderbook;
-
-import com.finora.investment.domain.orderbook.SettlementStatus;
+import com.finora.investment.domain.orderbook.enums.SettlementStatus;
+import com.finora.investment.dto.response.AdminNoteOwnershipResponse;
 import com.finora.investment.dto.response.AdminTradeResponse;
 import com.finora.investment.dto.response.OrderBookAdminSummaryResponse;
 import org.springframework.data.domain.Page;
@@ -15,4 +15,13 @@ public interface OrderBookAdminService {
     Page<AdminTradeResponse> trades(SettlementStatus status, Pageable pageable);
 
     OrderBookAdminSummaryResponse summary();
+
+    /**
+     * Gửi thanh toán lại một lần khớp "Cần đối soát" ({@code FAILED}): đưa về hàng chờ để worker gọi Payment lần nữa với
+     * cùng mã (idempotent). Không đảo chủ Note, không tự chuyển tiền ngoài lời gọi Payment đó.
+     */
+    AdminTradeResponse requeueSettlement(String tradeReference);
+
+    /** Các Note đã chuyển trong một lần khớp, kèm người đang giữ và toàn bộ lịch sử chuyển nhượng của từng Note. */
+    java.util.List<AdminNoteOwnershipResponse> tradeNotes(String tradeReference);
 }

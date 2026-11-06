@@ -1,14 +1,15 @@
 package com.finora.notification.repository;
 
-import com.finora.notification.domain.NotificationCategory;
-import com.finora.notification.domain.NotificationPreference;
-import java.time.Instant;
-import java.util.Collection;
-import java.util.List;
+import com.finora.notification.domain.entity.NotificationPreference;
+import com.finora.notification.domain.enums.NotificationCategory;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 
 public interface NotificationPreferenceRepository extends JpaRepository<NotificationPreference, Long> {
 

@@ -1,17 +1,18 @@
 package com.finora.investment.service.impl;
 
-import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
-import com.finora.investment.domain.listing.MarketListing;
+import com.finora.investment.domain.listing.entity.MarketListing;
 import com.finora.investment.exception.InvestmentDomainException;
-import java.time.Instant;
-import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+
+import java.time.Instant;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class InvestorEligibilityImplTest {
 

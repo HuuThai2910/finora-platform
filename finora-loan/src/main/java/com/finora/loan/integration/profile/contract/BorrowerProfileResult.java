@@ -1,8 +1,9 @@
 package com.finora.loan.integration.profile.contract;
 
-import com.finora.loan.domain.scoring.BorrowerKycStatus;
-import com.finora.loan.domain.scoring.BorrowerProfileSource;
-import com.finora.loan.domain.scoring.IncomeVerificationStatus;
+import com.finora.loan.domain.scoring.enums.BorrowerKycStatus;
+import com.finora.loan.domain.scoring.enums.BorrowerProfileSource;
+import com.finora.loan.domain.scoring.enums.IncomeVerificationStatus;
+
 import java.time.Instant;
 import java.time.LocalDate;
 

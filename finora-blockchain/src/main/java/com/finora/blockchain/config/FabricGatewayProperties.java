@@ -1,7 +1,8 @@
 package com.finora.blockchain.config;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
 
 /**
  * Kết nối Fabric Gateway (W3D, D53). Chỉ được đọc khi {@code finora.blockchain.proof.provider=HYPERLEDGER_FABRIC};

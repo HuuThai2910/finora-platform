@@ -1,12 +1,13 @@
 package com.finora.loan.dto.contract.response;
 
-import com.finora.loan.domain.contract.ContractPartyStatus;
-import com.finora.loan.domain.contract.ContractSignatureProfile;
-import com.finora.loan.domain.contract.LoanContractStatus;
-import java.time.Instant;
+import com.finora.loan.domain.contract.enums.ContractPartyStatus;
+import com.finora.loan.domain.contract.enums.ContractSignatureProfile;
+import com.finora.loan.domain.contract.enums.LoanContractStatus;
+import com.finora.loan.domain.contract.enums.SignatureMethod;
+import com.finora.loan.domain.contract.enums.SignatureProviderType;
+
 import java.math.BigDecimal;
-import com.finora.loan.domain.contract.SignatureMethod;
-import com.finora.loan.domain.contract.SignatureProviderType;
+import java.time.Instant;
 
 /**
  * {@code pdfDocumentHash} là hash của PDF tải tại {@code /document}: SIGNABLE khi còn chờ ký (client gửi lại khi đồng ý

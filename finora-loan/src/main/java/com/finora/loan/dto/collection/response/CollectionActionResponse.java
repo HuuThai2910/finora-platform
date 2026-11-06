@@ -1,6 +1,7 @@
 package com.finora.loan.dto.collection.response;
 
-import com.finora.loan.domain.collection.CollectionActionType;
+import com.finora.loan.domain.collection.enums.CollectionActionType;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;

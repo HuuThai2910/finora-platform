@@ -3,7 +3,7 @@ package com.finora.investment.service.outbox.impl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.common.logging.TraceContext;
-import com.finora.investment.domain.outbox.InvestmentOutboxEvent;
+import com.finora.investment.domain.outbox.entity.InvestmentOutboxEvent;
 import com.finora.investment.repository.InvestmentOutboxEventRepository;
 import com.finora.investment.service.outbox.InvestmentOutboxService;
 import lombok.RequiredArgsConstructor;
@@ -15,11 +15,16 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Ghi event vào bảng outbox trong cùng transaction với thay đổi nghiệp vụ, để event không mất khi Kafka lỗi.
+ * <p>
+ * Bắt buộc đã có transaction ({@code Propagation.MANDATORY}); payload ghi dạng JSON kèm trace id hiện tại.
+ */
 @Service
 @RequiredArgsConstructor
 public class InvestmentOutboxServiceImpl implements InvestmentOutboxService {
 
-    private final InvestmentOutboxEventRepository repository;
+    private final InvestmentOutboxEventRepository investmentOutboxEventRepository;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
@@ -34,7 +39,7 @@ public class InvestmentOutboxServiceImpl implements InvestmentOutboxService {
     ) {
         Instant now = clock.instant();
         UUID eventId = UUID.randomUUID();
-        repository.save(InvestmentOutboxEvent.create(
+        investmentOutboxEventRepository.save(InvestmentOutboxEvent.create(
                 eventId, aggregateType, aggregateId, eventType, eventVersion,
                 toJson(payload), TraceContext.currentTraceIdOrCreate(), now));
         return eventId;

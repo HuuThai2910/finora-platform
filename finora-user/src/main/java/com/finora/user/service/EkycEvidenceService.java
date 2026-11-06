@@ -1,8 +1,8 @@
 package com.finora.user.service;
 
-import com.finora.user.client.AiLivenessClient.EvidenceFrame;
-import com.finora.user.domain.EkycEvidenceKind;
-import com.finora.user.domain.EkycEvidenceStage;
+import com.finora.user.domain.enums.EkycEvidenceKind;
+import com.finora.user.domain.enums.EkycEvidenceStage;
+import com.finora.user.integration.ai.client.AiLivenessClient.EvidenceFrame;
 import com.finora.user.integration.storage.StoredObject;
 
 import java.util.Collection;

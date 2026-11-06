@@ -1,9 +1,9 @@
 package com.finora.investment.service.orderbook.impl;
 
-import com.finora.investment.client.PaymentClient;
-import com.finora.investment.client.PaymentTransferResult;
-import com.finora.investment.domain.orderbook.BookOrder;
-import com.finora.investment.domain.orderbook.BookTrade;
+import com.finora.investment.domain.orderbook.entity.BookOrder;
+import com.finora.investment.domain.orderbook.entity.BookTrade;
+import com.finora.investment.integration.payment.client.PaymentClient;
+import com.finora.investment.integration.payment.contract.PaymentTransferResult;
 import com.finora.investment.repository.BookOrderRepository;
 import com.finora.investment.repository.BookTradeRepository;
 import com.finora.investment.service.orderbook.OrderBookSettlementService;
@@ -37,8 +37,8 @@ import java.util.stream.Collectors;
 @Service
 public class OrderBookSettlementServiceImpl implements OrderBookSettlementService {
 
-    private final BookTradeRepository tradeRepository;
-    private final BookOrderRepository orderRepository;
+    private final BookTradeRepository bookTradeRepository;
+    private final BookOrderRepository bookOrderRepository;
     private final PaymentClient paymentClient;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
@@ -46,15 +46,15 @@ public class OrderBookSettlementServiceImpl implements OrderBookSettlementServic
     private final Duration maximumBackoff;
 
     public OrderBookSettlementServiceImpl(
-            BookTradeRepository tradeRepository,
-            BookOrderRepository orderRepository,
+            BookTradeRepository bookTradeRepository,
+            BookOrderRepository bookOrderRepository,
             PaymentClient paymentClient,
             PlatformTransactionManager transactionManager,
             Clock clock,
             @Value("${finora.investment.order-book.settlement.retry-backoff:5s}") Duration retryBackoff,
             @Value("${finora.investment.order-book.settlement.maximum-backoff:5m}") Duration maximumBackoff) {
-        this.tradeRepository = tradeRepository;
-        this.orderRepository = orderRepository;
+        this.bookTradeRepository = bookTradeRepository;
+        this.bookOrderRepository = bookOrderRepository;
         this.paymentClient = paymentClient;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.clock = clock;
@@ -64,12 +64,12 @@ public class OrderBookSettlementServiceImpl implements OrderBookSettlementServic
 
     @Override
     public int settleDue(int batchSize) {
-        List<BookTrade> due = tradeRepository.findSettlementDue(clock.instant(), PageRequest.of(0, batchSize));
+        List<BookTrade> due = bookTradeRepository.findSettlementDue(clock.instant(), PageRequest.of(0, batchSize));
         if (due.isEmpty()) {
             return 0;
         }
         // Đọc lệnh mua của cả lô trong một truy vấn, không mỗi giao dịch một lần.
-        Map<Long, BookOrder> bids = orderRepository
+        Map<Long, BookOrder> bids = bookOrderRepository
                 .findAllById(due.stream().map(BookTrade::getBidOrderId).distinct().toList())
                 .stream().collect(Collectors.toMap(BookOrder::getId, Function.identity()));
 
@@ -88,7 +88,7 @@ public class OrderBookSettlementServiceImpl implements OrderBookSettlementServic
     @Override
     public int releaseFinished(int batchSize) {
         int released = 0;
-        for (BookOrder order : orderRepository.findReleasePending(PageRequest.of(0, batchSize))) {
+        for (BookOrder order : bookOrderRepository.findReleasePending(PageRequest.of(0, batchSize))) {
             try {
                 paymentClient.release(order.getHoldReference(), order.getOrderReference());
             } catch (RuntimeException failure) {
@@ -97,7 +97,7 @@ public class OrderBookSettlementServiceImpl implements OrderBookSettlementServic
                         order.getOrderReference(), failure.getClass().getName());
                 continue;
             }
-            transactionTemplate.executeWithoutResult(status -> orderRepository.findById(order.getId())
+            transactionTemplate.executeWithoutResult(status -> bookOrderRepository.findById(order.getId())
                     .filter(BookOrder::needsHoldRelease)
                     .ifPresent(fresh -> fresh.markHoldReleased(clock.instant())));
             released++;
@@ -126,7 +126,7 @@ public class OrderBookSettlementServiceImpl implements OrderBookSettlementServic
 
     private void record(Long tradeId, PaymentTransferResult result) {
         transactionTemplate.executeWithoutResult(status -> {
-            BookTrade trade = tradeRepository.findById(tradeId).orElseThrow();
+            BookTrade trade = bookTradeRepository.findById(tradeId).orElseThrow();
             var now = clock.instant();
             if (result.isSuccess()) {
                 trade.markSettled(now);

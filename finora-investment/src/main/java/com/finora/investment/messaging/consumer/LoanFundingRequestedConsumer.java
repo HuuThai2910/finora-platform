@@ -1,16 +1,13 @@
 package com.finora.investment.messaging.consumer;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finora.investment.messaging.event.KafkaEventEnvelope;
+import com.finora.common.messaging.KafkaEvent;
+import com.finora.common.messaging.KafkaEventContract;
+import com.finora.common.messaging.KafkaEventReader;
 import com.finora.investment.messaging.event.LoanFundingRequestedEventData;
 import com.finora.investment.service.messaging.LoanFundingRequestedHandler;
-import java.time.Instant;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.messaging.handler.annotation.Header;
-import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
 /** Nhận đúng `LoanFundingRequested.v1`; type/version khác bị fail closed để vào retry/DLT. */
@@ -18,48 +15,14 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class LoanFundingRequestedConsumer {
 
-    private static final String EVENT_TYPE = "LoanFundingRequested";
-    private static final int EVENT_VERSION = 1;
+    private static final KafkaEventContract CONTRACT = KafkaEventContract.of("LoanFundingRequested", 1);
 
-    private final ObjectMapper objectMapper;
-    private final LoanFundingRequestedHandler handler;
+    private final KafkaEventReader kafkaEventReader;
+    private final LoanFundingRequestedHandler loanFundingRequestedHandler;
 
     @KafkaListener(topics = "${finora.investment.kafka.funding-requested-topic}")
-    public void consume(
-            @Payload String payload,
-            @Header(name = "finora-event-id", required = false) String eventIdHeader,
-            @Header(name = "finora-event-type", required = false) String eventTypeHeader,
-            @Header(name = "finora-event-version", required = false) String eventVersionHeader
-    ) {
-        try {
-            KafkaEventEnvelope envelope = objectMapper.readValue(payload, KafkaEventEnvelope.class);
-            requireContract(envelope, eventIdHeader, eventTypeHeader, eventVersionHeader);
-            LoanFundingRequestedEventData data = objectMapper.treeToValue(
-                    envelope.data(), LoanFundingRequestedEventData.class);
-            handler.handle(envelope.eventId(), Instant.parse(envelope.occurredAt()), data);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalArgumentException("LoanFundingRequested không đúng JSON contract", exception);
-        }
-    }
-
-    private void requireContract(
-            KafkaEventEnvelope envelope,
-            String eventIdHeader,
-            String eventTypeHeader,
-            String eventVersionHeader
-    ) {
-        if (envelope == null || envelope.eventId() == null || envelope.data() == null
-                || envelope.version() != EVENT_VERSION) {
-            throw new IllegalArgumentException("LoanFundingRequested envelope/version không hợp lệ");
-        }
-        if (eventTypeHeader != null && !EVENT_TYPE.equals(eventTypeHeader)) {
-            throw new IllegalArgumentException("Kafka event type không khớp LoanFundingRequested");
-        }
-        if (eventVersionHeader != null && Integer.parseInt(eventVersionHeader) != EVENT_VERSION) {
-            throw new IllegalArgumentException("Kafka event version header không hợp lệ");
-        }
-        if (eventIdHeader != null && !UUID.fromString(eventIdHeader).equals(envelope.eventId())) {
-            throw new IllegalArgumentException("Kafka eventId header không khớp envelope");
-        }
+    public void consume(ConsumerRecord<String, String> record) {
+        KafkaEvent<LoanFundingRequestedEventData> event = kafkaEventReader.read(record, CONTRACT, LoanFundingRequestedEventData.class);
+        loanFundingRequestedHandler.handle(event.eventId(), event.occurredAt(), event.data());
     }
 }

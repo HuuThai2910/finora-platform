@@ -48,14 +48,14 @@ public class UserStatisticsRepository {
             GROUP BY 1
             """;
 
-    private final NamedParameterJdbcTemplate jdbcTemplate;
+    private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
 
     /** Số hồ sơ tạo mới mỗi cột, tách theo vai trò hiện tại. Chỉ trả cột có dữ liệu. */
     public List<RegistrationBucketRow> countRegistrations(StatisticsPeriod period) {
         MapSqlParameterSource params = periodParams(period)
                 .addValue("borrower", UserRole.BORROWER.name())
                 .addValue("investor", UserRole.INVESTOR.name());
-        return jdbcTemplate.query(REGISTRATIONS_SQL, params, (rs, rowNum) -> new RegistrationBucketRow(
+        return namedParameterJdbcTemplate.query(REGISTRATIONS_SQL, params, (rs, rowNum) -> new RegistrationBucketRow(
                 rs.getObject("bucket_start", LocalDate.class),
                 rs.getLong("registered"),
                 rs.getLong("borrowers"),
@@ -67,7 +67,7 @@ public class UserStatisticsRepository {
         MapSqlParameterSource params = periodParams(period)
                 .addValue("verified", EkycStatus.VERIFIED.name())
                 .addValue("failed", EkycStatus.FAILED.name());
-        return jdbcTemplate.query(EKYC_SQL, params, (rs, rowNum) -> new EkycBucketRow(
+        return namedParameterJdbcTemplate.query(EKYC_SQL, params, (rs, rowNum) -> new EkycBucketRow(
                 rs.getObject("bucket_start", LocalDate.class),
                 rs.getLong("verified"),
                 rs.getLong("failed")));

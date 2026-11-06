@@ -3,59 +3,59 @@ package com.finora.loan.service.contract.impl;
 import com.finora.common.logging.TraceContext;
 import com.finora.loan.config.LoanContractProperties;
 import com.finora.loan.config.PadesSignatureProperties;
-import com.finora.loan.domain.application.ActorType;
-import com.finora.loan.domain.application.LoanApplication;
-import com.finora.loan.domain.contract.LoanContract;
-import com.finora.loan.domain.contract.LoanContractDocument;
-import com.finora.loan.domain.contract.LoanContractStatus;
-import com.finora.loan.domain.contract.LoanContractStatusHistory;
-import com.finora.loan.domain.contract.ContractParty;
-import com.finora.loan.domain.contract.LoanContractTerms;
-import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
-import com.finora.loan.messaging.event.LoanContractCreatedEventData;
+import com.finora.loan.domain.application.entity.LoanApplication;
+import com.finora.loan.domain.application.enums.ActorType;
+import com.finora.loan.domain.contract.entity.ContractParty;
+import com.finora.loan.domain.contract.entity.LoanContract;
+import com.finora.loan.domain.contract.entity.LoanContractDocument;
+import com.finora.loan.domain.contract.entity.LoanContractStatusHistory;
+import com.finora.loan.domain.contract.enums.LoanContractStatus;
+import com.finora.loan.domain.contract.model.LoanContractTerms;
+import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
 import com.finora.loan.messaging.event.InvestorSignatureRequestedEventData;
+import com.finora.loan.messaging.event.LoanContractCreatedEventData;
 import com.finora.loan.repository.contract.ContractPartyRepository;
-import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.contract.LoanContractDocumentRepository;
+import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.contract.LoanContractStatusHistoryRepository;
 import com.finora.loan.service.contract.ContractDocumentRenderer;
+import com.finora.loan.service.contract.ContractNumberGenerator;
 import com.finora.loan.service.contract.ContractPdfArtifact;
 import com.finora.loan.service.contract.ContractPdfRenderer;
-import com.finora.loan.service.contract.ContractTextVersion;
-import com.finora.loan.service.contract.ContractNumberGenerator;
-import com.finora.loan.service.contract.LoanContractCreationService;
-import com.finora.loan.service.contract.LoanServicingContractTerms;
 import com.finora.loan.service.contract.FundedContractAllocation;
+import com.finora.loan.service.contract.LoanContractCreationService;
 import com.finora.loan.service.outbox.OutboxService;
-import com.finora.loan.support.HashingService;
-import java.time.Instant;
-import java.math.BigDecimal;
-import java.util.HashSet;
-import java.util.List;
+import com.finora.loan.util.HashingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.HashSet;
+import java.util.List;
+
+/**
+ * Lập hợp đồng vay từ hồ sơ đã duyệt và lịch trả nợ cuối, gồm văn bản click-wrap và PDF để ký.
+ *
+ * <p>Hợp đồng, PDF, history và outbox được ghi trong cùng transaction.</p>
+ */
 @Service
 @RequiredArgsConstructor
 public class LoanContractCreationServiceImpl implements LoanContractCreationService {
 
-    private final LoanContractRepository contractRepository;
-    private final LoanContractDocumentRepository contractDocumentRepository;
-    private final LoanContractStatusHistoryRepository historyRepository;
-    private final ContractPartyRepository partyRepository;
-    private final ContractNumberGenerator numberGenerator;
-    private final ContractDocumentRenderer documentRenderer;
-    private final ContractPdfRenderer pdfRenderer;
+    private final LoanContractRepository loanContractRepository;
+    private final LoanContractDocumentRepository loanContractDocumentRepository;
+    private final LoanContractStatusHistoryRepository loanContractStatusHistoryRepository;
+    private final ContractPartyRepository contractPartyRepository;
+    private final ContractNumberGenerator contractNumberGenerator;
+    private final ContractDocumentRenderer contractDocumentRenderer;
+    private final ContractPdfRenderer contractPdfRenderer;
     private final HashingService hashingService;
-    private final LoanContractProperties properties;
-    private final PadesSignatureProperties padesProperties;
+    private final LoanContractProperties loanContractProperties;
+    private final PadesSignatureProperties padesSignatureProperties;
     private final OutboxService outboxService;
 
-    /**
-     * Dùng chung cho auto-approve và admin approve để hai luồng không tự dựng tài liệu khác nhau.
-     * Unique application_id là chốt chặn cuối nếu hai worker cạnh tranh tạo cùng hợp đồng.
-     */
     @Override
     @Transactional
     public LoanContract create(
@@ -67,14 +67,14 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
             String reasonCode,
             Instant now
     ) {
-        LoanContract existing = contractRepository.findByApplicationId(application.getId()).orElse(null);
+        LoanContract existing = loanContractRepository.findByApplicationId(application.getId()).orElse(null);
         if (existing != null) {
             return existing;
         }
-        String contractNumber = numberGenerator.next();
+        String contractNumber = contractNumberGenerator.next();
         // Văn bản theo cách tính lãi của sản phẩm core trên hồ sơ (Q3): V4 nhận điều 4 tính lãi theo ngày.
-        ContractTextVersion textVersion = ContractTextVersion.of(application, properties);
-        String documentContent = documentRenderer.render(
+        ContractTextVersion textVersion = ContractTextVersion.of(application, loanContractProperties);
+        String documentContent = contractDocumentRenderer.render(
                 contractNumber,
                 application,
                 finalSchedule,
@@ -82,7 +82,7 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
                 textVersion.documentVersion(),
                 expiresAt
         );
-        ContractPdfArtifact pdf = pdfRenderer.renderSignable(
+        ContractPdfArtifact pdf = contractPdfRenderer.renderSignable(
                 contractNumber, application, finalSchedule, textVersion.termsVersion(), expiresAt);
         LoanContract contract = LoanContract.create(
                 contractNumber,
@@ -99,12 +99,12 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
         );
         // Văn bản vừa render in điều 4 với biểu phí này; Payment tính phí trả trước theo đúng giá trị lưu ở đây.
         contract.recordEarlySettlementPolicy(LoanServicingContractTerms.EARLY_SETTLEMENT_POLICY_VERSION);
-        contractRepository.saveAndFlush(contract);
-        contractDocumentRepository.saveAndFlush(LoanContractDocument.create(
+        loanContractRepository.saveAndFlush(contract);
+        loanContractDocumentRepository.saveAndFlush(LoanContractDocument.create(
                 contract.getId(), pdf.artifactType(), pdf.documentVersion(), pdf.contentHash(),
                 pdf.content(), now
         ));
-        historyRepository.saveAndFlush(LoanContractStatusHistory.create(
+        loanContractStatusHistoryRepository.saveAndFlush(LoanContractStatusHistory.create(
                 contract.getId(), null, LoanContractStatus.PENDING_SIGNATURE, reasonCode,
                 actorType, actorId, now, TraceContext.currentTraceIdOrCreate()
         ));
@@ -155,19 +155,19 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
             String actorId,
             Instant now
     ) {
-        LoanContract existing = contractRepository.findByApplicationId(application.getId()).orElse(null);
+        LoanContract existing = loanContractRepository.findByApplicationId(application.getId()).orElse(null);
         if (existing != null) {
             return existing;
         }
         validateAllocations(application, allocations, allocationVersion, allocationHash);
-        String contractNumber = numberGenerator.next();
-        ContractTextVersion textVersion = ContractTextVersion.of(application, properties);
+        String contractNumber = contractNumberGenerator.next();
+        ContractTextVersion textVersion = ContractTextVersion.of(application, loanContractProperties);
         // R5/D13: cách ký chốt lúc lập Contract; tắt PAdES chỉ ảnh hưởng hợp đồng mới, không đổi hợp đồng đang ký.
-        boolean pades = padesProperties.isEnabled();
-        String documentContent = documentRenderer.renderFunded(
+        boolean pades = padesSignatureProperties.isEnabled();
+        String documentContent = contractDocumentRenderer.renderFunded(
                 contractNumber, application, finalSchedule, textVersion.termsVersion(),
                 textVersion.documentVersion(), expiresAt, allocations, allocationVersion, allocationHash);
-        ContractPdfArtifact pdf = pdfRenderer.renderFundedSignable(
+        ContractPdfArtifact pdf = contractPdfRenderer.renderFundedSignable(
                 contractNumber, application, finalSchedule, textVersion.termsVersion(),
                 expiresAt, allocations, allocationVersion, allocationHash, pades);
         LoanContract contract = LoanContract.create(
@@ -179,17 +179,17 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
         if (pades) {
             contract.usePadesSignatures();
         }
-        contractRepository.saveAndFlush(contract);
-        partyRepository.save(ContractParty.borrower(contract.getId(), application.getBorrowerId(), now));
-        partyRepository.saveAll(allocations.stream()
+        loanContractRepository.saveAndFlush(contract);
+        contractPartyRepository.save(ContractParty.borrower(contract.getId(), application.getBorrowerId(), now));
+        contractPartyRepository.saveAll(allocations.stream()
                 .map(allocation -> ContractParty.lender(
                         contract.getId(), allocation.commitmentId(), allocation.investorId(),
                         allocation.amount(), allocation.sharePercent(), allocation.paymentHoldReference(), now))
                 .toList());
-        partyRepository.flush();
-        contractDocumentRepository.saveAndFlush(LoanContractDocument.create(
+        contractPartyRepository.flush();
+        loanContractDocumentRepository.saveAndFlush(LoanContractDocument.create(
                 contract.getId(), pdf.artifactType(), pdf.documentVersion(), pdf.contentHash(), pdf.content(), now));
-        historyRepository.saveAndFlush(LoanContractStatusHistory.create(
+        loanContractStatusHistoryRepository.saveAndFlush(LoanContractStatusHistory.create(
                 contract.getId(), null, LoanContractStatus.PENDING_LENDER_SIGNATURES,
                 "FULLY_FUNDED_CONTRACT_CREATED", ActorType.SYSTEM, actorId, now,
                 TraceContext.currentTraceIdOrCreate()));

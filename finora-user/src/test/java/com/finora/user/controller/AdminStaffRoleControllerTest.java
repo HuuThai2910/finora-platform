@@ -1,7 +1,7 @@
 package com.finora.user.controller;
 
 import com.finora.common.security.ops.OpsFunction;
-import com.finora.user.domain.StaffRoleDefinition;
+import com.finora.user.domain.model.StaffRoleDefinition;
 import com.finora.user.repository.UserProfileRepository;
 import com.finora.user.service.KeycloakAdminService;
 import com.finora.user.service.StaffRoleService;

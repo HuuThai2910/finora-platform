@@ -1,7 +1,8 @@
 package com.finora.loan.dto.restructure.response;
 
-import com.finora.loan.domain.restructure.LoanRescheduleStatus;
-import com.finora.loan.domain.restructure.LoanRescheduleType;
+import com.finora.loan.domain.restructure.enums.LoanRescheduleStatus;
+import com.finora.loan.domain.restructure.enums.LoanRescheduleType;
+
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;

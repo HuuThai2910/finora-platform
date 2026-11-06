@@ -1,16 +1,16 @@
 package com.finora.user.service.impl;
 
 import com.finora.user.config.EkycStorageProperties;
-import com.finora.user.domain.EkycAttempt;
-import com.finora.user.domain.EkycAttemptStatus;
-import com.finora.user.domain.EkycDocumentDecision;
-import com.finora.user.domain.EkycEvidence;
-import com.finora.user.domain.EkycEvidenceKind;
-import com.finora.user.domain.EkycEvidenceStage;
+import com.finora.user.domain.entity.EkycAttempt;
+import com.finora.user.domain.entity.EkycEvidence;
+import com.finora.user.domain.enums.EkycAttemptStatus;
+import com.finora.user.domain.enums.EkycDocumentDecision;
+import com.finora.user.domain.enums.EkycEvidenceKind;
+import com.finora.user.domain.enums.EkycEvidenceStage;
 import com.finora.user.repository.EkycAttemptRepository;
 import com.finora.user.repository.EkycEvidenceRepository;
 import com.finora.user.service.EkycEvidenceService;
-import com.finora.user.support.EkycTestData;
+import com.finora.user.util.EkycTestData;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

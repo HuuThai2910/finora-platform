@@ -1,6 +1,6 @@
 package com.finora.investment.service;
 
-import com.finora.investment.domain.listing.MarketListing;
+import com.finora.investment.domain.listing.entity.MarketListing;
 
 /**
  * Điều kiện để một người dùng được bỏ tiền vào khoản vay, ngoài vai trò INVESTOR đã chặn ở

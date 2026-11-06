@@ -1,18 +1,19 @@
 package com.finora.loan.repository.restructure;
 
-import com.finora.loan.domain.restructure.LoanRescheduleRequest;
-import com.finora.loan.domain.restructure.LoanRescheduleStatus;
+import com.finora.loan.domain.restructure.entity.LoanRescheduleRequest;
+import com.finora.loan.domain.restructure.enums.LoanRescheduleStatus;
 import jakarta.persistence.LockModeType;
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 public interface LoanRescheduleRequestRepository extends JpaRepository<LoanRescheduleRequest, Long> {
     Optional<LoanRescheduleRequest> findByRequestId(UUID requestId);

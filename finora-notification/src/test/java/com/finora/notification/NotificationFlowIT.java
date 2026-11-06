@@ -1,23 +1,22 @@
 package com.finora.notification;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finora.notification.domain.DeferredEventStatus;
-import com.finora.notification.domain.DevicePlatform;
-import com.finora.notification.domain.DeviceRevocationReason;
-import com.finora.notification.domain.InAppNotification;
-import com.finora.notification.domain.NotificationCategory;
-import com.finora.notification.domain.ProcessedEvent;
-import com.finora.notification.domain.PushDelivery;
-import com.finora.notification.domain.PushDeliveryStatus;
-import com.finora.notification.domain.PushDevice;
-import com.finora.notification.domain.PushDeviceStatus;
+import com.finora.common.messaging.FinoraKafkaHeaders;
+import com.finora.notification.domain.entity.InAppNotification;
+import com.finora.notification.domain.entity.ProcessedEvent;
+import com.finora.notification.domain.entity.PushDelivery;
+import com.finora.notification.domain.entity.PushDevice;
+import com.finora.notification.domain.enums.DeferredEventStatus;
+import com.finora.notification.domain.enums.DevicePlatform;
+import com.finora.notification.domain.enums.DeviceRevocationReason;
+import com.finora.notification.domain.enums.NotificationCategory;
+import com.finora.notification.domain.enums.PushDeliveryStatus;
+import com.finora.notification.domain.enums.PushDeviceStatus;
 import com.finora.notification.dto.request.UpdateNotificationPreferencesRequest;
 import com.finora.notification.dto.response.PushDeviceResponse;
-import com.finora.notification.integration.push.PushOutcome;
-import com.finora.notification.integration.push.PushTicket;
+import com.finora.notification.exception.RecipientConflictException;
+import com.finora.notification.integration.push.contract.PushOutcome;
+import com.finora.notification.integration.push.contract.PushTicket;
 import com.finora.notification.messaging.consumer.KafkaEventProcessor;
 import com.finora.notification.repository.DeferredEventRepository;
 import com.finora.notification.repository.DueScheduleRepository;
@@ -33,10 +32,27 @@ import com.finora.notification.service.push.PushDeviceService;
 import com.finora.notification.service.push.PushDispatchService;
 import com.finora.notification.service.push.PushDispatchWorker;
 import com.finora.notification.service.push.PushReceiptWorker;
-import com.finora.notification.service.recipient.RecipientConflictException;
 import com.finora.notification.service.reminder.DueReminderService;
-import com.finora.notification.support.FakePushSender;
-import com.finora.notification.support.MutableClock;
+import com.finora.notification.util.FakePushSender;
+import com.finora.notification.util.MutableClock;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
+
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -53,21 +69,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
-import org.flywaydb.core.Flyway;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Primary;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * R7 trên PostgreSQL 17 thật: intake idempotent theo eventId, bảng tra người nhận, event chờ người nhận, quá hạn theo
@@ -862,8 +866,13 @@ class NotificationFlowIT {
         try {
             String payload = mapper.writeValueAsString(Map.of("eventId", eventId.toString(),
                     "occurredAt", occurredAt.toString(), "version", version, "data", data));
-            return processor.process("test", topic, 0, SEQUENCE.incrementAndGet(), payload, eventId.toString(), type,
-                    Integer.toString(version));
+            ConsumerRecord<String, String> record = new ConsumerRecord<>(topic, 0, SEQUENCE.incrementAndGet(), null,
+                    payload);
+            record.headers().add(FinoraKafkaHeaders.EVENT_ID, eventId.toString().getBytes(StandardCharsets.UTF_8));
+            record.headers().add(FinoraKafkaHeaders.EVENT_TYPE, type.getBytes(StandardCharsets.UTF_8));
+            record.headers().add(FinoraKafkaHeaders.EVENT_VERSION,
+                    Integer.toString(version).getBytes(StandardCharsets.UTF_8));
+            return processor.process("test", record);
         } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
             throw new IllegalStateException(exception);
         }

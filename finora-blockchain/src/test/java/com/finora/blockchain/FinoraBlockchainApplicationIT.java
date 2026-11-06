@@ -1,18 +1,10 @@
 package com.finora.blockchain;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
-import com.finora.blockchain.domain.proof.ProofSubmission;
-import com.finora.blockchain.domain.proof.ProofSubmissionStatus;
-import com.finora.blockchain.domain.proof.ProofType;
-import com.finora.blockchain.messaging.MilestoneProofRegistrar;
-import com.finora.blockchain.messaging.ProofMilestone;
+import com.finora.blockchain.domain.proof.entity.ProofSubmission;
+import com.finora.blockchain.domain.proof.enums.ProofSubmissionStatus;
+import com.finora.blockchain.domain.proof.enums.ProofType;
+import com.finora.blockchain.messaging.consumer.MilestoneProofRegistrar;
+import com.finora.blockchain.messaging.event.ProofMilestone;
 import com.finora.blockchain.repository.proof.ProofSubmissionRepository;
 import com.finora.blockchain.service.proof.ProofRegistrationCommand;
 import com.finora.blockchain.service.proof.ProofSubmissionProcessor;
@@ -20,12 +12,8 @@ import com.finora.blockchain.service.proof.ProofSubmissionService;
 import com.finora.blockchain.service.proof.ProofSubmissionStateService;
 import com.finora.blockchain.service.proof.ProofSubmissionView;
 import com.finora.common.exception.BusinessException;
-import java.time.Instant;
-import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import com.finora.common.messaging.FinoraKafkaHeaders;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,6 +31,22 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * PostgreSQL 17 thật + ledger MOCK (mặc định): migration V2, idempotency hai lớp, đăng ký bốn mốc từ event, ràng buộc
@@ -171,9 +175,9 @@ class FinoraBlockchainApplicationIT {
         String data = "{\"repaymentId\":\"REPAY-LEGACY\",\"loanApplicationId\":77,\"amount\":\"1000000.00\"}";
 
         ProofSubmissionView replay = registrar.register(ProofMilestone.REPAYMENT_DISTRIBUTED,
-                envelope(legacyEvent, data), legacyEvent.toString(), "RepaymentDistributed", "1");
+                record(envelope(legacyEvent, data), legacyEvent.toString(), "RepaymentDistributed", "1"));
         ProofSubmissionView republished = registrar.register(ProofMilestone.REPAYMENT_DISTRIBUTED,
-                envelope(UUID.randomUUID(), data), null, null, null);
+                record(envelope(UUID.randomUUID(), data), null, null, null));
 
         assertThat(replay.proofId()).isEqualTo(republished.proofId());
         assertThat(proofRepository.count()).isEqualTo(1);
@@ -208,11 +212,12 @@ class FinoraBlockchainApplicationIT {
     void adminExploresAndVerifiesTheProofsOfALoan() throws Exception {
         UUID eventId = UUID.randomUUID();
         ProofSubmissionView contract = registrar.register(ProofMilestone.CONTRACT_SIGNED,
-                envelope(eventId, CONTRACT_DATA), eventId.toString(), "LoanContractActivated", "1");
+                record(envelope(eventId, CONTRACT_DATA), eventId.toString(), "LoanContractActivated", "1"));
         UUID repaymentEvent = UUID.randomUUID();
         registrar.register(ProofMilestone.REPAYMENT_DISTRIBUTED,
-                envelope(repaymentEvent, "{\"repaymentId\":\"REPAY-9\",\"loanApplicationId\":123,\"amount\":\"10.00\"}"),
-                null, null, null);
+                record(envelope(repaymentEvent,
+                        "{\"repaymentId\":\"REPAY-9\",\"loanApplicationId\":123,\"amount\":\"10.00\"}"),
+                        null, null, null));
         proofProcessor.process(proofRepository.findByProofId(contract.proofId()).orElseThrow().getId());
 
         mvc.perform(get("/api/v1/blockchain/proofs").param("referenceType", "LOAN_APPLICATION").param("referenceId", "123")
@@ -260,7 +265,7 @@ class FinoraBlockchainApplicationIT {
                 + "\"loanApplicationId\":123,\"listingId\":45,\"documentHash\":\"" + "ab".repeat(32) + "\","
                 + "\"hashAlgorithm\":\"SHA-256\",\"issuedAt\":\"2026-10-29T03:00:00Z\"}";
         ProofSubmissionView document = registrar.register(ProofMilestone.NOTE_TRANSFER_DOCUMENT_ISSUED,
-                envelope(eventId, data), eventId.toString(), "NoteTransferDocumentIssued", "1");
+                record(envelope(eventId, data), eventId.toString(), "NoteTransferDocumentIssued", "1"));
         proofProcessor.process(proofRepository.findByProofId(document.proofId()).orElseThrow().getId());
 
         mvc.perform(get("/api/v1/blockchain/proofs").param("referenceType", "NOTE_TRANSFER_DOCUMENT")
@@ -307,11 +312,13 @@ class FinoraBlockchainApplicationIT {
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
         try (var executor = Executors.newFixedThreadPool(2)) {
-            Future<ProofSubmissionView> a = executor.submit(() -> registerAfterBarrier(first, ready, start));
-            Future<ProofSubmissionView> b = executor.submit(() -> registerAfterBarrier(second, ready, start));
+            Future<ProofSubmissionView> firstRegistration = executor.submit(
+                    () -> registerAfterBarrier(first, ready, start));
+            Future<ProofSubmissionView> secondRegistration = executor.submit(
+                    () -> registerAfterBarrier(second, ready, start));
             ready.await();
             start.countDown();
-            return List.of(a.get(), b.get());
+            return List.of(firstRegistration.get(), secondRegistration.get());
         }
     }
 
@@ -343,5 +350,19 @@ class FinoraBlockchainApplicationIT {
                 VALUES (?, 'finora-loan', ?, 'LoanContract', ?, 'CONTRACT_DOCUMENT', ?, 2, 'HYPERLEDGER_FABRIC',
                     'PENDING', 0, now() - interval '1 minute', 0, now(), now(), 321)
                 """, proofId, UUID.randomUUID(), contractNumber, "8".repeat(64));
+    }
+
+    private static ConsumerRecord<String, String> record(String payload, String id, String type, String version) {
+        ConsumerRecord<String, String> record = new ConsumerRecord<>("finora.test", 0, 0L, null, payload);
+        addHeader(record, FinoraKafkaHeaders.EVENT_ID, id);
+        addHeader(record, FinoraKafkaHeaders.EVENT_TYPE, type);
+        addHeader(record, FinoraKafkaHeaders.EVENT_VERSION, version);
+        return record;
+    }
+
+    private static void addHeader(ConsumerRecord<String, String> record, String name, String value) {
+        if (value != null) {
+            record.headers().add(name, value.getBytes(StandardCharsets.UTF_8));
+        }
     }
 }

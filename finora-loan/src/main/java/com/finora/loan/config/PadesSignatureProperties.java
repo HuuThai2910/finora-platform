@@ -1,7 +1,8 @@
 package com.finora.loan.config;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
 
 /**
  * Cấu hình ký PAdES nhiều bên (R5, D13). Không chứa secret.

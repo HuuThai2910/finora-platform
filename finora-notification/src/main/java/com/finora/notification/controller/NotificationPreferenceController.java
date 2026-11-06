@@ -6,6 +6,7 @@ import com.finora.notification.dto.response.NotificationPreferencesResponse;
 import com.finora.notification.service.preference.NotificationPreferenceService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -18,15 +19,16 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class NotificationPreferenceController {
 
-    private final NotificationPreferenceService preferences;
+    private final NotificationPreferenceService notificationPreferenceService;
 
     @GetMapping
-    public NotificationPreferencesResponse get() {
-        return preferences.get(SecurityUtils.getCurrentUserId());
+    public ResponseEntity<NotificationPreferencesResponse> get() {
+        return ResponseEntity.ok(notificationPreferenceService.get(SecurityUtils.getCurrentUserId()));
     }
 
     @PutMapping
-    public NotificationPreferencesResponse update(@Valid @RequestBody UpdateNotificationPreferencesRequest request) {
-        return preferences.update(SecurityUtils.getCurrentUserId(), request);
+    public ResponseEntity<NotificationPreferencesResponse> update(
+            @Valid @RequestBody UpdateNotificationPreferencesRequest request) {
+        return ResponseEntity.ok(notificationPreferenceService.update(SecurityUtils.getCurrentUserId(), request));
     }
 }

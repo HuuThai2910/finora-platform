@@ -1,31 +1,24 @@
 package com.finora.investment.service.impl;
 
 import com.finora.common.dto.PageResponse;
-import com.finora.common.security.SecurityUtils;
-import com.finora.investment.dto.request.CreateListingRequest;
-import com.finora.investment.service.FundingSettingsService;
-import com.finora.investment.service.ListingCommitmentCanceller;
-import com.finora.investment.service.MarketListingService;
-import com.finora.common.enums.investment.ListingStatus;
-import com.finora.investment.domain.listing.MarketListing;
 import com.finora.common.enums.investment.CommitmentStatus;
-import com.finora.investment.domain.order.InvestmentCommitment;
+import com.finora.common.enums.investment.ListingStatus;
+import com.finora.common.security.SecurityUtils;
+import com.finora.investment.domain.listing.entity.MarketListing;
+import com.finora.investment.domain.order.entity.InvestmentCommitment;
+import com.finora.investment.dto.request.CreateListingRequest;
 import com.finora.investment.dto.response.FundingProgressResponse;
 import com.finora.investment.dto.response.ListingInvestorResponse;
 import com.finora.investment.dto.response.MarketListingResponse;
 import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.mapper.InvestmentMapper;
+import com.finora.investment.messaging.event.LoanFundingExpiredEventData;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
 import com.finora.investment.repository.MarketListingRepository;
-import com.finora.investment.messaging.event.LoanFundingExpiredEventData;
+import com.finora.investment.service.FundingSettingsService;
+import com.finora.investment.service.ListingCommitmentCanceller;
+import com.finora.investment.service.MarketListingService;
 import com.finora.investment.service.outbox.InvestmentOutboxService;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -34,6 +27,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Quản lý bảng khoản vay đang gọi vốn.
@@ -44,32 +45,43 @@ import org.springframework.transaction.annotation.Transactional;
 public class MarketListingServiceImpl implements MarketListingService {
 
     private static final int MAX_PAGE_SIZE = 100;
+
+    /** Kiểu sắp xếp danh sách gọi vốn; giá trị lạ quay về mặc định thay vì báo lỗi (app cũ không gửi tham số này). */
+    static Sort listingSort(String sort) {
+        String key = sort == null ? "" : sort.trim().toLowerCase(java.util.Locale.ROOT);
+        return switch (key) {
+            case "newest" -> Sort.by(Sort.Order.desc("fundingOpenedAt"), Sort.Order.desc("id"));
+            case "closing" -> Sort.by(Sort.Order.asc("fundingClosesAt"), Sort.Order.asc("id"));
+            case "amount" -> Sort.by(Sort.Order.desc("targetAmount"), Sort.Order.desc("id"));
+            default -> Sort.by(Sort.Order.desc("annualInterestRate"), Sort.Order.desc("id"));
+        };
+    }
     private static final String SYSTEM_ACTOR = "SYSTEM-AUTO-LISTING";
     private static final String SYSTEM_EXPIRY_ACTOR = "SYSTEM-FUNDING-EXPIRY";
 
-    private final MarketListingRepository listingRepository;
-    private final InvestmentCommitmentRepository commitmentRepository;
-    private final InvestmentMapper mapper;
-    private final FundingSettingsService settingsService;
-    private final InvestmentOutboxService outboxService;
-    private final ListingCommitmentCanceller commitmentCanceller;
+    private final MarketListingRepository marketListingRepository;
+    private final InvestmentCommitmentRepository investmentCommitmentRepository;
+    private final InvestmentMapper investmentMapper;
+    private final FundingSettingsService fundingSettingsService;
+    private final InvestmentOutboxService investmentOutboxService;
+    private final ListingCommitmentCanceller listingCommitmentCanceller;
 
     @Override
     @Transactional
     public MarketListingResponse createListingFrom(CreateListingRequest request) {
-        return listingRepository
+        return marketListingRepository
                 .findByApplicationNumberAndFundingRound(request.getApplicationNumber(), request.getFundingRound())
                 .map(existing -> {
                     requireSameSnapshot(existing, request);
-                    return mapper.toListingResponse(existing);
+                    return investmentMapper.toListingResponse(existing);
                 })
-                .orElseGet(() -> mapper.toListingResponse(persistListing(request)));
+                .orElseGet(() -> investmentMapper.toListingResponse(persistListing(request)));
     }
 
     private MarketListing persistListing(CreateListingRequest request) {
         Instant now = Instant.now();
-        BigDecimal denomination = settingsService.currentNoteDenomination();
-        int fundingDays = settingsService.currentFundingDays();
+        BigDecimal denomination = fundingSettingsService.currentNoteDenomination();
+        int fundingDays = fundingSettingsService.currentFundingDays();
         BigDecimal targetAmount = requireExactTarget(request.getTargetAmount(), denomination);
         requireAnnualRate(request.getAnnualInterestRate());
 
@@ -92,7 +104,7 @@ public class MarketListingServiceImpl implements MarketListingService {
                 .repaymentMethod(request.getRepaymentMethod())
                 .borrowerId(request.getBorrowerId())
                 .noteDenomination(denomination)
-                .minInvestmentAmount(settingsService.currentMinInvestment())
+                .minInvestmentAmount(fundingSettingsService.currentMinInvestment())
                 .status(ListingStatus.OPEN)
                 .fundingRound(requirePositive(request.getFundingRound(), "fundingRound"))
                 .fundingOpenedAt(now)
@@ -103,7 +115,7 @@ public class MarketListingServiceImpl implements MarketListingService {
                 .updatedAt(now)
                 .build();
 
-        return listingRepository.save(listing);
+        return marketListingRepository.save(listing);
     }
 
     private BigDecimal requireExactTarget(BigDecimal amount, BigDecimal denomination) {
@@ -180,23 +192,43 @@ public class MarketListingServiceImpl implements MarketListingService {
             int page,
             int size
     ) {
+        return search(status, creditGrade, minAnnualRate, maxTermMonths, hiddenBorrowerId, null, null, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<MarketListingResponse> search(
+            String status,
+            String creditGrade,
+            BigDecimal minAnnualRate,
+            Integer maxTermMonths,
+            String hiddenBorrowerId,
+            String q,
+            String sort,
+            int page,
+            int size
+    ) {
         Pageable pageable = PageRequest.of(
                 Math.max(page, 0),
                 Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
-                Sort.by(Sort.Direction.DESC, "annualInterestRate")
+                listingSort(sort)
         );
+        String pattern = q == null || q.isBlank() ? null
+                : "%" + q.trim().toLowerCase(java.util.Locale.ROOT).replace("!", "!!").replace("%", "!%")
+                        .replace("_", "!_") + "%";
 
-        Page<MarketListing> result = listingRepository.search(
+        Page<MarketListing> result = marketListingRepository.search(
                 resolveStatus(status),
                 normalize(creditGrade),
                 minAnnualRate,
                 maxTermMonths,
                 hiddenBorrowerId,
+                pattern,
                 pageable
         );
 
         return PageResponse.<MarketListingResponse>builder()
-                .content(result.getContent().stream().map(mapper::toListingResponse).toList())
+                .content(result.getContent().stream().map(investmentMapper::toListingResponse).toList())
                 .page(result.getNumber())
                 .size(result.getSize())
                 .totalElements(result.getTotalElements())
@@ -208,7 +240,7 @@ public class MarketListingServiceImpl implements MarketListingService {
     @Override
     @Transactional(readOnly = true)
     public MarketListingResponse detail(Long listingId) {
-        return mapper.toListingResponse(requireListing(listingId));
+        return investmentMapper.toListingResponse(requireListing(listingId));
     }
 
     /**
@@ -223,9 +255,9 @@ public class MarketListingServiceImpl implements MarketListingService {
         MarketListing listing = requireListing(listingId);
 
         List<InvestmentCommitment> active =
-                commitmentRepository.findByListingIdAndStatus(listing.getId(), CommitmentStatus.ACTIVE);
+                investmentCommitmentRepository.findByListingIdAndStatus(listing.getId(), CommitmentStatus.ACTIVE);
         List<InvestmentCommitment> finalized =
-                commitmentRepository.findByListingIdAndStatus(listing.getId(), CommitmentStatus.FINALIZED);
+                investmentCommitmentRepository.findByListingIdAndStatus(listing.getId(), CommitmentStatus.FINALIZED);
 
         List<InvestmentCommitment> counted = java.util.stream.Stream
                 .concat(active.stream(), finalized.stream())
@@ -278,23 +310,23 @@ public class MarketListingServiceImpl implements MarketListingService {
     @Transactional
     public int closeExpiredListings(int batchSize) {
         Instant now = Instant.now();
-        List<MarketListing> expired = listingRepository.findExpired(
+        List<MarketListing> expired = marketListingRepository.findExpired(
                 now, PageRequest.of(0, Math.min(Math.max(batchSize, 1), MAX_PAGE_SIZE)));
 
         int closed = 0;
         for (MarketListing candidate : expired) {
-            MarketListing listing = listingRepository.findByIdForUpdate(candidate.getId()).orElseThrow();
+            MarketListing listing = marketListingRepository.findByIdForUpdate(candidate.getId()).orElseThrow();
             if (listing.getStatus() != ListingStatus.OPEN || listing.getFundingClosesAt().isAfter(now)) {
                 continue;
             }
             BigDecimal raised = listing.getCommittedAmount();
-            ListingCommitmentCanceller.CancelledCommitments cancelled = commitmentCanceller.cancelActive(listing,
+            ListingCommitmentCanceller.CancelledCommitments cancelled = listingCommitmentCanceller.cancelActive(listing,
                     "LISTING_EXPIRED", "Khoản vay hết hạn gọi vốn mà chưa đủ vốn; tiền giữ được trả lại ví",
                     SYSTEM_EXPIRY_ACTOR, now);
             listing.setStatus(ListingStatus.CLOSED);
             listing.setUpdatedBy(SYSTEM_EXPIRY_ACTOR);
             listing.setUpdatedAt(now);
-            outboxService.record("MarketListing", listing.getApplicationNumber(), "LoanFundingExpired", 1,
+            investmentOutboxService.record("MarketListing", listing.getApplicationNumber(), "LoanFundingExpired", 1,
                     new LoanFundingExpiredEventData(
                             listing.getLoanId(),
                             listing.getApplicationNumber(),
@@ -317,7 +349,7 @@ public class MarketListingServiceImpl implements MarketListingService {
 
 
     private MarketListing requireListing(Long listingId) {
-        return listingRepository.findById(listingId)
+        return marketListingRepository.findById(listingId)
                 .orElseThrow(() -> InvestmentDomainException.notFound(
                         "LISTING_NOT_FOUND", "Không tìm thấy khoản vay trên sàn"));
     }
@@ -338,7 +370,7 @@ public class MarketListingServiceImpl implements MarketListingService {
         // — rỗng dễ bị đọc nhầm thành "chưa ai góp vốn".
         requireListing(listingId);
 
-        return commitmentRepository.findByListingIdOrderByCreatedAtDesc(listingId).stream()
+        return investmentCommitmentRepository.findByListingIdOrderByCreatedAtDesc(listingId).stream()
                 .map(commitment -> new ListingInvestorResponse(
                         commitment.getId(),
                         commitment.getInvestorId(),

@@ -1,6 +1,6 @@
 package com.finora.investment.service.transferdocument;
 
-import com.finora.investment.domain.transferdocument.NoteTransferDocumentStatus;
+import com.finora.investment.domain.transferdocument.enums.NoteTransferDocumentStatus;
 import com.finora.investment.dto.response.TransferDocumentAdminResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;

@@ -1,32 +1,33 @@
 package com.finora.investment.service.impl;
 
-import com.finora.common.security.SecurityUtils;
-import com.finora.investment.domain.listing.MarketListing;
-import com.finora.common.enums.investment.ListingStatus;
 import com.finora.common.enums.investment.CommitmentStatus;
-import com.finora.investment.domain.order.InvestmentCommitment;
-import com.finora.investment.domain.order.InvestmentOrder;
+import com.finora.common.enums.investment.ListingStatus;
 import com.finora.common.enums.investment.OrderStatus;
+import com.finora.common.security.SecurityUtils;
+import com.finora.investment.domain.listing.entity.MarketListing;
+import com.finora.investment.domain.order.entity.InvestmentCommitment;
+import com.finora.investment.domain.order.entity.InvestmentOrder;
 import com.finora.investment.dto.request.PlaceOrderRequest;
 import com.finora.investment.dto.response.OrderResponse;
 import com.finora.investment.exception.InvestmentDomainException;
-import com.finora.investment.client.PaymentHoldResult;
+import com.finora.investment.integration.payment.contract.PaymentHoldResult;
 import com.finora.investment.mapper.InvestmentMapper;
+import com.finora.investment.messaging.event.LoanFullyFundedEventData;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
 import com.finora.investment.repository.InvestmentOrderRepository;
 import com.finora.investment.repository.MarketListingRepository;
-import com.finora.investment.messaging.event.LoanFullyFundedEventData;
 import com.finora.investment.service.InvestorEligibility;
 import com.finora.investment.service.OrderTransactionService;
 import com.finora.investment.service.messaging.AllocationSnapshotService;
 import com.finora.investment.service.outbox.InvestmentOutboxService;
-import java.math.BigDecimal;
-import java.time.Duration;
-import java.time.Instant;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
 
 /**
  * Cài đặt các transaction ngắn của luồng đặt lệnh.
@@ -36,13 +37,13 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class OrderTransactionServiceImpl implements OrderTransactionService {
 
-    private final MarketListingRepository listingRepository;
-    private final InvestmentOrderRepository orderRepository;
-    private final InvestmentCommitmentRepository commitmentRepository;
-    private final InvestmentMapper mapper;
+    private final MarketListingRepository marketListingRepository;
+    private final InvestmentOrderRepository investmentOrderRepository;
+    private final InvestmentCommitmentRepository investmentCommitmentRepository;
+    private final InvestmentMapper investmentMapper;
     private final AllocationSnapshotService allocationSnapshotService;
-    private final InvestmentOutboxService outboxService;
-    private final InvestorEligibility eligibility;
+    private final InvestmentOutboxService investmentOutboxService;
+    private final InvestorEligibility investorEligibility;
 
     @Override
     @Transactional
@@ -53,12 +54,12 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
             String requestHash,
             PlaceOrderRequest request
     ) {
-        MarketListing listing = listingRepository.findById(listingId)
+        MarketListing listing = marketListingRepository.findById(listingId)
                 .orElseThrow(() -> InvestmentDomainException.notFound(
                         "LISTING_NOT_FOUND", "Không tìm thấy khoản vay trên sàn"));
 
         Instant now = Instant.now();
-        eligibility.requireNotBorrower(listing, investorId);
+        investorEligibility.requireNotBorrower(listing, investorId);
         requirePlaceable(listing, request.amount(), now);
 
         InvestmentOrder order = InvestmentOrder.builder()
@@ -76,16 +77,16 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
-        return orderRepository.save(order);
+        return investmentOrderRepository.save(order);
     }
 
     @Override
     @Transactional
     public OrderResponse confirmCommitment(Long orderId, Long listingId, String holdReference) {
-        InvestmentOrder order = orderRepository.findById(orderId).orElseThrow();
+        InvestmentOrder order = investmentOrderRepository.findById(orderId).orElseThrow();
 
         if (order.getStatus() == OrderStatus.COMMITTED) {
-            return mapper.toOrderResponse(order);
+            return investmentMapper.toOrderResponse(order);
         }
         if (order.getStatus() != OrderStatus.PENDING_FUNDS) {
             // Lệnh đã kết thúc ở đường khác trong lúc chờ Payment. Khoản vừa giữ không thuộc lệnh
@@ -94,10 +95,10 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
                 order.setPaymentHoldReference(holdReference);
                 order.setUpdatedAt(Instant.now());
             }
-            return mapper.toOrderResponse(order);
+            return investmentMapper.toOrderResponse(order);
         }
 
-        MarketListing listing = listingRepository.findByIdForUpdate(listingId)
+        MarketListing listing = marketListingRepository.findByIdForUpdate(listingId)
                 .orElseThrow(() -> InvestmentDomainException.notFound(
                         "LISTING_NOT_FOUND", "Không tìm thấy khoản vay trên sàn"));
 
@@ -106,12 +107,12 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
 
         if (listing.getStatus() != ListingStatus.OPEN) {
             rejectHeld(order, holdReference, "LISTING_NOT_OPEN", "Khoản vay không còn nhận vốn", now);
-            return mapper.toOrderResponse(order);
+            return investmentMapper.toOrderResponse(order);
         }
         if (!listing.getFundingClosesAt().isAfter(now)) {
             rejectHeld(order, holdReference,
                     "LISTING_WINDOW_CLOSED", "Đã hết hạn gọi vốn cho khoản vay này", now);
-            return mapper.toOrderResponse(order);
+            return investmentMapper.toOrderResponse(order);
         }
 
         BigDecimal remaining = listing.getTargetAmount().subtract(listing.getCommittedAmount());
@@ -120,14 +121,14 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
                     "Khoản vay chỉ còn nhận thêm " + remaining.toPlainString() + " đồng", now);
             log.info("Từ chối lệnh và nhả tiền: orderReference={}, reason=LISTING_INSUFFICIENT_REMAINING",
                     order.getOrderReference());
-            return mapper.toOrderResponse(order);
+            return investmentMapper.toOrderResponse(order);
         }
 
         listing.setCommittedAmount(listing.getCommittedAmount().add(amount));
         listing.setUpdatedAt(now);
 
         boolean fullyFunded = listing.getCommittedAmount().compareTo(listing.getTargetAmount()) == 0;
-        listingRepository.save(listing);
+        marketListingRepository.save(listing);
 
         order.setStatus(OrderStatus.COMMITTED);
         order.setPaymentHoldReference(holdReference);
@@ -139,7 +140,7 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
                 .multiply(BigDecimal.valueOf(100))
                 .divide(listing.getTargetAmount(), 6, java.math.RoundingMode.HALF_UP);
 
-        commitmentRepository.saveAndFlush(InvestmentCommitment.builder()
+        investmentCommitmentRepository.saveAndFlush(InvestmentCommitment.builder()
                 .orderId(order.getId())
                 .listingId(listing.getId())
                 .investorId(order.getInvestorId())
@@ -157,15 +158,15 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
 
         if (fullyFunded) {
             var snapshot = allocationSnapshotService.snapshot(
-                    commitmentRepository.findByListingIdAndStatusOrderByIdAsc(
+                    investmentCommitmentRepository.findByListingIdAndStatusOrderByIdAsc(
                             listing.getId(), CommitmentStatus.ACTIVE));
             long allocationVersion = 1L;
             listing.setStatus(ListingStatus.FULLY_FUNDED);
             listing.setFullyFundedAt(now);
             listing.setAllocationVersion(allocationVersion);
             listing.setAllocationHash(snapshot.hash());
-            listingRepository.saveAndFlush(listing);
-            outboxService.record(
+            marketListingRepository.saveAndFlush(listing);
+            investmentOutboxService.record(
                     "MarketListing",
                     listing.getApplicationNumber(),
                     "LoanFullyFunded",
@@ -187,22 +188,22 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
                     listing.getLoanId(), listing.getId());
         }
 
-        return mapper.toOrderResponse(order);
+        return investmentMapper.toOrderResponse(order);
     }
 
     @Override
     @Transactional
     public OrderResponse rejectForFailedHold(Long orderId, PaymentHoldResult hold) {
-        InvestmentOrder order = orderRepository.findById(orderId).orElseThrow();
+        InvestmentOrder order = investmentOrderRepository.findById(orderId).orElseThrow();
         Instant now = Instant.now();
         rejectOrder(order, hold.getErrorCode(), hold.getErrorMessage(), now);
-        return mapper.toOrderResponse(order);
+        return investmentMapper.toOrderResponse(order);
     }
 
     @Override
     @Transactional
     public OrderResponse cancelOrder(String orderReference) {
-        InvestmentOrder order = orderRepository.findByOrderReference(orderReference)
+        InvestmentOrder order = investmentOrderRepository.findByOrderReference(orderReference)
                 .orElseThrow(() -> InvestmentDomainException.notFound(
                         "ORDER_NOT_FOUND", "Không tìm thấy lệnh đầu tư"));
         
@@ -211,12 +212,12 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
             throw InvestmentDomainException.forbidden("ACCESS_DENIED", "Bạn không có quyền thao tác trên lệnh này");
         }
 
-        InvestmentCommitment commitment = commitmentRepository.findByOrderId(order.getId())
+        InvestmentCommitment commitment = investmentCommitmentRepository.findByOrderId(order.getId())
                 .orElseThrow(() -> InvestmentDomainException.conflict(
                         "COMMITMENT_NOT_FOUND", "Lệnh chưa có phần vốn để hủy"));
 
         if (commitment.getStatus() == CommitmentStatus.CANCELLED) {
-            return mapper.toOrderResponse(order);
+            return investmentMapper.toOrderResponse(order);
         }
         if (commitment.getStatus() == CommitmentStatus.FINALIZED) {
             throw InvestmentDomainException.conflict(
@@ -225,7 +226,7 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
             );
         }
 
-        MarketListing listing = listingRepository.findByIdForUpdate(commitment.getListingId())
+        MarketListing listing = marketListingRepository.findByIdForUpdate(commitment.getListingId())
                 .orElseThrow();
 
         if (listing.getStatus() == ListingStatus.FULLY_FUNDED) {
@@ -245,7 +246,7 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
 
         listing.setCommittedAmount(listing.getCommittedAmount().subtract(commitment.getAmount()));
         listing.setUpdatedAt(now);
-        listingRepository.save(listing);
+        marketListingRepository.save(listing);
 
         // R3: không nhả tiền trong transaction này. Nhả trong transaction thì Payment có thể đã nhả mà Investment rollback,
         // lệnh vẫn COMMITTED trên khoản giữ không còn tiền và cả đợt giải ngân sau đó hỏng. FundingService nhả sau khi
@@ -253,7 +254,7 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
         if (order.getPaymentHoldReference() == null) order.setPaymentHoldReference(commitment.getPaymentHoldReference());
 
         log.info("Hủy lệnh, chờ nhả tiền giữ: orderReference={}", orderReference);
-        return mapper.toOrderResponse(order);
+        return investmentMapper.toOrderResponse(order);
     }
 
     private void rejectOrder(InvestmentOrder order, String reasonCode, String reasonDetail, Instant now) {
@@ -266,7 +267,7 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
     @Override
     @Transactional
     public void markHoldReleased(Long orderId) {
-        orderRepository.findById(orderId)
+        investmentOrderRepository.findById(orderId)
                 .filter(order -> order.getPaymentReleasedAt() == null)
                 .ifPresent(order -> {
                     Instant now = Instant.now();
@@ -279,7 +280,7 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
     @Override
     @Transactional
     public OrderResponse rejectWithReleasedHold(Long orderId, String holdReference) {
-        InvestmentOrder order = orderRepository.findById(orderId).orElseThrow();
+        InvestmentOrder order = investmentOrderRepository.findById(orderId).orElseThrow();
         if (order.getStatus() == OrderStatus.PENDING_FUNDS) {
             Instant now = Instant.now();
             order.setPaymentHoldReference(holdReference);
@@ -287,13 +288,13 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
             rejectOrder(order, "PAYMENT_HOLD_ALREADY_RELEASED", "Khoản giữ tiền của lệnh đã được nhả trước đó", now);
             log.warn("Từ chối lệnh chờ vì khoản giữ đã được nhả: orderReference={}", order.getOrderReference());
         }
-        return mapper.toOrderResponse(order);
+        return investmentMapper.toOrderResponse(order);
     }
 
     @Override
     @Transactional
     public OrderResponse rejectWithHoldAnomaly(Long orderId, String holdReference, String holdStatus) {
-        InvestmentOrder order = orderRepository.findById(orderId).orElseThrow();
+        InvestmentOrder order = investmentOrderRepository.findById(orderId).orElseThrow();
         if (order.getStatus() == OrderStatus.PENDING_FUNDS) {
             Instant now = Instant.now();
             order.setPaymentHoldReference(holdReference);
@@ -304,13 +305,13 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
             log.error("Lệnh chờ có khoản giữ không còn ở trạng thái giữ: orderReference={}, holdStatus={}",
                     order.getOrderReference(), holdStatus);
         }
-        return mapper.toOrderResponse(order);
+        return investmentMapper.toOrderResponse(order);
     }
 
     @Override
     @Transactional
     public void recordReleaseFailure(Long orderId, String errorCode, boolean retryable, Instant now) {
-        InvestmentOrder order = orderRepository.findById(orderId).orElseThrow();
+        InvestmentOrder order = investmentOrderRepository.findById(orderId).orElseThrow();
         if (order.getPaymentReleasedAt() != null) return;
         order.setReleaseAttemptCount(order.getReleaseAttemptCount() + 1);
         order.setReleaseErrorCode(errorCode);
@@ -325,7 +326,7 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
     @Override
     @Transactional
     public void recordPendingFailure(Long orderId, Instant now) {
-        InvestmentOrder order = orderRepository.findById(orderId).orElseThrow();
+        InvestmentOrder order = investmentOrderRepository.findById(orderId).orElseThrow();
         if (order.getStatus() != OrderStatus.PENDING_FUNDS) return;
         order.setPendingAttemptCount(order.getPendingAttemptCount() + 1);
         order.setPendingNextAttemptAt(now.plus(backoff(order.getPendingAttemptCount())));
@@ -334,7 +335,7 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
     @Override
     @Transactional
     public InvestmentOrder retryIncident(String orderReference) {
-        InvestmentOrder order = orderRepository.findByOrderReference(orderReference)
+        InvestmentOrder order = investmentOrderRepository.findByOrderReference(orderReference)
                 .orElseThrow(() -> InvestmentDomainException.notFound("ORDER_NOT_FOUND", "Không tìm thấy lệnh đầu tư"));
         // Giữ mã lỗi và số lần thử để còn dấu vết; chỉ bỏ trạng thái dừng và lịch lùi để worker làm ở lượt kế tiếp.
         order.setReleaseBlockedAt(null);

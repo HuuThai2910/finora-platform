@@ -1,11 +1,12 @@
 package com.finora.notification.repository;
 
-import com.finora.notification.domain.LoanLender;
-import java.util.List;
+import com.finora.notification.domain.entity.LoanLender;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.util.List;
 
 public interface LoanLenderRepository extends JpaRepository<LoanLender, Long> {
 

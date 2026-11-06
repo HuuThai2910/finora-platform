@@ -4,23 +4,24 @@ import com.finora.common.enums.user.EkycResultCode;
 import com.finora.common.enums.user.EkycStatus;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.user.client.AiEkycClient.DocumentFields;
-import com.finora.user.client.AiEkycClient.DocumentResult;
-import com.finora.user.client.AiEkycClient.FieldReading;
-import com.finora.user.client.AiEkycClient;
-import com.finora.user.domain.EkycAttempt;
-import com.finora.user.domain.EkycConsent;
-import com.finora.user.domain.EkycDocumentDecision;
-import com.finora.user.domain.EkycDraftField;
-import com.finora.user.domain.EkycDraftFieldName;
-import com.finora.user.domain.EkycEvidence;
-import com.finora.user.domain.EkycIdentityDraft;
-import com.finora.user.domain.EkycLivenessResult;
-import com.finora.user.domain.UserProfile;
+import com.finora.user.domain.entity.EkycAttempt;
+import com.finora.user.domain.entity.EkycConsent;
+import com.finora.user.domain.entity.EkycEvidence;
+import com.finora.user.domain.entity.UserProfile;
+import com.finora.user.domain.enums.EkycDocumentDecision;
+import com.finora.user.domain.enums.EkycDraftFieldName;
+import com.finora.user.domain.enums.EkycLivenessResult;
+import com.finora.user.domain.model.EkycDraftField;
+import com.finora.user.domain.model.EkycIdentityDraft;
 import com.finora.user.dto.request.EkycVerifyRequest;
 import com.finora.user.dto.response.EkycNextStep;
 import com.finora.user.dto.response.EkycResultResponse.RetakeItem;
 import com.finora.user.dto.response.EkycResultResponse;
+import com.finora.user.integration.ai.client.AiEkycClient.AiEkycException;
+import com.finora.user.integration.ai.client.AiEkycClient.DocumentFields;
+import com.finora.user.integration.ai.client.AiEkycClient.DocumentResult;
+import com.finora.user.integration.ai.client.AiEkycClient.FieldReading;
+import com.finora.user.integration.ai.client.AiEkycClient;
 import com.finora.user.integration.storage.EkycStorageException;
 import com.finora.user.mapper.EkycResultMapper;
 import com.finora.user.repository.EkycAttemptRepository;
@@ -40,9 +41,8 @@ import com.finora.user.service.EkycRateLimitService;
 import com.finora.user.service.EkycResultFile;
 import com.finora.user.service.EkycSessionCleanup;
 import com.finora.user.service.EkycVerificationService;
-import com.finora.user.support.EkycMessages;
 import com.finora.user.util.CccdMatcher;
-import feign.FeignException;
+import com.finora.user.util.EkycMessages;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -70,12 +70,12 @@ import java.util.regex.Pattern;
  * <b>Quét</b> ({@link #verify}): kiểm điều kiện rẻ trước (đã xác minh, đang chờ duyệt, đồng ý, kho lưu,
  * rate limit) rồi mới gọi AI đọc hai mặt thẻ. AI trả bằng chứng kỹ thuật; luật nghiệp vụ (CMND, hết hạn
  * theo ngày Việt Nam, dưới 18 tuổi, trùng số) do service này áp. Đạt thì mở lượt mới, đưa ảnh lên kho
- * (tag {@code pending}) và cất bản nháp mã hoá ở Redis — hồ sơ chưa được ghi.
+ * (tag {@code pending}) và cất bản nháp mã hoá ở kho tạm — hồ sơ chưa được ghi.
  * <p>
  * <b>Xác nhận</b> ({@link #confirm}): cần liveness PASS/REVIEW. Giấy tờ {@code AUTO_OK} + liveness
  * {@code PASS} → {@code VERIFIED}; còn lại → {@code MANUAL_REVIEW}. Bằng chứng được gắn tag {@code final}
  * và {@code result.json} được ghi <b>trước</b> transaction: không bao giờ chuyển VERIFIED khi chưa lưu đủ
- * bằng chứng. Redis và claim Keycloak chỉ được đụng tới sau khi transaction đã commit.
+ * bằng chứng. Kho tạm và claim Keycloak chỉ được đụng tới sau khi transaction đã commit.
  * <p>
  * Không có hàm nào giữ transaction trong lúc gọi AI hay kho lưu trữ; database chỉ được ghi trong các
  * khối {@link TransactionTemplate} ngắn giữa các lời gọi mạng.
@@ -94,19 +94,19 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     private final UserProfileRepository userProfileRepository;
-    private final EkycAttemptRepository attemptRepository;
-    private final EkycEvidenceRepository evidenceRepository;
+    private final EkycAttemptRepository ekycAttemptRepository;
+    private final EkycEvidenceRepository ekycEvidenceRepository;
     private final AiEkycClient aiEkycClient;
-    private final EkycRateLimitService rateLimitService;
-    private final EkycCounterStore counterStore;
-    private final EkycDraftStore draftStore;
-    private final EkycConsentService consentService;
-    private final EkycEvidenceService evidenceService;
-    private final EkycAttemptService attemptService;
-    private final EkycIdentityService identityService;
-    private final EkycResultFile resultFile;
-    private final EkycSessionCleanup sessionCleanup;
-    private final EkycClaimPublisher claimPublisher;
+    private final EkycRateLimitService ekycRateLimitService;
+    private final EkycCounterStore ekycCounterStore;
+    private final EkycDraftStore ekycDraftStore;
+    private final EkycConsentService ekycConsentService;
+    private final EkycEvidenceService ekycEvidenceService;
+    private final EkycAttemptService ekycAttemptService;
+    private final EkycIdentityService ekycIdentityService;
+    private final EkycResultFile ekycResultFile;
+    private final EkycSessionCleanup ekycSessionCleanup;
+    private final EkycClaimPublisher ekycClaimPublisher;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
 
@@ -124,30 +124,30 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
         if (status == EkycStatus.MANUAL_REVIEW) {
             return EkycResultMapper.reviewPending();
         }
-        Optional<EkycConsent> consent = consentService.findActiveConsent(profile.getId());
+        Optional<EkycConsent> consent = ekycConsentService.findActiveConsent(profile.getId());
         if (consent.isEmpty()) {
             return EkycResultMapper.simple(status, EkycResultCode.CONSENT_REQUIRED);
         }
-        if (!evidenceService.isEnabled()) {
+        if (!ekycEvidenceService.isEnabled()) {
             return EkycResultMapper.simple(status, EkycResultCode.STORAGE_UNAVAILABLE);
         }
         BinaryFile front = decodeCardImage(request.cccdFrontBase64());
         BinaryFile back = decodeCardImage(request.cccdBackBase64());
-        if (!rateLimitService.tryAcquireVerifySlot(keycloakUserId)) {
+        if (!ekycRateLimitService.tryAcquireVerifySlot(keycloakUserId)) {
             return EkycResultMapper.simple(status, EkycResultCode.RATE_LIMITED);
         }
 
         DocumentResult document;
         try {
             document = aiEkycClient.analyzeDocument(
-                    toAiRequest(request, front, back, counterStore.currentRetakeCount(keycloakUserId)));
-        } catch (FeignException e) {
-            if (e.status() == 400 || e.status() == 422) {
+                    toAiRequest(request, front, back, ekycCounterStore.currentRetakeCount(keycloakUserId)));
+        } catch (AiEkycException e) {
+            if (e.getStatus() == 400 || e.getStatus() == 422) {
                 // AI không giải mã được ảnh (không phải lỗi hệ thống): người dùng chụp lại, không trả suất.
-                log.info("AI từ chối ảnh thẻ: userProfileId={}, status={}", profile.getId(), e.status());
+                log.info("AI từ chối ảnh thẻ: userProfileId={}, status={}", profile.getId(), e.getStatus());
                 return EkycResultMapper.simple(status, EkycResultCode.OCR_FAILED);
             }
-            return aiUnavailable(keycloakUserId, profile, status, "HTTP " + e.status());
+            return aiUnavailable(keycloakUserId, profile, status, "HTTP " + e.getStatus());
         } catch (RuntimeException e) {
             return aiUnavailable(keycloakUserId, profile, status, e.getClass().getSimpleName());
         }
@@ -156,7 +156,7 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
         }
 
         if ("RETAKE".equals(document.decision()) || !hasPortraitEmbedding(document)) {
-            counterStore.incrementRetakeCount(keycloakUserId);
+            ekycCounterStore.incrementRetakeCount(keycloakUserId);
             log.info("Cần chụp lại thẻ: userProfileId={}, reasons={}", profile.getId(), retakeReasons(document));
             return EkycResultMapper.documentRetake(status, document.cardType(), retakeItems(document));
         }
@@ -171,21 +171,21 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
         EkycIdentityDraft draft = buildDraft(UUID.randomUUID(), document);
         Instant now = clock.instant();
         StartedAttempt started = transactionTemplate.execute(
-                tx -> attemptService.start(profile.getId(), consent.get().getId(), draft, now));
+                tx -> ekycAttemptService.start(profile.getId(), consent.get().getId(), draft, now));
         discardObjects(started.staleObjectKeys(), now);
 
         List<StoredEvidence> stored;
         try {
-            stored = evidenceService.storeCardImages(profile.getId(), draft.attemptId(), front, back);
+            stored = ekycEvidenceService.storeCardImages(profile.getId(), draft.attemptId(), front, back);
         } catch (EkycStorageException e) {
             log.warn("Không lưu được ảnh thẻ, bỏ lượt: userProfileId={}, attemptId={}, cause={}",
                     profile.getId(), draft.attemptId(), e.getMessage());
-            transactionTemplate.executeWithoutResult(tx -> attemptService.abandon(started.attemptId(), now));
+            transactionTemplate.executeWithoutResult(tx -> ekycAttemptService.abandon(started.attemptId(), now));
             return EkycResultMapper.simple(status, EkycResultCode.STORAGE_UNAVAILABLE);
         }
-        transactionTemplate.executeWithoutResult(tx -> attemptService.recordEvidence(started.attemptId(), stored, now));
-        draftStore.save(keycloakUserId, draft);
-        counterStore.resetRetakeCount(keycloakUserId);
+        transactionTemplate.executeWithoutResult(tx -> ekycAttemptService.recordEvidence(started.attemptId(), stored, now));
+        ekycDraftStore.save(keycloakUserId, draft);
+        ekycCounterStore.resetRetakeCount(keycloakUserId);
 
         List<String> warnings = new ArrayList<>(draft.documentWarnings());
         CccdMatcher.softFieldWarnings(profile.getFullName(), profile.getDateOfBirth(),
@@ -208,7 +208,7 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
         if (status == EkycStatus.MANUAL_REVIEW) {
             return EkycResultMapper.reviewPending();
         }
-        EkycIdentityDraft stored = draftStore.find(keycloakUserId).orElse(null);
+        EkycIdentityDraft stored = ekycDraftStore.find(keycloakUserId).orElse(null);
         if (stored == null) {
             return EkycResultMapper.simple(status, EkycResultCode.DRAFT_EXPIRED);
         }
@@ -218,7 +218,7 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
         EkycIdentityDraft draft = applyEdits(stored, edits);
 
         Instant now = clock.instant();
-        Optional<EkycResultCode> idProblem = identityService.checkIdNumber(
+        Optional<EkycResultCode> idProblem = ekycIdentityService.checkIdNumber(
                 profile, draft.value(EkycDraftFieldName.ID_NUMBER));
         if (idProblem.isPresent()) {
             log.warn("Số định danh không còn hợp lệ khi xác nhận: userProfileId={}, code={}",
@@ -227,22 +227,22 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
             return EkycResultMapper.simple(status, idProblem.get());
         }
 
-        EkycAttempt attempt = attemptRepository.findByPublicId(draft.attemptId()).orElse(null);
+        EkycAttempt attempt = ekycAttemptRepository.findByPublicId(draft.attemptId()).orElse(null);
         if (attempt == null || !attempt.isInProgress() || !attempt.getUserProfileId().equals(profile.getId())) {
-            draftStore.remove(keycloakUserId);
+            ekycDraftStore.remove(keycloakUserId);
             return EkycResultMapper.simple(status, EkycResultCode.DRAFT_EXPIRED);
         }
 
         boolean automatic = draft.documentDecision() == EkycDocumentDecision.AUTO_OK
                 && draft.livenessResult() == EkycLivenessResult.PASS;
-        List<EkycEvidence> liveEvidence = evidenceRepository.findByAttemptIdOrderByIdAsc(attempt.getId()).stream()
+        List<EkycEvidence> liveEvidence = ekycEvidenceRepository.findByAttemptIdOrderByIdAsc(attempt.getId()).stream()
                 .filter(evidence -> !evidence.isDeleted())
                 .toList();
-        evidenceService.markFinal(liveEvidence.stream().map(EkycEvidence::getObjectKey).toList());
+        ekycEvidenceService.markFinal(liveEvidence.stream().map(EkycEvidence::getObjectKey).toList());
         StoredEvidence result;
         try {
-            result = evidenceService.storeResult(profile.getId(), draft.attemptId(),
-                    resultFile.build(attempt, draft, automatic ? "VERIFIED" : "MANUAL_REVIEW", liveEvidence, now));
+            result = ekycEvidenceService.storeResult(profile.getId(), draft.attemptId(),
+                    ekycResultFile.build(attempt, draft, automatic ? "VERIFIED" : "MANUAL_REVIEW", liveEvidence, now));
         } catch (EkycStorageException e) {
             log.warn("Không ghi được result.json, giữ nguyên trạng thái: userProfileId={}, attemptId={}, cause={}",
                     profile.getId(), draft.attemptId(), e.getMessage());
@@ -260,15 +260,15 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
                 if (fresh.getEkycStatus() == EkycStatus.MANUAL_REVIEW) {
                     return ConfirmOutcome.ALREADY_IN_REVIEW;
                 }
-                EkycAttempt current = attemptRepository.findById(attempt.getId()).orElse(null);
+                EkycAttempt current = ekycAttemptRepository.findById(attempt.getId()).orElse(null);
                 if (current == null || !current.isInProgress()) {
                     return ConfirmOutcome.ATTEMPT_CLOSED;
                 }
                 if (automatic) {
-                    attemptService.completeVerified(fresh, current, draft, result, now);
+                    ekycAttemptService.completeVerified(fresh, current, draft, result, now);
                     return ConfirmOutcome.VERIFIED;
                 }
-                attemptService.submitForReview(fresh, current, draft, result, now);
+                ekycAttemptService.submitForReview(fresh, current, draft, result, now);
                 return ConfirmOutcome.SUBMITTED;
             });
         } catch (DataIntegrityViolationException e) {
@@ -280,30 +280,30 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
 
         switch (outcome) {
             case VERIFIED -> {
-                sessionCleanup.clearAll(keycloakUserId);
-                claimPublisher.publish(keycloakUserId, EkycStatus.VERIFIED);
+                ekycSessionCleanup.clearAll(keycloakUserId);
+                ekycClaimPublisher.publish(keycloakUserId, EkycStatus.VERIFIED);
                 log.info("eKYC hoàn tất tự động: userProfileId={}, attemptId={}", profile.getId(), draft.attemptId());
                 return EkycResultMapper.verified();
             }
             case SUBMITTED -> {
-                sessionCleanup.clearAll(keycloakUserId);
-                claimPublisher.publish(keycloakUserId, EkycStatus.MANUAL_REVIEW);
+                ekycSessionCleanup.clearAll(keycloakUserId);
+                ekycClaimPublisher.publish(keycloakUserId, EkycStatus.MANUAL_REVIEW);
                 log.info("eKYC chuyển duyệt tay: userProfileId={}, attemptId={}, decision={}, liveness={}",
                         profile.getId(), draft.attemptId(), draft.documentDecision(), draft.livenessResult());
                 return EkycResultMapper.reviewPending();
             }
             case ALREADY_VERIFIED -> {
-                sessionCleanup.clearAll(keycloakUserId);
+                ekycSessionCleanup.clearAll(keycloakUserId);
                 return EkycResultMapper.alreadyVerified();
             }
             case ALREADY_IN_REVIEW -> {
-                sessionCleanup.clearAll(keycloakUserId);
+                ekycSessionCleanup.clearAll(keycloakUserId);
                 return EkycResultMapper.reviewPending();
             }
             default -> {
                 // Lượt đã bị bỏ (quét lại ở thiết bị khác, rút đồng ý): result.json vừa ghi không còn ai dùng.
-                evidenceService.deleteObjects(List.of(result.objectKey()));
-                draftStore.remove(keycloakUserId);
+                ekycEvidenceService.deleteObjects(List.of(result.objectKey()));
+                ekycDraftStore.remove(keycloakUserId);
                 return EkycResultMapper.simple(status, EkycResultCode.DRAFT_EXPIRED);
             }
         }
@@ -339,7 +339,7 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
                 .filter(dateOfBirth -> dateOfBirth.plusYears(ADULT_AGE).isAfter(today)).isPresent()) {
             return Optional.of(EkycResultCode.UNDERAGE);
         }
-        return identityService.checkIdNumber(profile, idNumber);
+        return ekycIdentityService.checkIdNumber(profile, idNumber);
     }
 
     private EkycIdentityDraft buildDraft(UUID attemptId, DocumentResult document) {
@@ -414,23 +414,23 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
 
     private EkycResultResponse aiUnavailable(UUID keycloakUserId, UserProfile profile, EkycStatus status, String cause) {
         // AI lỗi không phải lỗi của người dùng: trả suất rate limit và giữ nguyên trạng thái hồ sơ.
-        rateLimitService.releaseVerifySlot(keycloakUserId);
+        ekycRateLimitService.releaseVerifySlot(keycloakUserId);
         log.warn("Không gọi được AI đọc thẻ: userProfileId={}, cause={}", profile.getId(), cause);
         return EkycResultMapper.simple(status, EkycResultCode.AI_UNAVAILABLE);
     }
 
     /** Ngoài kết quả cuối: bỏ lượt và xoá object để không giữ ảnh thẻ của lượt không thể hoàn tất. */
     private void abandonDraftAttempt(UUID keycloakUserId, EkycIdentityDraft draft, Instant now) {
-        attemptRepository.findByPublicId(draft.attemptId())
+        ekycAttemptRepository.findByPublicId(draft.attemptId())
                 .filter(EkycAttempt::isInProgress)
                 .ifPresent(attempt -> {
-                    transactionTemplate.executeWithoutResult(tx -> attemptService.abandon(attempt.getId(), now));
-                    discardObjects(evidenceRepository.findByAttemptIdOrderByIdAsc(attempt.getId()).stream()
+                    transactionTemplate.executeWithoutResult(tx -> ekycAttemptService.abandon(attempt.getId(), now));
+                    discardObjects(ekycEvidenceRepository.findByAttemptIdOrderByIdAsc(attempt.getId()).stream()
                             .filter(evidence -> !evidence.isDeleted())
                             .map(EkycEvidence::getObjectKey)
                             .toList(), now);
                 });
-        sessionCleanup.clearAll(keycloakUserId);
+        ekycSessionCleanup.clearAll(keycloakUserId);
     }
 
     /** Xoá object trên kho rồi đánh dấu {@code deleted_at}; object xoá hỏng để worker quét dọn thử lại. */
@@ -438,9 +438,9 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
         if (keys.isEmpty()) {
             return;
         }
-        List<String> deleted = evidenceService.deleteObjects(keys);
+        List<String> deleted = ekycEvidenceService.deleteObjects(keys);
         if (!deleted.isEmpty()) {
-            transactionTemplate.executeWithoutResult(tx -> attemptService.markDeleted(deleted, now));
+            transactionTemplate.executeWithoutResult(tx -> ekycAttemptService.markDeleted(deleted, now));
         }
     }
 
@@ -453,15 +453,15 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
         UserProfile fresh = userProfileRepository.findById(userProfileId)
                 .orElseThrow(() -> new ResourceNotFoundException("Hồ sơ người dùng", "id", userProfileId));
         if (fresh.getEkycStatus() == EkycStatus.VERIFIED) {
-            sessionCleanup.clearAll(keycloakUserId);
+            ekycSessionCleanup.clearAll(keycloakUserId);
             return EkycResultMapper.alreadyVerified();
         }
         if (fresh.getEkycStatus() == EkycStatus.MANUAL_REVIEW) {
-            sessionCleanup.clearAll(keycloakUserId);
+            ekycSessionCleanup.clearAll(keycloakUserId);
             return EkycResultMapper.reviewPending();
         }
         log.warn("Xác nhận eKYC va chạm, không ghi hồ sơ: userProfileId={}, code={}", userProfileId, fallback);
-        evidenceService.deleteObjects(List.of(result.objectKey()));
+        ekycEvidenceService.deleteObjects(List.of(result.objectKey()));
         return EkycResultMapper.simple(fresh.getEkycStatus(), fallback);
     }
 

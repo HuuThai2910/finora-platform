@@ -1,8 +1,8 @@
 package com.finora.investment.service.messaging.impl;
 
-import com.finora.investment.client.PaymentClient;
-import com.finora.investment.client.PaymentTransferResult;
-import com.finora.investment.domain.secondary.NoteRepaymentRedirect;
+import com.finora.investment.domain.secondary.entity.NoteRepaymentRedirect;
+import com.finora.investment.integration.payment.client.PaymentClient;
+import com.finora.investment.integration.payment.contract.PaymentTransferResult;
 import com.finora.investment.repository.NoteRepaymentRedirectRepository;
 import com.finora.investment.service.messaging.RepaymentRedirectService;
 import lombok.extern.slf4j.Slf4j;
@@ -29,14 +29,14 @@ public class RepaymentRedirectServiceImpl implements RepaymentRedirectService {
     private static final Duration BASE_BACKOFF = Duration.ofSeconds(30);
     private static final Duration MAX_BACKOFF = Duration.ofHours(1);
 
-    private final NoteRepaymentRedirectRepository redirects;
+    private final NoteRepaymentRedirectRepository noteRepaymentRedirectRepository;
     private final PaymentClient paymentClient;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
 
-    public RepaymentRedirectServiceImpl(NoteRepaymentRedirectRepository redirects, PaymentClient paymentClient,
+    public RepaymentRedirectServiceImpl(NoteRepaymentRedirectRepository noteRepaymentRedirectRepository, PaymentClient paymentClient,
             PlatformTransactionManager transactionManager, Clock clock) {
-        this.redirects = redirects;
+        this.noteRepaymentRedirectRepository = noteRepaymentRedirectRepository;
         this.paymentClient = paymentClient;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.clock = clock;
@@ -45,11 +45,11 @@ public class RepaymentRedirectServiceImpl implements RepaymentRedirectService {
     @Override
     public int settleDue(int batchSize) {
         int completed = 0;
-        for (NoteRepaymentRedirect due : redirects.findDue(clock.instant(), PageRequest.of(0, batchSize))) {
+        for (NoteRepaymentRedirect due : noteRepaymentRedirectRepository.findDue(clock.instant(), PageRequest.of(0, batchSize))) {
             PaymentTransferResult result = paymentClient.transferBetweenInvestors(
                     due.getFromInvestorId(), due.getToInvestorId(), due.getAmount(), due.getRedirectReference());
             transactionTemplate.executeWithoutResult(status -> {
-                NoteRepaymentRedirect fresh = redirects.findById(due.getId()).orElseThrow();
+                NoteRepaymentRedirect fresh = noteRepaymentRedirectRepository.findById(due.getId()).orElseThrow();
                 var now = clock.instant();
                 if (result.isSuccess()) {
                     fresh.complete(result.getTransferReference(), now);

@@ -1,6 +1,6 @@
 package com.finora.loan.service.application;
 
-import com.finora.loan.domain.application.BorrowerKycSnapshot;
+import com.finora.loan.domain.application.entity.BorrowerKycSnapshot;
 import com.finora.loan.integration.profile.contract.BorrowerProfileResult;
 
 /**

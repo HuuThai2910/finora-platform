@@ -1,11 +1,12 @@
 package com.finora.loan.config;
 
-import java.time.Duration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+
+import java.time.Duration;
 
 @Configuration
 @ConditionalOnProperty(name = "finora.signature.provider", havingValue = "VNPT_SMART_CA")

@@ -1,7 +1,8 @@
 package com.finora.loan.dto.disbursement.response;
 
-import com.finora.loan.domain.disbursement.DisbursementSaga;
-import com.finora.loan.domain.disbursement.DisbursementSagaStatus;
+import com.finora.loan.domain.disbursement.entity.DisbursementSaga;
+import com.finora.loan.domain.disbursement.enums.DisbursementSagaStatus;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
@@ -29,13 +30,19 @@ public record AdminDisbursementSagaResponse(
         Instant lastRepairAt,
         String lastRepairNote,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        /** Mã hồ sơ {@code LA-…}; {@code null} khi không tra được. */
+        String applicationNumber
 ) {
     public static AdminDisbursementSagaResponse from(DisbursementSaga saga) {
+        return from(saga, null);
+    }
+
+    public static AdminDisbursementSagaResponse from(DisbursementSaga saga, String applicationNumber) {
         return new AdminDisbursementSagaResponse(saga.getSagaId(), saga.getLoanApplicationId(), saga.getContractNumber(),
                 saga.getStatus(), saga.getAmount(), saga.getCurrency(), saga.getPaymentReference(), saga.getFineractLoanId(),
                 saga.getAttemptCount(), saga.attemptsSinceRepair(), saga.getRepairCount(), saga.getNextRetryAt(),
                 saga.getLastErrorCode(), saga.getLastErrorDetail(), saga.getLastRepairBy(), saga.getLastRepairAt(),
-                saga.getLastRepairNote(), saga.getCreatedAt(), saga.getUpdatedAt());
+                saga.getLastRepairNote(), saga.getCreatedAt(), saga.getUpdatedAt(), applicationNumber);
     }
 }

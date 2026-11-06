@@ -2,8 +2,8 @@ package com.finora.loan.controller;
 
 import com.finora.common.security.pin.PinScope;
 import com.finora.common.security.pin.RequirePin;
-import com.finora.loan.dto.contract.request.SignLoanContractRequest;
 import com.finora.loan.dto.contract.request.DeclineLoanContractRequest;
+import com.finora.loan.dto.contract.request.SignLoanContractRequest;
 import com.finora.loan.dto.contract.response.InvestorContractResponse;
 import com.finora.loan.service.contract.InvestorContractService;
 import com.finora.loan.service.contract.LoanContractPdfContent;
@@ -29,25 +29,25 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class InvestorLoanContractController {
 
-    private final InvestorContractService service;
+    private final InvestorContractService investorContractService;
 
     @GetMapping("/me")
-    public java.util.List<InvestorContractResponse> listMine() {
-        return service.listMine();
+    public ResponseEntity<java.util.List<InvestorContractResponse>> listMine() {
+        return ResponseEntity.ok(investorContractService.listMine());
     }
 
     @GetMapping("/{contractNumber}")
-    public InvestorContractResponse detail(
+    public ResponseEntity<InvestorContractResponse> detail(
             @PathVariable @NotBlank @Size(max = 50) String contractNumber
     ) {
-        return service.detail(contractNumber);
+        return ResponseEntity.ok(investorContractService.detail(contractNumber));
     }
 
     @GetMapping("/{contractNumber}/document")
     public ResponseEntity<byte[]> document(
             @PathVariable @NotBlank @Size(max = 50) String contractNumber
     ) {
-        return pdf(service.document(contractNumber));
+        return pdf(investorContractService.document(contractNumber));
     }
 
     /** Bản PDF mới nhất của chuỗi chữ ký PAdES; 404 khi chưa bên nào ký số. */
@@ -55,7 +55,7 @@ public class InvestorLoanContractController {
     public ResponseEntity<byte[]> signedDocument(
             @PathVariable @NotBlank @Size(max = 50) String contractNumber
     ) {
-        return pdf(service.signedDocument(contractNumber));
+        return pdf(investorContractService.signedDocument(contractNumber));
     }
 
     /** Trang biên nhận chữ ký số; 404 khi hợp đồng chưa đủ chữ ký. */
@@ -63,7 +63,7 @@ public class InvestorLoanContractController {
     public ResponseEntity<byte[]> receipt(
             @PathVariable @NotBlank @Size(max = 50) String contractNumber
     ) {
-        return pdf(service.receipt(contractNumber));
+        return pdf(investorContractService.receipt(contractNumber));
     }
 
     private ResponseEntity<byte[]> pdf(LoanContractPdfContent document) {
@@ -79,27 +79,27 @@ public class InvestorLoanContractController {
 
     @PostMapping("/{contractNumber}/sign")
     @RequirePin(PinScope.SIGN_CONTRACT)
-    public InvestorContractResponse sign(
+    public ResponseEntity<InvestorContractResponse> sign(
             @PathVariable @NotBlank @Size(max = 50) String contractNumber,
             @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 150) String idempotencyKey,
             @Valid @RequestBody SignLoanContractRequest request
     ) {
-        return service.sign(contractNumber, idempotencyKey, request);
+        return ResponseEntity.ok(investorContractService.sign(contractNumber, idempotencyKey, request));
     }
 
     @PostMapping("/{contractNumber}/decline")
-    public InvestorContractResponse decline(
+    public ResponseEntity<InvestorContractResponse> decline(
             @PathVariable @NotBlank @Size(max = 50) String contractNumber,
             @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 150) String idempotencyKey,
             @Valid @RequestBody DeclineLoanContractRequest request
     ) {
-        return service.decline(contractNumber, idempotencyKey, request);
+        return ResponseEntity.ok(investorContractService.decline(contractNumber, idempotencyKey, request));
     }
 
     @PostMapping("/{contractNumber}/signature/refresh")
-    public InvestorContractResponse refreshSignature(
+    public ResponseEntity<InvestorContractResponse> refreshSignature(
             @PathVariable @NotBlank @Size(max = 50) String contractNumber
     ) {
-        return service.refreshSignature(contractNumber);
+        return ResponseEntity.ok(investorContractService.refreshSignature(contractNumber));
     }
 }

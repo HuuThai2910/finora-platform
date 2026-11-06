@@ -1,6 +1,7 @@
 package com.finora.loan.integration.ai.contract;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.math.BigDecimal;
 
 /** Contract request của AI v17; installment và base rate đều do Loan/Fineract cung cấp. */

@@ -24,6 +24,7 @@ bất kỳ luật nào thì không luật nào được ghi.
 
 import logging
 import re
+import threading
 from itertools import pairwise
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -101,6 +102,27 @@ class ProductConfigUpdate(BaseModel):
     grades: list[GradeConfig]
     approval_thresholds: ApprovalThresholds
     model_weights: ModelWeights | None = None
+    # Khóa lạc quan: phiên bản chính sách client đã đọc. Khác phiên bản hiện tại nghĩa là
+    # có người vừa lưu, trả 409 để không ghi đè. Bỏ trống thì không kiểm (client cũ).
+    expected_version: str | None = None
+
+
+# Một tiến trình chỉ có một luồng được đọc-so-ghi cấu hình một lúc, để hai lần lưu đến
+# cùng lúc không cùng qua bước so phiên bản rồi ghi đè nhau.
+_khoa_luu_cau_hinh = threading.Lock()
+
+
+def _kiem_tra_phien_ban(current: dict, expected: str | None) -> None:
+    """409 khi client sửa trên một phiên bản chính sách đã cũ."""
+    hien_tai = current.get("decision_policy_version")
+    if expected is not None and expected != hien_tai:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Chính sách vừa được người khác lưu (hiện là {hien_tai}). "
+                "Tải lại để xem thay đổi mới rồi sửa tiếp."
+            ),
+        )
 
 
 @router.get("/product", response_model=ProductConfigResponse, dependencies=[Depends(_quyen_xem)])
@@ -237,13 +259,15 @@ async def update_product_config(body: ProductConfigUpdate, caller: Caller = Depe
                 detail=f"pd_weight + risk_weight phải bằng 1.0, hiện tại = {total}",
             )
 
-    current = reload()
-    current["grades"] = [g.model_dump() for g in body.grades]
-    current["approval_thresholds"] = body.approval_thresholds.model_dump()
-    if body.model_weights is not None:
-        current["model_weights"] = body.model_weights.model_dump()
+    with _khoa_luu_cau_hinh:
+        current = reload()
+        _kiem_tra_phien_ban(current, body.expected_version)
+        current["grades"] = [g.model_dump() for g in body.grades]
+        current["approval_thresholds"] = body.approval_thresholds.model_dump()
+        if body.model_weights is not None:
+            current["model_weights"] = body.model_weights.model_dump()
 
-    config = save(current)
+        config = save(current)
     # LEGAL-AI-01: cấu hình quyết định chấm điểm phải truy được ai đổi (ROLE_ADMIN hoặc nhân viên có
     # ops:ai-policy:action tới được đây, D35).
     _audit_logger.warning("Cập nhật cấu hình chấm điểm: actor=%s, username=%s, phan=product",
@@ -390,6 +414,8 @@ class RulesResponse(BaseModel):
 
 class RulesUpdate(BaseModel):
     rules: list[RuleConfig]
+    # Khóa lạc quan như ProductConfigUpdate.expected_version.
+    expected_version: str | None = None
 
 
 def _dung_rules_response() -> RulesResponse:
@@ -472,9 +498,11 @@ async def update_rules_config(body: RulesUpdate, caller: Caller = Depends(_quyen
     """Thay toàn bộ bộ luật: thêm, sửa, xoá, sắp xếp, bật/tắt trong một lần lưu."""
     _kiem_tra_bo_luat(body.rules)
 
-    current = reload()
-    current["rules"] = [r.model_dump(exclude_none=True) for r in body.rules]
-    save(current)
+    with _khoa_luu_cau_hinh:
+        current = reload()
+        _kiem_tra_phien_ban(current, body.expected_version)
+        current["rules"] = [r.model_dump(exclude_none=True) for r in body.rules]
+        save(current)
     _audit_logger.warning("Cập nhật cấu hình chấm điểm: actor=%s, username=%s, phan=rules, so_luat=%d",
                           caller.subject, caller.username, len(body.rules))
     return _dung_rules_response()

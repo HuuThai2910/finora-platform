@@ -1,14 +1,14 @@
 package com.finora.investment.service.orderbook.impl;
 
 import com.finora.common.enums.investment.NoteStatus;
-import com.finora.investment.domain.listing.MarketListing;
-import com.finora.investment.domain.note.InvestmentNote;
-import com.finora.investment.domain.orderbook.BookOrder;
-import com.finora.investment.domain.orderbook.BookOrderStatus;
-import com.finora.investment.domain.orderbook.CancelReason;
-import com.finora.investment.domain.orderbook.NoteLock;
-import com.finora.investment.domain.orderbook.OrderBook;
-import com.finora.investment.domain.orderbook.OrderSide;
+import com.finora.investment.domain.listing.entity.MarketListing;
+import com.finora.investment.domain.note.entity.InvestmentNote;
+import com.finora.investment.domain.orderbook.entity.BookOrder;
+import com.finora.investment.domain.orderbook.entity.NoteLock;
+import com.finora.investment.domain.orderbook.entity.OrderBook;
+import com.finora.investment.domain.orderbook.enums.BookOrderStatus;
+import com.finora.investment.domain.orderbook.enums.CancelReason;
+import com.finora.investment.domain.orderbook.enums.OrderSide;
 import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.repository.BookOrderRepository;
 import com.finora.investment.repository.InvestmentNoteRepository;
@@ -18,7 +18,6 @@ import com.finora.investment.repository.OrderBookRepository;
 import com.finora.investment.service.InvestorEligibility;
 import com.finora.investment.service.orderbook.MatchingEngine;
 import com.finora.investment.service.orderbook.OrderBookChangedEvent;
-import com.finora.investment.service.orderbook.OrderBookPricing;
 import com.finora.investment.service.orderbook.OrderBookTransactionService;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
@@ -45,14 +44,14 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class OrderBookTransactionServiceImpl implements OrderBookTransactionService {
 
-    private final OrderBookRepository bookRepository;
-    private final BookOrderRepository orderRepository;
-    private final InvestmentNoteRepository noteRepository;
-    private final NoteLockRepository lockRepository;
-    private final MarketListingRepository listingRepository;
+    private final OrderBookRepository orderBookRepository;
+    private final BookOrderRepository bookOrderRepository;
+    private final InvestmentNoteRepository investmentNoteRepository;
+    private final NoteLockRepository noteLockRepository;
+    private final MarketListingRepository marketListingRepository;
     private final MatchingEngine matchingEngine;
-    private final InvestorEligibility eligibility;
-    private final ApplicationEventPublisher events;
+    private final InvestorEligibility investorEligibility;
+    private final ApplicationEventPublisher applicationEventPublisher;
     private final EntityManager entityManager;
     private final Clock clock;
 
@@ -62,11 +61,11 @@ public class OrderBookTransactionServiceImpl implements OrderBookTransactionServ
         MarketListing listing = ensureBook(command.listingId());
         // Người vay mua Note khoản vay của chính mình cũng là tự cấp vốn. Lệnh bán không cần chặn:
         // người vay không thể có Note của khoản mình.
-        eligibility.requireNotBorrower(listing, command.investorId());
-        OrderBook book = bookRepository.findByListingId(command.listingId()).orElseThrow();
+        investorEligibility.requireNotBorrower(listing, command.investorId());
+        OrderBook book = orderBookRepository.findByListingId(command.listingId()).orElseThrow();
         requireDefaultAcknowledged(command);
 
-        BigDecimal maxOutstanding = noteRepository.findMaxTradableOutstanding(command.listingId());
+        BigDecimal maxOutstanding = investmentNoteRepository.findMaxTradableOutstanding(command.listingId());
         if (maxOutstanding == null || maxOutstanding.signum() <= 0) {
             throw InvestmentDomainException.conflict(
                     "BOOK_NOT_TRADABLE", "Khoản vay này chưa có Note nào đang lưu hành để mua");
@@ -93,14 +92,14 @@ public class OrderBookTransactionServiceImpl implements OrderBookTransactionServ
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
-        return orderRepository.save(order);
+        return bookOrderRepository.save(order);
     }
 
     @Override
     @Transactional
     public BookOrder activateBid(Long orderId, Long listingId, String holdReference) {
         OrderBook book = lockBook(listingId);
-        BookOrder order = orderRepository.findById(orderId).orElseThrow();
+        BookOrder order = bookOrderRepository.findById(orderId).orElseThrow();
         if (order.getStatus() != BookOrderStatus.PENDING_FUNDS) {
             return order;
         }
@@ -114,7 +113,7 @@ public class OrderBookTransactionServiceImpl implements OrderBookTransactionServ
     @Override
     @Transactional
     public BookOrder rejectBid(Long orderId, String reasonCode, String reasonDetail) {
-        BookOrder order = orderRepository.findById(orderId).orElseThrow();
+        BookOrder order = bookOrderRepository.findById(orderId).orElseThrow();
         if (order.getStatus() == BookOrderStatus.PENDING_FUNDS) {
             order.reject(reasonCode, reasonDetail, clock.instant());
         }
@@ -130,7 +129,7 @@ public class OrderBookTransactionServiceImpl implements OrderBookTransactionServ
 
         // Chọn Note dưới khóa sổ: mọi việc khóa/mở khóa Note đều đi qua khóa này, nên số Note rảnh
         // đọc được ở đây không thể bị lệnh bán khác lấy mất trước khi ghi khóa.
-        List<InvestmentNote> notes = noteRepository.findFreeNotes(
+        List<InvestmentNote> notes = investmentNoteRepository.findFreeNotes(
                 command.listingId(), command.investorId(), PageRequest.of(0, command.quantity()));
         if (notes.size() < command.quantity()) {
             throw InvestmentDomainException.conflict(
@@ -139,7 +138,7 @@ public class OrderBookTransactionServiceImpl implements OrderBookTransactionServ
         }
 
         Instant now = clock.instant();
-        BookOrder order = orderRepository.save(BookOrder.builder()
+        BookOrder order = bookOrderRepository.save(BookOrder.builder()
                 .orderReference(newOrderReference())
                 .orderBookId(book.getId())
                 .listingId(command.listingId())
@@ -160,7 +159,7 @@ public class OrderBookTransactionServiceImpl implements OrderBookTransactionServ
                 .updatedAt(now)
                 .build());
 
-        lockRepository.saveAll(notes.stream()
+        noteLockRepository.saveAll(notes.stream()
                 .map(note -> NoteLock.builder()
                         .noteId(note.getId())
                         .askOrderId(order.getId())
@@ -177,7 +176,7 @@ public class OrderBookTransactionServiceImpl implements OrderBookTransactionServ
     @Override
     @Transactional
     public BookOrder cancel(String orderReference, String investorId) {
-        BookOrder order = orderRepository.findByOrderReference(orderReference)
+        BookOrder order = bookOrderRepository.findByOrderReference(orderReference)
                 .orElseThrow(() -> InvestmentDomainException.notFound(
                         "ORDER_NOT_FOUND", "Không tìm thấy lệnh này"));
         if (!order.getInvestorId().equals(investorId)) {
@@ -206,7 +205,7 @@ public class OrderBookTransactionServiceImpl implements OrderBookTransactionServ
         Instant now = clock.instant();
         order.cancel(CancelReason.USER, investorId, now);
         if (order.getSide() == OrderSide.ASK) {
-            lockRepository.deleteByAskOrderId(order.getId());
+            noteLockRepository.deleteByAskOrderId(order.getId());
         }
         // Lệnh mua: phần tiền giữ còn lại do worker nhả sau khi các lần khớp trước đó thanh toán
         // xong (BookOrderRepository#findReleasePending), không nhả ở đây để không chờ mạng.
@@ -221,7 +220,7 @@ public class OrderBookTransactionServiceImpl implements OrderBookTransactionServ
     @Override
     @Transactional
     public boolean expirePendingBid(Long orderId, String holdReference) {
-        BookOrder order = orderRepository.findById(orderId).orElseThrow();
+        BookOrder order = bookOrderRepository.findById(orderId).orElseThrow();
         lockBook(order.getListingId());
         entityManager.refresh(order);
         if (order.getStatus() != BookOrderStatus.PENDING_FUNDS) {
@@ -237,15 +236,15 @@ public class OrderBookTransactionServiceImpl implements OrderBookTransactionServ
     public int closeBook(Long listingId) {
         OrderBook book = lockBook(listingId);
         // Đọc lại dưới khóa sổ: giữa lúc quét và lúc khóa có thể đã có Note mới đổi trạng thái.
-        if (noteRepository.findMaxTradableOutstanding(listingId) != null) {
+        if (investmentNoteRepository.findMaxTradableOutstanding(listingId) != null) {
             return 0;
         }
         Instant now = clock.instant();
-        List<BookOrder> resting = orderRepository.findResting(book.getId());
+        List<BookOrder> resting = bookOrderRepository.findResting(book.getId());
         for (BookOrder order : resting) {
             order.cancel(CancelReason.BOOK_CLOSED, "SYSTEM", now);
             if (order.getSide() == OrderSide.ASK) {
-                lockRepository.deleteByAskOrderId(order.getId());
+                noteLockRepository.deleteByAskOrderId(order.getId());
             }
         }
         if (!resting.isEmpty()) {
@@ -263,15 +262,15 @@ public class OrderBookTransactionServiceImpl implements OrderBookTransactionServ
      * đè bằng giá trị cũ.
      */
     private MarketListing ensureBook(Long listingId) {
-        MarketListing listing = listingRepository.findById(listingId)
+        MarketListing listing = marketListingRepository.findById(listingId)
                 .orElseThrow(() -> InvestmentDomainException.notFound(
                         "LISTING_NOT_FOUND", "Không tìm thấy khoản vay"));
-        bookRepository.insertIfAbsent(listingId, listing.getLoanId(), clock.instant());
+        orderBookRepository.insertIfAbsent(listingId, listing.getLoanId(), clock.instant());
         return listing;
     }
 
     private OrderBook lockBook(Long listingId) {
-        return bookRepository.findByListingIdForUpdate(listingId)
+        return orderBookRepository.findByListingIdForUpdate(listingId)
                 .orElseThrow(() -> InvestmentDomainException.notFound(
                         "ORDER_BOOK_NOT_FOUND", "Khoản vay này chưa có sổ lệnh"));
     }
@@ -282,7 +281,7 @@ public class OrderBookTransactionServiceImpl implements OrderBookTransactionServ
      */
     private void requireDefaultAcknowledged(OrderCommand command) {
         if (!command.acknowledgedDefault()
-                && noteRepository.existsByListingIdAndStatus(command.listingId(), NoteStatus.DEFAULTED)) {
+                && investmentNoteRepository.existsByListingIdAndStatus(command.listingId(), NoteStatus.DEFAULTED)) {
             throw InvestmentDomainException.invalidInput(
                     "DEFAULT_NOT_ACKNOWLEDGED",
                     "Khoản vay này đang nợ xấu; hãy xác nhận đã đọc cảnh báo trước khi đặt lệnh");
@@ -291,7 +290,7 @@ public class OrderBookTransactionServiceImpl implements OrderBookTransactionServ
 
     /** Báo sổ đã đổi; stream chỉ đẩy ảnh mới sau khi transaction commit. */
     private void publishChanged(OrderBook book) {
-        events.publishEvent(new OrderBookChangedEvent(book.getListingId(), book.getLastSequence()));
+        applicationEventPublisher.publishEvent(new OrderBookChangedEvent(book.getListingId(), book.getLastSequence()));
     }
 
     private static String newOrderReference() {

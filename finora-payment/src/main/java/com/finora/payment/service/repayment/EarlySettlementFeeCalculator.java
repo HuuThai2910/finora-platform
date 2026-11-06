@@ -1,55 +1,26 @@
 package com.finora.payment.service.repayment;
 
-import com.finora.payment.integration.fineract.EarlySettlementCoreQuote;
-import com.finora.payment.service.repayment.EarlySettlementPolicyCatalog.EarlySettlementPolicy;
+import com.finora.payment.integration.fineract.contract.EarlySettlementCoreQuote;
+
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
-import org.springframework.stereotype.Component;
 
-/** Tính phí trả trước/tất toán theo đúng biểu phí hợp đồng của khoản vay đã công bố (G-POLICY-W2). */
-@Component
-public class EarlySettlementFeeCalculator {
+/**
+ * Tính phí trả trước/tất toán theo đúng biểu phí hợp đồng của khoản vay đã công bố (G-POLICY-W2).
+ */
+public interface EarlySettlementFeeCalculator {
 
-    public Fee calculate(String accountPolicyVersion, EarlySettlementCoreQuote quote) {
-        return calculate(accountPolicyVersion, quote.principal(), quote.originalTermMonths(), quote.disbursedDate(),
-                quote.maturityDate(), quote.transactionDate());
-    }
+    /** Phí tất toán theo báo giá Fineract: phần gốc trả trước là phần gốc trong báo giá. */
+    Fee calculate(String accountPolicyVersion, EarlySettlementCoreQuote quote);
 
-    public Fee calculate(String accountPolicyVersion, BigDecimal prepaidPrincipal, int term, LocalDate disbursedDate,
-            LocalDate maturityDate, LocalDate transactionDate) {
-        if (term <= 0 || term > 24) {
-            throw new IllegalArgumentException("Thời hạn khoản vay nằm ngoài policy tất toán FINORA (1-24 tháng)");
-        }
-        EarlySettlementPolicy policy = EarlySettlementPolicyCatalog.forAccount(accountPolicyVersion);
-        BigDecimal rate;
-        if (term <= 12) {
-            long durationDays = ChronoUnit.DAYS.between(disbursedDate, maturityDate);
-            long elapsedDays = Math.max(0, ChronoUnit.DAYS.between(disbursedDate, transactionDate));
-            BigDecimal elapsedRatio = durationDays <= 0 ? BigDecimal.ONE
-                    : BigDecimal.valueOf(elapsedDays).divide(BigDecimal.valueOf(durationDays), 8, RoundingMode.HALF_UP);
-            if (elapsedRatio.compareTo(policy.shortTermFirstBandEnd()) <= 0) {
-                rate = policy.shortTermFirstBandRate();
-            } else if (elapsedRatio.compareTo(policy.shortTermFreeAfter()) <= 0) {
-                rate = policy.shortTermSecondBandRate();
-            } else {
-                rate = BigDecimal.ZERO;
-            }
-        } else {
-            rate = transactionDate.isBefore(disbursedDate.plusYears(1))
-                    ? policy.mediumTermYearOneRate() : policy.mediumTermYearTwoRate();
-        }
-        BigDecimal fee = rate.signum() == 0 ? BigDecimal.ZERO.setScale(2)
-                : prepaidPrincipal.multiply(rate).setScale(2, RoundingMode.HALF_UP)
-                        .max(policy.minimumFee());
-        BigDecimal investorShare = fee.multiply(policy.investorShareRate())
-                .setScale(2, RoundingMode.HALF_UP);
-        BigDecimal finoraShare = fee.subtract(investorShare).setScale(2, RoundingMode.HALF_UP);
-        return new Fee(rate.setScale(6, RoundingMode.HALF_UP), fee, investorShare, finoraShare, policy.version());
-    }
+    /**
+     * Phí trả trước {@code prepaidPrincipal} theo phiên bản biểu phí lưu trên tài khoản thu nợ. Thời hạn ngoài 1–24
+     * tháng bị từ chối; phiên bản biểu phí Payment chưa biết trả {@code 409 EARLY_SETTLEMENT_POLICY_UNKNOWN}.
+     */
+    Fee calculate(String accountPolicyVersion, BigDecimal prepaidPrincipal, int term, LocalDate disbursedDate,
+            LocalDate maturityDate, LocalDate transactionDate);
 
     /** Snapshot cả tỷ lệ lẫn cách chia để worker không bị ảnh hưởng khi thêm phiên bản biểu phí mới. */
-    public record Fee(BigDecimal rate, BigDecimal amount, BigDecimal investorShare,
+    record Fee(BigDecimal rate, BigDecimal amount, BigDecimal investorShare,
             BigDecimal finoraShare, String policyVersion) {}
 }

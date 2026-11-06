@@ -1,7 +1,8 @@
 package com.finora.payment.service.ledger;
 
-import com.finora.payment.domain.ledger.LedgerTransactionType;
-import com.finora.payment.domain.wallet.PaymentWallet;
+import com.finora.payment.domain.ledger.enums.LedgerTransactionType;
+import com.finora.payment.domain.wallet.entity.PaymentWallet;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.regex.Pattern;

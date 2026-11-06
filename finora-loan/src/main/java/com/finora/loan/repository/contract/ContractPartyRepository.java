@@ -1,14 +1,15 @@
 package com.finora.loan.repository.contract;
 
-import com.finora.loan.domain.contract.ContractParty;
-import com.finora.loan.domain.contract.ContractPartyStatus;
-import com.finora.loan.domain.contract.ContractPartyType;
+import com.finora.loan.domain.contract.entity.ContractParty;
+import com.finora.loan.domain.contract.enums.ContractPartyStatus;
+import com.finora.loan.domain.contract.enums.ContractPartyType;
 import jakarta.persistence.LockModeType;
-import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.util.List;
 
 public interface ContractPartyRepository extends JpaRepository<ContractParty, Long> {
 

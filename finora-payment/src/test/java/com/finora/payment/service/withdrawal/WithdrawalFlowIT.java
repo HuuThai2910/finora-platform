@@ -1,24 +1,16 @@
 package com.finora.payment.service.withdrawal;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.common.exception.BusinessException;
 import com.finora.payment.config.PayoutProperties;
-import com.finora.payment.domain.withdrawal.PaymentWithdrawal;
-import com.finora.payment.domain.withdrawal.WithdrawalStatus;
+import com.finora.payment.domain.withdrawal.entity.PaymentWithdrawal;
+import com.finora.payment.domain.withdrawal.enums.WithdrawalStatus;
 import com.finora.payment.dto.request.CreateWithdrawalRequest;
 import com.finora.payment.dto.response.WithdrawalResponse;
 import com.finora.payment.integration.payout.PayoutSignature;
 import com.finora.payment.repository.withdrawal.PaymentWithdrawalRepository;
 import com.finora.payment.service.topup.TopUpService;
 import com.finora.payment.service.wallet.WalletQueryService;
-import java.math.BigDecimal;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +26,15 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * R4 (W3B) trên PostgreSQL thật: trừ ví một lần, callback HMAC, hoàn tiền khi thất bại, hạn mức ngày, idempotency,

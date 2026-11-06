@@ -1,13 +1,11 @@
 package com.finora.user.service.impl;
 
 import com.finora.user.config.KeycloakAdminProperties;
-import com.finora.user.domain.StaffRoleDefinition;
+import com.finora.user.domain.model.StaffRoleDefinition;
+import com.finora.user.util.CircuitBreakerTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 import org.keycloak.admin.client.resource.ClientResource;
 import org.keycloak.admin.client.resource.ClientsResource;
 import org.keycloak.admin.client.resource.RealmResource;
@@ -19,6 +17,9 @@ import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.admin.client.resource.UsersResource;
 import org.keycloak.representations.idm.ClientRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 import java.util.Map;
@@ -54,7 +55,8 @@ class KeycloakAdminServiceImplRolesTest {
 
     @BeforeEach
     void setUp() {
-        service = spy(new KeycloakAdminServiceImpl(new KeycloakAdminProperties()));
+        service = spy(new KeycloakAdminServiceImpl(new KeycloakAdminProperties(),
+                CircuitBreakerTestSupport.circuitBreakerFactory()));
         doReturn(realm).when(service).getRealmResource();
     }
 

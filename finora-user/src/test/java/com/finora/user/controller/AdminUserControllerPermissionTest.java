@@ -42,6 +42,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AdminUserControllerPermissionTest {
 
     private static final String BASE = "/api/v1/admin/users";
+    private static final String LOCK_BODY = "{\"reason\":\"Nghi giả mạo\"}";
 
     @Mock private UserProfileService userProfileService;
     @Mock private UserStatisticsRepository statisticsRepository;
@@ -62,7 +63,7 @@ class AdminUserControllerPermissionTest {
     @Test
     void customerViewCanListAndReadDetail() throws Exception {
         authenticateWith("ROLE_STAFF", "ops:customer:view");
-        when(userProfileService.getAllUsers(any(), any(), any())).thenReturn(PageResponse.<UserProfileResponse>builder()
+        when(userProfileService.searchUsers(any(), any())).thenReturn(PageResponse.<UserProfileResponse>builder()
                 .content(List.of()).page(0).size(20).totalElements(0).totalPages(0).last(true).build());
 
         mockMvc.perform(get(BASE)).andExpect(status().isOk());
@@ -91,13 +92,15 @@ class AdminUserControllerPermissionTest {
     @Test
     void lockNeedsCustomerAction() throws Exception {
         authenticateWith("ROLE_STAFF", "ops:customer:view");
-        mockMvc.perform(post(BASE + "/42/lock")).andExpect(status().isForbidden());
+        mockMvc.perform(post(BASE + "/42/lock").contentType(MediaType.APPLICATION_JSON).content(LOCK_BODY))
+                .andExpect(status().isForbidden());
         mockMvc.perform(post(BASE + "/42/unlock")).andExpect(status().isForbidden());
 
         authenticateWith("ROLE_STAFF", "ops:customer:view", "ops:customer:action");
-        mockMvc.perform(post(BASE + "/42/lock")).andExpect(status().isOk());
+        mockMvc.perform(post(BASE + "/42/lock").contentType(MediaType.APPLICATION_JSON).content(LOCK_BODY))
+                .andExpect(status().isOk());
         mockMvc.perform(post(BASE + "/42/unlock")).andExpect(status().isOk());
-        verify(userProfileService).lockUser(42L, USER_ID);
+        verify(userProfileService).lockUser(42L, "Nghi giả mạo", USER_ID);
         verify(userProfileService).unlockUser(42L);
     }
 

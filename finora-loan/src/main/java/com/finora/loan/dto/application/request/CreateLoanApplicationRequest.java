@@ -1,8 +1,8 @@
 package com.finora.loan.dto.application.request;
 
-import com.finora.loan.domain.application.EducationLevel;
-import com.finora.loan.domain.application.HomeOwnership;
-import com.finora.loan.domain.application.LoanPurpose;
+import com.finora.loan.domain.application.enums.EducationLevel;
+import com.finora.loan.domain.application.enums.HomeOwnership;
+import com.finora.loan.domain.application.enums.LoanPurpose;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.FutureOrPresent;
@@ -10,6 +10,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 

@@ -1,12 +1,12 @@
 package com.finora.loan.service.product;
 
-import com.finora.loan.dto.common.PageResponse;
+import com.finora.loan.domain.product.enums.CoreSyncStatus;
+import com.finora.loan.domain.product.enums.LoanProductStatus;
 import com.finora.loan.dto.product.request.CreateLoanProductRequest;
 import com.finora.loan.dto.product.request.UpdateLoanProductRequest;
 import com.finora.loan.dto.product.response.LoanProductCatalogResponse;
 import com.finora.loan.dto.product.response.LoanProductResponse;
-import com.finora.loan.domain.product.CoreSyncStatus;
-import com.finora.loan.domain.product.LoanProductStatus;
+import com.finora.loan.dto.response.PageResponse;
 
 /**
  * Hợp đồng nghiệp vụ nội bộ cho chức năng quản lý và tra cứu sản phẩm vay.

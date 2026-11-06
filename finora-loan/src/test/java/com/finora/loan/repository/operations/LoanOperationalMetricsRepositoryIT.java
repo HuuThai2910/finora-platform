@@ -1,12 +1,6 @@
 package com.finora.loan.repository.operations;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import com.finora.common.observability.OperationalMetricsProperties;
-import java.time.Duration;
-import java.util.Arrays;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +11,13 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Câu đếm gauge vận hành chạy đúng trên schema thật của Loan (Flyway từ V1 tới hiện hành, PostgreSQL 17), có trần, và

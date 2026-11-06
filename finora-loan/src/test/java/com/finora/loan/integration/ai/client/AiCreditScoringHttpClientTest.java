@@ -2,14 +2,16 @@ package com.finora.loan.integration.ai.client;
 
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.JsonParser;
-import java.net.SocketException;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.TimeoutException;
+import com.finora.loan.integration.ai.AiCreditIntegrationException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
+
+import java.net.SocketException;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

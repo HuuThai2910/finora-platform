@@ -2,12 +2,10 @@ package com.finora.loan.integration.ai.client;
 
 import com.fasterxml.jackson.core.JacksonException;
 import com.finora.loan.config.AiCreditProperties;
+import com.finora.loan.integration.ai.AiCreditIntegrationException;
 import com.finora.loan.integration.ai.contract.AiCreditScoreRequest;
 import com.finora.loan.integration.ai.contract.AiCreditScoreResponse;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
-import java.io.IOException;
-import java.math.BigDecimal;
-import java.util.concurrent.TimeoutException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
@@ -19,21 +17,25 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.util.concurrent.TimeoutException;
+
 @Component
 @Slf4j
 public class AiCreditScoringHttpClient implements AiCreditScoringGateway {
 
     private final RestClient restClient;
-    private final AiCreditProperties properties;
+    private final AiCreditProperties aiCreditProperties;
     private final CircuitBreakerFactory<?, ?> circuitBreakerFactory;
 
     public AiCreditScoringHttpClient(
             @Qualifier("aiCreditRestClient") RestClient restClient,
-            AiCreditProperties properties,
+            AiCreditProperties aiCreditProperties,
             CircuitBreakerFactory<?, ?> circuitBreakerFactory
     ) {
         this.restClient = restClient;
-        this.properties = properties;
+        this.aiCreditProperties = aiCreditProperties;
         this.circuitBreakerFactory = circuitBreakerFactory;
     }
 
@@ -85,7 +87,7 @@ public class AiCreditScoringHttpClient implements AiCreditScoringGateway {
                 || !response.creditGrade().matches("^[A-Z][A-Z0-9+\\-]{0,7}$")) {
             throw contractMismatch("AI trả score hoặc credit grade ngoài miền hợp lệ");
         }
-        if (!properties.modelVersion().equals(response.modelVersion())) {
+        if (!aiCreditProperties.modelVersion().equals(response.modelVersion())) {
             throw new AiCreditIntegrationException(
                     "AI_MODEL_VERSION_MISMATCH",
                     "AI trả model version không khớp version Loan yêu cầu",

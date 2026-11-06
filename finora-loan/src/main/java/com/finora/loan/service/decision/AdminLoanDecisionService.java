@@ -1,19 +1,31 @@
 package com.finora.loan.service.decision;
 
-import com.finora.loan.domain.application.LoanApplicationStatus;
-import com.finora.loan.dto.common.PageResponse;
+import com.finora.loan.domain.application.enums.LoanApplicationStatus;
 import com.finora.loan.dto.decision.request.ApproveLoanApplicationRequest;
 import com.finora.loan.dto.decision.request.RejectLoanApplicationRequest;
 import com.finora.loan.dto.decision.response.AdminAssessmentExplanationResponse;
 import com.finora.loan.dto.decision.response.AdminLoanDecisionResponse;
 import com.finora.loan.dto.decision.response.AdminLoanReviewDetailResponse;
 import com.finora.loan.dto.decision.response.AdminLoanReviewSummaryResponse;
+import com.finora.loan.dto.response.PageResponse;
 
 /** Use case dành cho admin đọc evidence và quyết định hồ sơ; AI chỉ cung cấp đầu vào. */
 public interface AdminLoanDecisionService {
 
+    /**
+     * Không truyền trạng thái nghĩa là xem tất cả hồ sơ, nhưng vẫn chỉ đọc một page có giới hạn.
+     * Assessment được tải theo batch để số query không tăng theo số hồ sơ trên trang.
+     */
     PageResponse<AdminLoanReviewSummaryResponse> listApplications(LoanApplicationStatus status, int page, int size);
 
+    /** Như trên, lọc thêm theo người vay khi {@code borrowerId} có giá trị. */
+    PageResponse<AdminLoanReviewSummaryResponse> listApplications(
+            LoanApplicationStatus status, String borrowerId, int page, int size);
+
+    /**
+     * Detail dùng số query cố định và chỉ đọc snapshot local; không gọi User, AI hoặc Fineract.
+     * Số hợp đồng lấy bằng một query theo khóa duy nhất {@code application_id}, không tải cả Contract.
+     */
     AdminLoanReviewDetailResponse reviewDetail(String applicationNumber);
 
     /**

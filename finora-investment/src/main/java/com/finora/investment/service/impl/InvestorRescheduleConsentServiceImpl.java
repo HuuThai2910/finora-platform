@@ -2,8 +2,8 @@ package com.finora.investment.service.impl;
 
 import com.finora.common.dto.PageResponse;
 import com.finora.common.security.SecurityUtils;
-import com.finora.investment.domain.restructure.InvestorRescheduleConsent;
-import com.finora.investment.domain.restructure.InvestorRescheduleConsentStatus;
+import com.finora.investment.domain.restructure.entity.InvestorRescheduleConsent;
+import com.finora.investment.domain.restructure.enums.InvestorRescheduleConsentStatus;
 import com.finora.investment.dto.response.InvestorRescheduleConsentResponse;
 import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.messaging.event.LoanRescheduleConsentCompletedEventData;
@@ -21,18 +21,25 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Đề nghị cơ cấu khoản vay gửi tới nhà đầu tư đang giữ Note: xem danh sách, chi tiết và đồng ý/từ chối.
+ * <p>
+ * Quyết định khoá mọi phiếu của cùng đề nghị và idempotent theo khoá gửi kèm. Một người từ chối thì đề nghị bị
+ * từ chối (các phiếu còn lại bị huỷ), mọi người đồng ý thì đề nghị được thông qua; có kết quả thì ghi outbox
+ * {@code LoanRescheduleConsentCompleted}.
+ */
 @Service
 @RequiredArgsConstructor
 public class InvestorRescheduleConsentServiceImpl implements InvestorRescheduleConsentService {
 
-    private final InvestorRescheduleConsentRepository consents;
-    private final InvestmentOutboxService outbox;
+    private final InvestorRescheduleConsentRepository investorRescheduleConsentRepository;
+    private final InvestmentOutboxService investmentOutboxService;
     private final Clock clock;
 
     @Override
     @Transactional(readOnly = true)
     public PageResponse<InvestorRescheduleConsentResponse> listMine(int page, int size) {
-        Page<InvestorRescheduleConsentResponse> result = consents
+        Page<InvestorRescheduleConsentResponse> result = investorRescheduleConsentRepository
                 .findByInvestorIdOrderByCreatedAtDesc(
                         SecurityUtils.getCurrentUserId(), PageRequest.of(page, size))
                 .map(this::response);
@@ -57,7 +64,7 @@ public class InvestorRescheduleConsentServiceImpl implements InvestorRescheduleC
     public InvestorRescheduleConsentResponse decide(UUID requestId, String idempotencyKey,
             boolean approve, String comment) {
         String investorId = SecurityUtils.getCurrentUserId();
-        List<InvestorRescheduleConsent> all = consents.findAllByRequestIdForUpdate(requestId);
+        List<InvestorRescheduleConsent> all = investorRescheduleConsentRepository.findAllByRequestIdForUpdate(requestId);
         InvestorRescheduleConsent mine = all.stream().filter(value -> value.getInvestorId().equals(investorId))
                 .findFirst().orElseThrow(() -> InvestmentDomainException.notFound(
                         "RESCHEDULE_CONSENT_NOT_FOUND", "Không tìm thấy đề nghị cơ cấu của bạn"));
@@ -75,7 +82,7 @@ public class InvestorRescheduleConsentServiceImpl implements InvestorRescheduleC
         boolean resolved = !approve || approved == all.size();
         if (resolved) {
             if (!approve) all.stream().filter(value -> value != mine).forEach(value -> value.cancel(now));
-            outbox.record("LoanRescheduleConsent", requestId.toString(),
+            investmentOutboxService.record("LoanRescheduleConsent", requestId.toString(),
                     "LoanRescheduleConsentCompleted", 1,
                     new LoanRescheduleConsentCompletedEventData(requestId, mine.getLoanApplicationId(),
                             approve, all.size(), approved, now));
@@ -84,7 +91,7 @@ public class InvestorRescheduleConsentServiceImpl implements InvestorRescheduleC
     }
 
     private InvestorRescheduleConsent owned(UUID requestId, String investorId) {
-        return consents.findByRequestIdAndInvestorId(requestId, investorId)
+        return investorRescheduleConsentRepository.findByRequestIdAndInvestorId(requestId, investorId)
                 .orElseThrow(() -> InvestmentDomainException.notFound(
                         "RESCHEDULE_CONSENT_NOT_FOUND", "Không tìm thấy đề nghị cơ cấu của bạn"));
     }

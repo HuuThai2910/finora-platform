@@ -1,18 +1,19 @@
 package com.finora.notification.service.template;
 
-import static com.finora.notification.domain.NotificationCategory.CONTRACT;
-import static com.finora.notification.domain.NotificationCategory.DELINQUENCY;
-import static com.finora.notification.domain.NotificationCategory.DISBURSEMENT;
-import static com.finora.notification.domain.NotificationCategory.FUNDING;
-import static com.finora.notification.domain.NotificationCategory.GENERAL;
-import static com.finora.notification.domain.NotificationCategory.REPAYMENT;
-import static com.finora.notification.domain.NotificationCategory.RESTRUCTURING;
-import static com.finora.notification.domain.NotificationCategory.WALLET;
+import com.finora.notification.domain.enums.NotificationCategory;
 
-import com.finora.notification.domain.NotificationCategory;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import static com.finora.notification.domain.enums.NotificationCategory.CONTRACT;
+import static com.finora.notification.domain.enums.NotificationCategory.DELINQUENCY;
+import static com.finora.notification.domain.enums.NotificationCategory.DISBURSEMENT;
+import static com.finora.notification.domain.enums.NotificationCategory.FUNDING;
+import static com.finora.notification.domain.enums.NotificationCategory.GENERAL;
+import static com.finora.notification.domain.enums.NotificationCategory.REPAYMENT;
+import static com.finora.notification.domain.enums.NotificationCategory.RESTRUCTURING;
+import static com.finora.notification.domain.enums.NotificationCategory.WALLET;
 
 /**
  * Danh mục mẫu thông báo (D63). Tên hằng là mã {@code type} lưu ở hộp thư; tin của nhà đầu tư giữ đúng

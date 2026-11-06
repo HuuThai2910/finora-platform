@@ -626,3 +626,22 @@ class TestBatTatLuat:
         sua_config(lambda c: [r.update(bat=False) for r in c["rules"][:so_luat_tat]])
         for ho_so in (HO_SO_TOT, HO_SO_XAU, {}):
             assert 0 <= tinh_diem_rui_ro(ho_so) <= 100
+
+
+class TestLyDoChuyenThamDinh:
+    """Mã lý do cho hồ sơ đã chuyển PENDING_REVIEW (web quản trị hiện cho thẩm định viên)."""
+
+    def test_giu_ma_tham_dinh_bat_buoc(self):
+        from app.services.credit.rule_engine import ly_do_chuyen_tham_dinh
+
+        assert ly_do_chuyen_tham_dinh(5, 5, ["CIC_CURRENT_GROUP_MISSING"]) == ["CIC_CURRENT_GROUP_MISSING"]
+
+    def test_thieu_du_lieu(self):
+        from app.services.credit.rule_engine import ly_do_chuyen_tham_dinh
+
+        assert ly_do_chuyen_tham_dinh(2, 10, []) == ["INSUFFICIENT_RULE_DATA"]
+
+    def test_diem_giua_hai_nguong(self):
+        from app.services.credit.rule_engine import ly_do_chuyen_tham_dinh
+
+        assert ly_do_chuyen_tham_dinh(5, 5, None) == ["SCORE_IN_REVIEW_BAND"]

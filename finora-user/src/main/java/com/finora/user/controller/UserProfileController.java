@@ -1,12 +1,13 @@
 package com.finora.user.controller;
 
-import com.finora.common.security.ratelimit.RateLimited;
 import com.finora.common.dto.BaseResponse;
 import com.finora.common.security.SecurityUtils;
+import com.finora.common.security.ratelimit.RateLimited;
 import com.finora.user.dto.request.EkycConfirmRequest;
 import com.finora.user.dto.request.EkycVerifyRequest;
 import com.finora.user.dto.response.EkycResultResponse;
 import com.finora.user.dto.response.KycSummaryResponse;
+import com.finora.user.dto.response.MyEkycStatusResponse;
 import com.finora.user.dto.response.UserProfileResponse;
 import com.finora.user.service.EkycVerificationService;
 import com.finora.user.service.KycSummaryService;
@@ -56,6 +57,16 @@ public class UserProfileController {
     @PreAuthorize("hasAuthority('user:profile:read')")
     public ResponseEntity<KycSummaryResponse> getMyKycSummary() {
         return ResponseEntity.ok(kycSummaryService.summaryOf(SecurityUtils.getCurrentKeycloakUserId()));
+    }
+
+    /**
+     * Kết quả lượt xác minh danh tính gần nhất của chính mình, kèm lý do khi nhân viên từ chối — app hiện để khách
+     * biết cần chụp lại hay bổ sung gì.
+     */
+    @GetMapping("/me/ekyc-status")
+    @PreAuthorize("hasAuthority('user:profile:read')")
+    public ResponseEntity<MyEkycStatusResponse> getMyEkycStatus() {
+        return ResponseEntity.ok(kycSummaryService.myEkycStatus(SecurityUtils.getCurrentKeycloakUserId()));
     }
 
     // ── eKYC — quét thẻ và xác nhận (EKYC-002 mục 3.2, 3.5) ─────────

@@ -42,7 +42,7 @@ import java.util.concurrent.Executors;
 @Service
 public class OrderBookStreamServiceImpl implements OrderBookStreamService {
 
-    private final OrderBookQueryService queryService;
+    private final OrderBookQueryService orderBookQueryService;
     private final long emitterTimeoutMs;
 
     private final Map<Long, Set<SseEmitter>> subscribers = new ConcurrentHashMap<>();
@@ -61,15 +61,15 @@ public class OrderBookStreamServiceImpl implements OrderBookStreamService {
     });
 
     public OrderBookStreamServiceImpl(
-            OrderBookQueryService queryService,
+            OrderBookQueryService orderBookQueryService,
             @Value("${finora.investment.order-book.stream-timeout-ms:1800000}") long emitterTimeoutMs) {
-        this.queryService = queryService;
+        this.orderBookQueryService = orderBookQueryService;
         this.emitterTimeoutMs = emitterTimeoutMs;
     }
 
     @Override
     public SseEmitter subscribe(Long listingId) {
-        OrderBookSnapshotResponse initial = queryService.snapshot(listingId);
+        OrderBookSnapshotResponse initial = orderBookQueryService.snapshot(listingId);
 
         SseEmitter emitter = new SseEmitter(emitterTimeoutMs);
         Set<SseEmitter> listeners = subscribers.computeIfAbsent(listingId, id -> new CopyOnWriteArraySet<>());
@@ -124,7 +124,7 @@ public class OrderBookStreamServiceImpl implements OrderBookStreamService {
         }
         OrderBookSnapshotResponse snapshot;
         try {
-            snapshot = queryService.snapshot(listingId);
+            snapshot = orderBookQueryService.snapshot(listingId);
         } catch (RuntimeException failure) {
             log.warn("Không dựng được ảnh sổ lệnh để đẩy: listingId={}, exceptionType={}",
                     listingId, failure.getClass().getName());

@@ -1,5 +1,6 @@
 package com.finora.loan.config;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
@@ -9,13 +10,10 @@ import org.springframework.stereotype.Component;
  * sang Investment hoặc không thể nhận kết quả đủ vốn để lập Contract.
  */
 @Component
+@RequiredArgsConstructor
 public class InvestmentIntegrationConfigurationValidator implements InitializingBean {
 
     private final Environment environment;
-
-    public InvestmentIntegrationConfigurationValidator(Environment environment) {
-        this.environment = environment;
-    }
 
     @Override
     public void afterPropertiesSet() {

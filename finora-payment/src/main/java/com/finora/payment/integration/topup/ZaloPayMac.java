@@ -1,10 +1,10 @@
 package com.finora.payment.integration.topup;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 
 public final class ZaloPayMac {
     private ZaloPayMac() {}

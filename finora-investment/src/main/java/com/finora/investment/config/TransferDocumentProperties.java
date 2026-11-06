@@ -1,7 +1,8 @@
 package com.finora.investment.config;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
 
 /**
  * Worker lập giấy xác nhận chuyển nhượng Note và con dấu số FINORA.

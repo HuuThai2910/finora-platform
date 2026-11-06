@@ -1,10 +1,11 @@
 package com.finora.notification.config;
 
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
 import java.time.Duration;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Cấu hình R7 của Notification ({@code finora.notification.*}). Giá trị mặc định nằm ở đây để test và môi trường thiếu

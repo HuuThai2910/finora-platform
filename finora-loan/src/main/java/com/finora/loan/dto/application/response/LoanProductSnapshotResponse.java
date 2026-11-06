@@ -1,6 +1,7 @@
 package com.finora.loan.dto.application.response;
 
-import com.finora.loan.domain.product.RepaymentMethod;
+import com.finora.loan.domain.product.enums.RepaymentMethod;
+
 import java.math.BigDecimal;
 
 public record LoanProductSnapshotResponse(

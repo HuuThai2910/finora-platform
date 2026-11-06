@@ -35,9 +35,11 @@ import java.util.Locale;
  * ({@code ;x=y}), gộp {@code //}, bỏ {@code /./}, xử lý {@code /../}, không phân biệt hoa thường —
  * vì FastAPI phía sau giải mã và khớp route theo cách riêng, một biến thể lọt qua là lộ route.
  * Trả 404 (không phải 403) để không xác nhận route tồn tại.
+ * <p>
+ * Đứng ngay sau {@code ApiLogFilter} để lượt dò route nội bộ bị chặn vẫn có trong access log.
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class InternalAiRouteBlockingFilter extends OncePerRequestFilter {
 
     static final String BLOCKED_PREFIX = "/api/v1/ai/ekyc";

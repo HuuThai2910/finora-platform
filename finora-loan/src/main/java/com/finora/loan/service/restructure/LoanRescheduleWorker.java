@@ -1,26 +1,10 @@
 package com.finora.loan.service.restructure;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
+/**
+ * Worker định kỳ chạy các yêu cầu cơ cấu đến hạn trên Fineract (bật bằng {@code finora.loan.reschedule.worker-enabled}).
+ */
+public interface LoanRescheduleWorker {
 
-@Component
-@RequiredArgsConstructor
-@Slf4j
-@ConditionalOnProperty(prefix = "finora.loan.reschedule", name = "worker-enabled", havingValue = "true")
-public class LoanRescheduleWorker {
-    private final LoanRescheduleExecutionService service;
-
-    @Scheduled(fixedDelayString = "${finora.loan.reschedule.worker-delay:5000}")
-    public void run() {
-        service.dueIds().forEach(id -> {
-            try {
-                service.execute(id);
-            } catch (RuntimeException exception) {
-                log.error("Không xử lý được yêu cầu cơ cấu: requestDbId={}", id, exception);
-            }
-        });
-    }
+    /** Một vòng: xử lý lần lượt các yêu cầu đến hạn. */
+    void run();
 }

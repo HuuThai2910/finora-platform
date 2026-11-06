@@ -1,7 +1,7 @@
 package com.finora.user.repository;
 
-import com.finora.user.domain.EkycAttempt;
-import com.finora.user.domain.EkycAttemptStatus;
+import com.finora.user.domain.entity.EkycAttempt;
+import com.finora.user.domain.enums.EkycAttemptStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -68,4 +68,18 @@ public interface EkycAttemptRepository extends JpaRepository<EkycAttempt, Long> 
             """,
             countQuery = "select count(a) from EkycAttempt a")
     Page<EkycAttemptSummaryRow> findAllSummaries(Pageable pageable);
+
+    /** Mọi lượt của một khách, mới nhất trước — dùng index {@code user_profile_id}. */
+    @Query(value = """
+            select new com.finora.user.repository.EkycAttemptSummaryRow(a, p.email)
+            from EkycAttempt a join UserProfile p on p.id = a.userProfileId
+            where a.userProfileId = :userProfileId
+            order by a.createdAt desc, a.id desc
+            """,
+            countQuery = "select count(a) from EkycAttempt a where a.userProfileId = :userProfileId")
+    Page<EkycAttemptSummaryRow> findSummariesByUserProfileId(@Param("userProfileId") Long userProfileId,
+                                                             Pageable pageable);
+
+    /** Lượt gần nhất của một khách — để app biết lượt trước bị từ chối vì sao. */
+    Optional<EkycAttempt> findFirstByUserProfileIdOrderByCreatedAtDescIdDesc(Long userProfileId);
 }

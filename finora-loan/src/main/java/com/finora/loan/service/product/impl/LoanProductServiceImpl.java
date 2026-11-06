@@ -3,28 +3,21 @@ package com.finora.loan.service.product.impl;
 import com.finora.common.exception.ResourceNotFoundException;
 import com.finora.common.security.SecurityUtils;
 import com.finora.common.security.ops.OpsFunction;
-import com.finora.loan.domain.product.LoanProduct;
-import com.finora.loan.domain.product.CoreSyncStatus;
-import com.finora.loan.domain.product.LoanProduct;
-import com.finora.loan.domain.product.LoanProductStatus;
-import com.finora.loan.domain.product.RepaymentMethod;
-import com.finora.loan.dto.common.PageResponse;
+import com.finora.loan.domain.product.entity.LoanProduct;
+import com.finora.loan.domain.product.enums.CoreSyncStatus;
+import com.finora.loan.domain.product.enums.LoanProductStatus;
+import com.finora.loan.domain.product.enums.RepaymentMethod;
 import com.finora.loan.dto.product.request.CreateLoanProductRequest;
 import com.finora.loan.dto.product.request.UpdateLoanProductRequest;
 import com.finora.loan.dto.product.response.LoanProductCatalogResponse;
 import com.finora.loan.dto.product.response.LoanProductResponse;
+import com.finora.loan.dto.response.PageResponse;
 import com.finora.loan.exception.LoanBusinessException;
 import com.finora.loan.mapper.product.LoanProductMapper;
 import com.finora.loan.repository.product.LoanProductRepository;
 import com.finora.loan.service.product.LoanProductService;
-import java.math.BigDecimal;
-import java.time.Clock;
-import java.time.Instant;
-import java.util.function.Consumer;
-import java.util.Locale;
-import java.util.Objects;
-import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -32,13 +25,26 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.function.Consumer;
+
+/**
+ * Quản lý và tra cứu sản phẩm vay (Loan Product).
+ * <p>
+ * Thao tác ghi kiểm quyền Thao tác "Sản phẩm vay" và version để hai thao tác admin không ghi đè nhau; danh sách chỉ đọc
+ * scalar của Product nên không phát sinh N+1.
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class LoanProductServiceImpl implements LoanProductService {
 
-    private final LoanProductRepository repository;
-    private final LoanProductMapper mapper;
+    private final LoanProductRepository loanProductRepository;
+    private final LoanProductMapper loanProductMapper;
     private final Clock clock;
 
     /** Tạo Product DRAFT/NOT_SYNCED; unique constraint vẫn là hàng rào cuối khi request cạnh tranh. */
@@ -46,7 +52,7 @@ public class LoanProductServiceImpl implements LoanProductService {
     @Transactional
     public LoanProductResponse create(CreateLoanProductRequest request) {
         String normalizedCode = request.code().trim().toUpperCase(Locale.ROOT);
-        if (repository.existsByCode(normalizedCode)) {
+        if (loanProductRepository.existsByCode(normalizedCode)) {
             throw LoanBusinessException.conflict("LOAN_PRODUCT_CODE_EXISTS", "Mã sản phẩm đã tồn tại");
         }
         LoanProduct product = LoanProduct.create(
@@ -65,13 +71,13 @@ public class LoanProductServiceImpl implements LoanProductService {
                 Instant.now(clock)
         );
         try {
-            repository.saveAndFlush(product);
+            loanProductRepository.saveAndFlush(product);
         } catch (DataIntegrityViolationException exception) {
             throw LoanBusinessException.conflict("LOAN_PRODUCT_CODE_EXISTS", "Mã sản phẩm đã tồn tại");
         }
         log.info("Đã tạo Loan Product: productId={}, code={}, actorId={}",
                 product.getId(), product.getCode(), actor());
-        return mapper.toResponse(product);
+        return loanProductMapper.toResponse(product);
     }
 
     /** Sửa điều khoản chỉ khi DRAFT; domain tự reset core sync để bắt buộc đồng bộ cấu hình mới. */
@@ -94,29 +100,29 @@ public class LoanProductServiceImpl implements LoanProductService {
                 actor(),
                 Instant.now(clock)
         );
-        repository.saveAndFlush(product);
+        loanProductRepository.saveAndFlush(product);
         log.info("Đã cập nhật Loan Product: productId={}, configurationVersion={}, actorId={}",
                 id, product.getConfigurationVersion(), actor());
-        return mapper.toResponse(product);
+        return loanProductMapper.toResponse(product);
     }
 
+    /** Kích hoạt chỉ đổi state local sau khi domain xác nhận mapping Fineract hiện hành đã SYNCED. */
     @Override
     @Transactional
-    /** Kích hoạt chỉ đổi state local sau khi domain xác nhận mapping Fineract hiện hành đã SYNCED. */
     public LoanProductResponse activate(long id, long version) {
         return transition(id, product -> product.activate(version, actor(), now()), "ACTIVE");
     }
 
+    /** Ngừng nhận hồ sơ mới nhưng giữ nguyên Product snapshot của các hồ sơ đã nộp. */
     @Override
     @Transactional
-    /** Ngừng nhận hồ sơ mới nhưng giữ nguyên Product snapshot của các hồ sơ đã nộp. */
     public LoanProductResponse deactivate(long id, long version) {
         return transition(id, product -> product.deactivate(version, actor(), now()), "INACTIVE");
     }
 
+    /** Lưu trữ Product có kiểm tra version để hai thao tác admin không ghi đè nhau. */
     @Override
     @Transactional
-    /** Lưu trữ Product có kiểm tra version để hai thao tác admin không ghi đè nhau. */
     public LoanProductResponse archive(long id, long version) {
         return transition(id, product -> product.archive(version, actor(), now()), "ARCHIVED");
     }
@@ -124,7 +130,7 @@ public class LoanProductServiceImpl implements LoanProductService {
     @Override
     @Transactional(readOnly = true)
     public LoanProductResponse getAdminDetail(long id) {
-        return mapper.toResponse(getProduct(id));
+        return loanProductMapper.toResponse(getProduct(id));
     }
 
     /**
@@ -139,33 +145,33 @@ public class LoanProductServiceImpl implements LoanProductService {
             int page,
             int size
     ) {
-        Page<LoanProductResponse> products = repository.findAdminProducts(
+        Page<LoanProductResponse> products = loanProductRepository.findAdminProducts(
                         status,
                         coreSyncStatus,
                         PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")))
                 )
-                .map(mapper::toResponse);
+                .map(loanProductMapper::toResponse);
         return PageResponse.from(products);
     }
 
+    /** Borrower chỉ đọc Product ACTIVE có core mapping sẵn sàng. */
     @Override
     @Transactional(readOnly = true)
-    /** Borrower chỉ đọc Product ACTIVE có core mapping sẵn sàng. */
     public LoanProductCatalogResponse getActive(long id) {
         LoanProduct product = getProduct(id);
         product.requireAvailable();
-        return mapper.toCatalogResponse(product);
+        return loanProductMapper.toCatalogResponse(product);
     }
 
     /** List chỉ tải scalar Product, có pagination và không fetch mapping collection nên không phát sinh N+1. */
     @Override
     @Transactional(readOnly = true)
     public PageResponse<LoanProductCatalogResponse> listActive(int page, int size) {
-        Page<LoanProductCatalogResponse> products = repository.findByStatus(
+        Page<LoanProductCatalogResponse> products = loanProductRepository.findByStatus(
                         LoanProductStatus.ACTIVE,
                         PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")))
                 )
-                .map(mapper::toCatalogResponse);
+                .map(loanProductMapper::toCatalogResponse);
         return PageResponse.from(products);
     }
 
@@ -173,13 +179,13 @@ public class LoanProductServiceImpl implements LoanProductService {
         LoanProduct product = getProduct(id);
         // Domain method chịu trách nhiệm whitelist transition và kiểm tra optimistic version trước khi đổi state.
         action.accept(product);
-        repository.saveAndFlush(product);
+        loanProductRepository.saveAndFlush(product);
         log.info("Đã chuyển trạng thái Loan Product: productId={}, targetStatus={}, actorId={}", id, target, actor());
-        return mapper.toResponse(product);
+        return loanProductMapper.toResponse(product);
     }
 
     private LoanProduct getProduct(long id) {
-        return repository.findById(id)
+        return loanProductRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Loan Product", "id", id));
     }
 

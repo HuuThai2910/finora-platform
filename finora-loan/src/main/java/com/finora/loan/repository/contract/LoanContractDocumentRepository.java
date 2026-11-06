@@ -1,11 +1,12 @@
 package com.finora.loan.repository.contract;
 
-import com.finora.loan.domain.contract.ContractPdfArtifactType;
-import com.finora.loan.domain.contract.LoanContractDocument;
-import java.util.Optional;
+import com.finora.loan.domain.contract.entity.LoanContractDocument;
+import com.finora.loan.domain.contract.enums.ContractPdfArtifactType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.util.Optional;
 
 public interface LoanContractDocumentRepository extends JpaRepository<LoanContractDocument, Long> {
 

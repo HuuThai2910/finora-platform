@@ -1,7 +1,8 @@
 package com.finora.loan.integration.ai.contract;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.finora.loan.domain.scoring.AiRecommendation;
+import com.finora.loan.domain.scoring.enums.AiRecommendation;
+
 import java.math.BigDecimal;
 import java.util.List;
 
@@ -17,7 +18,9 @@ public record StoredAiCreditResponse(
         JsonNode ruleTrace,
         List<String> rejectionReasons,
         String modelVersion,
-        String decisionPolicyVersion
+        String decisionPolicyVersion,
+        /** Mã lý do AI chuyển thẩm định thủ công; {@code null} ở snapshot ghi trước khi có trường này. */
+        List<String> reviewReasons
 ) {
     public static StoredAiCreditResponse from(AiCreditScoreResponse response) {
         return new StoredAiCreditResponse(
@@ -31,7 +34,8 @@ public record StoredAiCreditResponse(
                 response.ruleTrace(),
                 response.rejectionReasons() == null ? List.of() : List.copyOf(response.rejectionReasons()),
                 response.modelVersion(),
-                response.decisionPolicyVersion()
+                response.decisionPolicyVersion(),
+                response.reviewReasons() == null ? List.of() : List.copyOf(response.reviewReasons())
         );
     }
 }

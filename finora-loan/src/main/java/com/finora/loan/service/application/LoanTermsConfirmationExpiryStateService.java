@@ -1,43 +1,20 @@
 package com.finora.loan.service.application;
 
-import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.loan.config.LoanContractProperties;
-import com.finora.loan.domain.application.LoanApplication;
-import com.finora.loan.repository.application.LoanApplicationRepository;
-import java.time.Clock;
-import java.time.Instant;
 import java.util.List;
-import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-@Service
-@RequiredArgsConstructor
-public class LoanTermsConfirmationExpiryStateService {
+/**
+ * Các bước transaction của worker hết hạn xác nhận điều khoản: lấy batch hồ sơ đến hạn và chuyển từng hồ sơ sang hết
+ * hạn.
+ */
+public interface LoanTermsConfirmationExpiryStateService {
 
-    private static final String SYSTEM_ACTOR = "LOAN_TERMS_EXPIRY_WORKER";
+    /** ID hồ sơ đã quá hạn xác nhận điều khoản, tối đa {@code expiry-batch-size} dòng. */
+    List<Long> dueIds();
 
-    private final LoanApplicationRepository applicationRepository;
-    private final LoanContractProperties properties;
-    private final Clock clock;
-
-    @Transactional(readOnly = true)
-    public List<Long> dueIds() {
-        return applicationRepository.findDueTermsConfirmationIds(
-                clock.instant(), PageRequest.of(0, properties.expiryBatchSize()));
-    }
-
-    @Transactional
-    public boolean expireOne(Long applicationId) {
-        LoanApplication application = applicationRepository.findByIdForUpdate(applicationId)
-                .orElseThrow(() -> new ResourceNotFoundException(
-                        "Loan Application", "id", applicationId));
-        Instant now = clock.instant();
-        if (!application.expireTerms(SYSTEM_ACTOR, now)) {
-            return false;
-        }
-        applicationRepository.saveAndFlush(application);
-        return true;
-    }
+    /**
+     * Khóa hồ sơ và chuyển xác nhận điều khoản sang hết hạn.
+     *
+     * @return {@code false} nếu hồ sơ không còn chờ xác nhận hoặc chưa đến hạn
+     */
+    boolean expireOne(Long applicationId);
 }

@@ -1,13 +1,14 @@
 package com.finora.payment.service.ledger;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import com.finora.payment.domain.ledger.enums.LedgerBalanceBucket;
+import com.finora.payment.domain.ledger.enums.LedgerDirection;
+import org.junit.jupiter.api.Test;
 
-import com.finora.payment.domain.ledger.LedgerBalanceBucket;
-import com.finora.payment.domain.ledger.LedgerDirection;
 import java.math.BigDecimal;
 import java.util.UUID;
-import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 class LedgerPostingCommandTest {
 

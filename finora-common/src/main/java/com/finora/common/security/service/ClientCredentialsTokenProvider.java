@@ -1,10 +1,6 @@
 package com.finora.common.security.service;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import java.io.IOException;
-import java.time.Clock;
-import java.time.Duration;
-import java.time.Instant;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
@@ -13,6 +9,11 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+
+import java.io.IOException;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 
 /**
  * Access token của service account Keycloak (grant {@code client_credentials}) cho lời gọi service → service không có

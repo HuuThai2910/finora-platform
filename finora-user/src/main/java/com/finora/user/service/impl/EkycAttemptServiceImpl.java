@@ -3,13 +3,13 @@ package com.finora.user.service.impl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finora.user.domain.CicMappingTask;
-import com.finora.user.domain.EkycAttempt;
-import com.finora.user.domain.EkycAttemptStatus;
-import com.finora.user.domain.EkycEvidence;
-import com.finora.user.domain.EkycIdentityDraft;
-import com.finora.user.domain.EkycLivenessResult;
-import com.finora.user.domain.UserProfile;
+import com.finora.user.domain.entity.CicMappingTask;
+import com.finora.user.domain.entity.EkycAttempt;
+import com.finora.user.domain.entity.EkycEvidence;
+import com.finora.user.domain.entity.UserProfile;
+import com.finora.user.domain.enums.EkycAttemptStatus;
+import com.finora.user.domain.enums.EkycLivenessResult;
+import com.finora.user.domain.model.EkycIdentityDraft;
 import com.finora.user.repository.CicMappingTaskRepository;
 import com.finora.user.repository.EkycAttemptRepository;
 import com.finora.user.repository.EkycEvidenceRepository;
@@ -42,27 +42,27 @@ public class EkycAttemptServiceImpl implements EkycAttemptService {
     private static final TypeReference<List<String>> CODE_LIST = new TypeReference<>() {
     };
 
-    private final EkycAttemptRepository attemptRepository;
-    private final EkycEvidenceRepository evidenceRepository;
+    private final EkycAttemptRepository ekycAttemptRepository;
+    private final EkycEvidenceRepository ekycEvidenceRepository;
     private final CicMappingTaskRepository cicMappingTaskRepository;
-    private final EkycIdentityService identityService;
+    private final EkycIdentityService ekycIdentityService;
     private final ObjectMapper objectMapper;
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public StartedAttempt start(Long userProfileId, Long consentId, EkycIdentityDraft draft, Instant now) {
-        List<EkycAttempt> open = attemptRepository.findByUserProfileIdAndStatusIn(
+        List<EkycAttempt> open = ekycAttemptRepository.findByUserProfileIdAndStatusIn(
                 userProfileId, List.of(EkycAttemptStatus.IN_PROGRESS));
         open.forEach(attempt -> attempt.abandon(now));
         List<String> staleKeys = open.isEmpty()
                 ? List.of()
-                : evidenceRepository.findByAttemptIdInAndDeletedAtIsNull(
+                : ekycEvidenceRepository.findByAttemptIdInAndDeletedAtIsNull(
                         open.stream().map(EkycAttempt::getId).toList()).stream()
                         .map(EkycEvidence::getObjectKey)
                         .toList();
         List<String> codes = new ArrayList<>(new LinkedHashSet<>(draft.documentReasons()));
         draft.documentWarnings().stream().filter(code -> !codes.contains(code)).forEach(codes::add);
-        EkycAttempt attempt = attemptRepository.save(EkycAttempt.start(draft.attemptId(), userProfileId, consentId,
+        EkycAttempt attempt = ekycAttemptRepository.save(EkycAttempt.start(draft.attemptId(), userProfileId, consentId,
                 draft.cardType(), draft.documentDecision(), toJson(codes), draft.documentThresholdsVersion(), now));
         return new StartedAttempt(attempt.getId(), staleKeys);
     }
@@ -73,7 +73,7 @@ public class EkycAttemptServiceImpl implements EkycAttemptService {
         if (items.isEmpty()) {
             return;
         }
-        evidenceRepository.saveAll(items.stream()
+        ekycEvidenceRepository.saveAll(items.stream()
                 .map(item -> EkycEvidence.stored(attemptId, item.kind(), item.label(), item.objectKey(),
                         item.sha256(), item.sizeBytes(), item.contentType(), item.stage(), now))
                 .toList());
@@ -82,13 +82,13 @@ public class EkycAttemptServiceImpl implements EkycAttemptService {
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void abandon(Long attemptId, Instant now) {
-        attemptRepository.findById(attemptId).ifPresent(attempt -> attempt.abandon(now));
+        ekycAttemptRepository.findById(attemptId).ifPresent(attempt -> attempt.abandon(now));
     }
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public int markDeleted(Collection<String> objectKeys, Instant now) {
-        return objectKeys.isEmpty() ? 0 : evidenceRepository.markDeletedByObjectKeys(objectKeys, now);
+        return objectKeys.isEmpty() ? 0 : ekycEvidenceRepository.markDeletedByObjectKeys(objectKeys, now);
     }
 
     @Override
@@ -106,7 +106,7 @@ public class EkycAttemptServiceImpl implements EkycAttemptService {
     @Transactional(propagation = Propagation.MANDATORY)
     public void completeVerified(UserProfile profile, EkycAttempt attempt, EkycIdentityDraft draft,
                                  StoredEvidence result, Instant now) {
-        identityService.applyIdentity(profile, draft);
+        ekycIdentityService.applyIdentity(profile, draft);
         profile.markEkycVerified(draft.faceMatchScore(), true, now);
         attempt.markVerified(now);
         finalizeEvidence(attempt.getId(), now);
@@ -131,7 +131,7 @@ public class EkycAttemptServiceImpl implements EkycAttemptService {
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void finalizeEvidence(Long attemptId, Instant now) {
-        evidenceRepository.findByAttemptIdOrderByIdAsc(attemptId).forEach(evidence -> evidence.markFinal(now));
+        ekycEvidenceRepository.findByAttemptIdOrderByIdAsc(attemptId).forEach(evidence -> evidence.markFinal(now));
     }
 
     @Override

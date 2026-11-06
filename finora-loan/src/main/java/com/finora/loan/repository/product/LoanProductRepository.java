@@ -1,16 +1,17 @@
 package com.finora.loan.repository.product;
 
-import com.finora.loan.domain.product.LoanProduct;
-import com.finora.loan.domain.product.LoanProductStatus;
-import com.finora.loan.domain.product.CoreSyncStatus;
+import com.finora.loan.domain.product.entity.LoanProduct;
+import com.finora.loan.domain.product.enums.CoreSyncStatus;
+import com.finora.loan.domain.product.enums.LoanProductStatus;
 import jakarta.persistence.LockModeType;
-import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.util.Optional;
 
 /**
  * Truy cập dữ liệu Loan Product trong database riêng của Loan Service.

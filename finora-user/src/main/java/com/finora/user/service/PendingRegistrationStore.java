@@ -1,6 +1,6 @@
 package com.finora.user.service;
 
-import com.finora.user.domain.PendingRegistration;
+import com.finora.user.domain.model.PendingRegistration;
 
 import java.util.Optional;
 

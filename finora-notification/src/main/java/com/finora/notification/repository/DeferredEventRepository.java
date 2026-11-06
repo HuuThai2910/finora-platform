@@ -1,16 +1,17 @@
 package com.finora.notification.repository;
 
-import com.finora.notification.domain.DeferredEvent;
-import com.finora.notification.domain.DeferredEventStatus;
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import com.finora.notification.domain.entity.DeferredEvent;
+import com.finora.notification.domain.enums.DeferredEventStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 public interface DeferredEventRepository extends JpaRepository<DeferredEvent, Long> {
 

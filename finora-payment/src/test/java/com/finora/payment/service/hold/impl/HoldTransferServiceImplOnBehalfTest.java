@@ -1,0 +1,154 @@
+package com.finora.payment.service.hold.impl;
+
+import com.finora.common.exception.BusinessException;
+import com.finora.payment.domain.hold.entity.PaymentHold;
+import com.finora.payment.domain.hold.enums.PaymentHoldStatus;
+import com.finora.payment.domain.wallet.entity.PaymentWallet;
+import com.finora.payment.domain.wallet.enums.WalletOwnerType;
+import com.finora.payment.dto.request.CreateHoldRequest;
+import com.finora.payment.dto.response.HoldResponse;
+import com.finora.payment.repository.hold.PaymentHoldRepository;
+import com.finora.payment.repository.wallet.PaymentWalletRepository;
+import com.finora.payment.service.hold.HoldTransferService;
+import com.finora.payment.service.ledger.LedgerPostingService;
+import com.finora.payment.service.wallet.WalletAccountService;
+import com.finora.payment.service.wallet.WalletView;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+/**
+ * Token service account mang {@code payment:hold:on_behalf} (Auto-Invest của finora-investment)
+ * giữ/nhả được tiền thay nhà đầu tư; token người dùng thường thì không.
+ */
+class HoldTransferServiceImplOnBehalfTest {
+
+    private static final Instant NOW = Instant.parse("2026-09-30T08:00:00Z");
+
+    private final PaymentHoldRepository holdRepository = mock(PaymentHoldRepository.class);
+    private final PaymentWalletRepository walletRepository = mock(PaymentWalletRepository.class);
+    private final WalletAccountService walletAccountService = mock(WalletAccountService.class);
+    private final LedgerPostingService ledgerPostingService = mock(LedgerPostingService.class);
+    private HoldTransferServiceImpl service;
+    private PaymentWallet wallet;
+
+    @BeforeEach
+    void setUp() {
+        service = new HoldTransferServiceImpl(holdRepository, walletRepository, walletAccountService,
+                ledgerPostingService, Clock.fixed(NOW, ZoneOffset.UTC));
+        wallet = PaymentWallet.open(UUID.randomUUID(), WalletOwnerType.INVESTOR, "INV-001", "VND", NOW);
+        when(walletAccountService.open(WalletOwnerType.INVESTOR, "INV-001", "VND"))
+                .thenReturn(WalletView.from(wallet));
+        when(walletRepository.findByWalletId(wallet.getWalletId())).thenReturn(Optional.of(wallet));
+        when(holdRepository.findByOrderReference(any())).thenReturn(Optional.empty());
+        when(holdRepository.save(any(PaymentHold.class))).thenAnswer(invocation -> invocation.getArgument(0));
+    }
+
+    @AfterEach
+    void clear() {
+        SecurityContextHolder.clearContext();
+    }
+
+    private void actAs(String subject, String userId, String authority) {
+        Jwt.Builder builder = Jwt.withTokenValue("t").header("alg", "none").claim("sub", subject);
+        if (userId != null) {
+            builder.claim("user_id", userId);
+        }
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(
+                builder.build(), List.of(new SimpleGrantedAuthority(authority)), subject));
+    }
+
+    @Test
+    @DisplayName("Service account on_behalf giữ tiền vào ví của investorId trong request")
+    void serviceAccountHoldsForInvestor() {
+        actAs("service-account-finora-investment-client", null, HoldTransferService.ON_BEHALF_AUTHORITY);
+
+        HoldResponse response = service.hold(new CreateHoldRequest("INV-001", new BigDecimal("2000000.00"), "IO-1"));
+
+        assertThat(response.holdReference()).startsWith("HOLD-");
+        verify(walletAccountService).open(WalletOwnerType.INVESTOR, "INV-001", "VND");
+        verify(ledgerPostingService).post(any());
+    }
+
+    @Test
+    @DisplayName("Nhà đầu tư thường không giữ được tiền của người khác")
+    void investorCannotHoldForAnotherInvestor() {
+        actAs("kc-2", "INV-002", "ROLE_INVESTOR");
+
+        assertThatThrownBy(() -> service.hold(
+                new CreateHoldRequest("INV-001", new BigDecimal("2000000.00"), "IO-2")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Không được thao tác ví của người dùng khác");
+        verify(ledgerPostingService, never()).post(any());
+    }
+
+    @Test
+    @DisplayName("R3: service account đọc khoản giữ theo mã lệnh mà không đổi gì; nhà đầu tư khác thấy 404")
+    void holdLookupByOrderReferenceIsReadOnlyAndHiddenFromOtherInvestors() {
+        PaymentHold hold = PaymentHold.create(UUID.randomUUID(), "HOLD-L", "IO-L", wallet,
+                new BigDecimal("2000000.00"), NOW);
+        when(holdRepository.findByOrderReference("IO-L")).thenReturn(Optional.of(hold));
+        actAs("service-account-finora-investment-client", null, HoldTransferService.ON_BEHALF_AUTHORITY);
+
+        HoldResponse response = service.findByOrderReference("IO-L");
+
+        assertThat(response.holdReference()).isEqualTo("HOLD-L");
+        assertThat(response.status()).isEqualTo("HELD");
+        verify(ledgerPostingService, never()).post(any());
+
+        actAs("kc-2", "INV-002", "ROLE_INVESTOR");
+        assertThatThrownBy(() -> service.findByOrderReference("IO-L"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("PAYMENT_HOLD_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("R3: nhả khoản giữ đã vào giải ngân trả 409 PAYMENT_HOLD_NOT_RELEASABLE, không 500")
+    void releasingAHoldReservedForDisbursementIsAConflictNotAServerError() {
+        PaymentHold hold = PaymentHold.create(UUID.randomUUID(), "HOLD-C", "IO-C", wallet,
+                new BigDecimal("2000000.00"), NOW);
+        hold.reserveCapture("SAGA-1", NOW);
+        when(holdRepository.findByHoldReferenceForUpdate("HOLD-C")).thenReturn(Optional.of(hold));
+        actAs("service-account-finora-investment-client", null, HoldTransferService.ON_BEHALF_AUTHORITY);
+
+        assertThatThrownBy(() -> service.release("HOLD-C", "IO-C"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("PAYMENT_HOLD_NOT_RELEASABLE"));
+        verify(ledgerPostingService, never()).post(any());
+    }
+
+    @Test
+    @DisplayName("Service account on_behalf nhả tiền giữ của nhà đầu tư")
+    void serviceAccountReleasesForOwner() {
+        PaymentHold hold = PaymentHold.create(UUID.randomUUID(), "HOLD-X", "IO-3", wallet,
+                new BigDecimal("2000000.00"), NOW);
+        when(holdRepository.findByHoldReferenceForUpdate("HOLD-X")).thenReturn(Optional.of(hold));
+        actAs("service-account-finora-investment-client", null, HoldTransferService.ON_BEHALF_AUTHORITY);
+
+        service.release("HOLD-X", "IO-3");
+
+        assertThat(hold.getStatus()).isEqualTo(PaymentHoldStatus.RELEASED);
+        verify(ledgerPostingService).post(any());
+    }
+}

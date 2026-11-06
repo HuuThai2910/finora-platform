@@ -1,6 +1,6 @@
 package com.finora.loan.dto.application.request;
 
-import com.finora.loan.domain.contract.ContractDeclineReasonCode;
+import com.finora.loan.domain.contract.enums.ContractDeclineReasonCode;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;

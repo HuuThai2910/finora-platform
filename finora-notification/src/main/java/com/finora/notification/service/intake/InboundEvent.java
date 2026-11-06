@@ -1,6 +1,7 @@
 package com.finora.notification.service.intake;
 
 import com.fasterxml.jackson.databind.JsonNode;
+
 import java.time.Instant;
 import java.util.UUID;
 

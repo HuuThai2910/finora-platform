@@ -1,16 +1,17 @@
 package com.finora.blockchain.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finora.blockchain.domain.proof.ProofProviderType;
-import com.finora.blockchain.integration.proof.MockProofLedger;
-import com.finora.blockchain.integration.proof.ProofLedger;
-import com.finora.blockchain.integration.proof.fabric.FabricLedgerClient;
-import com.finora.blockchain.integration.proof.fabric.FabricProofLedger;
-import java.time.Clock;
+import com.finora.blockchain.domain.proof.enums.ProofProviderType;
+import com.finora.blockchain.integration.fabric.client.FabricLedgerClient;
+import com.finora.blockchain.integration.fabric.client.ProofLedger;
+import com.finora.blockchain.integration.fabric.client.impl.FabricProofLedger;
+import com.finora.blockchain.integration.fabric.client.impl.MockProofLedger;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.time.Clock;
 
 @Configuration
 @EnableConfigurationProperties({ProofSubmissionProperties.class, FabricGatewayProperties.class})

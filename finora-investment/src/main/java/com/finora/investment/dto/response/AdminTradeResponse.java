@@ -29,6 +29,9 @@ public record AdminTradeResponse(
         int settlementAttempts,
         String lastSettlementError,
         Instant executedAt,
-        Instant settledAt
+        Instant settledAt,
+        /** Số lần nhân viên đã gửi thanh toán lại và thời điểm gần nhất. */
+        int settlementRequeueCount,
+        Instant settlementRequeuedAt
 ) {
 }

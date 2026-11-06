@@ -1,32 +1,39 @@
 package com.finora.investment.service.messaging.impl;
-import com.finora.investment.domain.listing.MarketListing;
-import com.finora.investment.domain.messaging.ProcessedEvent;
+import com.finora.common.enums.investment.NoteStatus;
+import com.finora.investment.domain.listing.entity.MarketListing;
+import com.finora.investment.domain.messaging.entity.ProcessedEvent;
 import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.messaging.event.LoanDisbursedEventData;
 import com.finora.investment.messaging.event.NoteOwnershipChangedEventData;
+import com.finora.investment.repository.InvestmentNoteRepository;
 import com.finora.investment.repository.MarketListingRepository;
 import com.finora.investment.repository.ProcessedEventRepository;
-import com.finora.investment.repository.InvestmentNoteRepository;
 import com.finora.investment.service.NoteIssuanceService;
 import com.finora.investment.service.messaging.LoanDisbursedEventHandler;
 import com.finora.investment.service.outbox.InvestmentOutboxService;
-import com.finora.common.enums.investment.NoteStatus;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+/**
+ * Xử lý event LoanDisbursed: hoàn tất cam kết, kích hoạt Note, công bố quyền sở hữu và ghi ngày đáo hạn.
+ * <p>
+ * Chính event này chứng minh Contract đã hiệu lực (Loan chỉ phát sau khi Contract EFFECTIVE và tiền đã chuyển),
+ * nên chỉ từ chối khi tham chiếu listing/hợp đồng mâu thuẫn hoặc kết quả giải ngân lệch số tiền.
+ */
 @Service @RequiredArgsConstructor
 public class LoanDisbursedEventHandlerImpl implements LoanDisbursedEventHandler{
- private final ProcessedEventRepository processed;private final MarketListingRepository listings;
- private final NoteIssuanceService notes;private final InvestmentNoteRepository noteRepository;
- private final InvestmentOutboxService outboxService;private final Clock clock;
- private final com.finora.investment.repository.InvestmentLoanServicingStateRepository servicingStates;
+ private final ProcessedEventRepository processedEventRepository;private final MarketListingRepository marketListingRepository;
+ private final NoteIssuanceService noteIssuanceService;private final InvestmentNoteRepository investmentNoteRepository;
+ private final InvestmentOutboxService investmentOutboxService;private final Clock clock;
+ private final com.finora.investment.repository.InvestmentLoanServicingStateRepository investmentLoanServicingStateRepository;
  @Override @Transactional public void handle(UUID eventId,Instant occurredAt,LoanDisbursedEventData data){
-  if(processed.existsByEventId(eventId))return;
-  MarketListing listing=listings.findByIdForUpdate(data.listingId()).orElseThrow(()->
+  if(processedEventRepository.existsByEventId(eventId))return;
+  MarketListing listing=marketListingRepository.findByIdForUpdate(data.listingId()).orElseThrow(()->
    InvestmentDomainException.notFound("LISTING_NOT_FOUND","Không tìm thấy listing cần hoàn tất giải ngân"));
   // LoanDisbursed chỉ được Loan phát sau khi Contract EFFECTIVE và tiền đã chuyển, nên chính nó chứng minh Contract
   // hiệu lực. Event Contract (topic khác) đến muộn không được làm Note kẹt trong DLT; chỉ từ chối khi tham chiếu mâu thuẫn.
@@ -37,30 +44,30 @@ public class LoanDisbursedEventHandlerImpl implements LoanDisbursedEventHandler{
   requireFinancialResult(listing,data);
   listing.setContractNumber(data.contractNumber());
   listing.setContractStatus("EFFECTIVE");
-  notes.finalizeCommitments(listing.getId());
-  notes.activateNotes(listing.getId());
-  var ownership = noteRepository.findByLoanIdAndStatus(listing.getLoanId(), NoteStatus.ACTIVE).stream()
+  noteIssuanceService.finalizeCommitments(listing.getId());
+  noteIssuanceService.activateNotes(listing.getId());
+  var ownership = investmentNoteRepository.findByLoanIdAndStatus(listing.getLoanId(), NoteStatus.ACTIVE).stream()
    .map(note -> new NoteOwnershipChangedEventData.NoteOwner(note.getId(), note.getNoteNumber(),
     note.getInvestorId(), note.getOutstandingPrincipal().toPlainString())).toList();
   if(ownership.isEmpty())throw InvestmentDomainException.conflict("NOTE_OWNERSHIP_EMPTY",
    "Không có Note để công bố quyền sở hữu sau giải ngân");
-  outboxService.record("LOAN",listing.getLoanId().toString(),"NoteOwnershipChanged",1,
+  investmentOutboxService.record("LOAN",listing.getLoanId().toString(),"NoteOwnershipChanged",1,
    new NoteOwnershipChangedEventData(listing.getLoanId(),listing.getId(),"VND","ISSUED",
     data.paymentReference(),data.disbursedAt(),ownership));
   listing.setDisbursementSagaId(data.sagaId());listing.setPaymentReference(data.paymentReference());
   listing.setFineractLoanId(data.fineractLoanId());listing.setDisbursedAt(data.disbursedAt());
   listing.setUpdatedBy("SYSTEM-LOAN-EVENT");listing.setUpdatedAt(clock.instant());
   recordMaturity(data);
-  processed.save(ProcessedEvent.create(eventId,"LoanDisbursed",1,"finora-loan",data.contractNumber(),occurredAt,clock.instant()));
+  processedEventRepository.save(ProcessedEvent.create(eventId,"LoanDisbursed",1,"finora-loan",data.contractNumber(),occurredAt,clock.instant()));
  }
 
  /** B34: ngày đáo hạn theo core lúc giải ngân; event Loan bản cũ không có thì giữ như trước (chờ cơ cấu). */
  private void recordMaturity(LoanDisbursedEventData data){
   if(data.maturityDate()==null||data.loanNumber()==null||data.loanNumber().isBlank())return;
   var now=clock.instant();
-  var current=servicingStates.findByApplicationIdForUpdate(data.loanApplicationId()).orElse(null);
+  var current=investmentLoanServicingStateRepository.findByApplicationIdForUpdate(data.loanApplicationId()).orElse(null);
   if(current==null){
-   servicingStates.save(com.finora.investment.domain.note.InvestmentLoanServicingState.disbursed(
+   investmentLoanServicingStateRepository.save(com.finora.investment.domain.note.entity.InvestmentLoanServicingState.disbursed(
     data.loanApplicationId(),data.loanNumber(),data.maturityDate(),now));
   }else{
    current.initializeMaturity(data.maturityDate(),now);

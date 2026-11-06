@@ -1,6 +1,7 @@
 package com.finora.loan.messaging.event;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;

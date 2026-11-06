@@ -1,9 +1,9 @@
 package com.finora.investment.service;
 
-import com.finora.investment.domain.order.InvestmentOrder;
+import com.finora.investment.domain.order.entity.InvestmentOrder;
 import com.finora.investment.dto.request.PlaceOrderRequest;
 import com.finora.investment.dto.response.OrderResponse;
-import com.finora.investment.client.PaymentHoldResult;
+import com.finora.investment.integration.payment.contract.PaymentHoldResult;
 
 /**
  * Các transaction ngắn của luồng đặt lệnh, tách khỏi {@link FundingService}.

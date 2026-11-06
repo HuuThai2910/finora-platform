@@ -1,7 +1,8 @@
 package com.finora.loan.dto.collection.response;
 
-import com.finora.loan.domain.collection.CollectionCaseStatus;
-import com.finora.loan.domain.collection.CollectionStage;
+import com.finora.loan.domain.collection.enums.CollectionCaseStatus;
+import com.finora.loan.domain.collection.enums.CollectionStage;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;

@@ -1,16 +1,17 @@
 package com.finora.notification.repository;
 
-import com.finora.notification.domain.DueSchedule;
-import com.finora.notification.domain.DueScheduleStatus;
+import com.finora.notification.domain.entity.DueSchedule;
+import com.finora.notification.domain.enums.DueScheduleStatus;
 import jakarta.persistence.LockModeType;
-import java.time.LocalDate;
-import java.util.List;
-import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
 
 public interface DueScheduleRepository extends JpaRepository<DueSchedule, Long> {
 

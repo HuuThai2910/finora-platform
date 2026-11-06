@@ -1,8 +1,7 @@
 package com.finora.investment.service.orderbook.impl;
 
-import com.finora.investment.domain.orderbook.BookOrder;
+import com.finora.investment.domain.orderbook.entity.BookOrder;
 import com.finora.investment.dto.response.BookOrderResponse;
-import com.finora.investment.service.orderbook.OrderBookPricing;
 
 /** Chuyển lệnh trên sổ sang DTO trả cho người đặt. */
 final class OrderBookMapper {

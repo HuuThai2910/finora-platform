@@ -12,8 +12,8 @@ import com.finora.user.dto.request.VerifyResetOtpRequest;
 import com.finora.user.dto.response.AuthResponse;
 import com.finora.user.dto.response.RegistrationChallengeResponse;
 import com.finora.user.service.AuthService;
-import com.finora.user.support.AuthCookieManager;
-import com.finora.user.support.HttpRequestUtils;
+import com.finora.user.util.AuthCookieManager;
+import com.finora.user.util.HttpRequestUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -41,7 +41,7 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final AuthService authService;
-    private final AuthCookieManager cookieManager;
+    private final AuthCookieManager authCookieManager;
 
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(
@@ -108,7 +108,7 @@ public class AuthController {
                     tokenResponse.getToken(), tokenResponse.getRefreshToken()));
         }
 
-        cookieManager.addTokenCookies(httpResponse, tokenResponse.getToken(), tokenResponse.getRefreshToken());
+        authCookieManager.addTokenCookies(httpResponse, tokenResponse.getToken(), tokenResponse.getRefreshToken());
         return ResponseEntity.ok().build();
     }
 
@@ -122,7 +122,7 @@ public class AuthController {
                 body != null ? body.getRefreshToken() : null, httpRequest);
 
         authService.logout(refreshToken);
-        cookieManager.clearTokenCookies(httpResponse);
+        authCookieManager.clearTokenCookies(httpResponse);
         return ResponseEntity.ok().build();
     }
 
@@ -166,7 +166,7 @@ public class AuthController {
             return ResponseEntity.status(successStatus).body(authResponse);
         }
 
-        cookieManager.addTokenCookies(httpResponse, authResponse.getAccessToken(), authResponse.getRefreshToken());
+        authCookieManager.addTokenCookies(httpResponse, authResponse.getAccessToken(), authResponse.getRefreshToken());
         return ResponseEntity.status(successStatus).body(new AuthResponse(
                 authResponse.getUserId(), authResponse.getEmail(), authResponse.getFullName(),
                 authResponse.getRoles(), null, null));

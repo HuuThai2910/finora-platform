@@ -1,6 +1,6 @@
 package com.finora.user.integration.storage;
 
-import com.finora.user.domain.EkycEvidenceStage;
+import com.finora.user.domain.enums.EkycEvidenceStage;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;

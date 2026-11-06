@@ -1,8 +1,8 @@
 package com.finora.loan.config;
 
+import com.finora.common.messaging.KafkaDeadLetterTopic;
+import com.finora.common.messaging.KafkaErrorHandlers;
 import com.finora.loan.integration.cic.CicDelinquencyRelayException;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.common.TopicPartition;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.kafka.ConcurrentKafkaListenerContainerFactoryConfigurer;
@@ -13,7 +13,6 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
 import org.springframework.web.client.RestClient;
@@ -33,26 +32,21 @@ public class CicDelinquencyRelayConfiguration {
         return builder.baseUrl(properties.baseUrl()).requestFactory(requestFactory).build();
     }
 
+    /** DLT cố định {@code dlt-topic}, giữ partition của record gốc; backoff mũ theo cấu hình relay. */
     @Bean("cicDelinquencyKafkaErrorHandler")
     DefaultErrorHandler cicDelinquencyKafkaErrorHandler(
             KafkaTemplate<String, String> kafkaTemplate,
             CicDelinquencyRelayProperties properties
     ) {
-        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
-                kafkaTemplate,
-                (ConsumerRecord<?, ?> record, Exception exception) ->
-                        new TopicPartition(properties.dltTopic(), record.partition()));
         ExponentialBackOffWithMaxRetries backOff =
                 new ExponentialBackOffWithMaxRetries(properties.maxAttempts() - 1);
         backOff.setInitialInterval(properties.initialBackoff().toMillis());
         backOff.setMultiplier(properties.multiplier());
         backOff.setMaxInterval(properties.maxBackoff().toMillis());
 
-        DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, backOff);
-        handler.addNotRetryableExceptions(
-                IllegalArgumentException.class,
-                CicDelinquencyRelayException.Permanent.class);
-        return handler;
+        return KafkaErrorHandlers.deadLetterErrorHandler(kafkaTemplate, backOff,
+                KafkaDeadLetterTopic.fixedKeepPartition(properties.dltTopic()),
+                IllegalArgumentException.class, CicDelinquencyRelayException.Permanent.class);
     }
 
     @Bean("cicDelinquencyKafkaListenerContainerFactory")

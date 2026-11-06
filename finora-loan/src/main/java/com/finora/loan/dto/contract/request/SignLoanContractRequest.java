@@ -1,6 +1,6 @@
 package com.finora.loan.dto.contract.request;
 
-import com.finora.loan.domain.contract.SignatureMethod;
+import com.finora.loan.domain.contract.enums.SignatureMethod;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;

@@ -1,8 +1,9 @@
 package com.finora.loan.config;
 
-import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+
+import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

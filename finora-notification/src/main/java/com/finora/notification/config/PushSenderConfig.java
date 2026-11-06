@@ -2,19 +2,21 @@ package com.finora.notification.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.common.environment.SimulatedSettingsCheck;
-import com.finora.notification.integration.push.ExpoPushSender;
-import com.finora.notification.integration.push.LoggingPushSender;
-import com.finora.notification.integration.push.PushSender;
-import java.util.List;
-import java.util.Locale;
+import com.finora.notification.integration.push.client.PushSender;
+import com.finora.notification.integration.push.client.impl.ExpoPushSender;
+import com.finora.notification.integration.push.client.impl.LoggingPushSender;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+
+import java.util.List;
+import java.util.Locale;
 
 /**
  * Chọn push provider theo cấu hình (D62). Mặc định {@code log}: giả lập, không cần EAS project hay thiết bị thật.
@@ -27,13 +29,14 @@ public class PushSenderConfig {
     static final String PROVIDER_PROPERTY = "finora.notification.push.provider";
 
     @Bean
-    PushSender pushSender(NotificationProperties properties, ObjectMapper mapper, RestClient.Builder builder) {
+    PushSender pushSender(NotificationProperties properties, ObjectMapper mapper, RestClient.Builder builder,
+            CircuitBreakerFactory<?, ?> circuitBreakerFactory) {
         PushProviderType provider = properties.push().provider();
         if (provider == PushProviderType.EXPO) {
             NotificationProperties.Expo expo = properties.push().expo();
             log.info("Push provider: EXPO, baseUrl={}, accessToken={}", expo.baseUrl(),
                     expo.hasAccessToken() ? "configured" : "none");
-            return new ExpoPushSender(expoClient(builder, expo), mapper);
+            return new ExpoPushSender(expoClient(builder, expo), mapper, circuitBreakerFactory);
         }
         log.warn("Push provider: {} — push KHÔNG được gửi tới thiết bị thật (chỉ ghi log/không tạo lần gửi)", provider);
         return new LoggingPushSender();

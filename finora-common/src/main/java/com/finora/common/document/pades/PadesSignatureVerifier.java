@@ -1,16 +1,5 @@
 package com.finora.common.document.pades;
 
-import java.io.IOException;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Calendar;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.HexFormat;
-import java.util.List;
 import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.PDSignature;
@@ -34,6 +23,18 @@ import org.bouncycastle.cms.CMSSignedData;
 import org.bouncycastle.cms.SignerInformation;
 import org.bouncycastle.cms.jcajce.JcaSimpleSignerInfoVerifierBuilder;
 import org.bouncycastle.operator.OperatorCreationException;
+
+import java.io.IOException;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Calendar;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.HexFormat;
+import java.util.List;
 
 /**
  * Kiểm toàn bộ chữ ký PAdES trong một tệp, theo thứ tự phiên bản.

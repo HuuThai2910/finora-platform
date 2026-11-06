@@ -1,16 +1,17 @@
 package com.finora.notification.repository;
 
-import com.finora.notification.domain.PushDevice;
-import com.finora.notification.domain.PushDeviceStatus;
+import com.finora.notification.domain.entity.PushDevice;
+import com.finora.notification.domain.enums.PushDeviceStatus;
 import jakarta.persistence.LockModeType;
-import java.util.Collection;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 public interface PushDeviceRepository extends JpaRepository<PushDevice, UUID> {
 

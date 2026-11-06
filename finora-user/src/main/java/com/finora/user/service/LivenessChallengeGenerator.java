@@ -1,6 +1,6 @@
 package com.finora.user.service;
 
-import com.finora.user.domain.LivenessStep;
+import com.finora.user.domain.model.LivenessStep;
 
 import java.util.List;
 

@@ -1,7 +1,8 @@
 package com.finora.loan.integration.fineract.client;
 
-import com.finora.loan.domain.servicing.LoanServicingHistory;
-import com.finora.loan.domain.servicing.LoanServicingSnapshot;
+import com.finora.loan.domain.servicing.model.LoanServicingHistory;
+import com.finora.loan.domain.servicing.model.LoanServicingSnapshot;
+
 import java.time.LocalDate;
 
 public interface FineractServicingGateway {

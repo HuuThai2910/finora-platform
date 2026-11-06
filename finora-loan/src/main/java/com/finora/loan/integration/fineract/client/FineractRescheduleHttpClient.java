@@ -2,33 +2,35 @@ package com.finora.loan.integration.fineract.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.finora.loan.config.FineractBookingProperties;
+import com.finora.loan.integration.fineract.FineractIntegrationException;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
-import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
 /** Adapter API reschedule của Fineract 1.15; chỉ trả contract đã lọc cho domain Loan. */
 @Component
 public class FineractRescheduleHttpClient implements FineractRescheduleGateway {
-    private final RestClient client;
-    private final FineractRequestExecutor executor;
-    private final FineractBookingProperties format;
+    private final RestClient restClient;
+    private final FineractRequestExecutor fineractRequestExecutor;
+    private final FineractBookingProperties fineractBookingProperties;
 
-    public FineractRescheduleHttpClient(RestClient fineractRestClient, FineractRequestExecutor executor,
-            FineractBookingProperties format) {
-        this.client = fineractRestClient;
-        this.executor = executor;
-        this.format = format;
+    public FineractRescheduleHttpClient(RestClient fineractRestClient, FineractRequestExecutor fineractRequestExecutor,
+            FineractBookingProperties fineractBookingProperties) {
+        this.restClient = fineractRestClient;
+        this.fineractRequestExecutor = fineractRequestExecutor;
+        this.fineractBookingProperties = fineractBookingProperties;
     }
 
     @Override
     public Optional<CoreReschedule> findByLoanAndMarker(Long fineractLoanId, String marker) {
-        JsonNode response = executor.execute(FineractCallGroup.RESTRUCTURING, "find-reschedule", () ->
-                client.get().uri(uri -> uri.path("/rescheduleloans")
+        JsonNode response = fineractRequestExecutor.execute(FineractCallGroup.RESTRUCTURING, "find-reschedule", () ->
+                restClient.get().uri(uri -> uri.path("/rescheduleloans")
                                 .queryParam("loanId", fineractLoanId).build())
-                        .headers(executor::authenticate).retrieve().body(JsonNode.class));
+                        .headers(fineractRequestExecutor::authenticate).retrieve().body(JsonNode.class));
         JsonNode items = response != null && response.isArray() ? response
                 : response == null ? null : response.path("pageItems");
         if (items == null || !items.isArray()) return Optional.empty();
@@ -48,14 +50,14 @@ public class FineractRescheduleHttpClient implements FineractRescheduleGateway {
         payload.put("rescheduleReasonId", command.reasonId());
         payload.put("rescheduleReasonComment", command.marker());
         payload.put("submittedOnDate", command.submittedOnDate().toString());
-        payload.put("dateFormat", format.dateFormat());
-        payload.put("locale", format.locale());
+        payload.put("dateFormat", fineractBookingProperties.dateFormat());
+        payload.put("locale", fineractBookingProperties.locale());
         if (command.adjustedDueDate() != null) {
             payload.put("adjustedDueDate", command.adjustedDueDate().toString());
         }
         if (command.extraTerms() != null) payload.put("extraTerms", command.extraTerms());
-        JsonNode response = executor.execute(FineractCallGroup.RESTRUCTURING, "create-reschedule", () ->
-                client.post().uri("/rescheduleloans").headers(executor::authenticate)
+        JsonNode response = fineractRequestExecutor.execute(FineractCallGroup.RESTRUCTURING, "create-reschedule", () ->
+                restClient.post().uri("/rescheduleloans").headers(fineractRequestExecutor::authenticate)
                         .body(payload).retrieve().body(JsonNode.class));
         long id = resourceId(response);
         return new CoreReschedule(id, "PENDING_APPROVAL");
@@ -63,9 +65,9 @@ public class FineractRescheduleHttpClient implements FineractRescheduleGateway {
 
     @Override
     public CoreReschedule read(Long coreRescheduleId) {
-        JsonNode response = executor.execute(FineractCallGroup.RESTRUCTURING, "read-reschedule", () ->
-                client.get().uri("/rescheduleloans/{id}", coreRescheduleId)
-                        .headers(executor::authenticate).retrieve().body(JsonNode.class));
+        JsonNode response = fineractRequestExecutor.execute(FineractCallGroup.RESTRUCTURING, "read-reschedule", () ->
+                restClient.get().uri("/rescheduleloans/{id}", coreRescheduleId)
+                        .headers(fineractRequestExecutor::authenticate).retrieve().body(JsonNode.class));
         return parse(response);
     }
 
@@ -73,12 +75,12 @@ public class FineractRescheduleHttpClient implements FineractRescheduleGateway {
     public void approve(Long coreRescheduleId, LocalDate approvedOnDate) {
         Map<String, Object> payload = Map.of(
                 "approvedOnDate", approvedOnDate.toString(),
-                "dateFormat", format.dateFormat(),
-                "locale", format.locale());
-        executor.execute(FineractCallGroup.RESTRUCTURING, "approve-reschedule", () ->
-                client.post().uri(uri -> uri.path("/rescheduleloans/{id}")
+                "dateFormat", fineractBookingProperties.dateFormat(),
+                "locale", fineractBookingProperties.locale());
+        fineractRequestExecutor.execute(FineractCallGroup.RESTRUCTURING, "approve-reschedule", () ->
+                restClient.post().uri(uri -> uri.path("/rescheduleloans/{id}")
                                 .queryParam("command", "approve").build(coreRescheduleId))
-                        .headers(executor::authenticate).body(payload).retrieve().body(JsonNode.class));
+                        .headers(fineractRequestExecutor::authenticate).body(payload).retrieve().body(JsonNode.class));
     }
 
     private CoreReschedule parse(JsonNode value) {

@@ -1,6 +1,6 @@
 package com.finora.blockchain.repository.proof;
 
-import com.finora.blockchain.domain.proof.ProofSubmission;
+import com.finora.blockchain.domain.proof.entity.ProofSubmission;
 
 /** Fragment chèn idempotent cho {@link ProofSubmissionRepository}. */
 public interface ProofSubmissionInsert {

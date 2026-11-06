@@ -1,0 +1,183 @@
+package com.finora.investment.integration.payment.client.impl;
+
+import com.finora.investment.integration.payment.PaymentCallException;
+import com.finora.investment.integration.payment.client.PaymentClient;
+import com.finora.investment.integration.payment.contract.PaymentHoldResult;
+import com.finora.investment.integration.payment.contract.PaymentHoldView;
+import com.finora.investment.integration.payment.contract.PaymentTransferResult;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Bản giả lập finora-payment, dùng khi Payment Service chưa có API giữ tiền (bật khi
+ * {@code finora.investment.payment.mode=stub}).
+ */
+@Slf4j
+@Component
+@ConditionalOnProperty(prefix = "finora.investment.payment", name = "mode", havingValue = "stub")
+public class MockPaymentClient implements PaymentClient {
+
+    /** Hạn mức giả định cho mỗi nhà đầu tư khi gặp lần đầu. */
+    private static final BigDecimal DEFAULT_BALANCE = new BigDecimal("500000000.00");
+
+    private final Map<String, BigDecimal> availableBalances = new ConcurrentHashMap<>();
+    private final Map<String, HeldFund> holds = new ConcurrentHashMap<>();
+
+    /** Mã lệnh đã nhả: gọi giữ tiền lại trả khoản cũ ở trạng thái RELEASED như Payment thật (R3). */
+    private final Set<String> releasedHolds = ConcurrentHashMap.newKeySet();
+
+    /** Lần thanh toán từ tiền giữ đã thực hiện, khóa theo mã thanh toán để chống trùng lặp. */
+    private final Map<String, Settlement> settlements = new ConcurrentHashMap<>();
+
+    /** Phí nền tảng đã thu. Ví thật sẽ hạch toán vào sổ; bản giả lập chỉ cộng dồn. */
+    private final Map<String, BigDecimal> collectedFees = new ConcurrentHashMap<>();
+
+    private record HeldFund(String investorId, BigDecimal amount) {
+    }
+
+    private record Settlement(String holdReference, String sellerId, BigDecimal amount, BigDecimal fee) {
+    }
+
+    @Override
+    public synchronized PaymentHoldResult hold(String investorId, BigDecimal amount, String orderReference) {
+        HeldFund existing = holds.get(orderReference);
+        if (existing != null) {
+            return PaymentHoldResult.ok(orderReference);
+        }
+        if (releasedHolds.contains(orderReference)) {
+            return PaymentHoldResult.alreadyReleased(orderReference);
+        }
+
+        boolean[] deducted = {false};
+        availableBalances.compute(investorId, (key, current) -> {
+            BigDecimal balance = current == null ? DEFAULT_BALANCE : current;
+            if (balance.compareTo(amount) < 0) {
+                return balance;
+            }
+            deducted[0] = true;
+            return balance.subtract(amount);
+        });
+
+        if (!deducted[0]) {
+            return PaymentHoldResult.rejected(
+                    "INSUFFICIENT_BALANCE",
+                    "Số dư ví không đủ để đặt lệnh đầu tư"
+            );
+        }
+
+        holds.put(orderReference, new HeldFund(investorId, amount));
+        log.info("Mock Payment giữ tiền: orderReference={}, amountScale={}", orderReference, amount.scale());
+        return PaymentHoldResult.ok(orderReference);
+    }
+
+    @Override
+    public synchronized Optional<PaymentHoldView> findHold(String orderReference) {
+        HeldFund held = holds.get(orderReference);
+        if (held != null) return Optional.of(new PaymentHoldView(orderReference, held.amount(), "HELD"));
+        if (releasedHolds.contains(orderReference)) {
+            return Optional.of(new PaymentHoldView(orderReference, BigDecimal.ZERO.setScale(2), "RELEASED"));
+        }
+        return Optional.empty();
+    }
+
+    /** Chỉ cho kiểm thử: lần nhả kế tiếp lỗi như Payment trả về, để thử đường lùi lịch và dừng cho vận hành (R3). */
+    private volatile PaymentCallException nextReleaseFailure;
+
+    public void failNextRelease(String code, boolean retryable) {
+        nextReleaseFailure = new PaymentCallException(
+                code, "Mock Payment từ chối nhả tiền", retryable, null);
+    }
+
+    @Override
+    public synchronized void release(String holdReference, String orderReference) {
+        PaymentCallException failure = nextReleaseFailure;
+        if (failure != null) {
+            nextReleaseFailure = null;
+            throw failure;
+        }
+        HeldFund released = holds.remove(holdReference);
+        releasedHolds.add(holdReference);
+        if (released == null) {
+            log.info("Mock Payment bỏ qua nhả tiền đã xử lý: orderReference={}", orderReference);
+            return;
+        }
+        availableBalances.merge(released.investorId(), released.amount(), BigDecimal::add);
+        log.info("Mock Payment nhả tiền: orderReference={}", orderReference);
+    }
+
+    @Override
+    public synchronized PaymentTransferResult settleFromHold(
+            String holdReference,
+            String orderReference,
+            String sellerId,
+            BigDecimal amount,
+            BigDecimal platformFee,
+            String settlementReference) {
+
+        // Gọi lại cùng mã thanh toán chỉ chuyển tiền một lần. Ví thật phải giữ đúng hợp đồng
+        // này, nên bản giả lập cũng phải giữ — nếu không, bản demo chạy đúng mà bản thật sai.
+        if (settlements.containsKey(settlementReference)) {
+            log.info("Mock Payment bỏ qua thanh toán đã xử lý: settlementReference={}", settlementReference);
+            return PaymentTransferResult.ok(settlementReference);
+        }
+
+        HeldFund held = holds.get(holdReference);
+        if (held == null) {
+            return PaymentTransferResult.rejected(
+                    "PAYMENT_HOLD_NOT_FOUND", "Không tìm thấy khoản tiền giữ");
+        }
+        if (held.amount().compareTo(amount) < 0) {
+            return PaymentTransferResult.rejected(
+                    "PAYMENT_HOLD_INSUFFICIENT", "Khoản tiền giữ không đủ cho lần thanh toán này");
+        }
+
+        // Trừ vào phần đang giữ; phần còn lại vẫn giữ cho các lần khớp sau hoặc chờ nhả.
+        holds.put(holdReference, new HeldFund(held.investorId(), held.amount().subtract(amount)));
+
+        // Không dùng `merge`: người bán có thể chưa từng giao dịch nên chưa có bản ghi ví, và
+        // `merge` sẽ chèn đúng số tiền nhận được thay vì cộng vào hạn mức khởi tạo — tức ví của
+        // họ bị đặt lại về gần 0.
+        BigDecimal proceeds = amount.subtract(platformFee);
+        availableBalances.compute(sellerId, (key, current) ->
+                (current == null ? DEFAULT_BALANCE : current).add(proceeds));
+        collectedFees.merge("PLATFORM", platformFee, BigDecimal::add);
+        settlements.put(settlementReference, new Settlement(holdReference, sellerId, amount, platformFee));
+
+        log.info("Mock Payment thanh toán từ tiền giữ: settlementReference={}", settlementReference);
+        return PaymentTransferResult.ok(settlementReference);
+    }
+
+    @Override
+    public synchronized PaymentTransferResult transferBetweenInvestors(
+            String fromInvestorId, String toInvestorId, BigDecimal amount, String transferReference) {
+        if (settlements.containsKey(transferReference)) {
+            return PaymentTransferResult.ok(transferReference);
+        }
+        BigDecimal balance = availableBalances.getOrDefault(fromInvestorId, DEFAULT_BALANCE);
+        if (balance.compareTo(amount) < 0) {
+            return PaymentTransferResult.rejected("PAYMENT_INSUFFICIENT_BALANCE", "Số dư ví không đủ");
+        }
+        availableBalances.put(fromInvestorId, balance.subtract(amount));
+        availableBalances.compute(toInvestorId, (key, current) ->
+                (current == null ? DEFAULT_BALANCE : current).add(amount));
+        settlements.put(transferReference, new Settlement(null, toInvestorId, amount, BigDecimal.ZERO));
+        return PaymentTransferResult.ok(transferReference);
+    }
+
+    /** Số dư khả dụng hiện tại, chỉ để đối chiếu khi chạy thử. */
+    public BigDecimal availableBalance(String investorId) {
+        return availableBalances.getOrDefault(investorId, DEFAULT_BALANCE);
+    }
+
+    /** Tổng phí nền tảng đã thu, chỉ để đối chiếu khi chạy thử. */
+    public BigDecimal collectedFees() {
+        return collectedFees.getOrDefault("PLATFORM", BigDecimal.ZERO);
+    }
+}

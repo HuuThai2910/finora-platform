@@ -1,13 +1,14 @@
 package com.finora.blockchain.repository.proof;
 
-import com.finora.blockchain.domain.proof.ProofSubmission;
+import com.finora.blockchain.domain.proof.entity.ProofSubmission;
+import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+
 import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import lombok.RequiredArgsConstructor;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
 /**
  * {@code INSERT ... ON CONFLICT DO NOTHING} không chỉ định conflict target: trùng {@code (source_service,
@@ -33,7 +34,7 @@ public class ProofSubmissionInsertImpl implements ProofSubmissionInsert {
             ON CONFLICT DO NOTHING
             """;
 
-    private final NamedParameterJdbcTemplate jdbc;
+    private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
 
     @Override
     public int insertIfAbsent(ProofSubmission candidate) {
@@ -52,7 +53,7 @@ public class ProofSubmissionInsertImpl implements ProofSubmissionInsert {
                 .addValue("payloadVersion", candidate.getPayloadVersion(), Types.INTEGER)
                 .addValue("provider", candidate.getProvider().name(), Types.VARCHAR)
                 .addValue("now", utc(candidate.getCreatedAt()), Types.TIMESTAMP_WITH_TIMEZONE);
-        return jdbc.update(SQL, parameters);
+        return namedParameterJdbcTemplate.update(SQL, parameters);
     }
 
     private static OffsetDateTime utc(Instant value) {

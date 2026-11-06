@@ -1,10 +1,11 @@
 package com.finora.common.security.ratelimit;
 
-import java.time.Clock;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.time.Clock;
 
 /**
  * Đăng ký giới hạn tần suất {@link RateLimited} cho mọi service quét {@code com.finora.common} (D40).

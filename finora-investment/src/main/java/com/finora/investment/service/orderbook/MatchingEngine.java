@@ -1,8 +1,8 @@
 package com.finora.investment.service.orderbook;
 
-import com.finora.investment.domain.orderbook.BookOrder;
-import com.finora.investment.domain.orderbook.BookTrade;
-import com.finora.investment.domain.orderbook.OrderBook;
+import com.finora.investment.domain.orderbook.entity.BookOrder;
+import com.finora.investment.domain.orderbook.entity.BookTrade;
+import com.finora.investment.domain.orderbook.entity.OrderBook;
 
 import java.time.Instant;
 import java.util.List;

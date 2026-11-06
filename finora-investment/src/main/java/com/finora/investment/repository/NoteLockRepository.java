@@ -1,11 +1,12 @@
 package com.finora.investment.repository;
 
-import com.finora.investment.domain.orderbook.NoteLock;
-import java.util.Collection;
+import com.finora.investment.domain.orderbook.entity.NoteLock;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.util.Collection;
 
 public interface NoteLockRepository extends JpaRepository<NoteLock, Long> {
 

@@ -1,7 +1,7 @@
 package com.finora.user.integration.storage;
 
 import com.finora.user.config.EkycStorageProperties;
-import com.finora.user.domain.EkycEvidenceStage;
+import com.finora.user.domain.enums.EkycEvidenceStage;
 import lombok.extern.slf4j.Slf4j;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
@@ -50,11 +50,11 @@ public class S3EkycEvidenceStorage implements EkycEvidenceStorage, AutoCloseable
 
     static final String STAGE_TAG_KEY = "stage";
 
-    private final S3Client s3;
+    private final S3Client s3Client;
     private final String bucket;
 
-    public S3EkycEvidenceStorage(S3Client s3, String bucket) {
-        this.s3 = s3;
+    public S3EkycEvidenceStorage(S3Client s3Client, String bucket) {
+        this.s3Client = s3Client;
         this.bucket = bucket;
     }
 
@@ -102,7 +102,7 @@ public class S3EkycEvidenceStorage implements EkycEvidenceStorage, AutoCloseable
                 .contentType(contentType)
                 .contentLength((long) content.length);
         try {
-            s3.putObject(request.tagging(STAGE_TAG_KEY + "=" + stage.value()).build(), RequestBody.fromBytes(content));
+            s3Client.putObject(request.tagging(STAGE_TAG_KEY + "=" + stage.value()).build(), RequestBody.fromBytes(content));
         } catch (S3Exception e) {
             if (!isTaggingRejection(e)) {
                 throw failure("PutObject", key, e);
@@ -112,7 +112,7 @@ public class S3EkycEvidenceStorage implements EkycEvidenceStorage, AutoCloseable
             log.warn("Kho từ chối tag khi ghi bằng chứng, ghi lại không kèm tag: key={}, status={}, code={}",
                     key, e.statusCode(), errorCode(e));
             try {
-                s3.putObject(request.tagging((String) null).build(), RequestBody.fromBytes(content));
+                s3Client.putObject(request.tagging((String) null).build(), RequestBody.fromBytes(content));
             } catch (SdkException retryFailure) {
                 throw failure("PutObject", key, retryFailure);
             }
@@ -124,7 +124,7 @@ public class S3EkycEvidenceStorage implements EkycEvidenceStorage, AutoCloseable
     @Override
     public StoredObject open(String key) {
         try {
-            ResponseInputStream<GetObjectResponse> stream = s3.getObject(
+            ResponseInputStream<GetObjectResponse> stream = s3Client.getObject(
                     GetObjectRequest.builder().bucket(bucket).key(key).build());
             GetObjectResponse response = stream.response();
             long length = response.contentLength() == null ? -1 : response.contentLength();
@@ -144,7 +144,7 @@ public class S3EkycEvidenceStorage implements EkycEvidenceStorage, AutoCloseable
     @Override
     public boolean setStage(String key, EkycEvidenceStage stage) {
         try {
-            s3.putObjectTagging(PutObjectTaggingRequest.builder()
+            s3Client.putObjectTagging(PutObjectTaggingRequest.builder()
                     .bucket(bucket)
                     .key(key)
                     .tagging(Tagging.builder()
@@ -162,7 +162,7 @@ public class S3EkycEvidenceStorage implements EkycEvidenceStorage, AutoCloseable
     @Override
     public void delete(String key) {
         try {
-            s3.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(key).build());
+            s3Client.deleteObject(DeleteObjectRequest.builder().bucket(bucket).key(key).build());
         } catch (NoSuchKeyException e) {
             // Đã không còn: coi như xoá xong.
         } catch (SdkException e) {
@@ -179,7 +179,7 @@ public class S3EkycEvidenceStorage implements EkycEvidenceStorage, AutoCloseable
     public int deletePrefix(String prefix) {
         List<String> keys = new ArrayList<>();
         try {
-            for (S3Object object : s3.listObjectsV2Paginator(
+            for (S3Object object : s3Client.listObjectsV2Paginator(
                     ListObjectsV2Request.builder().bucket(bucket).prefix(prefix).build()).contents()) {
                 keys.add(object.key());
             }
@@ -194,7 +194,7 @@ public class S3EkycEvidenceStorage implements EkycEvidenceStorage, AutoCloseable
 
     @Override
     public void close() {
-        s3.close();
+        s3Client.close();
     }
 
     /** Lỗi 400/403/501 khi ghi kèm tag thường là do tag (quyền Tagging, kho chưa hỗ trợ), không phải do object. */

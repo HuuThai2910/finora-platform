@@ -1,57 +1,72 @@
 package com.finora.payment;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.finora.common.exception.BusinessException;
-import com.finora.payment.domain.ledger.LedgerBalanceBucket;
-import com.finora.payment.domain.ledger.LedgerDirection;
-import com.finora.payment.domain.ledger.LedgerTransactionStatus;
-import com.finora.payment.domain.ledger.LedgerTransactionType;
-import com.finora.payment.domain.wallet.PaymentWallet;
-import com.finora.payment.domain.wallet.WalletOwnerType;
-import com.finora.payment.domain.disbursement.PaymentDisbursement;
-import com.finora.payment.domain.disbursement.PaymentDisbursementStatus;
-import com.finora.payment.domain.repayment.PaymentRepayment;
-import com.finora.payment.domain.repayment.PaymentRepaymentStatus;
+import com.finora.payment.domain.disbursement.entity.PaymentDisbursement;
+import com.finora.payment.domain.disbursement.enums.PaymentDisbursementStatus;
+import com.finora.payment.domain.ledger.enums.LedgerBalanceBucket;
+import com.finora.payment.domain.ledger.enums.LedgerDirection;
+import com.finora.payment.domain.ledger.enums.LedgerTransactionStatus;
+import com.finora.payment.domain.ledger.enums.LedgerTransactionType;
+import com.finora.payment.domain.repayment.entity.PaymentRepayment;
+import com.finora.payment.domain.repayment.enums.PaymentRepaymentStatus;
+import com.finora.payment.domain.wallet.entity.PaymentWallet;
+import com.finora.payment.domain.wallet.enums.WalletOwnerType;
 import com.finora.payment.dto.request.CreateHoldRequest;
 import com.finora.payment.dto.request.SettleHoldRequest;
 import com.finora.payment.dto.response.HoldResponse;
 import com.finora.payment.dto.response.TopUpResponse;
-import com.finora.payment.messaging.DisbursementRequestedEventData;
-import com.finora.payment.messaging.LoanDisbursedEventData;
-import com.finora.payment.messaging.NoteOwnershipChangedEventData;
+import com.finora.payment.integration.fineract.client.RepaymentCoreGateway;
+import com.finora.payment.integration.fineract.contract.EarlySettlementCoreQuote;
+import com.finora.payment.integration.fineract.contract.PartialPrepaymentCoreSnapshot;
+import com.finora.payment.integration.fineract.contract.RepaymentCoreCommand;
+import com.finora.payment.integration.fineract.contract.ScheduledRepaymentCoreQuote;
+import com.finora.payment.integration.provider.client.PaymentProvider;
+import com.finora.payment.messaging.event.DisbursementRequestedEventData;
+import com.finora.payment.messaging.event.LoanDisbursedEventData;
+import com.finora.payment.messaging.event.NoteOwnershipChangedEventData;
 import com.finora.payment.repository.PaymentDisbursementRepository;
 import com.finora.payment.repository.PaymentOutboxEventRepository;
-import com.finora.payment.repository.repayment.PaymentRepaymentRepository;
-import com.finora.payment.repository.servicing.PaymentNoteOwnershipRepository;
-import com.finora.payment.integration.fineract.RepaymentCoreGateway;
-import com.finora.payment.integration.provider.PaymentProvider;
-import com.finora.payment.integration.fineract.PartialPrepaymentCoreSnapshot;
-import com.finora.payment.integration.fineract.ScheduledRepaymentCoreQuote;
-import com.finora.payment.service.disbursement.PaymentDisbursementService;
-import com.finora.payment.service.hold.HoldTransferService;
-import com.finora.payment.service.topup.TopUpService;
-import com.finora.payment.service.repayment.EarlySettlementQuoteService;
-import com.finora.payment.service.repayment.PaymentRepaymentService;
-import com.finora.payment.service.repayment.PartialPrepaymentQuoteService;
-import com.finora.payment.integration.fineract.EarlySettlementCoreQuote;
-import com.finora.payment.integration.fineract.RepaymentCoreCommand;
-import com.finora.payment.service.servicing.PaymentServicingProjectionService;
 import com.finora.payment.repository.ledger.LedgerEntryRepository;
 import com.finora.payment.repository.ledger.LedgerTransactionRepository;
+import com.finora.payment.repository.repayment.PaymentRepaymentRepository;
+import com.finora.payment.repository.servicing.PaymentNoteOwnershipRepository;
 import com.finora.payment.repository.wallet.PaymentWalletRepository;
+import com.finora.payment.service.disbursement.PaymentDisbursementService;
+import com.finora.payment.service.hold.HoldTransferService;
 import com.finora.payment.service.ledger.LedgerPostingCommand;
 import com.finora.payment.service.ledger.LedgerPostingEntryCommand;
 import com.finora.payment.service.ledger.LedgerPostingResult;
 import com.finora.payment.service.ledger.LedgerPostingService;
+import com.finora.payment.service.repayment.EarlySettlementQuoteService;
+import com.finora.payment.service.repayment.PartialPrepaymentQuoteService;
+import com.finora.payment.service.repayment.PaymentRepaymentService;
+import com.finora.payment.service.servicing.PaymentServicingProjectionService;
+import com.finora.payment.service.topup.TopUpService;
 import com.finora.payment.service.wallet.WalletAccountService;
 import com.finora.payment.service.wallet.WalletView;
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
+
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
@@ -63,27 +78,13 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import org.junit.jupiter.api.BeforeEach;
-import org.flywaydb.core.Flyway;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
-import org.mockito.ArgumentCaptor;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.dao.DataAccessException;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Xác nhận Payment khởi động với đúng PostgreSQL 17 và Flyway không còn migration chờ chạy.
@@ -499,7 +500,7 @@ class FinoraPaymentApplicationIT {
         assertThat(due.amount()).isEqualByComparingTo("1725000.00");
         assertThat(due.amount().scale()).isEqualTo(2);
         assertThat(due.overdueAmount()).isEqualByComparingTo("125000.00");
-        assertThat(due.repaymentType()).isEqualTo(com.finora.payment.domain.repayment.PaymentRepaymentType.OVERDUE_CURE);
+        assertThat(due.repaymentType()).isEqualTo(com.finora.payment.domain.repayment.enums.PaymentRepaymentType.OVERDUE_CURE);
         assertThat(due.businessDate()).isEqualTo(LocalDate.now(clock));
 
         actAsBorrower("BORROWER-OTHER");
@@ -868,7 +869,7 @@ class FinoraPaymentApplicationIT {
         assertThat(due.amount()).isEqualByComparingTo("5178000.00");
         assertThat(due.overdueAmount()).isEqualByComparingTo("5178000.00");
         assertThat(due.partialOverdueAmount()).isEqualByComparingTo("1726000.00");
-        assertThat(due.repaymentType()).isEqualTo(com.finora.payment.domain.repayment.PaymentRepaymentType.OVERDUE_CURE);
+        assertThat(due.repaymentType()).isEqualTo(com.finora.payment.domain.repayment.enums.PaymentRepaymentType.OVERDUE_CURE);
         assertThat(due.postOn()).isNull();
 
         assertThatThrownBy(() -> repaymentService.create(applicationId, new BigDecimal("3452000.00"), today, "cure-535-odd"))
@@ -880,7 +881,7 @@ class FinoraPaymentApplicationIT {
         var partial = repaymentService.create(applicationId, new BigDecimal("1726000.00"), today, "cure-535-partial");
         PaymentRepayment collected = repaymentRepository.findByRepaymentId(partial.repaymentId()).orElseThrow();
         assertThat(collected.getRepaymentType())
-                .isEqualTo(com.finora.payment.domain.repayment.PaymentRepaymentType.OVERDUE_CURE);
+                .isEqualTo(com.finora.payment.domain.repayment.enums.PaymentRepaymentType.OVERDUE_CURE);
         assertThat(partial.postOn()).isNull();
         assertThat(borrowerAvailable("BORROWER-535")).isEqualByComparingTo("4274000.00");
     }
@@ -1025,7 +1026,7 @@ class FinoraPaymentApplicationIT {
         assertThat(borrowerAvailable("BORROWER-534")).isEqualByComparingTo("6275000.00");
     }
 
-    private List<com.finora.payment.domain.outbox.PaymentOutboxEvent> outboxEvents(String eventType) {
+    private List<com.finora.payment.domain.outbox.entity.PaymentOutboxEvent> outboxEvents(String eventType) {
         return outboxRepository.findAll().stream().filter(event -> eventType.equals(event.getEventType())).toList();
     }
 

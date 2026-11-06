@@ -1,6 +1,6 @@
 package com.finora.loan.service.core;
 
-import com.finora.loan.domain.core.FineractCommandStatus;
+import com.finora.loan.domain.core.enums.FineractCommandStatus;
 import com.finora.loan.integration.fineract.contract.FineractProductConfiguration;
 
 public record ProductSyncExecution(

@@ -1,6 +1,7 @@
 package com.finora.investment.repository;
 
-import com.finora.investment.domain.transferdocument.NoteTransferDocumentStatus;
+import com.finora.investment.domain.transferdocument.enums.NoteTransferDocumentStatus;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 

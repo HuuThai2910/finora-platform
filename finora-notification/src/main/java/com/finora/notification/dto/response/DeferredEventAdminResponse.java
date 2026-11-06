@@ -1,7 +1,8 @@
 package com.finora.notification.dto.response;
 
-import com.finora.notification.domain.DeferredEvent;
-import com.finora.notification.domain.DeferredEventStatus;
+import com.finora.notification.domain.entity.DeferredEvent;
+import com.finora.notification.domain.enums.DeferredEventStatus;
+
 import java.time.Instant;
 import java.util.UUID;
 

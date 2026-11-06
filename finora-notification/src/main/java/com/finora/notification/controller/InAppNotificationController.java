@@ -2,12 +2,13 @@ package com.finora.notification.controller;
 
 import com.finora.notification.dto.response.InAppNotificationResponse;
 import com.finora.notification.service.InAppNotificationQueryService;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * Hộp thư trong app ({@code /api/v1/notifications}, JWT người dùng). Danh sách vẫn trả mảng tối đa {@code limit} tin
@@ -17,28 +18,28 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/notifications")
 @RequiredArgsConstructor
 public class InAppNotificationController {
-    private final InAppNotificationQueryService service;
+    private final InAppNotificationQueryService inAppNotificationQueryService;
 
     @GetMapping
-    public List<InAppNotificationResponse> list(
+    public ResponseEntity<List<InAppNotificationResponse>> list(
             @RequestParam(defaultValue = "50") int limit) {
-        return service.list(limit);
+        return ResponseEntity.ok(inAppNotificationQueryService.list(limit));
     }
 
     @GetMapping("/unread-count")
-    public Map<String, Long> unreadCount() {
-        return Map.of("count", service.unreadCount());
+    public ResponseEntity<Map<String, Long>> unreadCount() {
+        return ResponseEntity.ok(Map.of("count", inAppNotificationQueryService.unreadCount()));
     }
 
     @PostMapping("/{id}/read")
     public ResponseEntity<Void> markRead(@PathVariable UUID id) {
-        service.markRead(id);
+        inAppNotificationQueryService.markRead(id);
         return ResponseEntity.noContent().build();
     }
 
     /** Đánh dấu mọi tin của người đang đăng nhập là đã đọc; trả số tin vừa đổi. */
     @PostMapping("/read-all")
-    public Map<String, Integer> markAllRead() {
-        return Map.of("updated", service.markAllRead());
+    public ResponseEntity<Map<String, Integer>> markAllRead() {
+        return ResponseEntity.ok(Map.of("updated", inAppNotificationQueryService.markAllRead()));
     }
 }

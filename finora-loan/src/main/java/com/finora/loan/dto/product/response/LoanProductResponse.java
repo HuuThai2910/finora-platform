@@ -1,8 +1,9 @@
 package com.finora.loan.dto.product.response;
 
-import com.finora.loan.domain.product.CoreSyncStatus;
-import com.finora.loan.domain.product.LoanProductStatus;
-import com.finora.loan.domain.product.RepaymentMethod;
+import com.finora.loan.domain.product.enums.CoreSyncStatus;
+import com.finora.loan.domain.product.enums.LoanProductStatus;
+import com.finora.loan.domain.product.enums.RepaymentMethod;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 

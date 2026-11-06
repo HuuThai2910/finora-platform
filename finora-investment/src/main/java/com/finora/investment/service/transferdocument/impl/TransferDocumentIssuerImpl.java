@@ -3,13 +3,13 @@ package com.finora.investment.service.transferdocument.impl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.common.document.pades.PadesSignatureException;
-import com.finora.investment.client.UserIdentityClient.UserIdentityUnavailableException;
-import com.finora.investment.client.UserIdentityClient;
-import com.finora.investment.domain.listing.MarketListing;
-import com.finora.investment.domain.note.InvestmentNote;
-import com.finora.investment.domain.orderbook.BookTrade;
-import com.finora.investment.domain.secondary.NoteTransfer;
-import com.finora.investment.domain.transferdocument.NoteTransferDocument;
+import com.finora.investment.domain.listing.entity.MarketListing;
+import com.finora.investment.domain.note.entity.InvestmentNote;
+import com.finora.investment.domain.orderbook.entity.BookTrade;
+import com.finora.investment.domain.secondary.entity.NoteTransfer;
+import com.finora.investment.domain.transferdocument.entity.NoteTransferDocument;
+import com.finora.investment.integration.user.client.UserIdentityClient.UserIdentityUnavailableException;
+import com.finora.investment.integration.user.client.UserIdentityClient;
 import com.finora.investment.messaging.event.NoteTransferDocumentIssuedEventData;
 import com.finora.investment.repository.BookTradeRepository;
 import com.finora.investment.repository.InvestmentNoteRepository;
@@ -46,22 +46,22 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class TransferDocumentIssuerImpl implements TransferDocumentIssuer {
 
-    private final TransferDocumentStateService stateService;
-    private final BookTradeRepository tradeRepository;
-    private final NoteTransferRepository transferRepository;
-    private final InvestmentNoteRepository noteRepository;
-    private final MarketListingRepository listingRepository;
+    private final TransferDocumentStateService transferDocumentStateService;
+    private final BookTradeRepository bookTradeRepository;
+    private final NoteTransferRepository noteTransferRepository;
+    private final InvestmentNoteRepository investmentNoteRepository;
+    private final MarketListingRepository marketListingRepository;
     private final UserIdentityClient userIdentityClient;
-    private final TransferDocumentPdfRenderer renderer;
-    private final TransferDocumentSeal seal;
+    private final TransferDocumentPdfRenderer transferDocumentPdfRenderer;
+    private final TransferDocumentSeal transferDocumentSeal;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
     @Override
     public void issueDue(int batchSize) {
-        stateService.enqueueSettled(batchSize);
-        for (Long documentId : stateService.dueIds(batchSize)) {
-            stateService.claim(documentId).ifPresent(tradeId -> issue(documentId, tradeId));
+        transferDocumentStateService.enqueueSettled(batchSize);
+        for (Long documentId : transferDocumentStateService.dueIds(batchSize)) {
+            transferDocumentStateService.claim(documentId).ifPresent(tradeId -> issue(documentId, tradeId));
         }
     }
 
@@ -70,29 +70,29 @@ public class TransferDocumentIssuerImpl implements TransferDocumentIssuer {
             // /M của chữ ký chỉ có độ phân giải giây; cắt sẵn để PDF, event và DB cùng một thời điểm.
             Instant issuedAt = clock.instant().truncatedTo(ChronoUnit.SECONDS);
             TransferDocumentContent content = content(tradeId, issuedAt);
-            byte[] pdf = seal.seal(renderer.render(content), issuedAt);
+            byte[] pdf = transferDocumentSeal.seal(transferDocumentPdfRenderer.render(content), issuedAt);
             String hash = sha256Hex(pdf);
             JsonNode payload = objectMapper.valueToTree(new NoteTransferDocumentIssuedEventData(
                     content.documentNumber(), content.tradeReference(), content.loanApplicationId(),
                     content.listingId(), hash, NoteTransferDocumentIssuedEventData.HASH_ALGORITHM, issuedAt));
-            stateService.complete(documentId, pdf, hash, payload, seal.subjectCommonName(), issuedAt);
+            transferDocumentStateService.complete(documentId, pdf, hash, payload, transferDocumentSeal.subjectCommonName(), issuedAt);
         } catch (UserIdentityUnavailableException exception) {
-            stateService.fail(documentId, exception.code());
+            transferDocumentStateService.fail(documentId, exception.code());
         } catch (PadesSignatureException exception) {
             log.error("Không đóng dấu được giấy xác nhận chuyển nhượng: tradeId={}, code={}",
                     tradeId, exception.getCode(), exception);
-            stateService.fail(documentId, exception.getCode());
+            transferDocumentStateService.fail(documentId, exception.getCode());
         } catch (RuntimeException exception) {
             log.error("Không lập được giấy xác nhận chuyển nhượng: tradeId={}", tradeId, exception);
-            stateService.fail(documentId, "DOCUMENT_BUILD_FAILED: " + exception.getClass().getSimpleName());
+            transferDocumentStateService.fail(documentId, "DOCUMENT_BUILD_FAILED: " + exception.getClass().getSimpleName());
         }
     }
 
     TransferDocumentContent content(Long tradeId, Instant issuedAt) {
-        BookTrade trade = tradeRepository.findById(tradeId).orElseThrow();
-        MarketListing listing = listingRepository.findById(trade.getListingId()).orElseThrow();
-        List<NoteTransfer> transfers = transferRepository.findByTradeIdOrderByNoteIdAsc(tradeId);
-        Map<Long, InvestmentNote> notes = noteRepository.findAllById(
+        BookTrade trade = bookTradeRepository.findById(tradeId).orElseThrow();
+        MarketListing listing = marketListingRepository.findById(trade.getListingId()).orElseThrow();
+        List<NoteTransfer> transfers = noteTransferRepository.findByTradeIdOrderByNoteIdAsc(tradeId);
+        Map<Long, InvestmentNote> notes = investmentNoteRepository.findAllById(
                         transfers.stream().map(NoteTransfer::getNoteId).toList()).stream()
                 .collect(Collectors.toMap(InvestmentNote::getId, Function.identity()));
         List<TransferDocumentContent.NoteLine> lines = transfers.stream()
@@ -124,7 +124,7 @@ public class TransferDocumentIssuerImpl implements TransferDocumentIssuer {
                 trade.getOutstandingTotal(),
                 Boolean.TRUE.equals(trade.getDefaulted()),
                 lines,
-                seal.demo());
+                transferDocumentSeal.demo());
     }
 
     private TransferDocumentContent.Party party(String investorId) {

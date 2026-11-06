@@ -1,11 +1,12 @@
 package com.finora.payment.service.ledger;
 
-import com.finora.payment.domain.ledger.LedgerBalanceBucket;
-import com.finora.payment.domain.ledger.LedgerDirection;
+import com.finora.payment.domain.ledger.enums.LedgerBalanceBucket;
+import com.finora.payment.domain.ledger.enums.LedgerDirection;
+
 import java.math.BigDecimal;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.Locale;
 import java.util.regex.Pattern;
 
 public record LedgerPostingEntryCommand(

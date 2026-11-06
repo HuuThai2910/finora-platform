@@ -1,23 +1,17 @@
 package com.finora.investment.service;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
 import com.finora.common.enums.investment.ListingStatus;
-import com.finora.investment.domain.autoinvest.AutoInvestMatch;
+import com.finora.investment.domain.autoinvest.entity.AutoInvestMatch;
 import com.finora.investment.dto.request.CreateListingRequest;
 import com.finora.investment.dto.request.UpdateAutoInvestRequest;
-import com.finora.investment.exception.InvestmentDomainException;
-import com.finora.investment.repository.InvestmentOrderRepository;
 import com.finora.investment.dto.response.AutoInvestMatchResponse;
 import com.finora.investment.dto.response.MarketListingResponse;
+import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.repository.AutoInvestMatchRepository;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
+import com.finora.investment.repository.InvestmentOrderRepository;
 import com.finora.investment.repository.MarketListingRepository;
 import com.finora.investment.service.autoinvest.AutoInvestMatcher;
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,6 +26,13 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Auto-Invest trên PostgreSQL thật: hàng chờ ai bật trước, không khớp trùng khi chạy lại, không

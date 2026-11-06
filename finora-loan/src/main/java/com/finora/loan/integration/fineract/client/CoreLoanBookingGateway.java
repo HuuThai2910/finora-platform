@@ -1,6 +1,7 @@
 package com.finora.loan.integration.fineract.client;
 
-import com.finora.loan.domain.product.RepaymentMethod;
+import com.finora.loan.domain.product.enums.RepaymentMethod;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;

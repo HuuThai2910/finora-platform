@@ -1,15 +1,16 @@
 package com.finora.loan.repository.contract;
 
-import com.finora.loan.domain.contract.ContractPartyType;
-import com.finora.loan.domain.contract.ContractPdfSignature;
-import com.finora.loan.domain.contract.ContractPdfSignatureStatus;
-import com.finora.loan.domain.contract.ContractPdfSignatureSummary;
-import java.util.List;
-import java.util.Optional;
+import com.finora.loan.domain.contract.entity.ContractPdfSignature;
+import com.finora.loan.domain.contract.enums.ContractPartyType;
+import com.finora.loan.domain.contract.enums.ContractPdfSignatureStatus;
+import com.finora.loan.domain.contract.model.ContractPdfSignatureSummary;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.util.List;
+import java.util.Optional;
 
 /**
  * Chuỗi chữ ký PAdES của Contract. Mọi thao tác ghi chạy sau khi đã khóa dòng Contract, nên các truy vấn ở đây không
@@ -47,7 +48,7 @@ public interface ContractPdfSignatureRepository extends JpaRepository<ContractPd
     long countByContractIdAndStatus(Long contractId, ContractPdfSignatureStatus status);
 
     @Query("""
-            select new com.finora.loan.domain.contract.ContractPdfSignatureSummary(
+            select new com.finora.loan.domain.contract.model.ContractPdfSignatureSummary(
                 signature.id, signature.signerType, signature.signerId, signature.sequenceNumber,
                 signature.provider, signature.method, signature.contentHash, signature.contentLength,
                 signature.certificateSerial, signature.certificateSha256, signature.cmsHash, signature.evidenceHash,

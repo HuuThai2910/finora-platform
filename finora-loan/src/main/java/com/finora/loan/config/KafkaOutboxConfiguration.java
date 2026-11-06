@@ -1,6 +1,7 @@
 package com.finora.loan.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finora.common.messaging.KafkaEventPublisher;
 import com.finora.loan.messaging.producer.KafkaOutboxPublisher;
 import com.finora.loan.service.outbox.OutboxPublisher;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -15,12 +16,17 @@ import org.springframework.kafka.core.KafkaTemplate;
 @EnableConfigurationProperties(KafkaPublisherProperties.class)
 public class KafkaOutboxConfiguration {
 
+    /** Bộ gửi chung của finora-common (không tự khai bean); dùng ObjectMapper của Spring như bản cũ của Loan. */
+    @Bean
+    KafkaEventPublisher kafkaEventPublisher(KafkaTemplate<String, String> kafkaTemplate, ObjectMapper objectMapper) {
+        return new KafkaEventPublisher(kafkaTemplate, objectMapper);
+    }
+
     @Bean
     OutboxPublisher kafkaOutboxPublisher(
-            KafkaTemplate<String, String> kafkaTemplate,
-            ObjectMapper objectMapper,
+            KafkaEventPublisher kafkaEventPublisher,
             KafkaPublisherProperties properties
     ) {
-        return new KafkaOutboxPublisher(kafkaTemplate, objectMapper, properties);
+        return new KafkaOutboxPublisher(kafkaEventPublisher, properties);
     }
 }

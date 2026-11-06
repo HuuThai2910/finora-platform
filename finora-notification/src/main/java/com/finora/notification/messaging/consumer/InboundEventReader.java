@@ -1,61 +1,34 @@
 package com.finora.notification.messaging.consumer;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finora.notification.messaging.event.KafkaEnvelope;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.finora.common.messaging.KafkaEvent;
+import com.finora.common.messaging.KafkaEventContract.DataRule;
+import com.finora.common.messaging.KafkaEventContract;
+import com.finora.common.messaging.KafkaEventReader;
 import com.finora.notification.service.intake.InboundEvent;
-import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.time.format.DateTimeParseException;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.stereotype.Component;
 
 /**
  * Kiểm envelope {@code {eventId, occurredAt, version, data}} và header {@code finora-event-*} trước khi giao cho intake.
  * Mọi sai lệch là lỗi contract ({@link IllegalArgumentException}, vào DLT); message lỗi không chứa payload.
+ * <p>
+ * Kiểm bằng {@link KafkaEventReader} dùng chung với hợp đồng {@code anyVersion} + {@code data} là object: mọi version từ
+ * 1, header (nếu có, đã bỏ khoảng trắng hai đầu) khớp envelope và loại event của topic, {@code occurredAt} bắt buộc và
+ * đọc được bằng {@code Instant} hoặc {@code OffsetDateTime}.
  */
 @Component
 @RequiredArgsConstructor
 public class InboundEventReader {
 
-    private final ObjectMapper mapper;
+    private final KafkaEventReader kafkaEventReader;
 
-    public InboundEvent read(String topic, String expectedType, String payload, String headerEventId,
-            String headerEventType, String headerEventVersion) {
-        KafkaEnvelope envelope;
-        try {
-            envelope = mapper.readValue(payload, KafkaEnvelope.class);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalArgumentException("Envelope JSON không hợp lệ trên topic " + topic);
-        }
-        if (envelope == null || envelope.eventId() == null || envelope.occurredAt() == null
-                || envelope.occurredAt().isBlank() || envelope.data() == null || !envelope.data().isObject()
-                || envelope.version() < 1) {
-            throw new IllegalArgumentException("Envelope thiếu eventId/occurredAt/version/data trên topic " + topic);
-        }
-        if (headerEventId != null && !UUID.fromString(headerEventId.trim()).equals(envelope.eventId())) {
-            throw new IllegalArgumentException("Header finora-event-id khác eventId của envelope");
-        }
-        if (headerEventType != null && !headerEventType.trim().equals(expectedType)) {
-            throw new IllegalArgumentException("Event " + headerEventType + " không thuộc topic " + topic);
-        }
-        if (headerEventVersion != null && Integer.parseInt(headerEventVersion.trim()) != envelope.version()) {
-            throw new IllegalArgumentException("Header finora-event-version khác version của envelope");
-        }
-        return new InboundEvent(envelope.eventId(), expectedType, envelope.version(),
-                instant(envelope.occurredAt().trim()), topic, envelope.data());
-    }
-
-    private static Instant instant(String value) {
-        try {
-            return Instant.parse(value);
-        } catch (DateTimeParseException ignored) {
-            try {
-                return OffsetDateTime.parse(value).toInstant();
-            } catch (DateTimeParseException exception) {
-                throw new IllegalArgumentException("occurredAt không phải ISO-8601");
-            }
-        }
+    /** Đọc record của topic chỉ mang loại event {@code expectedType} (theo {@link NotificationTopicRoutes}). */
+    public InboundEvent read(ConsumerRecord<String, String> record, String expectedType) {
+        KafkaEvent<JsonNode> event = kafkaEventReader.readRaw(record,
+                KafkaEventContract.anyVersion(expectedType).withDataRule(DataRule.OBJECT));
+        return new InboundEvent(event.eventId(), event.eventType(), event.version(), event.occurredAt(),
+                record.topic(), event.data());
     }
 }

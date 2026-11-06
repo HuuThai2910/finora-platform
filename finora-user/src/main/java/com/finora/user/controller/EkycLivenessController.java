@@ -5,9 +5,9 @@ import com.finora.common.exception.BusinessException;
 import com.finora.common.security.SecurityUtils;
 import com.finora.user.dto.response.EkycResultResponse;
 import com.finora.user.dto.response.LivenessChallengeResponse;
-import com.finora.user.service.EkycLivenessService;
 import com.finora.user.service.EkycLivenessService.LivenessUpload;
 import com.finora.user.service.EkycLivenessService.UploadedFile;
+import com.finora.user.service.EkycLivenessService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -34,12 +34,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public class EkycLivenessController {
 
-    private final EkycLivenessService livenessService;
+    private final EkycLivenessService ekycLivenessService;
 
     @PostMapping("/challenge")
     @PreAuthorize("hasAuthority('user:cccd:scan')")
     public BaseResponse<LivenessChallengeResponse> createChallenge() {
-        return BaseResponse.success(livenessService.createChallenge(SecurityUtils.getCurrentKeycloakUserId()));
+        return BaseResponse.success(ekycLivenessService.createChallenge(SecurityUtils.getCurrentKeycloakUserId()));
     }
 
     /**
@@ -59,7 +59,7 @@ public class EkycLivenessController {
         LivenessUpload upload = new LivenessUpload(sessionId, captureMode, platform, toUploadedFile(video),
                 frames == null ? List.of() : frames.stream().map(EkycLivenessController::toUploadedFile).toList(),
                 frameTimesMs);
-        return BaseResponse.success(livenessService.submit(SecurityUtils.getCurrentKeycloakUserId(), upload));
+        return BaseResponse.success(ekycLivenessService.submit(SecurityUtils.getCurrentKeycloakUserId(), upload));
     }
 
     private static UploadedFile toUploadedFile(MultipartFile file) {

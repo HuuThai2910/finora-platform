@@ -1,9 +1,10 @@
 package com.finora.investment.repository.operations;
 
 import com.finora.common.observability.OperationalMetricsProperties;
-import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+
+import javax.sql.DataSource;
 
 /**
  * Câu đếm cho gauge vận hành của Investment (W3E, D58). Chỉ đọc database của Investment.

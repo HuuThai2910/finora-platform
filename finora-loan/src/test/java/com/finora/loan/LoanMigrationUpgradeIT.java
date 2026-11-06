@@ -1,14 +1,15 @@
 package com.finora.loan;
 
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.Statement;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

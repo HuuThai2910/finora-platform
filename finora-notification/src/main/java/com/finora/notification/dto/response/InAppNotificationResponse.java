@@ -1,7 +1,8 @@
 package com.finora.notification.dto.response;
 
-import com.finora.notification.domain.InAppNotification;
-import com.finora.notification.domain.NotificationCategory;
+import com.finora.notification.domain.entity.InAppNotification;
+import com.finora.notification.domain.enums.NotificationCategory;
+
 import java.time.Instant;
 import java.util.UUID;
 

@@ -1,8 +1,9 @@
 package com.finora.loan.config;
 
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Hạn mức dư nợ của một người vay trên FINORA (quyết định D5, 2026-10-17).

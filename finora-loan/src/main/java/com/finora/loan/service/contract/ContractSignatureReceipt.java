@@ -1,8 +1,9 @@
 package com.finora.loan.service.contract;
 
-import com.finora.loan.domain.contract.ContractPartyType;
-import com.finora.loan.domain.contract.SignatureMethod;
-import com.finora.loan.domain.contract.SignatureProviderType;
+import com.finora.loan.domain.contract.enums.ContractPartyType;
+import com.finora.loan.domain.contract.enums.SignatureMethod;
+import com.finora.loan.domain.contract.enums.SignatureProviderType;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;

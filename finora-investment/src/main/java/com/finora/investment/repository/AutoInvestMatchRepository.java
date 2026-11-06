@@ -1,9 +1,10 @@
 package com.finora.investment.repository;
 
-import com.finora.investment.domain.autoinvest.AutoInvestMatch;
-import java.util.List;
+import com.finora.investment.domain.autoinvest.entity.AutoInvestMatch;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
 
 public interface AutoInvestMatchRepository extends JpaRepository<AutoInvestMatch, Long> {
 

@@ -2,21 +2,24 @@ package com.finora.loan.messaging.producer;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finora.common.messaging.FinoraKafkaHeaders;
+import com.finora.common.messaging.KafkaEventPublisher;
 import com.finora.loan.config.KafkaPublisherProperties;
 import com.finora.loan.service.outbox.OutboxMessage;
 import com.finora.loan.service.outbox.OutboxPublishException;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.errors.AuthenticationException;
 import org.apache.kafka.common.header.Header;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.kafka.core.KafkaTemplate;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -50,10 +53,10 @@ class KafkaOutboxPublisherTest {
         assertThat(envelope.path("occurredAt").asText()).isEqualTo("2026-09-21T00:00:00Z");
         assertThat(envelope.path("version").asInt()).isEqualTo(1);
         assertThat(envelope.path("data").path("applicationNumber").asText()).isEqualTo("LA-001");
-        assertThat(header(sent, KafkaOutboxPublisher.EVENT_TYPE_HEADER)).isEqualTo("LoanTermsAuthorized");
-        assertThat(header(sent, KafkaOutboxPublisher.EVENT_VERSION_HEADER)).isEqualTo("1");
-        assertThat(header(sent, KafkaOutboxPublisher.EVENT_ID_HEADER)).isEqualTo(message.eventId().toString());
-        assertThat(header(sent, KafkaOutboxPublisher.TRACE_ID_HEADER)).isEqualTo("trace-001");
+        assertThat(header(sent, FinoraKafkaHeaders.EVENT_TYPE)).isEqualTo("LoanTermsAuthorized");
+        assertThat(header(sent, FinoraKafkaHeaders.EVENT_VERSION)).isEqualTo("1");
+        assertThat(header(sent, FinoraKafkaHeaders.EVENT_ID)).isEqualTo(message.eventId().toString());
+        assertThat(header(sent, FinoraKafkaHeaders.TRACE_ID)).isEqualTo("trace-001");
     }
 
     @Test
@@ -116,7 +119,7 @@ class KafkaOutboxPublisherTest {
                 List.of(new KafkaPublisherProperties.EventRoute(
                         "LoanTermsAuthorized", 1, TOPIC))
         );
-        return new KafkaOutboxPublisher(template, objectMapper, properties);
+        return new KafkaOutboxPublisher(new KafkaEventPublisher(template, objectMapper), properties);
     }
 
     private OutboxMessage message(String payload) {

@@ -1,19 +1,12 @@
 package com.finora.investment.service.orderbook;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
 import com.finora.common.enums.investment.NoteStatus;
-import com.finora.investment.client.PaymentClient;
-import com.finora.investment.client.impl.StubPaymentClient;
-import com.finora.investment.domain.note.InvestmentNote;
-import com.finora.investment.domain.orderbook.BookOrderStatus;
-import com.finora.investment.domain.orderbook.BookTrade;
-import com.finora.investment.domain.orderbook.CancelReason;
-import com.finora.investment.messaging.event.LoanDelinquencyChangedEventData;
-import com.finora.investment.service.messaging.LoanServicingLifecycleEventHandler;
-import com.finora.investment.domain.orderbook.OrderSide;
-import com.finora.investment.domain.orderbook.SettlementStatus;
+import com.finora.investment.domain.note.entity.InvestmentNote;
+import com.finora.investment.domain.orderbook.entity.BookTrade;
+import com.finora.investment.domain.orderbook.enums.BookOrderStatus;
+import com.finora.investment.domain.orderbook.enums.CancelReason;
+import com.finora.investment.domain.orderbook.enums.OrderSide;
+import com.finora.investment.domain.orderbook.enums.SettlementStatus;
 import com.finora.investment.dto.request.CreateListingRequest;
 import com.finora.investment.dto.request.PlaceBookOrderRequest;
 import com.finora.investment.dto.request.PlaceOrderRequest;
@@ -21,6 +14,9 @@ import com.finora.investment.dto.response.BookOrderResponse;
 import com.finora.investment.dto.response.MarketListingResponse;
 import com.finora.investment.dto.response.OrderBookSnapshotResponse;
 import com.finora.investment.exception.InvestmentDomainException;
+import com.finora.investment.integration.payment.client.PaymentClient;
+import com.finora.investment.integration.payment.client.impl.MockPaymentClient;
+import com.finora.investment.messaging.event.LoanDelinquencyChangedEventData;
 import com.finora.investment.repository.BookOrderRepository;
 import com.finora.investment.repository.BookTradeRepository;
 import com.finora.investment.repository.InvestmentNoteRepository;
@@ -28,19 +24,7 @@ import com.finora.investment.repository.NoteTransferRepository;
 import com.finora.investment.service.FundingService;
 import com.finora.investment.service.MarketListingService;
 import com.finora.investment.service.NoteIssuanceService;
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+import com.finora.investment.service.messaging.LoanServicingLifecycleEventHandler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -56,6 +40,23 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Sổ lệnh trên PostgreSQL thật: khớp giá–thời gian, đổi chủ Note, thanh toán từ tiền giữ, huỷ,
@@ -138,8 +139,8 @@ class OrderBookFlowIT {
         actAs(investorId, "ROLE_INVESTOR");
     }
 
-    private StubPaymentClient wallet() {
-        return (StubPaymentClient) paymentClient;
+    private MockPaymentClient wallet() {
+        return (MockPaymentClient) paymentClient;
     }
 
     /**

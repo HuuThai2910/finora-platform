@@ -3,8 +3,8 @@ package com.finora.user.service.impl;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.security.pin.PinScope;
 import com.finora.common.security.pin.PinTokenService;
-import com.finora.user.domain.UserPin;
-import com.finora.user.domain.UserProfile;
+import com.finora.user.domain.entity.UserPin;
+import com.finora.user.domain.entity.UserProfile;
 import com.finora.user.dto.response.PinStatusResponse;
 import com.finora.user.dto.response.PinTokenResponse;
 import com.finora.user.repository.UserPinRepository;
@@ -46,8 +46,8 @@ public class TransactionPinServiceImpl implements TransactionPinService {
 
     private static final PasswordEncoder ENCODER = new BCryptPasswordEncoder();
 
-    private final UserPinRepository pinRepository;
-    private final UserProfileRepository profileRepository;
+    private final UserPinRepository userPinRepository;
+    private final UserProfileRepository userProfileRepository;
     private final PinTokenService pinTokenService;
     private final KeycloakAdminService keycloakAdminService;
     private final RateLimitService rateLimitService;
@@ -57,7 +57,7 @@ public class TransactionPinServiceImpl implements TransactionPinService {
     @Override
     @Transactional(readOnly = true)
     public PinStatusResponse status(UUID keycloakUserId) {
-        return pinRepository.findById(keycloakUserId)
+        return userPinRepository.findById(keycloakUserId)
                 .map(this::toStatus)
                 .orElse(new PinStatusResponse(false, false, null, UserPin.MAX_FAILED_ATTEMPTS));
     }
@@ -66,12 +66,13 @@ public class TransactionPinServiceImpl implements TransactionPinService {
     @Transactional
     public PinStatusResponse create(UUID keycloakUserId, String pin) {
         requireProfile(keycloakUserId);
-        if (pinRepository.existsById(keycloakUserId)) {
+        if (userPinRepository.existsById(keycloakUserId)) {
             throw alreadySet();
         }
         requireStrong(pin);
         try {
-            UserPin saved = pinRepository.saveAndFlush(UserPin.create(keycloakUserId, ENCODER.encode(pin), clock.instant()));
+            UserPin saved = userPinRepository.saveAndFlush(
+                    UserPin.create(keycloakUserId, ENCODER.encode(pin), clock.instant()));
             log.info("Đã tạo mã PIN giao dịch: keycloakUserId={}", keycloakUserId);
             return toStatus(saved);
         } catch (DataIntegrityViolationException e) {
@@ -84,7 +85,7 @@ public class TransactionPinServiceImpl implements TransactionPinService {
     @Transactional(noRollbackFor = BusinessException.class)
     public PinTokenResponse verify(UUID keycloakUserId, String pin, PinScope scope, String requestKey,
             ClientInfo client) {
-        UserPin userPin = pinRepository.findForUpdate(keycloakUserId)
+        UserPin userPin = userPinRepository.findForUpdate(keycloakUserId)
                 .orElseThrow(() -> new BusinessException(HttpStatus.CONFLICT, "PIN_NOT_SET",
                         "Bạn chưa tạo mã PIN giao dịch"));
         checkPin(userPin, pin, client);
@@ -95,7 +96,7 @@ public class TransactionPinServiceImpl implements TransactionPinService {
     @Override
     @Transactional(noRollbackFor = BusinessException.class)
     public PinStatusResponse change(UUID keycloakUserId, String currentPin, String newPin, ClientInfo client) {
-        UserPin userPin = pinRepository.findForUpdate(keycloakUserId)
+        UserPin userPin = userPinRepository.findForUpdate(keycloakUserId)
                 .orElseThrow(() -> new BusinessException(HttpStatus.CONFLICT, "PIN_NOT_SET",
                         "Bạn chưa tạo mã PIN giao dịch"));
         checkPin(userPin, currentPin, client);
@@ -123,12 +124,12 @@ public class TransactionPinServiceImpl implements TransactionPinService {
 
         Instant now = clock.instant();
         String hash = ENCODER.encode(newPin);
-        UserPin userPin = pinRepository.findForUpdate(keycloakUserId)
+        UserPin userPin = userPinRepository.findForUpdate(keycloakUserId)
                 .map(existing -> {
                     existing.replaceHash(hash, now);
                     return existing;
                 })
-                .orElseGet(() -> pinRepository.save(UserPin.create(keycloakUserId, hash, now)));
+                .orElseGet(() -> userPinRepository.save(UserPin.create(keycloakUserId, hash, now)));
         log.info("Đã đặt lại mã PIN giao dịch: keycloakUserId={}", keycloakUserId);
         return toStatus(userPin);
     }
@@ -175,7 +176,7 @@ public class TransactionPinServiceImpl implements TransactionPinService {
                     "Mã PIN không đúng, bạn còn " + userPin.remainingAttempts(now) + " lần thử");
         }
         log.warn("Mã PIN bị khoá do nhập sai nhiều lần: keycloakUserId={}", userPin.getKeycloakUserId());
-        profileRepository.findByKeycloakUserId(userPin.getKeycloakUserId()).ifPresent(profile ->
+        userProfileRepository.findByKeycloakUserId(userPin.getKeycloakUserId()).ifPresent(profile ->
                 notificationService.sendSuspiciousActivityAlert(profile.getId(), profile.getEmail(),
                         client.ipAddress(), client.userAgent(),
                         "Nhập sai mã PIN giao dịch " + UserPin.MAX_FAILED_ATTEMPTS + " lần liên tiếp"));
@@ -183,7 +184,7 @@ public class TransactionPinServiceImpl implements TransactionPinService {
     }
 
     private UserProfile requireProfile(UUID keycloakUserId) {
-        return profileRepository.findByKeycloakUserId(keycloakUserId)
+        return userProfileRepository.findByKeycloakUserId(keycloakUserId)
                 .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "PROFILE_NOT_FOUND",
                         "Không tìm thấy hồ sơ người dùng"));
     }

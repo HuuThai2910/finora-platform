@@ -3,7 +3,7 @@ package com.finora.loan.mapper.scoring;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finora.loan.domain.scoring.CreditScoringAssessment;
+import com.finora.loan.domain.scoring.entity.CreditScoringAssessment;
 import com.finora.loan.dto.scoring.response.CreditAssessmentDetailResponse;
 import com.finora.loan.dto.scoring.response.CreditAssessmentSummaryResponse;
 import lombok.RequiredArgsConstructor;

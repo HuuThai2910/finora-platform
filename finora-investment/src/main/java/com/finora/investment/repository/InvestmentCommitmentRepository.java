@@ -1,10 +1,11 @@
 package com.finora.investment.repository;
 
 import com.finora.common.enums.investment.CommitmentStatus;
-import com.finora.investment.domain.order.InvestmentCommitment;
+import com.finora.investment.domain.order.entity.InvestmentCommitment;
+import org.springframework.data.jpa.repository.JpaRepository;
+
 import java.util.List;
 import java.util.Optional;
-import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface InvestmentCommitmentRepository extends JpaRepository<InvestmentCommitment, Long> {
 

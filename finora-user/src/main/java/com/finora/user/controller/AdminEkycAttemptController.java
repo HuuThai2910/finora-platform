@@ -1,19 +1,21 @@
 package com.finora.user.controller;
 
 import com.finora.common.dto.PageResponse;
+import com.finora.common.exception.BusinessException;
 import com.finora.common.security.SecurityUtils;
 import com.finora.user.dto.request.EkycApproveRequest;
 import com.finora.user.dto.request.EkycRejectRequest;
 import com.finora.user.dto.response.EkycAttemptDetailResponse;
 import com.finora.user.dto.response.EkycAttemptSummaryResponse;
-import com.finora.user.service.EkycAdminReviewService;
 import com.finora.user.service.EkycAdminReviewService.EvidenceDownload;
+import com.finora.user.service.EkycAdminReviewService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -38,22 +40,34 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class AdminEkycAttemptController {
 
-    private final EkycAdminReviewService reviewService;
+    private final EkycAdminReviewService ekycAdminReviewService;
 
-    /** Danh sách lượt theo trạng thái; mặc định {@code MANUAL_REVIEW}, {@code ALL} để xem mọi trạng thái. */
+    /**
+     * Danh sách lượt theo trạng thái; mặc định {@code MANUAL_REVIEW}, {@code ALL} để xem mọi trạng thái.
+     * Có {@code userProfileId} thì trả mọi lượt của khách đó (mới nhất trước), bỏ qua {@code status}.
+     */
     @GetMapping
-    @PreAuthorize("hasAnyAuthority('user:admin:read_all','ops:ekyc:view','ROLE_ADMIN')")
+    @PreAuthorize("hasAnyAuthority('user:admin:read_all','ops:ekyc:view','ops:customer:view','ROLE_ADMIN')")
     public ResponseEntity<PageResponse<EkycAttemptSummaryResponse>> listAttempts(
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) Long userProfileId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(reviewService.list(status, page, size));
+        if (userProfileId != null) {
+            return ResponseEntity.ok(ekycAdminReviewService.listForUser(userProfileId, page, size));
+        }
+        if (!SecurityUtils.hasPermission("ops:ekyc:view") && !SecurityUtils.hasRole("user:admin:read_all")) {
+            // Quyền "Xem khách hàng" chỉ đủ xem lịch sử của từng khách, không xem được hàng chờ duyệt.
+            throw new BusinessException(HttpStatus.FORBIDDEN, "PERMISSION_REQUIRED",
+                    "Tài khoản không có quyền thực hiện chức năng này");
+        }
+        return ResponseEntity.ok(ekycAdminReviewService.list(status, page, size));
     }
 
     @GetMapping("/{attemptId}")
     @PreAuthorize("hasAnyAuthority('user:admin:read_all','ops:ekyc:view','ROLE_ADMIN')")
     public ResponseEntity<EkycAttemptDetailResponse> getAttempt(@PathVariable String attemptId) {
-        return ResponseEntity.ok(reviewService.detail(attemptId, SecurityUtils.getCurrentKeycloakUserId()));
+        return ResponseEntity.ok(ekycAdminReviewService.detail(attemptId, SecurityUtils.getCurrentKeycloakUserId()));
     }
 
     /**
@@ -64,7 +78,7 @@ public class AdminEkycAttemptController {
     @PreAuthorize("hasAnyAuthority('user:admin:read_all','ops:ekyc:view','ROLE_ADMIN')")
     public ResponseEntity<InputStreamResource> downloadEvidence(@PathVariable String attemptId,
                                                                 @PathVariable String evidenceId) {
-        EvidenceDownload download = reviewService.openEvidence(
+        EvidenceDownload download = ekycAdminReviewService.openEvidence(
                 attemptId, evidenceId, SecurityUtils.getCurrentKeycloakUserId());
         ResponseEntity.BodyBuilder response = ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
@@ -81,7 +95,7 @@ public class AdminEkycAttemptController {
     @PreAuthorize("hasAnyAuthority('user:admin:lock','ops:ekyc:action','ROLE_ADMIN')")
     public ResponseEntity<EkycAttemptDetailResponse> approve(@PathVariable String attemptId,
                                                              @Valid @RequestBody(required = false) EkycApproveRequest request) {
-        return ResponseEntity.ok(reviewService.approve(attemptId, SecurityUtils.getCurrentKeycloakUserId(),
+        return ResponseEntity.ok(ekycAdminReviewService.approve(attemptId, SecurityUtils.getCurrentKeycloakUserId(),
                 request == null ? null : request.note()));
     }
 
@@ -89,7 +103,7 @@ public class AdminEkycAttemptController {
     @PreAuthorize("hasAnyAuthority('user:admin:lock','ops:ekyc:action','ROLE_ADMIN')")
     public ResponseEntity<EkycAttemptDetailResponse> reject(@PathVariable String attemptId,
                                                             @Valid @RequestBody EkycRejectRequest request) {
-        return ResponseEntity.ok(reviewService.reject(attemptId, SecurityUtils.getCurrentKeycloakUserId(),
+        return ResponseEntity.ok(ekycAdminReviewService.reject(attemptId, SecurityUtils.getCurrentKeycloakUserId(),
                 request.note()));
     }
 }

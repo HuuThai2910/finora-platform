@@ -1,25 +1,26 @@
 package com.finora.investment.service.impl;
 
-import com.finora.investment.service.NoteIssuanceService;
-import com.finora.common.enums.investment.ListingStatus;
-import com.finora.investment.domain.listing.MarketListing;
-import com.finora.investment.domain.note.InvestmentNote;
 import com.finora.common.enums.investment.CommitmentStatus;
-import com.finora.investment.domain.order.InvestmentCommitment;
+import com.finora.common.enums.investment.ListingStatus;
+import com.finora.investment.domain.listing.entity.MarketListing;
+import com.finora.investment.domain.note.entity.InvestmentNote;
+import com.finora.investment.domain.order.entity.InvestmentCommitment;
 import com.finora.investment.dto.response.NoteResponse;
 import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.mapper.InvestmentMapper;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
 import com.finora.investment.repository.InvestmentNoteRepository;
 import com.finora.investment.repository.MarketListingRepository;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import com.finora.investment.service.NoteIssuanceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Xé nhỏ nguồn vốn thành các Note (A2.3/D2) — phần D2 của task gọi vốn.
@@ -39,10 +40,10 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class NoteIssuanceServiceImpl implements NoteIssuanceService {
 
-    private final MarketListingRepository listingRepository;
-    private final InvestmentCommitmentRepository commitmentRepository;
-    private final InvestmentNoteRepository noteRepository;
-    private final InvestmentMapper mapper;
+    private final MarketListingRepository marketListingRepository;
+    private final InvestmentCommitmentRepository investmentCommitmentRepository;
+    private final InvestmentNoteRepository investmentNoteRepository;
+    private final InvestmentMapper investmentMapper;
 
     @Override
     @Transactional
@@ -59,7 +60,7 @@ public class NoteIssuanceServiceImpl implements NoteIssuanceService {
     }
 
     private void requireDisbursed(Long listingId) {
-        MarketListing listing = listingRepository.findByIdForUpdate(listingId)
+        MarketListing listing = marketListingRepository.findByIdForUpdate(listingId)
                 .orElseThrow(() -> InvestmentDomainException.notFound(
                         "LISTING_NOT_FOUND", "Không tìm thấy khoản vay trên sàn"));
         if (listing.getStatus() != ListingStatus.FULLY_FUNDED || listing.getDisbursedAt() == null) {
@@ -79,12 +80,12 @@ public class NoteIssuanceServiceImpl implements NoteIssuanceService {
     @Override
     @Transactional
     public int finalizeCommitments(Long listingId) {
-        MarketListing listing = listingRepository.findByIdForUpdate(listingId)
+        MarketListing listing = marketListingRepository.findByIdForUpdate(listingId)
                 .orElseThrow(() -> InvestmentDomainException.notFound(
                         "LISTING_NOT_FOUND", "Không tìm thấy khoản vay trên sàn"));
 
         List<InvestmentCommitment> commitments =
-                commitmentRepository.findByListingIdAndStatus(listing.getId(), CommitmentStatus.ACTIVE);
+                investmentCommitmentRepository.findByListingIdAndStatus(listing.getId(), CommitmentStatus.ACTIVE);
 
         Instant now = Instant.now();
         int locked = 0;
@@ -113,12 +114,12 @@ public class NoteIssuanceServiceImpl implements NoteIssuanceService {
     @Override
     @Transactional
     public int activateNotes(Long listingId) {
-        MarketListing listing = listingRepository.findById(listingId)
+        MarketListing listing = marketListingRepository.findById(listingId)
                 .orElseThrow(() -> InvestmentDomainException.notFound(
                         "LISTING_NOT_FOUND", "Không tìm thấy khoản vay trên sàn"));
 
         List<InvestmentCommitment> commitments =
-                commitmentRepository.findByListingIdAndStatus(listing.getId(), CommitmentStatus.FINALIZED);
+                investmentCommitmentRepository.findByListingIdAndStatus(listing.getId(), CommitmentStatus.FINALIZED);
 
         if (commitments.isEmpty()) {
             throw InvestmentDomainException.conflict(
@@ -132,7 +133,7 @@ public class NoteIssuanceServiceImpl implements NoteIssuanceService {
 
         for (InvestmentCommitment commitment : commitments) {
             // Đã phát hành ở lần chạy trước: bỏ qua để không tạo Note trùng.
-            if (noteRepository.existsByCommitmentId(commitment.getId())) {
+            if (investmentNoteRepository.existsByCommitmentId(commitment.getId())) {
                 continue;
             }
             issued.addAll(splitIntoNotes(listing, commitment, now));
@@ -143,7 +144,7 @@ public class NoteIssuanceServiceImpl implements NoteIssuanceService {
             return 0;
         }
 
-        noteRepository.saveAll(issued);
+        investmentNoteRepository.saveAll(issued);
 
         log.info("Phát hành Note: listingId={}, loanId={}, noteCount={}",
                 listing.getId(), listing.getLoanId(), issued.size());
@@ -204,8 +205,8 @@ public class NoteIssuanceServiceImpl implements NoteIssuanceService {
     @Override
     @Transactional(readOnly = true)
     public List<NoteResponse> notesOfCommitment(Long commitmentId) {
-        return noteRepository.findByCommitmentId(commitmentId).stream()
-                .map(mapper::toNoteResponse)
+        return investmentNoteRepository.findByCommitmentId(commitmentId).stream()
+                .map(investmentMapper::toNoteResponse)
                 .toList();
     }
 }

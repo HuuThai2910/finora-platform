@@ -8,6 +8,7 @@ import com.finora.payment.dto.response.TransferResponse;
 import com.finora.payment.service.hold.HoldTransferService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,38 +21,38 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/transactions")
 @RequiredArgsConstructor
 public class TransactionController {
-    private final HoldTransferService service;
+    private final HoldTransferService holdTransferService;
 
     @PostMapping("/holds")
-    public HoldResponse hold(@Valid @RequestBody CreateHoldRequest request) {
-        return service.hold(request);
+    public ResponseEntity<HoldResponse> hold(@Valid @RequestBody CreateHoldRequest request) {
+        return ResponseEntity.ok(holdTransferService.hold(request));
     }
 
     /** R3: đọc khoản giữ theo mã lệnh, không đổi gì; 404 khi chưa từng giữ tiền cho lệnh này. */
     @GetMapping("/holds")
-    public HoldResponse findHold(@RequestParam String orderReference) {
-        return service.findByOrderReference(orderReference);
+    public ResponseEntity<HoldResponse> findHold(@RequestParam String orderReference) {
+        return ResponseEntity.ok(holdTransferService.findByOrderReference(orderReference));
     }
 
     @PostMapping("/holds/{holdReference}/release")
-    public HoldResponse release(
+    public ResponseEntity<HoldResponse> release(
             @PathVariable String holdReference,
             @RequestParam String orderReference
     ) {
-        return service.release(holdReference, orderReference);
+        return ResponseEntity.ok(holdTransferService.release(holdReference, orderReference));
     }
 
     /** Thanh toán một lần khớp trên sổ lệnh Notes từ khoản giữ của lệnh mua (service account Investment). */
     @PostMapping("/holds/{holdReference}/settlements")
-    public TransferResponse settle(
+    public ResponseEntity<TransferResponse> settle(
             @PathVariable String holdReference,
             @Valid @RequestBody SettleHoldRequest request
     ) {
-        return service.settleFromHold(holdReference, request);
+        return ResponseEntity.ok(holdTransferService.settleFromHold(holdReference, request));
     }
 
     @PostMapping("/transfers")
-    public TransferResponse transfer(@Valid @RequestBody TransferRequest request) {
-        return service.transfer(request);
+    public ResponseEntity<TransferResponse> transfer(@Valid @RequestBody TransferRequest request) {
+        return ResponseEntity.ok(holdTransferService.transfer(request));
     }
 }

@@ -1,23 +1,24 @@
 package com.finora.loan.mapper.application;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finora.loan.domain.application.entity.ApplicantFinancialSnapshot;
+import com.finora.loan.domain.application.entity.LoanApplication;
+import com.finora.loan.domain.application.enums.EducationLevel;
+import com.finora.loan.domain.application.enums.HomeOwnership;
+import com.finora.loan.domain.application.enums.LoanPurpose;
+import com.finora.loan.domain.scoring.entity.CreditScoringAssessment;
+import com.finora.loan.domain.scoring.enums.CreditAssessmentStatus;
+import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.RuleResult;
+import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse;
+import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finora.loan.domain.application.ApplicantFinancialSnapshot;
-import com.finora.loan.domain.application.EducationLevel;
-import com.finora.loan.domain.application.HomeOwnership;
-import com.finora.loan.domain.application.LoanApplication;
-import com.finora.loan.domain.application.LoanPurpose;
-import com.finora.loan.domain.scoring.CreditAssessmentStatus;
-import com.finora.loan.domain.scoring.CreditScoringAssessment;
-import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse;
-import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.RuleResult;
-import java.math.BigDecimal;
-import java.time.Instant;
-import org.junit.jupiter.api.Test;
 
 /**
  * Bảng luật là dữ liệu admin cấu hình nên có thể chứa field lạ; mapper chỉ được chép đúng các field

@@ -1,14 +1,16 @@
 package com.finora.investment.config;
 
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.common.TopicPartition;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finora.common.messaging.KafkaDeadLetterTopic;
+import com.finora.common.messaging.KafkaErrorHandlers;
+import com.finora.common.messaging.KafkaEventReader;
+import com.finora.investment.exception.InvestmentDomainException;
 import org.springframework.boot.autoconfigure.kafka.ConcurrentKafkaListenerContainerFactoryConfigurer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.FixedBackOff;
 
@@ -17,16 +19,16 @@ import org.springframework.util.backoff.FixedBackOff;
 public class InvestmentKafkaConsumerConfiguration {
 
     @Bean
+    KafkaEventReader kafkaEventReader(ObjectMapper objectMapper) {
+        return new KafkaEventReader(objectMapper);
+    }
+
+    /** {@code <topic>.DLT} giữ partition gốc; event sai hợp đồng và lỗi nghiệp vụ vào DLT ngay, không retry. */
+    @Bean
     DefaultErrorHandler investmentKafkaErrorHandler(KafkaTemplate<String, String> kafkaTemplate) {
-        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
-                kafkaTemplate,
-                (ConsumerRecord<?, ?> record, Exception exception) ->
-                        new TopicPartition(record.topic() + ".DLT", record.partition()));
-        DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, new FixedBackOff(1_000L, 2L));
-        handler.addNotRetryableExceptions(
-                IllegalArgumentException.class,
-                com.finora.investment.exception.InvestmentDomainException.class);
-        return handler;
+        return KafkaErrorHandlers.deadLetterErrorHandler(kafkaTemplate, new FixedBackOff(1_000L, 2L),
+                KafkaDeadLetterTopic.suffixKeepPartition(".DLT"),
+                IllegalArgumentException.class, InvestmentDomainException.class);
     }
 
     @Bean

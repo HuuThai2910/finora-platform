@@ -1,8 +1,9 @@
 package com.finora.loan.config;
 
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
 import java.math.BigDecimal;
 import java.util.Map;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /** Cấu hình định giá theo hạng; đơn vị điều chỉnh là điểm phần trăm, không phải tỷ lệ thập phân. */
 @ConfigurationProperties(prefix = "finora.loan.risk-pricing")

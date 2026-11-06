@@ -1,13 +1,13 @@
 package com.finora.user.service;
 
-import com.finora.user.domain.EkycIdentityDraft;
+import com.finora.user.domain.model.EkycIdentityDraft;
 
 import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Giữ bản nháp eKYC trên Redis trong lúc người dùng làm liveness và soát thông tin.
+ * Giữ bản nháp eKYC trong kho tạm trong lúc người dùng làm liveness và soát thông tin.
  */
 public interface EkycDraftStore {
 

@@ -1,6 +1,6 @@
 package com.finora.investment.repository;
 
-import com.finora.investment.domain.orderbook.OrderSide;
+import com.finora.investment.domain.orderbook.enums.OrderSide;
 
 /**
  * Giá cao nhất và thấp nhất của một phía trong một sổ. Phía mua dùng {@code maxPermille} làm giá

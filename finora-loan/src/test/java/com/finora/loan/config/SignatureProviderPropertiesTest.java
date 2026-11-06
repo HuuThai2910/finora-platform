@@ -1,9 +1,10 @@
 package com.finora.loan.config;
 
-import com.finora.loan.domain.contract.SignatureProviderType;
+import com.finora.loan.domain.contract.enums.SignatureProviderType;
+import org.junit.jupiter.api.Test;
+
 import java.net.URI;
 import java.time.Duration;
-import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

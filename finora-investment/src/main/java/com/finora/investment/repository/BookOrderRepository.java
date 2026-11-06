@@ -1,16 +1,17 @@
 package com.finora.investment.repository;
 
-import com.finora.investment.domain.orderbook.BookOrder;
-import com.finora.investment.domain.orderbook.BookOrderStatus;
-import com.finora.investment.domain.orderbook.OrderSide;
-import java.util.Collection;
-import java.util.List;
-import java.util.Optional;
+import com.finora.investment.domain.orderbook.entity.BookOrder;
+import com.finora.investment.domain.orderbook.enums.BookOrderStatus;
+import com.finora.investment.domain.orderbook.enums.OrderSide;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
 
 public interface BookOrderRepository extends JpaRepository<BookOrder, Long> {
 

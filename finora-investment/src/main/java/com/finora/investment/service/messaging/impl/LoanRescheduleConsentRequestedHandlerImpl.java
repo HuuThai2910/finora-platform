@@ -1,9 +1,9 @@
 package com.finora.investment.service.messaging.impl;
 
 import com.finora.common.enums.investment.NoteStatus;
-import com.finora.investment.domain.messaging.ProcessedEvent;
-import com.finora.investment.domain.note.InvestmentNote;
-import com.finora.investment.domain.restructure.InvestorRescheduleConsent;
+import com.finora.investment.domain.messaging.entity.ProcessedEvent;
+import com.finora.investment.domain.note.entity.InvestmentNote;
+import com.finora.investment.domain.restructure.entity.InvestorRescheduleConsent;
 import com.finora.investment.messaging.event.InvestorServicingNotificationEventData;
 import com.finora.investment.messaging.event.LoanRescheduleConsentRequestedEventData;
 import com.finora.investment.repository.InvestmentNoteRepository;
@@ -38,21 +38,21 @@ public class LoanRescheduleConsentRequestedHandlerImpl implements LoanReschedule
 
     static final String INVITATION_CHANGE_TYPE = "RESCHEDULE_CONSENT_REQUESTED";
 
-    private final ProcessedEventRepository processed;
-    private final InvestmentNoteRepository notes;
-    private final InvestorRescheduleConsentRepository consents;
-    private final InvestmentOutboxService outbox;
+    private final ProcessedEventRepository processedEventRepository;
+    private final InvestmentNoteRepository investmentNoteRepository;
+    private final InvestorRescheduleConsentRepository investorRescheduleConsentRepository;
+    private final InvestmentOutboxService investmentOutboxService;
     private final Clock clock;
 
     @Override
     @Transactional
     public void handle(UUID eventId, Instant occurredAt, LoanRescheduleConsentRequestedEventData data) {
-        if (processed.existsByEventId(eventId)) return;
+        if (processedEventRepository.existsByEventId(eventId)) return;
         validate(data);
         Instant now = clock.instant();
-        if (!consents.existsByRequestId(data.requestId())) {
+        if (!investorRescheduleConsentRepository.existsByRequestId(data.requestId())) {
             Map<String, BigDecimal> principalByInvestor = new LinkedHashMap<>();
-            for (InvestmentNote note : notes.findByLoanIdAndStatusIn(data.loanApplicationId(),
+            for (InvestmentNote note : investmentNoteRepository.findByLoanIdAndStatusIn(data.loanApplicationId(),
                     List.of(NoteStatus.ACTIVE, NoteStatus.DEFAULTED))) {
                 if (note.getOutstandingPrincipal().signum() > 0) {
                     principalByInvestor.merge(note.getInvestorId(), note.getOutstandingPrincipal(), BigDecimal::add);
@@ -61,14 +61,14 @@ public class LoanRescheduleConsentRequestedHandlerImpl implements LoanReschedule
             if (principalByInvestor.isEmpty()) {
                 throw new IllegalArgumentException("Khoản vay không có chủ Note còn dư nợ để lấy đồng ý cơ cấu");
             }
-            consents.saveAll(principalByInvestor.entrySet().stream().map(entry ->
+            investorRescheduleConsentRepository.saveAll(principalByInvestor.entrySet().stream().map(entry ->
                     InvestorRescheduleConsent.pending(data.requestId(), data.loanApplicationId(),
                             data.loanNumber(), data.requestType(), data.rescheduleFromDate(),
                             data.adjustedDueDate(), data.extraTerms(), data.originalMaturityDate(),
                             entry.getKey(), entry.getValue(), now)).toList());
             inviteBallotHolders(data, principalByInvestor.keySet());
         }
-        processed.save(ProcessedEvent.create(eventId, "LoanRescheduleConsentRequested", 1,
+        processedEventRepository.save(ProcessedEvent.create(eventId, "LoanRescheduleConsentRequested", 1,
                 "finora-loan", data.requestId().toString(), occurredAt, now));
     }
 
@@ -82,7 +82,7 @@ public class LoanRescheduleConsentRequestedHandlerImpl implements LoanReschedule
         List<InvestorServicingNotificationEventData.Recipient> recipients = investorIds.stream()
                 .map(investorId -> new InvestorServicingNotificationEventData.Recipient(null, null, investorId, null))
                 .toList();
-        outbox.record("LOAN", data.loanApplicationId().toString(), "InvestorNoteServicingChanged", 1,
+        investmentOutboxService.record("LOAN", data.loanApplicationId().toString(), "InvestorNoteServicingChanged", 1,
                 new InvestorServicingNotificationEventData(INVITATION_CHANGE_TYPE, data.loanApplicationId(),
                         data.loanNumber(), 0, 1, "0.00", data.originalMaturityDate(), true, data.requestedAt(),
                         recipients));

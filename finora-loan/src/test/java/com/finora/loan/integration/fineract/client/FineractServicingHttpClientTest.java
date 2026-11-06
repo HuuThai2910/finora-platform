@@ -1,5 +1,14 @@
 package com.finora.loan.integration.fineract.client;
 
+import com.finora.loan.domain.servicing.model.LoanServicingHistory;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -8,14 +17,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
-
-import com.finora.loan.domain.servicing.LoanServicingHistory;
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import org.junit.jupiter.api.Test;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 
 class FineractServicingHttpClientTest {
     @SuppressWarnings({"unchecked", "rawtypes"})

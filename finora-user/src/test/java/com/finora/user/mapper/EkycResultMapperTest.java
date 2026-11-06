@@ -2,13 +2,13 @@ package com.finora.user.mapper;
 
 import com.finora.common.enums.user.EkycResultCode;
 import com.finora.common.enums.user.EkycStatus;
-import com.finora.user.domain.EkycDocumentDecision;
-import com.finora.user.domain.EkycDraftFieldName;
-import com.finora.user.domain.EkycIdentityDraft;
-import com.finora.user.domain.EkycLivenessResult;
+import com.finora.user.domain.enums.EkycDocumentDecision;
+import com.finora.user.domain.enums.EkycDraftFieldName;
+import com.finora.user.domain.enums.EkycLivenessResult;
+import com.finora.user.domain.model.EkycIdentityDraft;
 import com.finora.user.dto.response.EkycNextStep;
 import com.finora.user.dto.response.EkycResultResponse;
-import com.finora.user.support.EkycTestData;
+import com.finora.user.util.EkycTestData;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

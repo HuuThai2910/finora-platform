@@ -1,8 +1,8 @@
 package com.finora.user.service.impl;
 
 import com.finora.user.service.EkycRateLimitService;
+import com.finora.user.service.TemporaryStore;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -12,9 +12,11 @@ import java.util.UUID;
  * Chặn gọi eKYC dồn dập.
  * <p>
  * Đọc thẻ và chấm liveness đều chạy phân tích nặng ở {@code finora-ai} (AI chỉ xử lý một phân tích tại
- * một thời điểm), nên mỗi người dùng chỉ được một lần gọi trong mỗi khoảng chờ. Suất gọi là key Redis tự
- * hết hạn; khi AI lỗi, suất được trả lại ngay vì lỗi không phải do người dùng. Mất Redis chỉ làm request
- * lỗi hệ thống, không làm sai trạng thái nghiệp vụ.
+ * một thời điểm), nên mỗi người dùng chỉ được một lần gọi trong mỗi khoảng chờ. Suất gọi là một giá trị tự
+ * hết hạn trong kho tạm, chiếm bằng {@link TemporaryStore#putIfAbsent} (nguyên tử như {@code SET NX}); khi AI
+ * lỗi, suất được trả lại ngay vì lỗi không phải do người dùng. Database lỗi chỉ làm request lỗi hệ thống (như
+ * mất Redis trước đây), không làm sai trạng thái nghiệp vụ; không nuốt lỗi để cho qua vì như vậy là bỏ giới
+ * hạn gọi AI.
  */
 @Service
 @RequiredArgsConstructor
@@ -24,7 +26,7 @@ public class EkycRateLimitServiceImpl implements EkycRateLimitService {
     private static final String KEY_LIVENESS_RATE = "ekyc_liveness_rate:";
     private static final String KEY_CHALLENGE_RATE = "ekyc_challenge_rate:";
 
-    private final StringRedisTemplate redisTemplate;
+    private final TemporaryStore temporaryStore;
 
     @Override
     public boolean tryAcquireVerifySlot(UUID keycloakUserId) {
@@ -33,7 +35,7 @@ public class EkycRateLimitServiceImpl implements EkycRateLimitService {
 
     @Override
     public void releaseVerifySlot(UUID keycloakUserId) {
-        redisTemplate.delete(KEY_VERIFY_RATE + keycloakUserId);
+        temporaryStore.delete(KEY_VERIFY_RATE + keycloakUserId);
     }
 
     @Override
@@ -43,7 +45,7 @@ public class EkycRateLimitServiceImpl implements EkycRateLimitService {
 
     @Override
     public void releaseLivenessSlot(UUID keycloakUserId) {
-        redisTemplate.delete(KEY_LIVENESS_RATE + keycloakUserId);
+        temporaryStore.delete(KEY_LIVENESS_RATE + keycloakUserId);
     }
 
     @Override
@@ -52,7 +54,6 @@ public class EkycRateLimitServiceImpl implements EkycRateLimitService {
     }
 
     private boolean acquire(String key, Duration interval) {
-        Boolean acquired = redisTemplate.opsForValue().setIfAbsent(key, "1", interval);
-        return Boolean.TRUE.equals(acquired);
+        return temporaryStore.putIfAbsent(key, "1", interval);
     }
 }

@@ -1,31 +1,33 @@
 package com.finora.loan.integration.fineract.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.finora.loan.domain.servicing.LoanServicingHistory;
-import com.finora.loan.domain.servicing.LoanServicingSnapshot;
+import com.finora.loan.domain.servicing.model.LoanServicingHistory;
+import com.finora.loan.domain.servicing.model.LoanServicingSnapshot;
+import com.finora.loan.integration.fineract.FineractIntegrationException;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
-import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
 
 @Component
 public class FineractServicingHttpClient implements FineractServicingGateway {
-    private final RestClient client;
-    private final FineractRequestExecutor executor;
+    private final RestClient restClient;
+    private final FineractRequestExecutor fineractRequestExecutor;
 
-    public FineractServicingHttpClient(RestClient fineractRestClient, FineractRequestExecutor executor) {
-        this.client = fineractRestClient;
-        this.executor = executor;
+    public FineractServicingHttpClient(RestClient fineractRestClient, FineractRequestExecutor fineractRequestExecutor) {
+        this.restClient = fineractRestClient;
+        this.fineractRequestExecutor = fineractRequestExecutor;
     }
 
     @Override
     public LoanServicingSnapshot read(Long fineractLoanId, LocalDate businessDate) {
-        JsonNode loan = executor.execute(FineractCallGroup.SERVICING, "read-servicing-loan", () ->
-                client.get().uri("/loans/{id}?associations=repaymentSchedule", fineractLoanId)
-                        .headers(executor::authenticate).retrieve().body(JsonNode.class));
+        JsonNode loan = fineractRequestExecutor.execute(FineractCallGroup.SERVICING, "read-servicing-loan", () ->
+                restClient.get().uri("/loans/{id}?associations=repaymentSchedule", fineractLoanId)
+                        .headers(fineractRequestExecutor::authenticate).retrieve().body(JsonNode.class));
         if (loan == null || !loan.isObject()) {
             throw new FineractIntegrationException("FINERACT_RESPONSE_INVALID",
                     "Fineract không trả dữ liệu servicing", false, null);
@@ -47,9 +49,9 @@ public class FineractServicingHttpClient implements FineractServicingGateway {
 
     @Override
     public LoanServicingHistory readHistory(Long fineractLoanId) {
-        JsonNode loan = executor.execute(FineractCallGroup.SERVICING, "read-servicing-history", () ->
-                client.get().uri("/loans/{id}?associations=repaymentSchedule,transactions", fineractLoanId)
-                        .headers(executor::authenticate).retrieve().body(JsonNode.class));
+        JsonNode loan = fineractRequestExecutor.execute(FineractCallGroup.SERVICING, "read-servicing-history", () ->
+                restClient.get().uri("/loans/{id}?associations=repaymentSchedule,transactions", fineractLoanId)
+                        .headers(fineractRequestExecutor::authenticate).retrieve().body(JsonNode.class));
         if (loan == null || !loan.isObject()) {
             throw new FineractIntegrationException("FINERACT_RESPONSE_INVALID",
                     "Fineract không trả dữ liệu lịch sử khoản vay", false, null);

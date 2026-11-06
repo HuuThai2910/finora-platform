@@ -1,5 +1,25 @@
 package com.finora.notification.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finora.notification.integration.push.client.impl.ExpoPushSender;
+import com.finora.notification.integration.push.contract.PushMessage;
+import com.finora.notification.integration.push.contract.PushOutcome;
+import com.finora.notification.integration.push.contract.PushReceipt;
+import com.finora.notification.integration.push.contract.PushTicket;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.timelimiter.TimeLimiterRegistry;
+import org.junit.jupiter.api.Test;
+import org.springframework.cloud.circuitbreaker.resilience4j.Resilience4JCircuitBreakerFactory;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
+
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
@@ -9,22 +29,6 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finora.notification.integration.push.ExpoPushSender;
-import com.finora.notification.integration.push.PushMessage;
-import com.finora.notification.integration.push.PushOutcome;
-import com.finora.notification.integration.push.PushReceipt;
-import com.finora.notification.integration.push.PushTicket;
-import java.time.Duration;
-import java.util.List;
-import java.util.Map;
-import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 
 /**
  * Adapter Expo Push (D62) với mock HTTP server, không gọi mạng: định dạng request, header xác thực, phân loại ticket,
@@ -156,7 +160,10 @@ class ExpoPushSenderConfigTest {
         RestClient.Builder builder = PushSenderConfig.applyExpoDefaults(RestClient.builder(),
                 new NotificationProperties.Expo(BASE, accessToken, null, null));
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        return new Harness(server, new ExpoPushSender(builder.build(), new ObjectMapper()));
+        // Circuit breaker thật, cấu hình mặc định (không mở sau vài lỗi): phân loại lỗi HTTP vẫn đúng khi đi qua circuit.
+        Resilience4JCircuitBreakerFactory circuitBreakerFactory = new Resilience4JCircuitBreakerFactory(
+                CircuitBreakerRegistry.ofDefaults(), TimeLimiterRegistry.ofDefaults(), null);
+        return new Harness(server, new ExpoPushSender(builder.build(), new ObjectMapper(), circuitBreakerFactory));
     }
 
     private record Harness(MockRestServiceServer server, ExpoPushSender sender) {}

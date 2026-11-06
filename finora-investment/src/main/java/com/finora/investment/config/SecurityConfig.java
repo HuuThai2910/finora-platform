@@ -4,7 +4,6 @@ import com.finora.common.security.DualBearerTokenResolver;
 import com.finora.common.security.KeycloakJwtAuthenticationConverter;
 import com.finora.common.security.ops.OpsFunction;
 import jakarta.servlet.DispatcherType;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,6 +15,8 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.List;
 
 /**
  * Bảo vệ API của Investment Service bằng access token do Keycloak cấp.
@@ -38,8 +39,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final DualBearerTokenResolver bearerTokenResolver;
-    private final KeycloakJwtAuthenticationConverter keycloakRoleConverter;
+    private final DualBearerTokenResolver dualBearerTokenResolver;
+    private final KeycloakJwtAuthenticationConverter keycloakJwtAuthenticationConverter;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -69,6 +70,12 @@ public class SecurityConfig {
                                 "/api/v1/investments/admin/listings/*/activate-notes",
                                 "/api/v1/investments/admin/listings/close-expired")
                                 .hasAnyAuthority(OpsFunction.FUNDING.canAct())
+                        // Trang khách hàng: Note của một nhà đầu tư — nhân viên xem Gọi vốn hoặc Khách hàng đều được.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/investments/admin/investors/*/notes")
+                                .hasAnyAuthority(java.util.stream.Stream.concat(
+                                        java.util.Arrays.stream(OpsFunction.FUNDING.canView()),
+                                        java.util.Arrays.stream(OpsFunction.CUSTOMER.canView()))
+                                        .distinct().toArray(String[]::new))
                         // Cấu hình gọi vốn: đổi tham số ảnh hưởng mọi khoản lên sàn sau đó.
                         .requestMatchers(HttpMethod.GET, "/api/v1/investments/admin/settings")
                                 .hasAnyAuthority(OpsFunction.FUNDING_SETTINGS.canView())
@@ -86,6 +93,10 @@ public class SecurityConfig {
                                 "/api/v1/investments/admin/transfer-documents/*",
                                 "/api/v1/investments/admin/transfer-documents/*/pdf")
                                 .hasAnyAuthority(OpsFunction.SECONDARY_MARKET.canView())
+                        .requestMatchers(HttpMethod.GET, "/api/v1/investments/admin/order-books/trades/*/notes")
+                                .hasAnyAuthority(OpsFunction.SECONDARY_MARKET.canView())
+                        .requestMatchers(HttpMethod.POST, "/api/v1/investments/admin/order-books/trades/*/retry-settlement")
+                                .hasAnyAuthority(OpsFunction.SECONDARY_MARKET.canAct())
                         .requestMatchers(HttpMethod.POST, "/api/v1/investments/admin/transfer-documents/*/retry")
                                 .hasAnyAuthority(OpsFunction.SECONDARY_MARKET.canAct())
                         .requestMatchers(HttpMethod.GET, "/api/v1/investments/admin/statistics/**")
@@ -106,8 +117,8 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2
-                        .jwt(jwt -> jwt.jwtAuthenticationConverter(keycloakRoleConverter))
-                        .bearerTokenResolver(bearerTokenResolver)
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(keycloakJwtAuthenticationConverter))
+                        .bearerTokenResolver(dualBearerTokenResolver)
                 );
 
         return http.build();

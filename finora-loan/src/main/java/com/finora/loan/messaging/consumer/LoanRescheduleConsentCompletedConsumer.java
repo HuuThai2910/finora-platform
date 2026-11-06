@@ -1,44 +1,30 @@
 package com.finora.loan.messaging.consumer;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finora.common.messaging.KafkaEvent;
+import com.finora.common.messaging.KafkaEventContract;
+import com.finora.common.messaging.KafkaEventReader;
 import com.finora.loan.messaging.event.LoanRescheduleConsentCompletedEventData;
 import com.finora.loan.service.restructure.LoanRescheduleConsentResultHandler;
-import java.time.Instant;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.messaging.handler.annotation.Header;
-import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
 @Component
 @ConditionalOnProperty(name = "finora.loan.kafka.consumer-enabled", havingValue = "true")
 @RequiredArgsConstructor
 public class LoanRescheduleConsentCompletedConsumer {
-    private static final String EVENT_TYPE = "LoanRescheduleConsentCompleted";
-    private final ObjectMapper mapper;
-    private final LoanRescheduleConsentResultHandler handler;
+
+    private static final KafkaEventContract CONTRACT = KafkaEventContract.of("LoanRescheduleConsentCompleted", 1);
+
+    private final KafkaEventReader kafkaEventReader;
+    private final LoanRescheduleConsentResultHandler loanRescheduleConsentResultHandler;
 
     @KafkaListener(topics = "${finora.loan.kafka.reschedule-consent-completed-topic}")
-    public void consume(@Payload String payload,
-            @Header(name = "finora-event-id", required = false) String id,
-            @Header(name = "finora-event-type", required = false) String type,
-            @Header(name = "finora-event-version", required = false) String version) {
-        try {
-            KafkaEventEnvelope envelope = mapper.readValue(payload, KafkaEventEnvelope.class);
-            if (envelope == null || envelope.eventId() == null || envelope.data() == null
-                    || envelope.occurredAt() == null || envelope.version() != 1
-                    || (id != null && !UUID.fromString(id).equals(envelope.eventId()))
-                    || (type != null && !EVENT_TYPE.equals(type))
-                    || (version != null && Integer.parseInt(version) != 1)) {
-                throw new IllegalArgumentException("LoanRescheduleConsentCompleted envelope/header không hợp lệ");
-            }
-            handler.handle(envelope.eventId(), Instant.parse(envelope.occurredAt()),
-                    mapper.treeToValue(envelope.data(), LoanRescheduleConsentCompletedEventData.class));
-        } catch (JsonProcessingException exception) {
-            throw new IllegalArgumentException("LoanRescheduleConsentCompleted JSON không hợp lệ", exception);
-        }
+    public void consume(ConsumerRecord<String, String> record) {
+        KafkaEvent<LoanRescheduleConsentCompletedEventData> event =
+                kafkaEventReader.read(record, CONTRACT, LoanRescheduleConsentCompletedEventData.class);
+        loanRescheduleConsentResultHandler.handle(event.eventId(), event.occurredAt(), event.data());
     }
 }

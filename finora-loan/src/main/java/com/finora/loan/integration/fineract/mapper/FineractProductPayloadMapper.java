@@ -2,18 +2,19 @@ package com.finora.loan.integration.fineract.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.finora.loan.config.FineractProperties;
-import com.finora.loan.domain.product.RepaymentMethod;
-import com.finora.loan.integration.fineract.client.FineractIntegrationException;
+import com.finora.loan.domain.product.enums.RepaymentMethod;
+import com.finora.loan.integration.fineract.FineractIntegrationException;
 import com.finora.loan.integration.fineract.contract.FineractProductConfiguration;
 import com.finora.loan.integration.fineract.contract.FineractProductCreationResult;
-import com.finora.loan.support.HashingService;
+import com.finora.loan.util.HashingService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Component;
 
 /** Chỉ ánh xạ contract liên quan đến Loan Product giữa FINORA và Fineract. */
 @Component
@@ -21,8 +22,8 @@ import org.springframework.stereotype.Component;
 public class FineractProductPayloadMapper {
 
     private final HashingService hashingService;
-    private final FineractRepaymentPolicy repaymentPolicy;
-    private final FineractProperties properties;
+    private final FineractRepaymentPolicy fineractRepaymentPolicy;
+    private final FineractProperties fineractProperties;
 
     /** Ánh xạ Product FINORA sang allowlist Fineract 1.15; MVP chưa bật accounting. */
     public Map<String, Object> toCreateProductPayload(FineractProductConfiguration source) {
@@ -45,10 +46,10 @@ public class FineractProductPayloadMapper {
         payload.put("repaymentFrequencyType", 2);
         payload.put("interestRatePerPeriod", source.annualInterestRate());
         payload.put("interestRateFrequencyType", 3);
-        payload.put("amortizationType", repaymentPolicy.amortizationType(source.repaymentMethod()));
-        payload.put("interestType", repaymentPolicy.interestType());
+        payload.put("amortizationType", fineractRepaymentPolicy.amortizationType(source.repaymentMethod()));
+        payload.put("interestType", fineractRepaymentPolicy.interestType());
         payload.put("interestCalculationPeriodType",
-                repaymentPolicy.interestCalculationPeriodType(source.configVersion()));
+                fineractRepaymentPolicy.interestCalculationPeriodType(source.configVersion()));
         payload.put("transactionProcessingStrategyCode",
                 FineractAllocationPolicy.strategy(source.configVersion(), source.repaymentMethod()));
         if (FineractAllocationPolicy.advanced(source.configVersion(), source.repaymentMethod())) {
@@ -123,7 +124,7 @@ public class FineractProductPayloadMapper {
         if (product == null || !product.isObject()) {
             throw contractMismatch("Fineract không trả chi tiết Product hợp lệ khi đối chiếu");
         }
-        int expectedAmortization = repaymentPolicy.amortizationType(repaymentMethod);
+        int expectedAmortization = fineractRepaymentPolicy.amortizationType(repaymentMethod);
         if (product.path("amortizationType").path("id").asInt(-1) != expectedAmortization) {
             throw contractMismatch("Product Fineract tồn tại nhưng cách phân bổ gốc không khớp "
                     + repaymentMethod);
@@ -207,7 +208,7 @@ public class FineractProductPayloadMapper {
     }
 
     private String namespace() {
-        String value = properties == null ? null : properties.productNamespace();
+        String value = fineractProperties == null ? null : fineractProperties.productNamespace();
         return value == null ? "" : value;
     }
 

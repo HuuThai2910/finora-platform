@@ -41,6 +41,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
         </dependency>
+        <!-- Circuit breaker + time limiter cho lời gọi finora-payment và finora-user, cấu hình như finora-loan. -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
+        </dependency>
         <!-- Validation tại biên API: DTO đặt lệnh phải chặn số tiền sai trước khi vào domain. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

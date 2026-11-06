@@ -1,6 +1,6 @@
 package com.finora.loan.controller;
 
-import com.finora.loan.dto.common.PageResponse;
+import com.finora.loan.dto.response.PageResponse;
 import com.finora.loan.dto.restructure.request.CreateLoanRescheduleRequest;
 import com.finora.loan.dto.restructure.response.LoanReschedulePolicyResponse;
 import com.finora.loan.dto.restructure.response.LoanRescheduleResponse;
@@ -11,6 +11,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,27 +20,27 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 @Validated
 public class LoanRescheduleController {
-    private final LoanRescheduleService service;
+    private final LoanRescheduleService loanRescheduleService;
 
     @GetMapping("/reschedule-policy")
-    public LoanReschedulePolicyResponse policy() {
-        return service.policy();
+    public ResponseEntity<LoanReschedulePolicyResponse> policy() {
+        return ResponseEntity.ok(loanRescheduleService.policy());
     }
 
     @PostMapping("/{loanNumber}/reschedule-requests")
-    public LoanRescheduleResponse submit(
+    public ResponseEntity<LoanRescheduleResponse> submit(
             @PathVariable @NotBlank @Size(max = 50) String loanNumber,
             @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 150) String idempotencyKey,
             @Valid @RequestBody CreateLoanRescheduleRequest request) {
-        return service.submit(loanNumber, idempotencyKey, request);
+        return ResponseEntity.ok(loanRescheduleService.submit(loanNumber, idempotencyKey, request));
     }
 
     @GetMapping("/{loanNumber}/reschedule-requests")
-    public PageResponse<LoanRescheduleResponse> listMine(
+    public ResponseEntity<PageResponse<LoanRescheduleResponse>> listMine(
             @PathVariable @NotBlank @Size(max = 50) String loanNumber,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-        return service.listMine(loanNumber, page, size);
+        return ResponseEntity.ok(loanRescheduleService.listMine(loanNumber, page, size));
     }
 }
 

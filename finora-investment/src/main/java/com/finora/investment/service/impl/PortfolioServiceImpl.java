@@ -1,22 +1,26 @@
 package com.finora.investment.service.impl;
 
-import com.finora.common.security.SecurityUtils;
-import com.finora.investment.service.PortfolioService;
-import com.finora.investment.domain.listing.MarketListing;
-import com.finora.investment.domain.note.InvestmentNote;
-import com.finora.common.enums.investment.NoteStatus;
 import com.finora.common.enums.investment.CommitmentStatus;
-import com.finora.investment.domain.order.InvestmentCommitment;
+import com.finora.common.enums.investment.NoteStatus;
+import com.finora.common.security.SecurityUtils;
+import com.finora.investment.domain.listing.entity.MarketListing;
+import com.finora.investment.domain.note.entity.InvestmentLoanServicingState;
+import com.finora.investment.domain.note.entity.InvestmentNote;
+import com.finora.investment.domain.order.entity.InvestmentCommitment;
 import com.finora.investment.dto.response.CommitmentResponse;
 import com.finora.investment.dto.response.PortfolioPositionResponse;
 import com.finora.investment.dto.response.PortfolioResponse;
 import com.finora.investment.mapper.InvestmentMapper;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
+import com.finora.investment.repository.InvestmentLoanServicingStateRepository;
 import com.finora.investment.repository.InvestmentNoteRepository;
 import com.finora.investment.repository.InvestmentOrderRepository;
 import com.finora.investment.repository.MarketListingRepository;
-import com.finora.investment.repository.InvestmentLoanServicingStateRepository;
-import com.finora.investment.domain.note.InvestmentLoanServicingState;
+import com.finora.investment.service.PortfolioService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -27,9 +31,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Tính toán danh mục đầu tư và các khoản đã cam kết của nhà đầu tư.
@@ -40,23 +41,23 @@ public class PortfolioServiceImpl implements PortfolioService {
 
     private static final BigDecimal ZERO_MONEY = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
 
-    private final InvestmentCommitmentRepository commitmentRepository;
-    private final InvestmentNoteRepository noteRepository;
-    private final InvestmentOrderRepository orderRepository;
-    private final MarketListingRepository listingRepository;
-    private final InvestmentLoanServicingStateRepository servicingStateRepository;
-    private final InvestmentMapper mapper;
+    private final InvestmentCommitmentRepository investmentCommitmentRepository;
+    private final InvestmentNoteRepository investmentNoteRepository;
+    private final InvestmentOrderRepository investmentOrderRepository;
+    private final MarketListingRepository marketListingRepository;
+    private final InvestmentLoanServicingStateRepository investmentLoanServicingStateRepository;
+    private final InvestmentMapper investmentMapper;
 
     @Override
     @Transactional(readOnly = true)
     public PortfolioResponse portfolio() {
         String investorId = SecurityUtils.getCurrentUserId();
 
-        List<InvestmentCommitment> commitments = commitmentRepository.findByInvestorIdAndStatusIn(
+        List<InvestmentCommitment> commitments = investmentCommitmentRepository.findByInvestorIdAndStatusIn(
                 investorId, List.of(CommitmentStatus.ACTIVE, CommitmentStatus.FINALIZED));
         // Đọc cả Note đã tất toán/nợ xấu: khoản vay đã thu hết hoặc vỡ nợ vẫn là một phần lịch sử đầu tư; bỏ qua sẽ làm
         // vị thế biến mất và tổng gốc/lãi đã nhận bị giảm ngay sau khi tất toán.
-        List<InvestmentNote> notes = noteRepository.findByInvestorIdAndStatusIn(
+        List<InvestmentNote> notes = investmentNoteRepository.findByInvestorIdAndStatusIn(
                 investorId, List.of(NoteStatus.ACTIVE, NoteStatus.DEFAULTED, NoteStatus.CLOSED));
 
         // Nạp listing của cả danh mục bằng một truy vấn thay vì tra từng khoản một,
@@ -64,7 +65,7 @@ public class PortfolioServiceImpl implements PortfolioService {
         Set<Long> listingIds = new HashSet<>();
         commitments.forEach(c -> listingIds.add(c.getListingId()));
         notes.forEach(n -> listingIds.add(n.getListingId()));
-        Map<Long, MarketListing> listings = listingRepository.findAllById(listingIds).stream()
+        Map<Long, MarketListing> listings = marketListingRepository.findAllById(listingIds).stream()
                 .collect(Collectors.toMap(MarketListing::getId, Function.identity()));
 
         // Vốn đang chờ chỉ tính commitment chưa có Note; sau khi phát hành Note thì phần
@@ -79,7 +80,7 @@ public class PortfolioServiceImpl implements PortfolioService {
 
         Map<Long, List<InvestmentNote>> notesByLoan = notes.stream()
                 .collect(Collectors.groupingBy(InvestmentNote::getLoanId));
-        Map<Long, InvestmentLoanServicingState> servicingByLoan = servicingStateRepository
+        Map<Long, InvestmentLoanServicingState> servicingByLoan = investmentLoanServicingStateRepository
                 .findByLoanApplicationIdIn(new ArrayList<>(notesByLoan.keySet())).stream()
                 .collect(Collectors.toMap(InvestmentLoanServicingState::getLoanApplicationId,
                         Function.identity()));
@@ -179,33 +180,33 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Override
     @Transactional(readOnly = true)
     public List<CommitmentResponse> myCommitments() {
-        List<InvestmentCommitment> commitments = commitmentRepository.findByInvestorIdAndStatusIn(
+        List<InvestmentCommitment> commitments = investmentCommitmentRepository.findByInvestorIdAndStatusIn(
                 SecurityUtils.getCurrentUserId(),
                 List.of(CommitmentStatus.ACTIVE, CommitmentStatus.FINALIZED)
         ).stream()
-                .filter(c -> c.getStatus() != CommitmentStatus.FINALIZED || !noteRepository.existsByCommitmentId(c.getId()))
+                .filter(c -> c.getStatus() != CommitmentStatus.FINALIZED || !investmentNoteRepository.existsByCommitmentId(c.getId()))
                 .toList();
 
         Set<Long> listingIds = commitments.stream()
                 .map(InvestmentCommitment::getListingId)
                 .collect(Collectors.toSet());
-        Map<Long, MarketListing> listings = listingRepository.findAllById(listingIds).stream()
+        Map<Long, MarketListing> listings = marketListingRepository.findAllById(listingIds).stream()
                 .collect(Collectors.toMap(MarketListing::getId, Function.identity()));
-        Map<Long, String> orderReferences = orderRepository.findAllById(
+        Map<Long, String> orderReferences = investmentOrderRepository.findAllById(
                         commitments.stream().map(InvestmentCommitment::getOrderId).toList()).stream()
                 .collect(Collectors.toMap(
-                        com.finora.investment.domain.order.InvestmentOrder::getId,
-                        com.finora.investment.domain.order.InvestmentOrder::getOrderReference));
+                        com.finora.investment.domain.order.entity.InvestmentOrder::getId,
+                        com.finora.investment.domain.order.entity.InvestmentOrder::getOrderReference));
 
         return commitments.stream()
-                .map(c -> {
-                    MarketListing listing = listings.get(c.getListingId());
-                    String orderReference = orderReferences.get(c.getOrderId());
-                    boolean cancelAllowed = c.getStatus() == CommitmentStatus.ACTIVE
+                .map(commitment -> {
+                    MarketListing listing = listings.get(commitment.getListingId());
+                    String orderReference = orderReferences.get(commitment.getOrderId());
+                    boolean cancelAllowed = commitment.getStatus() == CommitmentStatus.ACTIVE
                             && listing != null && listing.getStatus() == com.finora.common.enums.investment.ListingStatus.OPEN
                             && orderReference != null;
-                    return mapper.toCommitmentResponse(
-                            c,
+                    return investmentMapper.toCommitmentResponse(
+                            commitment,
                             listing == null ? null : listing.getLoanId(),
                             orderReference,
                             listing == null ? null : listing.getStatus().name(),

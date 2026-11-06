@@ -1,13 +1,6 @@
 package com.finora.payment.repository.operations;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import com.finora.common.observability.OperationalMetricsProperties;
-import java.time.Duration;
-import java.util.Arrays;
-import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.atomic.AtomicLong;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +11,14 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Câu đếm gauge vận hành của Payment trên schema thật (Flyway, PostgreSQL 17): đếm đúng trạng thái, có trần, và các câu

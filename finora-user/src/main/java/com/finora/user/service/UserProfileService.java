@@ -1,6 +1,7 @@
 package com.finora.user.service;
 
 import com.finora.common.dto.PageResponse;
+import com.finora.user.dto.request.UserSearchCriteria;
 import com.finora.user.dto.response.UserProfileResponse;
 import com.finora.user.dto.response.UserStatsResponse;
 import org.springframework.data.domain.Pageable;
@@ -25,15 +26,11 @@ public interface UserProfileService {
     UserProfileResponse getMyProfile(UUID keycloakUserId, Collection<String> authorities);
 
     /**
-     * Danh sách người dùng, lọc tùy chọn theo vai trò và trạng thái eKYC.
-     * <p>
-     * Lọc ở tầng DB để kết quả trải trên toàn bộ dữ liệu, không giới hạn trong
-     * trang đang tải.
-     *
-     * @param role       tên vai trò, {@code null} hoặc rỗng là không lọc
-     * @param ekycStatus tên trạng thái eKYC, {@code null} hoặc rỗng là không lọc
+     * Danh sách người dùng theo bộ lọc đầy đủ của màn quản trị: vai trò, trạng thái xác minh, vai trò nhân viên và
+     * chuỗi tìm ({@code q}). Chuỗi tìm khớp chuỗi con của họ tên (không phân biệt dấu) hoặc email, hoặc khớp đúng số
+     * điện thoại / số CCCD. Mới tạo trước.
      */
-    PageResponse<UserProfileResponse> getAllUsers(String role, String ekycStatus, Pageable pageable);
+    PageResponse<UserProfileResponse> searchUsers(UserSearchCriteria criteria, Pageable pageable);
 
     /** Thống kê tổng số người dùng theo vai trò và trạng thái eKYC. */
     UserStatsResponse getUserStats();
@@ -48,10 +45,14 @@ public interface UserProfileService {
     /**
      * Khóa tài khoản — kiểm tra admin không tự khóa chính mình.
      *
+     * <p>
+     * Ghi lý do khóa vào hồ sơ, tắt tài khoản trên Keycloak rồi đăng xuất mọi phiên đang mở.
+     *
      * @param userId            ID người dùng bị khóa
+     * @param reason            lý do khóa, bắt buộc
      * @param currentKeycloakId Keycloak ID của admin đang thao tác
      */
-    void lockUser(Long userId, UUID currentKeycloakId);
+    void lockUser(Long userId, String reason, UUID currentKeycloakId);
 
     void unlockUser(Long userId);
 

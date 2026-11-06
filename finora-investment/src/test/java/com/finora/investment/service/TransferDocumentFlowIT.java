@@ -1,13 +1,11 @@
 package com.finora.investment.service;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.common.document.pades.PadesSignatureVerifier;
-import com.finora.investment.domain.orderbook.OrderSide;
-import com.finora.investment.domain.transferdocument.NoteTransferDocument;
-import com.finora.investment.domain.transferdocument.NoteTransferDocumentStatus;
+import com.finora.investment.domain.orderbook.enums.OrderSide;
+import com.finora.investment.domain.transferdocument.entity.NoteTransferDocument;
+import com.finora.investment.domain.transferdocument.enums.NoteTransferDocumentStatus;
 import com.finora.investment.dto.request.CreateListingRequest;
 import com.finora.investment.dto.request.PlaceBookOrderRequest;
 import com.finora.investment.dto.request.PlaceOrderRequest;
@@ -19,12 +17,6 @@ import com.finora.investment.service.orderbook.OrderBookQueryService;
 import com.finora.investment.service.orderbook.OrderBookSettlementService;
 import com.finora.investment.service.transferdocument.TransferDocumentAdminService;
 import com.finora.investment.service.transferdocument.TransferDocumentIssuer;
-import java.math.BigDecimal;
-import java.security.MessageDigest;
-import java.util.HexFormat;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -41,6 +33,15 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
+import java.math.BigDecimal;
+import java.security.MessageDigest;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Luồng thật trên PostgreSQL: gọi vốn → phát hành Note → khớp lệnh trên sổ → thanh toán → giấy xác nhận chuyển

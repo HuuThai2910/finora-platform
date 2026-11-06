@@ -1,8 +1,9 @@
 package com.finora.notification.dto.response;
 
-import com.finora.notification.domain.NotificationCategory;
-import com.finora.notification.domain.PushDelivery;
-import com.finora.notification.domain.PushDeliveryStatus;
+import com.finora.notification.domain.entity.PushDelivery;
+import com.finora.notification.domain.enums.NotificationCategory;
+import com.finora.notification.domain.enums.PushDeliveryStatus;
+
 import java.time.Instant;
 import java.util.UUID;
 

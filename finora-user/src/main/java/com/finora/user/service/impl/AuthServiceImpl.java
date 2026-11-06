@@ -1,10 +1,12 @@
 package com.finora.user.service.impl;
 
-import com.finora.common.exception.BusinessException;
-import com.finora.user.config.CryptoProperties;
-import com.finora.user.domain.PendingRegistration;
-import com.finora.user.domain.UserProfile;
 import com.finora.common.enums.user.UserRole;
+import com.finora.common.exception.BusinessException;
+import com.finora.common.util.CryptoUtils;
+import com.finora.common.util.PiiMasker;
+import com.finora.user.config.CryptoProperties;
+import com.finora.user.domain.entity.UserProfile;
+import com.finora.user.domain.model.PendingRegistration;
 import com.finora.user.dto.request.LoginRequest;
 import com.finora.user.dto.request.RegisterRequest;
 import com.finora.user.dto.request.ResetPasswordRequest;
@@ -17,8 +19,6 @@ import com.finora.user.service.KeycloakAdminService;
 import com.finora.user.service.NotificationService;
 import com.finora.user.service.PendingRegistrationStore;
 import com.finora.user.service.RateLimitService;
-import com.finora.user.support.CryptoUtils;
-import com.finora.user.support.PiiMasker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.keycloak.representations.AccessTokenResponse;
@@ -34,7 +34,7 @@ import java.util.UUID;
  * Triển khai dịch vụ xác thực — đăng ký, đăng nhập, làm mới token, quên/đặt lại mật khẩu.
  * <p>
  * Phối hợp giữa Keycloak (quản lý credential), PostgreSQL (hồ sơ người dùng),
- * Redis (rate limit, OTP, đăng ký tạm) và finora-notification (email).
+ * kho tạm trong PostgreSQL (rate limit, OTP, đăng ký tạm) và finora-notification (email).
  */
 @Service
 @Slf4j
@@ -66,7 +66,7 @@ public class AuthServiceImpl implements AuthService {
 
     /**
      * Chưa tạo tài khoản ở bước này. Thông tin đăng ký (kể cả mật khẩu, đã mã hoá)
-     * nằm trong Redis với TTL ngắn, nên người dùng bỏ dở giữa chừng sẽ không để lại
+     * nằm trong kho tạm với TTL ngắn, nên người dùng bỏ dở giữa chừng sẽ không để lại
      * tài khoản rác trên Keycloak hay hồ sơ mồ côi trong DB.
      */
     @Override
@@ -153,7 +153,7 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(HttpStatus.CONFLICT, MSG_PHONE_TAKEN);
         }
 
-        // Kiểm lại vai trò: phiên đăng ký tạo trước bản vá vẫn có thể còn trong Redis
+        // Kiểm lại vai trò: phiên đăng ký tạo trước bản vá vẫn có thể còn trong kho tạm
         selfRegistrationRole(pending.role());
 
         // Tạo user trên Keycloak trước — nếu thất bại thì không có orphan trong DB
@@ -335,7 +335,7 @@ public class AuthServiceImpl implements AuthService {
 
         String otp = generateOtp();
 
-        // Lưu OTP vào Redis với TTL
+        // Lưu OTP vào kho tạm với TTL
         rateLimitService.storeOtp(profile.getId(), otp);
 
         // Gửi email chứa mã OTP qua notification service (best-effort)
@@ -349,7 +349,7 @@ public class AuthServiceImpl implements AuthService {
     /**
      * Trả cùng thông báo lỗi cho "email không tồn tại" và "mã sai" để không lộ
      * email nào đã đăng ký — nhất quán với {@link #forgotPassword} và
-     * {@link #resetPassword}. Mã khớp thì vẫn giữ lại trong Redis cho bước chốt,
+     * {@link #resetPassword}. Mã khớp thì vẫn giữ lại trong kho tạm cho bước chốt,
      * nhưng mỗi lần kiểm tra đều tính một lần thử chống dò mã.
      */
     @Override

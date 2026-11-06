@@ -18,15 +18,15 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class InvestmentOutboxRelayWorkerImpl implements InvestmentOutboxRelayWorker {
 
-    private final InvestmentOutboxStateService stateService;
-    private final InvestmentOutboxRelayService relayService;
+    private final InvestmentOutboxStateService investmentOutboxStateService;
+    private final InvestmentOutboxRelayService investmentOutboxRelayService;
 
     @Override
     @Scheduled(fixedDelayString = "${finora.investment.outbox.publisher-delay:5000}")
     public void publishDueEvents() {
-        for (Long eventId : stateService.dueIds()) {
+        for (Long eventId : investmentOutboxStateService.dueIds()) {
             try {
-                relayService.publish(eventId);
+                investmentOutboxRelayService.publish(eventId);
             } catch (RuntimeException failure) {
                 log.error("Investment outbox chưa xử lý được: databaseId={}, exceptionType={}",
                         eventId, failure.getClass().getName());

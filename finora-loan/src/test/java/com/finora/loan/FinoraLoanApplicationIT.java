@@ -1,35 +1,34 @@
 package com.finora.loan;
 
-import com.finora.common.security.pin.PinScope;
-import com.finora.common.security.pin.PinTokenService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finora.common.security.pin.PinScope;
+import com.finora.common.security.pin.PinTokenService;
 import com.finora.loan.config.AiCreditProperties;
-import com.finora.loan.domain.scoring.AiRecommendation;
-import com.finora.loan.domain.scoring.BorrowerKycStatus;
-import com.finora.loan.domain.scoring.BorrowerProfileSource;
-import com.finora.loan.domain.scoring.IncomeVerificationStatus;
-import com.finora.loan.integration.ai.contract.AiCreditScoreResponse;
-import com.finora.loan.integration.ai.contract.AiCreditScoreRequest;
+import com.finora.loan.domain.scoring.enums.AiRecommendation;
+import com.finora.loan.domain.scoring.enums.BorrowerKycStatus;
+import com.finora.loan.domain.scoring.enums.BorrowerProfileSource;
+import com.finora.loan.domain.scoring.enums.IncomeVerificationStatus;
 import com.finora.loan.integration.ai.client.AiCreditScoringGateway;
 import com.finora.loan.integration.ai.client.AiCreditScoringHttpClient;
+import com.finora.loan.integration.ai.contract.AiCreditScoreRequest;
+import com.finora.loan.integration.ai.contract.AiCreditScoreResponse;
 import com.finora.loan.integration.fineract.client.FineractLoanProductGateway;
-import com.finora.loan.integration.fineract.contract.FineractProductCreationResult;
 import com.finora.loan.integration.fineract.client.FineractScheduleGateway;
+import com.finora.loan.integration.fineract.contract.FineractProductCreationResult;
 import com.finora.loan.integration.fineract.contract.ScheduleCalculationRequest;
 import com.finora.loan.integration.fineract.contract.ScheduleCalculationResult;
 import com.finora.loan.integration.fineract.contract.SchedulePeriod;
-import com.finora.loan.integration.profile.provider.BorrowerProfileProvider;
-import com.finora.loan.integration.profile.provider.BorrowerProfileUnavailableException;
+import com.finora.loan.integration.profile.BorrowerProfileUnavailableException;
+import com.finora.loan.integration.profile.client.BorrowerProfileProvider;
 import com.finora.loan.integration.profile.contract.BorrowerProfileResult;
 import com.finora.loan.messaging.event.FundingAllocationEventData;
 import com.finora.loan.messaging.event.LoanFullyFundedEventData;
-import com.finora.loan.service.scoring.CreditScoringOrchestrator;
 import com.finora.loan.service.application.LoanTermsConfirmationExpiryStateService;
 import com.finora.loan.service.funding.LoanFullyFundedHandler;
-import com.finora.loan.support.HashingService;
+import com.finora.loan.service.scoring.CreditScoringOrchestrator;
+import com.finora.loan.util.HashingService;
 import jakarta.persistence.EntityManagerFactory;
-import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
 import org.flywaydb.core.Flyway;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
@@ -43,6 +42,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
@@ -51,6 +51,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -117,7 +118,7 @@ class FinoraLoanApplicationIT {
     @MockBean BorrowerProfileProvider borrowerProfileProvider;
     @MockBean AiCreditScoringGateway aiCreditScoringGateway;
     /** Mặc định là MockSignatureProvider thật; chỉ test ký bất đồng bộ mới stub để giả lập SmartCA. */
-    @SpyBean com.finora.loan.integration.signature.SignatureProvider signatureProvider;
+    @SpyBean com.finora.loan.integration.signature.client.SignatureProvider signatureProvider;
     @Autowired com.finora.loan.service.contract.ContractPdfSignatureWorker pdfSignatureWorker;
 
     private final AtomicLong fineractIds = new AtomicLong(1000);
@@ -882,41 +883,41 @@ class FinoraLoanApplicationIT {
         java.util.Map<String, String> statusByTransaction = new java.util.concurrent.ConcurrentHashMap<>();
         java.util.Map<String, byte[]> signatureByTransaction = new java.util.concurrent.ConcurrentHashMap<>();
         org.mockito.Mockito.doReturn(false).when(signatureProvider).completesSynchronously();
-        org.mockito.Mockito.doReturn(com.finora.loan.domain.contract.SignatureProviderType.VNPT_SMART_CA)
+        org.mockito.Mockito.doReturn(com.finora.loan.domain.contract.enums.SignatureProviderType.VNPT_SMART_CA)
                 .when(signatureProvider).type();
-        org.mockito.Mockito.doReturn(com.finora.loan.domain.contract.SignatureMethod.VNPT_SMART_CA)
+        org.mockito.Mockito.doReturn(com.finora.loan.domain.contract.enums.SignatureMethod.VNPT_SMART_CA)
                 .when(signatureProvider).method();
-        org.mockito.Mockito.doReturn(new com.finora.loan.integration.signature.SigningCertificate(
+        org.mockito.Mockito.doReturn(new com.finora.loan.integration.signature.contract.SigningCertificate(
                         smartCa.certificate(), List.of()))
                 .when(signatureProvider).signingCertificate(anyString());
         org.mockito.Mockito.doAnswer(invocation -> {
-            com.finora.loan.integration.signature.DigestSignatureCommand command = invocation.getArgument(0);
+            com.finora.loan.integration.signature.contract.DigestSignatureCommand command = invocation.getArgument(0);
             signatureByTransaction.put(command.providerTransactionId(),
                     smartCa.signDigest(java.util.HexFormat.of().parseHex(command.digestHex())));
             statusByTransaction.putIfAbsent(command.providerTransactionId(), "PENDING");
-            return com.finora.loan.integration.signature.SignatureSubmission.pending(
+            return com.finora.loan.integration.signature.contract.SignatureSubmission.pending(
                     command.providerTransactionId(), command.documentId(), "sig_wait_for_user_confirm");
         }).when(signatureProvider).submitDigest(any());
         org.mockito.Mockito.doAnswer(invocation -> {
             String transactionId = invocation.getArgument(0);
             String documentId = invocation.getArgument(1);
             String mode = statusByTransaction.getOrDefault(transactionId, "NOT_FOUND");
-            var completedStatus = com.finora.loan.integration.signature.SignatureSubmissionStatus.COMPLETED;
+            var completedStatus = com.finora.loan.integration.signature.contract.SignatureSubmissionStatus.COMPLETED;
             return switch (mode) {
-                case "COMPLETED" -> new com.finora.loan.integration.signature.SignatureSubmission(
+                case "COMPLETED" -> new com.finora.loan.integration.signature.contract.SignatureSubmission(
                         completedStatus, transactionId, documentId,
                         java.util.Base64.getEncoder().encodeToString(signatureByTransaction.get(transactionId)),
                         null, "SUCCESS");
-                case "INVALID" -> new com.finora.loan.integration.signature.SignatureSubmission(
+                case "INVALID" -> new com.finora.loan.integration.signature.contract.SignatureSubmission(
                         completedStatus, transactionId, documentId,
                         java.util.Base64.getEncoder().encodeToString(new byte[256]), null, "SUCCESS");
-                case "REJECTED" -> new com.finora.loan.integration.signature.SignatureSubmission(
-                        com.finora.loan.integration.signature.SignatureSubmissionStatus.REJECTED,
+                case "REJECTED" -> new com.finora.loan.integration.signature.contract.SignatureSubmission(
+                        com.finora.loan.integration.signature.contract.SignatureSubmissionStatus.REJECTED,
                         transactionId, documentId, null, null, "sig_user_rejected");
-                case "PENDING" -> com.finora.loan.integration.signature.SignatureSubmission.pending(
+                case "PENDING" -> com.finora.loan.integration.signature.contract.SignatureSubmission.pending(
                         transactionId, documentId, "sig_wait_for_user_confirm");
-                default -> new com.finora.loan.integration.signature.SignatureSubmission(
-                        com.finora.loan.integration.signature.SignatureSubmissionStatus.NOT_FOUND,
+                default -> new com.finora.loan.integration.signature.contract.SignatureSubmission(
+                        com.finora.loan.integration.signature.contract.SignatureSubmissionStatus.NOT_FOUND,
                         transactionId, documentId, null, null, "NOT_FOUND");
             };
         }).when(signatureProvider).status(anyString(), anyString());

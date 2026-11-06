@@ -1,0 +1,179 @@
+package com.finora.investment.domain.listing.entity;
+
+import com.finora.common.enums.investment.ListingStatus;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.Version;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.UUID;
+
+/**
+ * Entity lưu thông tin khoản vay niêm yết trên sàn gọi vốn P2P.
+ */
+@Entity
+@Table(name = "market_listings")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class MarketListing {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "loan_id", nullable = false, updatable = false)
+    private Long loanId;
+
+    @Column(name = "contract_number", length = 50)
+    private String contractNumber;
+
+    @Column(name = "contract_status", length = 40)
+    private String contractStatus;
+
+    @Column(name = "contract_document_hash", length = 64)
+    private String contractDocumentHash;
+
+    @Column(name = "contract_receipt_hash", length = 64)
+    private String contractReceiptHash;
+
+    @Column(name = "contract_activated_at")
+    private Instant contractActivatedAt;
+
+    @Column(name = "disbursement_saga_id")
+    private UUID disbursementSagaId;
+
+    @Column(name = "payment_reference", length = 100)
+    private String paymentReference;
+
+    @Column(name = "fineract_loan_id")
+    private Long fineractLoanId;
+
+    @Column(name = "disbursed_at")
+    private Instant disbursedAt;
+
+    /** Thời điểm nhận LoanFundingCancelled: đã đủ vốn nhưng khoản vay sẽ không được giải ngân. */
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+
+    /** {@code CONTRACT_DECLINED}, {@code CONTRACT_EXPIRED} hoặc {@code DISBURSEMENT_FAILED} do Loan quyết định. */
+    @Column(name = "cancellation_reason", length = 40)
+    private String cancellationReason;
+
+    @Column(name = "application_number", nullable = false, length = 30, updatable = false)
+    private String applicationNumber;
+
+    /** ID logic người vay, chỉ dùng nội bộ để chặn tự cấp vốn; không trả ra API sàn. */
+    @Column(name = "borrower_id", length = 100, updatable = false)
+    private String borrowerId;
+
+    @Column(name = "listing_version", nullable = false, updatable = false)
+    private Integer listingVersion;
+
+    @Column(name = "terms_version", nullable = false, length = 50, updatable = false)
+    private String termsVersion;
+
+    @Column(name = "terms_hash", nullable = false, length = 64, updatable = false)
+    private String termsHash;
+
+    @Column(name = "product_code", nullable = false, length = 50, updatable = false)
+    private String productCode;
+
+    /** Nhãn mục đích + chi tiết người vay tự nhập do Loan gửi; tối đa 600 ký tự theo V15. */
+    @Column(nullable = false, length = 600, updatable = false)
+    private String purpose;
+
+    @Column(nullable = false, length = 100, updatable = false)
+    private String region;
+
+    @Column(name = "credit_grade", nullable = false, length = 5, updatable = false)
+    private String creditGrade;
+
+    @Column(name = "credit_score", updatable = false)
+    private Integer creditScore;
+
+    @Column(name = "target_amount", nullable = false, precision = 18, scale = 2, updatable = false)
+    private BigDecimal targetAmount;
+
+    @Column(name = "committed_amount", nullable = false, precision = 18, scale = 2)
+    private BigDecimal committedAmount;
+
+    @Column(name = "annual_interest_rate", nullable = false, precision = 7, scale = 4, updatable = false)
+    private BigDecimal annualInterestRate;
+
+    @JdbcTypeCode(SqlTypes.SMALLINT)
+    @Column(name = "term_months", nullable = false, updatable = false)
+    private Integer termMonths;
+
+    @Column(name = "repayment_method", nullable = false, length = 30, updatable = false)
+    private String repaymentMethod;
+
+    @Column(name = "note_denomination", nullable = false, precision = 18, scale = 2, updatable = false)
+    private BigDecimal noteDenomination;
+
+    @Column(name = "min_investment_amount", nullable = false, precision = 18, scale = 2, updatable = false)
+    private BigDecimal minInvestmentAmount;
+
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(nullable = false, length = 30)
+    private ListingStatus status;
+
+    @Column(name = "funding_round", nullable = false)
+    private Integer fundingRound;
+
+    @Column(name = "funding_opened_at", nullable = false, updatable = false)
+    private Instant fundingOpenedAt;
+
+    @Column(name = "funding_closes_at", nullable = false, updatable = false)
+    private Instant fundingClosesAt;
+
+    @Column(name = "fully_funded_at")
+    private Instant fullyFundedAt;
+
+    @Column(name = "allocation_version")
+    private Long allocationVersion;
+
+    @Column(name = "allocation_hash", length = 64)
+    private String allocationHash;
+
+    /**
+     * Lúc worker Auto-Invest xét xong listing này. Chỉ ghi bằng câu UPDATE riêng
+     * ({@code MarketListingRepository.markAutoInvestProcessed}) để không đụng {@code @Version}
+     * trong lúc nhà đầu tư khác đang đặt lệnh.
+     */
+    @Column(name = "auto_invest_processed_at", insertable = false, updatable = false)
+    private Instant autoInvestProcessedAt;
+
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
+    @Column(name = "created_by", nullable = false, length = 100, updatable = false)
+    private String createdBy;
+
+    @Column(name = "updated_by", nullable = false, length = 100)
+    private String updatedBy;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
+
+    @Column(name = "updated_at", nullable = false)
+    private Instant updatedAt;
+}

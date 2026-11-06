@@ -3,31 +3,31 @@ package com.finora.loan.service.application.impl;
 import com.finora.common.exception.ResourceNotFoundException;
 import com.finora.common.security.SecurityUtils;
 import com.finora.loan.config.LoanPricingDisclosureProperties;
-import com.finora.loan.domain.application.ActorType;
-import com.finora.loan.domain.application.BorrowerKycSnapshot;
-import com.finora.loan.domain.application.LoanApplication;
-import com.finora.loan.domain.application.LoanApplicationStatus;
-import com.finora.loan.domain.application.LoanApplicationStatusHistory;
-import com.finora.loan.domain.application.LoanPurpose;
-import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
-import com.finora.loan.domain.product.RepaymentMethod;
-import com.finora.loan.domain.scoring.BorrowerKycStatus;
-import com.finora.loan.dto.application.request.CreateLoanApplicationRequest;
-import com.finora.loan.dto.application.request.WithdrawLoanApplicationRequest;
+import com.finora.loan.domain.application.entity.BorrowerKycSnapshot;
+import com.finora.loan.domain.application.entity.LoanApplication;
+import com.finora.loan.domain.application.entity.LoanApplicationStatusHistory;
+import com.finora.loan.domain.application.enums.ActorType;
+import com.finora.loan.domain.application.enums.LoanApplicationStatus;
+import com.finora.loan.domain.application.enums.LoanPurpose;
+import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
+import com.finora.loan.domain.product.enums.RepaymentMethod;
+import com.finora.loan.domain.scoring.enums.BorrowerKycStatus;
 import com.finora.loan.dto.application.request.ConfirmLoanTermsRequest;
+import com.finora.loan.dto.application.request.CreateLoanApplicationRequest;
 import com.finora.loan.dto.application.request.DeclineLoanTermsRequest;
+import com.finora.loan.dto.application.request.WithdrawLoanApplicationRequest;
 import com.finora.loan.dto.application.response.LoanApplicationHistoryResponse;
 import com.finora.loan.dto.application.response.LoanApplicationResponse;
 import com.finora.loan.dto.application.response.LoanPurposeResponse;
-import com.finora.loan.dto.common.PageResponse;
+import com.finora.loan.dto.response.PageResponse;
 import com.finora.loan.exception.LoanBusinessException;
-import com.finora.loan.integration.fineract.client.FineractIntegrationException;
+import com.finora.loan.integration.fineract.FineractIntegrationException;
 import com.finora.loan.integration.fineract.client.FineractScheduleGateway;
 import com.finora.loan.integration.fineract.contract.ScheduleCalculationRequest;
 import com.finora.loan.integration.fineract.contract.ScheduleCalculationResult;
+import com.finora.loan.integration.profile.BorrowerProfileUnavailableException;
+import com.finora.loan.integration.profile.client.BorrowerProfileProvider;
 import com.finora.loan.integration.profile.contract.BorrowerProfileResult;
-import com.finora.loan.integration.profile.provider.BorrowerProfileProvider;
-import com.finora.loan.integration.profile.provider.BorrowerProfileUnavailableException;
 import com.finora.loan.mapper.application.LoanApplicationMapper;
 import com.finora.loan.repository.application.LoanApplicationRepository;
 import com.finora.loan.repository.application.LoanApplicationStatusHistoryRepository;
@@ -38,15 +38,9 @@ import com.finora.loan.service.application.LoanApplicationService;
 import com.finora.loan.service.application.LoanApplicationSubmissionStateService;
 import com.finora.loan.service.application.LoanTermsConfirmationService;
 import com.finora.loan.service.funding.LoanFundingCancellationService;
-import com.finora.loan.support.HashingService;
-import java.time.Clock;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.util.Arrays;
-import java.util.List;
-import java.util.UUID;
-import lombok.extern.slf4j.Slf4j;
+import com.finora.loan.util.HashingService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -54,30 +48,36 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.Arrays;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * Nghiệp vụ nộp và theo dõi hồ sơ vay của borrower.
+ *
+ * <p>Lời gọi Fineract và User nằm ngoài transaction; bước ghi hồ sơ do {@link LoanApplicationSubmissionStateService}
+ * thực hiện trong transaction riêng.</p>
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class LoanApplicationServiceImpl implements LoanApplicationService {
 
-    private final LoanApplicationRepository applicationRepository;
-    private final LoanApplicationStatusHistoryRepository historyRepository;
-    private final LoanApplicationSubmissionStateService submissionState;
-    private final FineractScheduleGateway scheduleGateway;
-    private final LoanApplicationMapper mapper;
-    private final LoanTermsConfirmationService termsConfirmationService;
+    private final LoanApplicationRepository loanApplicationRepository;
+    private final LoanApplicationStatusHistoryRepository loanApplicationStatusHistoryRepository;
+    private final LoanApplicationSubmissionStateService loanApplicationSubmissionStateService;
+    private final FineractScheduleGateway fineractScheduleGateway;
+    private final LoanApplicationMapper loanApplicationMapper;
+    private final LoanTermsConfirmationService loanTermsConfirmationService;
     private final HashingService hashingService;
-    private final LoanPricingDisclosureProperties disclosureProperties;
-    private final BorrowerProfileProvider profileProvider;
-    private final LoanFundingCancellationService fundingCancellationService;
+    private final LoanPricingDisclosureProperties loanPricingDisclosureProperties;
+    private final BorrowerProfileProvider borrowerProfileProvider;
+    private final LoanFundingCancellationService loanFundingCancellationService;
     private final Clock clock;
 
-    /**
-     * Tạo thẳng hồ sơ SUBMITTED và lưu lịch trả Fineract làm bằng chứng tính toán.
-     *
-     * <p>Cuộc gọi mạng được thực hiện ngoài transaction database. Sau khi nhận kết quả,
-     * service khóa lại Product và tái kiểm tra version/mapping trước khi ghi nguyên tử
-     * Application, calculation snapshot và status history.</p>
-     */
     @Override
     public LoanApplicationResponse submit(CreateLoanApplicationRequest request, String idempotencyKey) {
         String borrowerId = SecurityUtils.getCurrentUserId();
@@ -86,7 +86,8 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
         String requestHash = hashingService.sha256(request);
 
         // Kiểm tra idempotency trước khi gọi Fineract để request lặp không tính lịch và tạo hồ sơ lần hai.
-        LoanApplication existing = submissionState.findExisting(borrowerId, normalizedKey).orElse(null);
+        LoanApplication existing = loanApplicationSubmissionStateService.findExisting(borrowerId, normalizedKey)
+                .orElse(null);
         if (existing != null) {
             return existingResponse(existing, requestHash);
         }
@@ -95,12 +96,12 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
         BorrowerKycSnapshot kycSnapshot = requireVerifiedBorrower(borrowerId);
 
         // Chụp Product/mapping trước khi ra mạng; bước persist sẽ khóa và kiểm tra lại để chống Product đổi giữa chừng.
-        ApplicationSubmissionContext context = submissionState.prepareContext(request);
+        ApplicationSubmissionContext context = loanApplicationSubmissionStateService.prepareContext(request);
         String scheduleRequestId = UUID.randomUUID().toString();
         ScheduleCalculationResult schedule;
         try {
             // Không mở transaction database trong lúc chờ Fineract để tránh giữ connection/lock lâu.
-            schedule = scheduleGateway.calculateSchedule(new ScheduleCalculationRequest(
+            schedule = fineractScheduleGateway.calculateSchedule(new ScheduleCalculationRequest(
                     context.productId(),
                     context.fineractProductId(),
                     request.requestedAmount(),
@@ -122,12 +123,12 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
 
         try {
             // Một transaction mới ghi Application + financial/Product/schedule snapshot + history nguyên tử.
-            ApplicationPersistResult result = submissionState.persist(
+            ApplicationPersistResult result = loanApplicationSubmissionStateService.persist(
                     borrowerId,
                     normalizedKey,
                     requestHash,
                     scheduleRequestId,
-                    disclosureProperties.pricingDisclosureVersion(),
+                    loanPricingDisclosureProperties.pricingDisclosureVersion(),
                     request,
                     context,
                     schedule,
@@ -135,10 +136,10 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
             );
             log.info("Đã nộp hồ sơ vay: applicationNumber={}, productId={}, borrowerId={}",
                     result.application().getApplicationNumber(), request.loanProductId(), borrowerId);
-            return mapper.toResponse(result.application(), result.calculationSnapshot());
+            return loanApplicationMapper.toResponse(result.application(), result.calculationSnapshot());
         } catch (DataIntegrityViolationException exception) {
             // Hai request cùng key có thể cùng vượt qua lần kiểm tra đầu; unique key là chốt chặn cuối.
-            LoanApplication raced = submissionState.findExisting(borrowerId, normalizedKey)
+            LoanApplication raced = loanApplicationSubmissionStateService.findExisting(borrowerId, normalizedKey)
                     .orElseThrow(() -> exception);
             return existingResponse(raced, requestHash);
         }
@@ -151,7 +152,7 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
     private BorrowerKycSnapshot requireVerifiedBorrower(String borrowerId) {
         BorrowerProfileResult profile;
         try {
-            profile = profileProvider.getBorrowerProfile(borrowerId, LocalDate.now(clock));
+            profile = borrowerProfileProvider.getBorrowerProfile(borrowerId, LocalDate.now(clock));
         } catch (BorrowerProfileUnavailableException exception) {
             log.warn("Chưa đọc được eKYC khi nộp hồ sơ: borrowerId={}, reason={}", borrowerId, exception.getReason());
             throw LoanBusinessException.serviceUnavailable(
@@ -168,10 +169,6 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
         return BorrowerKycSnapshots.from(profile);
     }
 
-    /**
-     * Trước quyết định: đóng hồ sơ bằng WITHDRAWN. Sau duyệt nhưng listing còn mở: giữ quyết định APPROVED
-     * làm audit, đóng trục funding và phát event để Investment hủy commitment/nhả hold.
-     */
     @Override
     @Transactional
     public LoanApplicationResponse withdraw(String applicationNumber, WithdrawLoanApplicationRequest request) {
@@ -180,24 +177,24 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
         String userId = SecurityUtils.getCurrentUserId();
         LoanApplicationStatus previousStatus = application.getStatus();
         boolean openFunding = previousStatus == LoanApplicationStatus.APPROVED
-                && application.getFundingStatus() == com.finora.loan.domain.application.LoanFundingStatus.REQUESTED;
+                && application.getFundingStatus() == com.finora.loan.domain.application.enums.LoanFundingStatus.REQUESTED;
         if (openFunding) {
             application.validateRequestedFundingWithdrawal(request.version(), userId);
-            fundingCancellationService.cancel(
+            loanFundingCancellationService.cancel(
                     application.getId(), null, LoanFundingCancellationService.BORROWER_WITHDREW, now);
         } else {
             application.withdraw(request.version(), request.reason(), userId, now);
-            applicationRepository.saveAndFlush(application);
+            loanApplicationRepository.saveAndFlush(application);
         }
-        historyRepository.save(LoanApplicationStatusHistory.create(
+        loanApplicationStatusHistoryRepository.save(LoanApplicationStatusHistory.create(
                 application.getId(), previousStatus, application.getStatus(),
                 openFunding ? "FUNDING_WITHDRAWN_BY_BORROWER" : "APPLICATION_WITHDRAWN",
                 request.reason(), ActorType.BORROWER,
                 userId, now));
-        return mapper.toResponse(
+        return loanApplicationMapper.toResponse(
                 application,
-                submissionState.getCalculation(application.getId()),
-                submissionState.getFinalCalculation(application.getId())
+                loanApplicationSubmissionStateService.getCalculation(application.getId()),
+                loanApplicationSubmissionStateService.getFinalCalculation(application.getId())
         );
     }
 
@@ -208,11 +205,11 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
             String idempotencyKey
     ) {
         try {
-            return termsConfirmationService.accept(applicationNumber, idempotencyKey, request);
+            return loanTermsConfirmationService.accept(applicationNumber, idempotencyKey, request);
         } catch (DataIntegrityViolationException race) {
             // Unique idempotency key là chốt chặn cross-application; lần gọi mới trả
             // kết quả đã commit hoặc lỗi IDEMPOTENCY_KEY_REUSED có nghĩa.
-            return termsConfirmationService.accept(applicationNumber, idempotencyKey, request);
+            return loanTermsConfirmationService.accept(applicationNumber, idempotencyKey, request);
         }
     }
 
@@ -223,55 +220,48 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
             String idempotencyKey
     ) {
         try {
-            return termsConfirmationService.decline(applicationNumber, idempotencyKey, request);
+            return loanTermsConfirmationService.decline(applicationNumber, idempotencyKey, request);
         } catch (DataIntegrityViolationException race) {
-            return termsConfirmationService.decline(applicationNumber, idempotencyKey, request);
+            return loanTermsConfirmationService.decline(applicationNumber, idempotencyKey, request);
         }
     }
 
     @Override
     @Transactional(readOnly = true)
-    /** Đọc chi tiết sau khi domain xác nhận borrower hiện tại sở hữu hồ sơ. */
     public LoanApplicationResponse getMine(String applicationNumber) {
         LoanApplication application = getApplication(applicationNumber);
         application.requireOwner(SecurityUtils.getCurrentUserId());
-        return mapper.toResponse(
+        return loanApplicationMapper.toResponse(
                 application,
-                submissionState.getCalculation(application.getId()),
-                submissionState.getFinalCalculation(application.getId())
+                loanApplicationSubmissionStateService.getCalculation(application.getId()),
+                loanApplicationSubmissionStateService.getFinalCalculation(application.getId())
         );
     }
 
-    /**
-     * Danh sách không tải calculation snapshot cho từng dòng, nhờ đó không phát sinh N+1.
-     * Chi tiết lịch tính được trả ở endpoint chi tiết một hồ sơ.
-     */
     @Override
     @Transactional(readOnly = true)
     public PageResponse<LoanApplicationResponse> listMine(int page, int size) {
-        Page<LoanApplicationResponse> result = applicationRepository.findByBorrowerId(
+        Page<LoanApplicationResponse> result = loanApplicationRepository.findByBorrowerId(
                         SecurityUtils.getCurrentUserId(),
                         PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))))
-                .map(application -> mapper.toResponse(application, null));
+                .map(application -> loanApplicationMapper.toResponse(application, null));
         return PageResponse.from(result);
     }
 
     @Override
     @Transactional(readOnly = true)
-    /** Timeline luôn phân trang và kiểm tra ownership trước query để không lộ lịch sử người khác. */
     public PageResponse<LoanApplicationHistoryResponse> history(String applicationNumber, int page, int size) {
         LoanApplication application = getApplication(applicationNumber);
         application.requireOwner(SecurityUtils.getCurrentUserId());
-        Page<LoanApplicationHistoryResponse> result = historyRepository.findByLoanApplicationId(
+        Page<LoanApplicationHistoryResponse> result = loanApplicationStatusHistoryRepository.findByLoanApplicationId(
                         application.getId(),
                         PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))))
-                .map(mapper::toHistoryResponse);
+                .map(loanApplicationMapper::toHistoryResponse);
         return PageResponse.from(result);
     }
 
     @Override
     @Transactional(readOnly = true)
-    /** Trả allowlist dùng chung cho UI và AI mapper, tránh client tự tạo purposeCode không hợp lệ. */
     public List<LoanPurposeResponse> purposes() {
         return Arrays.stream(LoanPurpose.values())
                 .map(purpose -> new LoanPurposeResponse(
@@ -287,10 +277,10 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
                     "Idempotency-Key đã được dùng cho nội dung hồ sơ khác"
             );
         }
-        return mapper.toResponse(
+        return loanApplicationMapper.toResponse(
                 existing,
-                submissionState.getCalculation(existing.getId()),
-                submissionState.getFinalCalculation(existing.getId())
+                loanApplicationSubmissionStateService.getCalculation(existing.getId()),
+                loanApplicationSubmissionStateService.getFinalCalculation(existing.getId())
         );
     }
 
@@ -302,7 +292,7 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
                     "Phải xác nhận đã xem lãi suất và lịch trả dự kiến"
             );
         }
-        if (!disclosureProperties.pricingDisclosureVersion().equals(request.pricingDisclosureVersion())) {
+        if (!loanPricingDisclosureProperties.pricingDisclosureVersion().equals(request.pricingDisclosureVersion())) {
             throw LoanBusinessException.conflict(
                     "PRICING_DISCLOSURE_OUTDATED",
                     "Nội dung công bố lãi suất đã thay đổi, vui lòng xem lại"
@@ -311,7 +301,7 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
     }
 
     private LoanApplication getApplication(String applicationNumber) {
-        return applicationRepository.findByApplicationNumber(applicationNumber)
+        return loanApplicationRepository.findByApplicationNumber(applicationNumber)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Loan Application", "applicationNumber", applicationNumber));
     }

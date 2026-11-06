@@ -1,11 +1,12 @@
 package com.finora.user.repository;
 
 import com.finora.common.enums.user.EkycStatus;
-import com.finora.user.domain.UserProfile;
 import com.finora.common.enums.user.UserRole;
+import com.finora.user.domain.entity.UserProfile;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -16,7 +17,7 @@ import java.util.UUID;
 /**
  * Repository truy vấn bảng {@code user_profiles}.
  */
-public interface UserProfileRepository extends JpaRepository<UserProfile, Long> {
+public interface UserProfileRepository extends JpaRepository<UserProfile, Long>, JpaSpecificationExecutor<UserProfile> {
 
     /** Tìm hồ sơ theo Keycloak user ID — dùng sau khi xác thực JWT */
     Optional<UserProfile> findByKeycloakUserId(UUID keycloakUserId);

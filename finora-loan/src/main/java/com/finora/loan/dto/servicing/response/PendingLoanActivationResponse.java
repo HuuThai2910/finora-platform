@@ -1,6 +1,7 @@
 package com.finora.loan.dto.servicing.response;
 
-import com.finora.loan.domain.disbursement.DisbursementSagaStatus;
+import com.finora.loan.domain.disbursement.enums.DisbursementSagaStatus;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 

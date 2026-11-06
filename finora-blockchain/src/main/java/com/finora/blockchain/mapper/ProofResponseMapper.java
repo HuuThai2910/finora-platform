@@ -1,9 +1,9 @@
 package com.finora.blockchain.mapper;
 
-import com.finora.blockchain.domain.proof.ProofHashScheme;
-import com.finora.blockchain.domain.proof.ProofProviderType;
-import com.finora.blockchain.domain.proof.ProofSubmission;
-import com.finora.blockchain.domain.proof.ProofSubmissionStatus;
+import com.finora.blockchain.domain.proof.entity.ProofSubmission;
+import com.finora.blockchain.domain.proof.enums.ProofHashScheme;
+import com.finora.blockchain.domain.proof.enums.ProofProviderType;
+import com.finora.blockchain.domain.proof.enums.ProofSubmissionStatus;
 import com.finora.blockchain.dto.response.ProofResponse;
 
 /** Chuyển entity sang response explorer; receipt MOCK luôn kèm cảnh báo không nằm trên Fabric (LEGAL-DATA-01). */

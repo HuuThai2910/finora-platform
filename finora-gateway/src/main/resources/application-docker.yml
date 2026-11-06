@@ -36,7 +36,7 @@ spring:
           - id: user-admin-service
             uri: http://user:8085
             predicates:
-              - Path=/api/v1/admin/users/**,/api/v1/admin/staff-roles/**
+              - Path=/api/v1/admin/users/**,/api/v1/admin/staff-roles/**,/api/v1/admin/activity-logs/**
           - id: user-service
             uri: http://user:8085
             predicates:

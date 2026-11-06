@@ -1,6 +1,6 @@
 package com.finora.loan.dto.scoring.response;
 
-import com.finora.loan.domain.scoring.CreditAssessmentStatus;
+import com.finora.loan.domain.scoring.enums.CreditAssessmentStatus;
 
 public record ScoringRetryAcceptedResponse(
         Long assessmentId,

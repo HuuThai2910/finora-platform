@@ -1,7 +1,7 @@
 package com.finora.user.service;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.finora.user.domain.LivenessStep;
+import com.finora.user.domain.model.LivenessStep;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -10,7 +10,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Phiên thử thách liveness trên Redis: {@code ekyc_challenge:<uid>} = {@code {sessionId, steps,
+ * Phiên thử thách liveness trong kho tạm: {@code ekyc_challenge:<uid>} = {@code {sessionId, steps,
  * attemptId, issuedAt}}, TTL 90 giây.
  */
 public interface EkycChallengeStore {
@@ -19,7 +19,7 @@ public interface EkycChallengeStore {
 
     void save(UUID keycloakUserId, StoredChallenge challenge);
 
-    /** Lấy và huỷ phiên ({@code GETDEL}); rỗng nếu không có hoặc dữ liệu hỏng. */
+    /** Lấy và huỷ phiên trong một câu lệnh (như {@code GETDEL}); rỗng nếu không có hoặc dữ liệu hỏng. */
     Optional<StoredChallenge> consume(UUID keycloakUserId);
 
     void remove(UUID keycloakUserId);

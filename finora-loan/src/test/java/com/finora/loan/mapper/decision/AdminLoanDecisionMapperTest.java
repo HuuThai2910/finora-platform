@@ -1,22 +1,23 @@
 package com.finora.loan.mapper.decision;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finora.loan.domain.application.ApplicantFinancialSnapshot;
-import com.finora.loan.domain.application.EducationLevel;
-import com.finora.loan.domain.application.HomeOwnership;
-import com.finora.loan.domain.application.LoanApplication;
-import com.finora.loan.domain.application.LoanApplicationStatus;
+import com.finora.loan.domain.application.entity.ApplicantFinancialSnapshot;
+import com.finora.loan.domain.application.entity.LoanApplication;
+import com.finora.loan.domain.application.enums.EducationLevel;
+import com.finora.loan.domain.application.enums.HomeOwnership;
+import com.finora.loan.domain.application.enums.LoanApplicationStatus;
 import com.finora.loan.dto.decision.response.AdminLoanReviewDetailResponse;
 import com.finora.loan.mapper.core.ScheduleCalculationSnapshotMapper;
+import org.junit.jupiter.api.Test;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
-import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * B73: màn duyệt hồ sơ cần ID số của hồ sơ để mở explorer bằng chứng ({@code LOAN_APPLICATION} tra theo ID) và số

@@ -1,6 +1,7 @@
 package com.finora.user.dto.response;
 
 import com.finora.common.enums.user.EkycStatus;
+
 import java.time.Instant;
 
 /**

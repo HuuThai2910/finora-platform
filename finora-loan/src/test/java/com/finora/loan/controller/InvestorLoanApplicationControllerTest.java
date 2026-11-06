@@ -1,40 +1,41 @@
 package com.finora.loan.controller;
 
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.node.IntNode;
 import com.finora.common.exception.GlobalExceptionHandler;
-import com.finora.loan.domain.application.CreditInformationSource;
-import com.finora.loan.domain.application.EducationLevel;
-import com.finora.loan.domain.application.HomeOwnership;
-import com.finora.loan.domain.application.LoanDecisionSource;
-import com.finora.loan.domain.application.LoanPurpose;
-import com.finora.loan.domain.product.RepaymentMethod;
-import com.finora.loan.domain.scoring.BorrowerKycStatus;
-import com.finora.loan.domain.scoring.BorrowerProfileSource;
-import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse;
+import com.finora.loan.domain.application.enums.CreditInformationSource;
+import com.finora.loan.domain.application.enums.EducationLevel;
+import com.finora.loan.domain.application.enums.HomeOwnership;
+import com.finora.loan.domain.application.enums.LoanDecisionSource;
+import com.finora.loan.domain.application.enums.LoanPurpose;
+import com.finora.loan.domain.product.enums.RepaymentMethod;
+import com.finora.loan.domain.scoring.enums.BorrowerKycStatus;
+import com.finora.loan.domain.scoring.enums.BorrowerProfileSource;
 import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.Background;
 import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.CreditAssessment;
 import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.LoanRequest;
 import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.RepaymentCapacity;
 import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.RuleResult;
+import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse;
 import com.finora.loan.exception.LoanBusinessException;
 import com.finora.loan.service.application.InvestorBorrowerProfileService;
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
+
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** Hợp đồng JSON mà app nhà đầu tư đọc: tên field, kiểu giá trị luật và lỗi 403 có mã. */
 class InvestorLoanApplicationControllerTest {

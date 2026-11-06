@@ -3,18 +3,20 @@ package com.finora.loan.integration.fineract.client;
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.UncheckedIOException;
-import java.net.SocketException;
-import java.net.SocketTimeoutException;
-import java.nio.charset.StandardCharsets;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.TimeoutException;
+import com.finora.loan.integration.fineract.FineractIntegrationException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
+
+import java.io.UncheckedIOException;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

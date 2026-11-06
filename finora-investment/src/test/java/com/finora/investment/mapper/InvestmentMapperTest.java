@@ -1,13 +1,14 @@
 package com.finora.investment.mapper;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import com.finora.common.enums.investment.ListingStatus;
-import com.finora.investment.domain.listing.MarketListing;
+import com.finora.investment.domain.listing.entity.MarketListing;
 import com.finora.investment.dto.response.MarketListingResponse;
+import org.junit.jupiter.api.Test;
+
 import java.math.BigDecimal;
 import java.time.Instant;
-import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 class InvestmentMapperTest {
 

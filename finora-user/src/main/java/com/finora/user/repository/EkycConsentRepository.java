@@ -1,6 +1,6 @@
 package com.finora.user.repository;
 
-import com.finora.user.domain.EkycConsent;
+import com.finora.user.domain.entity.EkycConsent;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;

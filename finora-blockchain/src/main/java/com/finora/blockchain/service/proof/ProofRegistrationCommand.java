@@ -1,6 +1,7 @@
 package com.finora.blockchain.service.proof;
 
-import com.finora.blockchain.domain.proof.ProofType;
+import com.finora.blockchain.domain.proof.enums.ProofType;
+
 import java.time.Instant;
 import java.util.UUID;
 
@@ -9,7 +10,7 @@ import java.util.UUID;
  *
  * @param sourceEventType loại event nguồn (ví dụ {@code LoanContractActivated}) để biết artifact nào tính lại hash
  * @param loanApplicationId khoản vay liên quan, cho explorer liệt kê proof theo khoản vay
- * @param payloadVersion version của {@link com.finora.blockchain.domain.proof.ProofHashScheme}
+ * @param payloadVersion version của {@link com.finora.blockchain.domain.proof.enums.ProofHashScheme}
  */
 public record ProofRegistrationCommand(
         String sourceService,

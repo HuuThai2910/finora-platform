@@ -3,8 +3,10 @@ package com.finora.user.service.impl;
 import com.finora.common.enums.user.UserRole;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.security.ops.OpsFunction;
-import com.finora.user.domain.StaffRoleDefinition;
-import com.finora.user.domain.UserProfile;
+import com.finora.user.config.CryptoProperties;
+import com.finora.user.domain.entity.UserProfile;
+import com.finora.user.domain.model.StaffRoleDefinition;
+import com.finora.user.dto.request.UserSearchCriteria;
 import com.finora.user.dto.response.UserProfileResponse;
 import com.finora.user.mapper.UserProfileMapperImpl;
 import com.finora.user.repository.UserProfileRepository;
@@ -16,6 +18,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -54,8 +61,10 @@ class UserProfileServiceImplTest {
     @BeforeEach
     void setUp() {
         StaffRoleService staffRoleService = new StaffRoleServiceImpl(keycloakAdminService, userProfileRepository, CLOCK);
+        CryptoProperties crypto = new CryptoProperties();
+        crypto.setHmacSecret("test-hmac-secret");
         service = new UserProfileServiceImpl(userProfileRepository, new UserProfileMapperImpl(),
-                keycloakAdminService, staffRoleService);
+                keycloakAdminService, staffRoleService, crypto, CLOCK);
         target = UserProfile.builder().id(42L).keycloakUserId(TARGET_KC_ID).email("nhanvien@example.test")
                 .role(UserRole.BORROWER).build();
     }
@@ -184,5 +193,74 @@ class UserProfileServiceImplTest {
         assertThat(me.getStaffRoleName()).isEqualTo("STAFF_THU_HOI_NO");
         // Lỗi cũng được nhớ 60 giây: lần gọi thứ hai không gọi lại Keycloak.
         verify(keycloakAdminService, org.mockito.Mockito.times(1)).listStaffRoles();
+    }
+
+    @Test
+    void lockStoresReasonDisablesThenLogsOut() {
+        when(userProfileRepository.findById(42L)).thenReturn(Optional.of(target));
+
+        service.lockUser(42L, "  Nghi giả mạo giấy tờ  ", ADMIN_KC_ID);
+
+        InOrder order = inOrder(keycloakAdminService, userProfileRepository);
+        order.verify(keycloakAdminService).disableUser(TARGET_KC_ID.toString());
+        order.verify(userProfileRepository).save(target);
+        order.verify(keycloakAdminService).logoutUser(TARGET_KC_ID.toString());
+        assertThat(target.getLockReason()).isEqualTo("Nghi giả mạo giấy tờ");
+        assertThat(target.getLockedAt()).isEqualTo(CLOCK.instant());
+        assertThat(target.getLockedByKeycloakId()).isEqualTo(ADMIN_KC_ID);
+    }
+
+    @Test
+    void lockWithoutReasonIsRejected() {
+        assertThatThrownBy(() -> service.lockUser(42L, "  ", ADMIN_KC_ID))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("LOCK_REASON_REQUIRED"));
+        verify(keycloakAdminService, never()).disableUser(anyString());
+    }
+
+    @Test
+    void unlockClearsReason() {
+        target.markLocked("Lý do cũ", ADMIN_KC_ID, CLOCK.instant());
+        when(userProfileRepository.findById(42L)).thenReturn(Optional.of(target));
+
+        service.unlockUser(42L);
+
+        verify(keycloakAdminService).enableUser(TARGET_KC_ID.toString());
+        assertThat(target.getLockReason()).isNull();
+        assertThat(target.getLockedAt()).isNull();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void searchSortsNewestFirstAndCapsPageSize() {
+        when(userProfileRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(target)));
+
+        var result = service.searchUsers(new UserSearchCriteria(null, null, "STAFF_VAN_HANH", "Nguyễn"),
+                PageRequest.of(0, 500));
+
+        org.mockito.ArgumentCaptor<Pageable> pageable = org.mockito.ArgumentCaptor.forClass(Pageable.class);
+        verify(userProfileRepository).findAll(any(Specification.class), pageable.capture());
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(100);
+        assertThat(pageable.getValue().getSort().getOrderFor("createdAt").isDescending()).isTrue();
+        assertThat(result.getContent()).hasSize(1);
+    }
+
+    @Test
+    void staffRoleFilterOnNonStaffRoleIsRejected() {
+        assertThatThrownBy(() -> service.searchUsers(new UserSearchCriteria("BORROWER", null, "STAFF_VAN_HANH", null),
+                PageRequest.of(0, 20)))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("STAFF_ROLE_NOT_ALLOWED"));
+    }
+
+    @Test
+    void identifierCandidatesCoverVietnamesePhonePrefixes() {
+        assertThat(UserProfileServiceImpl.identifierCandidates("0912 345 678"))
+                .contains("0912 345 678", "0912345678", "+84912345678", "84912345678");
+        assertThat(UserProfileServiceImpl.identifierCandidates("+84912345678"))
+                .contains("+84912345678", "84912345678", "0912345678");
+        assertThat(UserProfileServiceImpl.identifierCandidates("079201001234")).contains("079201001234");
+        assertThat(UserProfileServiceImpl.identifierCandidates("nguyen")).isEmpty();
     }
 }

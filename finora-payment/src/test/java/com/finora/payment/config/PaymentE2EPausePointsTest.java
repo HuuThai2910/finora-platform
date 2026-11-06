@@ -1,10 +1,11 @@
 package com.finora.payment.config;
 
-import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
-import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PaymentE2EPausePointsTest {
 

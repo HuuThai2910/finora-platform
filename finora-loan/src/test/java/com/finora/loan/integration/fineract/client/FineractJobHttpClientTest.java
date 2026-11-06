@@ -1,5 +1,19 @@
 package com.finora.loan.integration.fineract.client;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.finora.loan.integration.fineract.FineractIntegrationException;
+import com.finora.loan.integration.fineract.contract.FineractJob;
+import com.finora.loan.integration.fineract.contract.FineractJobRun;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
+
+import java.time.Instant;
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -10,18 +24,6 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
-
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.finora.loan.integration.fineract.contract.FineractJob;
-import com.finora.loan.integration.fineract.contract.FineractJobRun;
-import java.time.Instant;
-import java.util.List;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 
 class FineractJobHttpClientTest {
 

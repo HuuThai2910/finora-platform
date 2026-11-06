@@ -1,20 +1,19 @@
 package com.finora.investment.service.orderbook.impl;
 
 import com.finora.common.security.SecurityUtils;
-import com.finora.investment.client.PaymentClient;
-import com.finora.investment.client.PaymentHoldResult;
-import com.finora.investment.domain.listing.MarketListing;
-import com.finora.investment.domain.orderbook.BookOrder;
-import com.finora.investment.domain.orderbook.BookOrderStatus;
-import com.finora.investment.domain.orderbook.OrderSide;
+import com.finora.investment.domain.listing.entity.MarketListing;
+import com.finora.investment.domain.orderbook.entity.BookOrder;
+import com.finora.investment.domain.orderbook.enums.BookOrderStatus;
+import com.finora.investment.domain.orderbook.enums.OrderSide;
 import com.finora.investment.dto.request.PlaceBookOrderRequest;
 import com.finora.investment.dto.response.BookOrderResponse;
 import com.finora.investment.exception.InvestmentDomainException;
+import com.finora.investment.integration.payment.client.PaymentClient;
+import com.finora.investment.integration.payment.contract.PaymentHoldResult;
 import com.finora.investment.repository.BookOrderRepository;
 import com.finora.investment.repository.MarketListingRepository;
 import com.finora.investment.service.InvestorEligibility;
 import com.finora.investment.service.orderbook.OrderBookCommandService;
-import com.finora.investment.service.orderbook.OrderBookPricing;
 import com.finora.investment.service.orderbook.OrderBookTransactionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,20 +46,20 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class OrderBookCommandServiceImpl implements OrderBookCommandService {
 
-    private final OrderBookTransactionService transactions;
-    private final BookOrderRepository orderRepository;
+    private final OrderBookTransactionService orderBookTransactionService;
+    private final BookOrderRepository bookOrderRepository;
     private final PaymentClient paymentClient;
-    private final MarketListingRepository listingRepository;
-    private final InvestorEligibility eligibility;
+    private final MarketListingRepository marketListingRepository;
+    private final InvestorEligibility investorEligibility;
 
     @Override
     public BookOrderResponse placeOrder(Long listingId, String idempotencyKey, PlaceBookOrderRequest request) {
-        eligibility.requireVerifiedInvestor();
+        investorEligibility.requireVerifiedInvestor();
         String investorId = SecurityUtils.getCurrentUserId();
         int pricePermille = OrderBookPricing.toPermille(request.pricePercent());
         String requestHash = hashRequest(listingId, request.side(), pricePermille, request.quantity());
 
-        Optional<BookOrder> replayed = orderRepository.findByInvestorIdAndIdempotencyKey(investorId, idempotencyKey);
+        Optional<BookOrder> replayed = bookOrderRepository.findByInvestorIdAndIdempotencyKey(investorId, idempotencyKey);
         if (replayed.isPresent()) {
             return resume(replayed.get(), requestHash);
         }
@@ -71,13 +70,13 @@ public class OrderBookCommandServiceImpl implements OrderBookCommandService {
 
         try {
             if (request.side() == OrderSide.ASK) {
-                return respond(transactions.placeAsk(command));
+                return respond(orderBookTransactionService.placeAsk(command));
             }
-            return holdAndActivate(transactions.createPendingBid(command));
+            return holdAndActivate(orderBookTransactionService.createPendingBid(command));
         } catch (DataIntegrityViolationException duplicate) {
             // Hai request cùng khóa đến cùng lúc: request đến sau vấp unique (investor, key) và
             // nhận về lệnh của request đến trước, thay vì báo lỗi cho một thao tác thật ra đã thành.
-            return orderRepository.findByInvestorIdAndIdempotencyKey(investorId, idempotencyKey)
+            return bookOrderRepository.findByInvestorIdAndIdempotencyKey(investorId, idempotencyKey)
                     .map(existing -> resume(existing, requestHash))
                     .orElseThrow(() -> duplicate);
         }
@@ -85,7 +84,7 @@ public class OrderBookCommandServiceImpl implements OrderBookCommandService {
 
     @Override
     public BookOrderResponse cancelOrder(String orderReference) {
-        return respond(transactions.cancel(orderReference, SecurityUtils.getCurrentUserId()));
+        return respond(orderBookTransactionService.cancel(orderReference, SecurityUtils.getCurrentUserId()));
     }
 
     private BookOrderResponse resume(BookOrder existing, String requestHash) {
@@ -116,15 +115,15 @@ public class OrderBookCommandServiceImpl implements OrderBookCommandService {
                         "PAYMENT_UNAVAILABLE", "Dịch vụ ví đang bận, vui lòng gửi lại lệnh sau ít phút");
             }
             return respond(
-                    transactions.rejectBid(order.getId(), hold.getErrorCode(), hold.getErrorMessage()));
+                    orderBookTransactionService.rejectBid(order.getId(), hold.getErrorCode(), hold.getErrorMessage()));
         }
 
         return respond(
-                transactions.activateBid(order.getId(), order.getListingId(), hold.getHoldReference()));
+                orderBookTransactionService.activateBid(order.getId(), order.getListingId(), hold.getHoldReference()));
     }
 
     private BookOrderResponse respond(BookOrder order) {
-        Long loanId = listingRepository.findById(order.getListingId()).map(MarketListing::getLoanId).orElse(null);
+        Long loanId = marketListingRepository.findById(order.getListingId()).map(MarketListing::getLoanId).orElse(null);
         return OrderBookMapper.toResponse(order, loanId);
     }
 

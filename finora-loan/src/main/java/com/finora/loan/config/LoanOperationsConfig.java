@@ -4,12 +4,13 @@ import com.finora.common.observability.OperationalGauge;
 import com.finora.common.observability.OperationalGaugeSet;
 import com.finora.loan.repository.operations.LoanOperationalMetricsRepository;
 import com.finora.loan.service.operations.FineractEndOfDayMonitor;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Gauge vận hành của Loan (W3E, D58) và cấu hình giám sát job cuối ngày Fineract (D57). Tên metric và ý nghĩa tag nằm

@@ -1,46 +1,32 @@
 package com.finora.investment.service;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
+import com.finora.common.enums.investment.CommitmentStatus;
 import com.finora.common.enums.investment.ListingStatus;
 import com.finora.common.enums.investment.NoteStatus;
-import com.finora.common.enums.investment.CommitmentStatus;
+import com.finora.common.enums.investment.OrderStatus;
 import com.finora.investment.dto.request.CreateListingRequest;
 import com.finora.investment.dto.request.PlaceOrderRequest;
 import com.finora.investment.dto.response.ListingInvestorResponse;
 import com.finora.investment.dto.response.MarketListingResponse;
 import com.finora.investment.dto.response.OrderResponse;
 import com.finora.investment.exception.InvestmentDomainException;
+import com.finora.investment.integration.payment.client.PaymentClient;
+import com.finora.investment.integration.payment.client.impl.MockPaymentClient;
 import com.finora.investment.messaging.event.InvestorSignatureRequestedEventData;
 import com.finora.investment.messaging.event.LoanContractActivatedEventData;
 import com.finora.investment.messaging.event.LoanDisbursedEventData;
 import com.finora.investment.messaging.event.LoanFundingCancelledEventData;
 import com.finora.investment.messaging.event.LoanFundingRequestedEventData;
 import com.finora.investment.messaging.event.LoanRescheduleConsentRequestedEventData;
-import com.finora.investment.service.messaging.LoanFundingCancelledHandler;
-import com.finora.common.enums.investment.OrderStatus;
-import com.finora.investment.client.PaymentClient;
-import com.finora.investment.client.impl.StubPaymentClient;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
-import com.finora.investment.repository.InvestmentOrderRepository;
-import com.finora.investment.service.FundingMaintenanceService;
 import com.finora.investment.repository.InvestmentNoteRepository;
+import com.finora.investment.repository.InvestmentOrderRepository;
 import com.finora.investment.repository.InvestmentOutboxEventRepository;
 import com.finora.investment.repository.MarketListingRepository;
+import com.finora.investment.service.FundingMaintenanceService;
 import com.finora.investment.service.messaging.ContractLifecycleEventHandler;
 import com.finora.investment.service.messaging.LoanDisbursedEventHandler;
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+import com.finora.investment.service.messaging.LoanFundingCancelledHandler;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -56,6 +42,21 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Kiểm chứng luồng gọi vốn F04 trên PostgreSQL thật.
@@ -396,7 +397,7 @@ class FundingFlowIT {
         // Saga chạy lại bước phát hành sau lỗi giữa chừng không được nhân đôi quyền sở hữu.
         assertThat(noteIssuanceService.activateNotes(listing.listingId())).isZero();
 
-        List<com.finora.investment.domain.note.InvestmentNote> notes =
+        List<com.finora.investment.domain.note.entity.InvestmentNote> notes =
                 noteRepository.findByLoanIdAndStatus(
                         listingRepository.findById(listing.listingId()).orElseThrow().getLoanId(),
                         NoteStatus.ACTIVE);
@@ -675,10 +676,10 @@ class FundingFlowIT {
     void expiredListingCancelsCommitmentsAndReleasesHolds() {
         MarketListingResponse created = newListing("10000000.00", "1000000.00");
         actAs("INVESTOR-EXP");
-        BigDecimal before = stubPayment().availableBalance("INVESTOR-EXP");
+        BigDecimal before = mockPayment().availableBalance("INVESTOR-EXP");
         OrderResponse order = fundingService.placeOrder(created.listingId(), "key-exp",
                 new PlaceOrderRequest(new BigDecimal("3000000.00"), "INVESTOR_RISK_V1"));
-        assertThat(stubPayment().availableBalance("INVESTOR-EXP")).isEqualByComparingTo(before.subtract(new BigDecimal("3000000")));
+        assertThat(mockPayment().availableBalance("INVESTOR-EXP")).isEqualByComparingTo(before.subtract(new BigDecimal("3000000")));
 
         jdbcTemplate.update("UPDATE market_listings SET funding_closes_at = now() - interval '1 minute' WHERE id = ?",
                 created.listingId());
@@ -703,7 +704,7 @@ class FundingFlowIT {
         assertThat(fundingMaintenance.releasePendingHolds(100)).isGreaterThanOrEqualTo(1);
         assertThat(orderRepository.findByOrderReference(order.orderReference()).orElseThrow()
                 .getPaymentReleasedAt()).isNotNull();
-        assertThat(stubPayment().availableBalance("INVESTOR-EXP")).isEqualByComparingTo(before);
+        assertThat(mockPayment().availableBalance("INVESTOR-EXP")).isEqualByComparingTo(before);
         // Quét lại không nhả lần hai.
         assertThat(orderRepository.findReleasePending(org.springframework.data.domain.PageRequest.of(0, 100)))
                 .noneMatch(item -> item.getOrderReference().equals(order.orderReference()));
@@ -810,7 +811,7 @@ class FundingFlowIT {
     void loanFundingCancellationReleasesHeldMoneyExactlyOnce() {
         MarketListingResponse created = newListing("10000000.00", "1000000.00");
         actAs("INVESTOR-CANCEL");
-        BigDecimal before = stubPayment().availableBalance("INVESTOR-CANCEL");
+        BigDecimal before = mockPayment().availableBalance("INVESTOR-CANCEL");
         OrderResponse order = fundingService.placeOrder(created.listingId(), "key-cancel-funded",
                 new PlaceOrderRequest(new BigDecimal("10000000.00"), "INVESTOR_RISK_V1"));
         SecurityContextHolder.clearContext();
@@ -841,7 +842,7 @@ class FundingFlowIT {
         assertThat(view.cancelledAt()).isNotNull();
 
         assertThat(fundingMaintenance.releasePendingHolds(100)).isGreaterThanOrEqualTo(1);
-        assertThat(stubPayment().availableBalance("INVESTOR-CANCEL")).isEqualByComparingTo(before);
+        assertThat(mockPayment().availableBalance("INVESTOR-CANCEL")).isEqualByComparingTo(before);
         assertThat(orderRepository.findReleasePending(org.springframework.data.domain.PageRequest.of(0, 100)))
                 .noneMatch(item -> item.getOrderReference().equals(order.orderReference()));
     }
@@ -851,7 +852,7 @@ class FundingFlowIT {
     void borrowerWithdrawalCancelsOpenListingAndReleasesHolds() {
         MarketListingResponse created = newListing("10000000.00", "1000000.00");
         actAs("INVESTOR-OPEN-WITHDRAWAL");
-        BigDecimal before = stubPayment().availableBalance("INVESTOR-OPEN-WITHDRAWAL");
+        BigDecimal before = mockPayment().availableBalance("INVESTOR-OPEN-WITHDRAWAL");
         OrderResponse order = fundingService.placeOrder(created.listingId(), "key-open-withdrawal",
                 new PlaceOrderRequest(new BigDecimal("3000000.00"), "INVESTOR_RISK_V1"));
         SecurityContextHolder.clearContext();
@@ -866,7 +867,7 @@ class FundingFlowIT {
         assertThat(orderRepository.findByOrderReference(order.orderReference()).orElseThrow().getStatus())
                 .isEqualTo(OrderStatus.CANCELLED);
         assertThat(fundingMaintenance.releasePendingHolds(100)).isGreaterThanOrEqualTo(1);
-        assertThat(stubPayment().availableBalance("INVESTOR-OPEN-WITHDRAWAL")).isEqualByComparingTo(before);
+        assertThat(mockPayment().availableBalance("INVESTOR-OPEN-WITHDRAWAL")).isEqualByComparingTo(before);
     }
 
     @Test
@@ -874,7 +875,7 @@ class FundingFlowIT {
     void borrowerWithdrawalCompensatesConcurrentFullyFundedListing() {
         MarketListingResponse created = newListing("10000000.00", "1000000.00");
         actAs("INVESTOR-WITHDRAWAL-RACE");
-        BigDecimal before = stubPayment().availableBalance("INVESTOR-WITHDRAWAL-RACE");
+        BigDecimal before = mockPayment().availableBalance("INVESTOR-WITHDRAWAL-RACE");
         OrderResponse order = fundingService.placeOrder(created.listingId(), "key-withdrawal-race",
                 new PlaceOrderRequest(new BigDecimal("10000000.00"), "INVESTOR_RISK_V1"));
         SecurityContextHolder.clearContext();
@@ -890,7 +891,7 @@ class FundingFlowIT {
         assertThat(orderRepository.findByOrderReference(order.orderReference()).orElseThrow().getStatus())
                 .isEqualTo(OrderStatus.CANCELLED);
         assertThat(fundingMaintenance.releasePendingHolds(100)).isGreaterThanOrEqualTo(1);
-        assertThat(stubPayment().availableBalance("INVESTOR-WITHDRAWAL-RACE")).isEqualByComparingTo(before);
+        assertThat(mockPayment().availableBalance("INVESTOR-WITHDRAWAL-RACE")).isEqualByComparingTo(before);
     }
 
     @Test
@@ -950,7 +951,7 @@ class FundingFlowIT {
     }
 
     private LoanFundingCancelledEventData cancellationOf(
-            com.finora.investment.domain.listing.MarketListing listing, String allocationHash, String reasonCode) {
+            com.finora.investment.domain.listing.entity.MarketListing listing, String allocationHash, String reasonCode) {
         return new LoanFundingCancelledEventData(
                 listing.getLoanId(), listing.getApplicationNumber(), listing.getId(), listing.getFundingRound(),
                 "LC-CANCEL-" + listing.getId(), listing.getAllocationVersion(), allocationHash,
@@ -978,11 +979,11 @@ class FundingFlowIT {
     @DisplayName("R3: lệnh chờ mà Payment đã giữ tiền được chốt theo khoản giữ đó, không giữ lần hai")
     void pendingOrderWhoseHoldExistsIsCommittedWithoutHoldingTwice() {
         MarketListingResponse created = newListing("10000000.00", "1000000.00");
-        BigDecimal before = stubPayment().availableBalance("INVESTOR-R3-HELD");
+        BigDecimal before = mockPayment().availableBalance("INVESTOR-R3-HELD");
         var pending = orderTransactions.createPendingOrder(created.listingId(), "INVESTOR-R3-HELD",
                 "key-r3-held", "hash-r3-held", new PlaceOrderRequest(new BigDecimal("2000000.00")));
         // Lần giữ tiền trước đã thành công ở Payment nhưng Investment mất kết quả.
-        assertThat(stubPayment().hold("INVESTOR-R3-HELD", new BigDecimal("2000000.00"), pending.getOrderReference())
+        assertThat(mockPayment().hold("INVESTOR-R3-HELD", new BigDecimal("2000000.00"), pending.getOrderReference())
                 .isSuccess()).isTrue();
         pending.setUpdatedAt(Instant.now().minusSeconds(600));
         orderRepository.save(pending);
@@ -992,7 +993,7 @@ class FundingFlowIT {
         var committed = orderRepository.findById(pending.getId()).orElseThrow();
         assertThat(committed.getStatus()).isEqualTo(OrderStatus.COMMITTED);
         assertThat(committed.getPaymentHoldReference()).isEqualTo(pending.getOrderReference());
-        assertThat(stubPayment().availableBalance("INVESTOR-R3-HELD"))
+        assertThat(mockPayment().availableBalance("INVESTOR-R3-HELD"))
                 .isEqualByComparingTo(before.subtract(new BigDecimal("2000000.00")));
     }
 
@@ -1002,9 +1003,9 @@ class FundingFlowIT {
         MarketListingResponse created = newListing("10000000.00", "1000000.00");
         var pending = orderTransactions.createPendingOrder(created.listingId(), "INVESTOR-R3-RELEASED",
                 "key-r3-released", "hash-r3-released", new PlaceOrderRequest(new BigDecimal("2000000.00")));
-        stubPayment().hold("INVESTOR-R3-RELEASED", new BigDecimal("2000000.00"), pending.getOrderReference());
-        stubPayment().release(pending.getOrderReference(), pending.getOrderReference());
-        BigDecimal before = stubPayment().availableBalance("INVESTOR-R3-RELEASED");
+        mockPayment().hold("INVESTOR-R3-RELEASED", new BigDecimal("2000000.00"), pending.getOrderReference());
+        mockPayment().release(pending.getOrderReference(), pending.getOrderReference());
+        BigDecimal before = mockPayment().availableBalance("INVESTOR-R3-RELEASED");
         pending.setUpdatedAt(Instant.now().minusSeconds(600));
         orderRepository.save(pending);
 
@@ -1016,7 +1017,7 @@ class FundingFlowIT {
         assertThat(rejected.getPaymentReleasedAt()).isNotNull();
         assertThat(listingRepository.findById(created.listingId()).orElseThrow().getCommittedAmount())
                 .isEqualByComparingTo("0.00");
-        assertThat(stubPayment().availableBalance("INVESTOR-R3-RELEASED")).isEqualByComparingTo(before);
+        assertThat(mockPayment().availableBalance("INVESTOR-R3-RELEASED")).isEqualByComparingTo(before);
     }
 
     @Test
@@ -1024,7 +1025,7 @@ class FundingFlowIT {
     void userCancelReleasesTheHoldAfterTheOrderIsCancelled() {
         actAs("INVESTOR-R3-CANCEL");
         MarketListingResponse created = newListing("10000000.00", "1000000.00");
-        BigDecimal before = stubPayment().availableBalance("INVESTOR-R3-CANCEL");
+        BigDecimal before = mockPayment().availableBalance("INVESTOR-R3-CANCEL");
         OrderResponse order = fundingService.placeOrder(created.listingId(), "key-r3-cancel",
                 new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
 
@@ -1033,7 +1034,7 @@ class FundingFlowIT {
         var cancelled = orderRepository.findByOrderReference(order.orderReference()).orElseThrow();
         assertThat(cancelled.getStatus()).isEqualTo(OrderStatus.CANCELLED);
         assertThat(cancelled.getPaymentReleasedAt()).isNotNull();
-        assertThat(stubPayment().availableBalance("INVESTOR-R3-CANCEL")).isEqualByComparingTo(before);
+        assertThat(mockPayment().availableBalance("INVESTOR-R3-CANCEL")).isEqualByComparingTo(before);
     }
 
     @Test
@@ -1041,10 +1042,10 @@ class FundingFlowIT {
     void releaseThatPaymentRefusesStopsForOperationsAndCanBeRetried() {
         actAs("INVESTOR-R3-BLOCKED");
         MarketListingResponse created = newListing("10000000.00", "1000000.00");
-        BigDecimal before = stubPayment().availableBalance("INVESTOR-R3-BLOCKED");
+        BigDecimal before = mockPayment().availableBalance("INVESTOR-R3-BLOCKED");
         OrderResponse order = fundingService.placeOrder(created.listingId(), "key-r3-blocked",
                 new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
-        stubPayment().failNextRelease("PAYMENT_HOLD_NOT_RELEASABLE", false);
+        mockPayment().failNextRelease("PAYMENT_HOLD_NOT_RELEASABLE", false);
 
         fundingService.cancelOrder(order.orderReference());
 
@@ -1066,7 +1067,7 @@ class FundingFlowIT {
 
         assertThat(orderRepository.findByOrderReference(order.orderReference()).orElseThrow().getPaymentReleasedAt())
                 .isNotNull();
-        assertThat(stubPayment().availableBalance("INVESTOR-R3-BLOCKED")).isEqualByComparingTo(before);
+        assertThat(mockPayment().availableBalance("INVESTOR-R3-BLOCKED")).isEqualByComparingTo(before);
     }
 
     @Test
@@ -1076,7 +1077,7 @@ class FundingFlowIT {
         MarketListingResponse created = newListing("10000000.00", "1000000.00");
         OrderResponse order = fundingService.placeOrder(created.listingId(), "key-r3-backoff",
                 new PlaceOrderRequest(new BigDecimal("2000000.00"), "INVESTOR_RISK_V1"));
-        stubPayment().failNextRelease("PAYMENT_UNAVAILABLE", true);
+        mockPayment().failNextRelease("PAYMENT_UNAVAILABLE", true);
 
         fundingService.cancelOrder(order.orderReference());
 
@@ -1107,7 +1108,7 @@ class FundingFlowIT {
                 .extracting("code").isEqualTo("SELF_FUNDING_FORBIDDEN");
     }
 
-    private StubPaymentClient stubPayment() {
-        return (StubPaymentClient) paymentClient;
+    private MockPaymentClient mockPayment() {
+        return (MockPaymentClient) paymentClient;
     }
 }

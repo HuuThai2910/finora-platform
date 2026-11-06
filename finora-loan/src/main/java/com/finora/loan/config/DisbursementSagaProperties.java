@@ -1,7 +1,8 @@
 package com.finora.loan.config;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
 
 /**
  * Giới hạn retry và lease của bước ghi khoản vay vào Fineract trong saga giải ngân.

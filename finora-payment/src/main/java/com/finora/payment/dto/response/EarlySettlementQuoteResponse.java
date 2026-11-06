@@ -1,7 +1,8 @@
 package com.finora.payment.dto.response;
 
-import com.finora.payment.domain.repayment.EarlySettlementQuote;
-import com.finora.payment.domain.repayment.EarlySettlementQuoteStatus;
+import com.finora.payment.domain.repayment.entity.EarlySettlementQuote;
+import com.finora.payment.domain.repayment.enums.EarlySettlementQuoteStatus;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;

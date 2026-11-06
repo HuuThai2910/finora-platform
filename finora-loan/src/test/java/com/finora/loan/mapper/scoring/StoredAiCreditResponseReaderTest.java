@@ -1,13 +1,13 @@
 package com.finora.loan.mapper.scoring;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finora.loan.domain.scoring.entity.CreditScoringAssessment;
+import com.finora.loan.integration.ai.contract.StoredAiCreditResponse;
+import org.junit.jupiter.api.Test;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finora.loan.domain.scoring.CreditScoringAssessment;
-import com.finora.loan.integration.ai.contract.StoredAiCreditResponse;
-import org.junit.jupiter.api.Test;
 
 class StoredAiCreditResponseReaderTest {
 

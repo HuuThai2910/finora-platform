@@ -1,7 +1,37 @@
 package com.finora.notification.controller;
 
-import static org.hamcrest.Matchers.not;
+import com.finora.common.dto.PageResponse;
+import com.finora.common.security.DualBearerTokenResolver;
+import com.finora.common.security.KeycloakJwtAuthenticationConverter;
+import com.finora.notification.config.NotificationSecurityConfig;
+import com.finora.notification.domain.enums.DevicePlatform;
+import com.finora.notification.domain.enums.NotificationCategory;
+import com.finora.notification.domain.enums.PushDeviceStatus;
+import com.finora.notification.dto.request.UpdateNotificationPreferencesRequest;
+import com.finora.notification.dto.response.NotificationPreferencesResponse;
+import com.finora.notification.dto.response.PushDeliveryAdminResponse;
+import com.finora.notification.dto.response.PushDeviceResponse;
+import com.finora.notification.service.InAppNotificationQueryService;
+import com.finora.notification.service.operations.NotificationOperationsService;
+import com.finora.notification.service.preference.NotificationPreferenceService;
+import com.finora.notification.service.push.PushDeviceService;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -17,35 +47,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
-import com.finora.common.dto.PageResponse;
-import com.finora.common.security.DualBearerTokenResolver;
-import com.finora.common.security.KeycloakJwtAuthenticationConverter;
-import com.finora.notification.config.NotificationSecurityConfig;
-import com.finora.notification.domain.DevicePlatform;
-import com.finora.notification.domain.NotificationCategory;
-import com.finora.notification.domain.PushDeviceStatus;
-import com.finora.notification.dto.request.UpdateNotificationPreferencesRequest;
-import com.finora.notification.dto.response.NotificationPreferencesResponse;
-import com.finora.notification.dto.response.PushDeliveryAdminResponse;
-import com.finora.notification.dto.response.PushDeviceResponse;
-import com.finora.notification.service.InAppNotificationQueryService;
-import com.finora.notification.service.operations.NotificationOperationsService;
-import com.finora.notification.service.preference.NotificationPreferenceService;
-import com.finora.notification.service.push.PushDeviceService;
-import java.time.Instant;
-import java.util.List;
-import java.util.UUID;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.context.annotation.Import;
-import org.springframework.http.MediaType;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 /**
  * API R7 dùng JWT người dùng: người sở hữu thiết bị/tùy chọn luôn lấy từ claim {@code user_id}, không từ body; thao tác

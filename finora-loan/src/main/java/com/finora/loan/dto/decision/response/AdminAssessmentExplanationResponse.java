@@ -1,6 +1,7 @@
 package com.finora.loan.dto.decision.response;
 
 import com.fasterxml.jackson.databind.JsonNode;
+
 import java.time.Instant;
 
 /**

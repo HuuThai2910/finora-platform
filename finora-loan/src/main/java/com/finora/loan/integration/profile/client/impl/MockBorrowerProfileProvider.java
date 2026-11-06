@@ -1,0 +1,45 @@
+package com.finora.loan.integration.profile.client.impl;
+
+import com.finora.loan.domain.scoring.enums.BorrowerKycStatus;
+import com.finora.loan.domain.scoring.enums.BorrowerProfileSource;
+import com.finora.loan.domain.scoring.enums.IncomeVerificationStatus;
+import com.finora.loan.integration.profile.client.BorrowerProfileProvider;
+import com.finora.loan.integration.profile.contract.BorrowerProfileResult;
+import lombok.RequiredArgsConstructor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+
+/** Mock tập trung duy nhất cho local; production không có property này nên không thể vô tình giả VERIFIED. */
+@Component
+@RequiredArgsConstructor
+@ConditionalOnProperty(name = "finora.borrower-profile.provider", havingValue = "mock")
+public class MockBorrowerProfileProvider implements BorrowerProfileProvider {
+
+    private final Clock clock;
+
+    /**
+     * Trả cùng một hồ sơ đạt điều kiện cho bất kỳ người vay nào.
+     *
+     * <p>Trước đây mock chỉ nhận đúng BORROWER-001 vì mọi request đều đến từ người vay
+     * giả đó. Từ khi danh tính lấy theo claim {@code user_id}, mỗi tài khoản có một ID
+     * riêng, nên ràng buộc cũ sẽ chặn chính người dùng thật ngay ở bước chấm điểm.</p>
+     */
+    @Override
+    public BorrowerProfileResult getBorrowerProfile(String borrowerId, LocalDate asOf) {
+        return new BorrowerProfileResult(
+                borrowerId,
+                null,
+                30,
+                BorrowerKycStatus.VERIFIED,
+                "MOCK-KYC-" + borrowerId,
+                "MOCK-V1",
+                IncomeVerificationStatus.NOT_VERIFIED,
+                BorrowerProfileSource.MOCK_USER_PROFILE,
+                Instant.now(clock)
+        );
+    }
+}

@@ -1,6 +1,6 @@
 package com.finora.user.integration.storage;
 
-import com.finora.user.domain.EkycEvidenceStage;
+import com.finora.user.domain.enums.EkycEvidenceStage;
 
 /**
  * Kho lưu bị tắt ({@code EKYC_EVIDENCE_ENABLED=false}, ví dụ bản Azure chưa có bucket S3).

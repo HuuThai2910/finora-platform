@@ -1,19 +1,20 @@
 package com.finora.payment.repository.repayment;
 
-import com.finora.payment.domain.repayment.PaymentRepayment;
-import com.finora.payment.domain.repayment.PaymentRepaymentStatus;
+import com.finora.payment.domain.repayment.entity.PaymentRepayment;
+import com.finora.payment.domain.repayment.enums.PaymentRepaymentStatus;
 import jakarta.persistence.LockModeType;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-import java.time.Instant;
-import java.time.LocalDate;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 public interface PaymentRepaymentRepository extends JpaRepository<PaymentRepayment, Long> {
     Optional<PaymentRepayment> findByRepaymentId(UUID repaymentId);

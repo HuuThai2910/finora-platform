@@ -1,16 +1,17 @@
 package com.finora.loan.repository.servicing;
 
-import com.finora.loan.domain.servicing.FinoraLoan;
-import java.util.Optional;
+import com.finora.loan.domain.servicing.entity.FinoraLoan;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import java.util.List;
-import java.util.Collection;
-import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
 
 public interface FinoraLoanRepository extends JpaRepository<FinoraLoan, Long> {
     Optional<FinoraLoan> findByLoanNumber(String loanNumber);
@@ -36,7 +37,7 @@ public interface FinoraLoanRepository extends JpaRepository<FinoraLoan, Long> {
             """)
     java.math.BigDecimal sumOutstandingPrincipal(
             @Param("borrowerId") String borrowerId,
-            @Param("statuses") List<com.finora.loan.domain.servicing.FinoraLoanStatus> statuses);
+            @Param("statuses") List<com.finora.loan.domain.servicing.enums.FinoraLoanStatus> statuses);
 
     @Query("""
             select loan.id from FinoraLoan loan, LoanServicingProjection projection
@@ -44,7 +45,7 @@ public interface FinoraLoanRepository extends JpaRepository<FinoraLoan, Long> {
             order by projection.updatedAt, loan.id
             """)
     List<Long> findIdsByStatusesOrderedByOldestProjection(
-            @Param("statuses") List<com.finora.loan.domain.servicing.FinoraLoanStatus> statuses,
+            @Param("statuses") List<com.finora.loan.domain.servicing.enums.FinoraLoanStatus> statuses,
             Pageable pageable);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

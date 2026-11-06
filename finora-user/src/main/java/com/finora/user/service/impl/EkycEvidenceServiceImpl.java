@@ -1,15 +1,15 @@
 package com.finora.user.service.impl;
 
-import com.finora.user.client.AiLivenessClient.EvidenceFrame;
+import com.finora.common.util.Sha256;
 import com.finora.user.config.EkycStorageProperties;
-import com.finora.user.domain.EkycEvidenceKind;
-import com.finora.user.domain.EkycEvidenceStage;
+import com.finora.user.domain.enums.EkycEvidenceKind;
+import com.finora.user.domain.enums.EkycEvidenceStage;
+import com.finora.user.integration.ai.client.AiLivenessClient.EvidenceFrame;
 import com.finora.user.integration.storage.EkycEvidenceStorage;
 import com.finora.user.integration.storage.EkycStorageException;
 import com.finora.user.integration.storage.EkycStorageKeys;
 import com.finora.user.integration.storage.StoredObject;
 import com.finora.user.service.EkycEvidenceService;
-import com.finora.user.support.Sha256;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -37,17 +37,17 @@ public class EkycEvidenceServiceImpl implements EkycEvidenceService {
     private static final String JSON = "application/json";
     private static final String JPEG = "image/jpeg";
 
-    private final EkycEvidenceStorage storage;
-    private final EkycStorageProperties properties;
+    private final EkycEvidenceStorage ekycEvidenceStorage;
+    private final EkycStorageProperties ekycStorageProperties;
 
     @Override
     public boolean isEnabled() {
-        return storage.isEnabled();
+        return ekycEvidenceStorage.isEnabled();
     }
 
     @Override
     public String envPrefix() {
-        return EkycStorageKeys.envPrefix(properties.getEnv());
+        return EkycStorageKeys.envPrefix(ekycStorageProperties.getEnv());
     }
 
     @Override
@@ -110,7 +110,7 @@ public class EkycEvidenceServiceImpl implements EkycEvidenceService {
     public int markFinal(Collection<String> keys) {
         int tagged = 0;
         for (String key : keys) {
-            if (storage.setStage(key, EkycEvidenceStage.FINAL)) {
+            if (ekycEvidenceStorage.setStage(key, EkycEvidenceStage.FINAL)) {
                 tagged++;
             }
         }
@@ -122,7 +122,7 @@ public class EkycEvidenceServiceImpl implements EkycEvidenceService {
         List<String> deleted = new ArrayList<>();
         for (String key : keys) {
             try {
-                storage.delete(key);
+                ekycEvidenceStorage.delete(key);
                 deleted.add(key);
             } catch (EkycStorageException e) {
                 log.warn("Chưa xoá được object bằng chứng, worker sẽ thử lại: key={}", key);
@@ -133,9 +133,9 @@ public class EkycEvidenceServiceImpl implements EkycEvidenceService {
 
     @Override
     public boolean deleteUserObjects(long userProfileId) {
-        String prefix = EkycStorageKeys.userPrefix(properties.getEnv(), userProfileId);
+        String prefix = EkycStorageKeys.userPrefix(ekycStorageProperties.getEnv(), userProfileId);
         try {
-            int count = storage.deletePrefix(prefix);
+            int count = ekycEvidenceStorage.deletePrefix(prefix);
             log.info("Đã xoá bằng chứng eKYC theo tiền tố người dùng: userProfileId={}, objects={}",
                     userProfileId, count);
             return true;
@@ -148,13 +148,13 @@ public class EkycEvidenceServiceImpl implements EkycEvidenceService {
 
     @Override
     public StoredObject open(String key) {
-        return storage.open(key);
+        return ekycEvidenceStorage.open(key);
     }
 
     private StoredEvidence put(long userProfileId, UUID attemptId, EkycEvidenceKind kind, String label,
                                String fileName, BinaryFile file, EkycEvidenceStage stage) {
-        String key = EkycStorageKeys.objectKey(properties.getEnv(), userProfileId, attemptId, fileName);
-        storage.put(key, file.bytes(), file.contentType(), stage);
+        String key = EkycStorageKeys.objectKey(ekycStorageProperties.getEnv(), userProfileId, attemptId, fileName);
+        ekycEvidenceStorage.put(key, file.bytes(), file.contentType(), stage);
         return new StoredEvidence(kind, label, key, Sha256.hex(file.bytes()), file.bytes().length,
                 file.contentType(), stage);
     }

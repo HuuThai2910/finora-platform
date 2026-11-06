@@ -1,23 +1,24 @@
 package com.finora.user.service.impl;
 
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
 import com.finora.common.enums.user.EkycStatus;
 import com.finora.user.config.CicMappingProperties;
-import com.finora.user.domain.UserProfile;
+import com.finora.user.domain.entity.UserProfile;
 import com.finora.user.integration.cic.client.CicMappingClient;
 import com.finora.user.integration.cic.contract.RegisterBorrowerMappingRequest;
 import com.finora.user.repository.UserProfileRepository;
 import com.finora.user.service.CicMappingTaskService;
-import java.util.Optional;
-import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class CicMappingWorkerImplTest {

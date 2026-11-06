@@ -1,11 +1,11 @@
 package com.finora.user.service.impl;
 
+import com.finora.common.util.PiiMasker;
 import com.finora.user.integration.notification.client.NotificationClient;
 import com.finora.user.integration.notification.contract.OtpEmailRequest;
 import com.finora.user.integration.notification.contract.SuspiciousActivityAlertRequest;
 import com.finora.user.integration.notification.contract.WelcomeEmailRequest;
 import com.finora.user.service.NotificationService;
-import com.finora.user.support.PiiMasker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -13,7 +13,7 @@ import org.springframework.stereotype.Service;
 import java.util.Locale;
 
 /**
- * Triển khai dịch vụ gửi thông báo — gọi finora-notification qua Feign (best-effort).
+ * Triển khai dịch vụ gửi thông báo — gọi finora-notification qua HTTP (best-effort).
  * <p>
  * Mọi lỗi gửi được log nhưng KHÔNG ném exception — đảm bảo luồng nghiệp vụ chính
  * (đăng ký, đăng nhập, quên mật khẩu) không bị ảnh hưởng khi notification service lỗi.

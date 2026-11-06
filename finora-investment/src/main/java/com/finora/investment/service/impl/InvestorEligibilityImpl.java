@@ -1,6 +1,6 @@
 package com.finora.investment.service.impl;
 
-import com.finora.investment.domain.listing.MarketListing;
+import com.finora.investment.domain.listing.entity.MarketListing;
 import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.service.InvestorEligibility;
 import org.springframework.beans.factory.annotation.Value;

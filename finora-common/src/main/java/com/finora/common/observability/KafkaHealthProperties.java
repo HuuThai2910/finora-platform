@@ -1,8 +1,9 @@
 package com.finora.common.observability;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
+
+import java.time.Duration;
 
 /**
  * Cấu hình health {@code kafka} (W3E, D56).

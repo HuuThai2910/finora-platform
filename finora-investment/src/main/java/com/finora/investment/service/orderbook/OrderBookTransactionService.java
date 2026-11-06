@@ -1,7 +1,7 @@
 package com.finora.investment.service.orderbook;
 
-import com.finora.investment.domain.orderbook.BookOrder;
-import com.finora.investment.domain.orderbook.OrderSide;
+import com.finora.investment.domain.orderbook.entity.BookOrder;
+import com.finora.investment.domain.orderbook.enums.OrderSide;
 
 /**
  * Các transaction ngắn của sổ lệnh. Mỗi method public là một transaction, không chờ mạng bên trong.

@@ -2,10 +2,10 @@ package com.finora.user.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finora.user.domain.EkycAttempt;
-import com.finora.user.domain.EkycDraftField;
-import com.finora.user.domain.EkycEvidence;
-import com.finora.user.domain.EkycIdentityDraft;
+import com.finora.user.domain.entity.EkycAttempt;
+import com.finora.user.domain.entity.EkycEvidence;
+import com.finora.user.domain.model.EkycDraftField;
+import com.finora.user.domain.model.EkycIdentityDraft;
 import com.finora.user.service.EkycAttemptService;
 import com.finora.user.service.EkycResultFile;
 import lombok.RequiredArgsConstructor;

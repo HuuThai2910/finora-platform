@@ -2,27 +2,27 @@ package com.finora.user.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finora.common.util.CryptoUtils;
+import com.finora.common.util.PiiMasker;
 import com.finora.user.config.CryptoProperties;
-import com.finora.user.domain.PendingRegistration;
+import com.finora.user.domain.model.PendingRegistration;
 import com.finora.user.service.PendingRegistrationStore;
-import com.finora.user.support.CryptoUtils;
-import com.finora.user.support.PiiMasker;
+import com.finora.user.service.TemporaryStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.Optional;
 
 /**
- * Triển khai kho đăng ký tạm bằng Redis.
+ * Triển khai kho đăng ký tạm trên {@link TemporaryStore} (PostgreSQL của service, key {@code pending_reg:<email>}).
  * <p>
  * TTL trùng với TTL của OTP đăng ký để hai thứ hết hạn cùng lúc — tránh trường hợp
  * OTP còn hiệu lực nhưng thông tin đăng ký đã mất (hoặc ngược lại).
  * <p>
  * Mật khẩu được mã hoá AES-GCM bằng cùng khoá đang dùng cho PII trong DB, nên
- * người đọc được Redis vẫn không lấy được mật khẩu người dùng.
+ * người đọc được bảng trạng thái tạm vẫn không lấy được mật khẩu người dùng.
  */
 @Service
 @Slf4j
@@ -34,7 +34,7 @@ public class PendingRegistrationStoreImpl implements PendingRegistrationStore {
 
     private static final String KEY_PENDING_REGISTRATION = "pending_reg:";
 
-    private final StringRedisTemplate redisTemplate;
+    private final TemporaryStore temporaryStore;
     private final CryptoProperties cryptoProperties;
     private final ObjectMapper objectMapper;
 
@@ -48,7 +48,7 @@ public class PendingRegistrationStoreImpl implements PendingRegistrationStore {
                 registration.role());
 
         try {
-            redisTemplate.opsForValue().set(
+            temporaryStore.put(
                     key(registration.email()),
                     objectMapper.writeValueAsString(protectedCopy),
                     Duration.ofMinutes(PENDING_TTL_MINUTES));
@@ -59,7 +59,7 @@ public class PendingRegistrationStoreImpl implements PendingRegistrationStore {
 
     @Override
     public Optional<PendingRegistration> find(String email) {
-        String raw = redisTemplate.opsForValue().get(key(email));
+        String raw = temporaryStore.find(key(email)).orElse(null);
         if (raw == null) {
             return Optional.empty();
         }
@@ -84,7 +84,7 @@ public class PendingRegistrationStoreImpl implements PendingRegistrationStore {
 
     @Override
     public void remove(String email) {
-        redisTemplate.delete(key(email));
+        temporaryStore.delete(key(email));
     }
 
     @Override

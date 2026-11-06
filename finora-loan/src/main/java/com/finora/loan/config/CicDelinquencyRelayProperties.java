@@ -1,7 +1,8 @@
 package com.finora.loan.config;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
 
 /** Cấu hình relay Kafka → HTTPS tới CIC Node; mặc định tắt để fail-closed. */
 @ConfigurationProperties(prefix = "finora.cic.delinquency-relay")

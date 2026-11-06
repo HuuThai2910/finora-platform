@@ -1,11 +1,8 @@
 package com.finora.investment.repository;
 
 import com.finora.common.enums.investment.ListingStatus;
-import com.finora.investment.domain.listing.MarketListing;
+import com.finora.investment.domain.listing.entity.MarketListing;
 import jakarta.persistence.LockModeType;
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,6 +11,10 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 
 public interface MarketListingRepository extends JpaRepository<MarketListing, Long> {
 
@@ -64,6 +65,8 @@ public interface MarketListingRepository extends JpaRepository<MarketListing, Lo
               AND (:minRate IS NULL OR l.annualInterestRate >= :minRate)
               AND (:maxTermMonths IS NULL OR l.termMonths <= :maxTermMonths)
               AND (:hiddenBorrowerId IS NULL OR l.borrowerId IS NULL OR l.borrowerId <> :hiddenBorrowerId)
+              AND (:q IS NULL OR LOWER(l.applicationNumber) LIKE :q ESCAPE '!'
+                   OR LOWER(l.contractNumber) LIKE :q ESCAPE '!')
             """)
     Page<MarketListing> search(
             @Param("status") ListingStatus status,
@@ -71,6 +74,7 @@ public interface MarketListingRepository extends JpaRepository<MarketListing, Lo
             @Param("minRate") java.math.BigDecimal minRate,
             @Param("maxTermMonths") Integer maxTermMonths,
             @Param("hiddenBorrowerId") String hiddenBorrowerId,
+            @Param("q") String q,
             Pageable pageable
     );
 

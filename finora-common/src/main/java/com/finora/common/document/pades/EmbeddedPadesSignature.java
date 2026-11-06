@@ -1,13 +1,14 @@
 package com.finora.common.document.pades;
 
-import java.security.cert.X509Certificate;
-import java.time.Instant;
-import java.util.Arrays;
-import java.util.Locale;
 import org.bouncycastle.asn1.x500.RDN;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.style.BCStyle;
 import org.bouncycastle.asn1.x500.style.IETFUtils;
+
+import java.security.cert.X509Certificate;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.Locale;
 
 /**
  * Một chữ ký PAdES đã kiểm hợp lệ trong tệp.

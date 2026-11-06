@@ -1,30 +1,29 @@
 package com.finora.loan.mapper.decision;
 
-import com.finora.loan.domain.application.ApplicantFinancialSnapshot;
-import com.finora.loan.domain.application.LoanApplication;
-import com.finora.loan.domain.contract.LoanContract;
-import com.finora.loan.domain.scoring.BorrowerCreditProfile;
-import com.finora.loan.domain.scoring.BorrowerEligibilityCheck;
-import com.finora.loan.domain.scoring.CreditScoringAssessment;
+import com.finora.loan.domain.application.entity.ApplicantFinancialSnapshot;
+import com.finora.loan.domain.application.entity.LoanApplication;
+import com.finora.loan.domain.contract.entity.LoanContract;
+import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
+import com.finora.loan.domain.scoring.entity.BorrowerCreditProfile;
+import com.finora.loan.domain.scoring.entity.BorrowerEligibilityCheck;
+import com.finora.loan.domain.scoring.entity.CreditScoringAssessment;
 import com.finora.loan.dto.application.response.ApplicantFinancialResponse;
 import com.finora.loan.dto.application.response.LoanApplicationHistoryResponse;
 import com.finora.loan.dto.decision.response.AdminAssessmentEvidenceResponse;
 import com.finora.loan.dto.decision.response.AdminLoanDecisionResponse;
 import com.finora.loan.dto.decision.response.AdminLoanReviewDetailResponse;
 import com.finora.loan.dto.decision.response.AdminLoanReviewSummaryResponse;
-import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
 import com.finora.loan.mapper.core.ScheduleCalculationSnapshotMapper;
-import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 @Component
+@RequiredArgsConstructor
 public class AdminLoanDecisionMapper {
 
-    private final ScheduleCalculationSnapshotMapper scheduleMapper;
-
-    public AdminLoanDecisionMapper(ScheduleCalculationSnapshotMapper scheduleMapper) {
-        this.scheduleMapper = scheduleMapper;
-    }
+    private final ScheduleCalculationSnapshotMapper scheduleCalculationSnapshotMapper;
 
     public AdminLoanReviewSummaryResponse toSummary(
             LoanApplication application,
@@ -63,6 +62,21 @@ public class AdminLoanDecisionMapper {
             List<LoanApplicationHistoryResponse> recentHistory,
             String contractNumber
     ) {
+        return toDetail(application, initialSchedule, finalSchedule, eligibility, creditProfile, assessment,
+                recentHistory, contractNumber, List.of());
+    }
+
+    public AdminLoanReviewDetailResponse toDetail(
+            LoanApplication application,
+            ScheduleCalculationSnapshot initialSchedule,
+            ScheduleCalculationSnapshot finalSchedule,
+            BorrowerEligibilityCheck eligibility,
+            BorrowerCreditProfile creditProfile,
+            CreditScoringAssessment assessment,
+            List<LoanApplicationHistoryResponse> recentHistory,
+            String contractNumber,
+            List<String> aiReviewReasons
+    ) {
         return new AdminLoanReviewDetailResponse(
                 application.getId(),
                 application.getApplicationNumber(),
@@ -81,9 +95,9 @@ public class AdminLoanDecisionMapper {
                 application.getDecisionSource(),
                 application.getRepaymentMethodSnapshot(),
                 financial(application.getFinancialSnapshot()),
-                scheduleMapper.toResponse(finalSchedule == null ? initialSchedule : finalSchedule),
-                scheduleMapper.toResponse(initialSchedule),
-                scheduleMapper.toResponse(finalSchedule),
+                scheduleCalculationSnapshotMapper.toResponse(finalSchedule == null ? initialSchedule : finalSchedule),
+                scheduleCalculationSnapshotMapper.toResponse(initialSchedule),
+                scheduleCalculationSnapshotMapper.toResponse(finalSchedule),
                 eligibility(eligibility),
                 creditProfile(creditProfile),
                 assessment(assessment),
@@ -94,7 +108,8 @@ public class AdminLoanDecisionMapper {
                 application.getSubmittedAt(),
                 application.getAdminDecidedBy(),
                 application.getAdminDecidedAt(),
-                contractNumber
+                contractNumber,
+                aiReviewReasons == null ? List.of() : List.copyOf(aiReviewReasons)
         );
     }
 

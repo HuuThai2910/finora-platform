@@ -1,6 +1,7 @@
 package com.finora.payment.dto.response;
 
-import com.finora.payment.domain.topup.PaymentTopUp;
+import com.finora.payment.domain.topup.entity.PaymentTopUp;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
@@ -32,7 +33,7 @@ public record TopUpResponse(
                 topUp.getQrPayload(), topUp.getStatus().name(), topUp.getErrorCode(), topUp.getErrorDetail(),
                 topUp.getExpiresAt(), topUp.getCompletedAt(),
                 mockCompletionEnabled && "MOCK".equals(topUp.getProvider())
-                        && topUp.getStatus() == com.finora.payment.domain.topup.TopUpStatus.AWAITING_PAYMENT
+                        && topUp.getStatus() == com.finora.payment.domain.topup.enums.TopUpStatus.AWAITING_PAYMENT
                         && !topUp.isExpired(now));
     }
 }

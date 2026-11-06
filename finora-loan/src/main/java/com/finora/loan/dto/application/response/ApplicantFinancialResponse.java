@@ -1,8 +1,9 @@
 package com.finora.loan.dto.application.response;
 
-import com.finora.loan.domain.application.CreditInformationSource;
-import com.finora.loan.domain.application.EducationLevel;
-import com.finora.loan.domain.application.HomeOwnership;
+import com.finora.loan.domain.application.enums.CreditInformationSource;
+import com.finora.loan.domain.application.enums.EducationLevel;
+import com.finora.loan.domain.application.enums.HomeOwnership;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 

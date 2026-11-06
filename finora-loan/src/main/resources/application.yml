@@ -378,6 +378,26 @@ resilience4j:
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 2
         automatic-transition-from-open-to-half-open-enabled: true
+      # Đọc eKYC từ finora-user khi nộp hồ sơ. HTTP 4xx (token người vay hết hạn, bị từ chối) không mở circuit.
+      user-profile:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+      # Ký số VNPT SmartCA (chỉ khi finora.signature.provider=VNPT_SMART_CA).
+      vnpt-smartca:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
   timelimiter:
     instances:
       fineract-product:
@@ -407,4 +427,12 @@ resilience4j:
       cic-delinquency:
         # Cao hơn HTTP read-timeout để client phân loại timeout trước khi circuit breaker cắt.
         timeout-duration: ${LOAN_CIC_TIME_LIMITER_TIMEOUT:17s}
+        cancel-running-future: true
+      user-profile:
+        # Cao hơn connect 2 giây + read 3 giây của finora-user để HTTP client phân loại timeout trước; không dùng mặc định 1 giây.
+        timeout-duration: ${USER_TIME_LIMITER_TIMEOUT:6s}
+        cancel-running-future: true
+      vnpt-smartca:
+        # Cao hơn read-timeout 15 giây của SmartCA để HTTP client phân loại timeout trước, như ai-credit.
+        timeout-duration: ${VNPT_SMARTCA_TIME_LIMITER_TIMEOUT:17s}
         cancel-running-future: true

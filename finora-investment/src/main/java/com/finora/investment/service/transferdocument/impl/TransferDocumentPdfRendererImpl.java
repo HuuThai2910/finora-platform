@@ -57,16 +57,16 @@ public class TransferDocumentPdfRendererImpl implements TransferDocumentPdfRende
         return stream;
     }
 
-    private static String html(TransferDocumentContent c) {
+    private static String html(TransferDocumentContent content) {
         StringBuilder notes = new StringBuilder();
         int index = 1;
-        for (TransferDocumentContent.NoteLine note : c.notes()) {
+        for (TransferDocumentContent.NoteLine note : content.notes()) {
             notes.append("<tr><td>").append(index++).append("</td><td>").append(escape(note.noteNumber()))
                     .append("</td><td>").append(money(note.outstandingAtTransfer()))
                     .append("</td><td>").append(money(note.price()))
                     .append("</td><td>").append(note.defaulted() ? "Nợ xấu" : "Đang thu nợ").append("</td></tr>");
         }
-        String defaultedClause = c.defaulted()
+        String defaultedClause = content.defaulted()
                 ? "<li>Một hoặc nhiều Note trong giao dịch thuộc khoản vay đang nợ xấu tại thời điểm khớp. Bên nhận"
                         + " chuyển nhượng đã xác nhận cảnh báo rủi ro này khi đặt lệnh mua.</li>"
                 : "";
@@ -146,28 +146,28 @@ public class TransferDocumentPdfRendererImpl implements TransferDocumentPdfRende
                 </body>
                 </html>
                 """.formatted(
-                escape(c.documentNumber()),
-                css(c.documentNumber()),
-                c.demoSeal() ? DEMO_NOTICE : "",
-                name(c.seller()), name(c.buyer()),
-                idNumber(c.seller()), idNumber(c.buyer()),
-                escape(c.seller().investorId()), escape(c.buyer().investorId()),
-                orDash(c.contractNumber()),
-                c.loanApplicationId(),
-                c.annualInterestRate() == null ? "—" : percent(c.annualInterestRate()) + "/năm",
-                c.termMonths() == null ? "—" : c.termMonths() + " tháng",
-                escape(c.tradeReference()),
-                dateTime(c.executedAt()),
-                dateTime(c.settledAt()),
-                percent(BigDecimal.valueOf(c.pricePermille(), 1)),
-                c.quantity(),
-                money(c.outstandingTotal()),
-                money(c.amount()),
-                money(c.platformFee()),
-                money(c.sellerProceeds()),
+                escape(content.documentNumber()),
+                css(content.documentNumber()),
+                content.demoSeal() ? DEMO_NOTICE : "",
+                name(content.seller()), name(content.buyer()),
+                idNumber(content.seller()), idNumber(content.buyer()),
+                escape(content.seller().investorId()), escape(content.buyer().investorId()),
+                orDash(content.contractNumber()),
+                content.loanApplicationId(),
+                content.annualInterestRate() == null ? "—" : percent(content.annualInterestRate()) + "/năm",
+                content.termMonths() == null ? "—" : content.termMonths() + " tháng",
+                escape(content.tradeReference()),
+                dateTime(content.executedAt()),
+                dateTime(content.settledAt()),
+                percent(BigDecimal.valueOf(content.pricePermille(), 1)),
+                content.quantity(),
+                money(content.outstandingTotal()),
+                money(content.amount()),
+                money(content.platformFee()),
+                money(content.sellerProceeds()),
                 notes,
                 defaultedClause,
-                c.issuedAt().atZone(VIETNAM).format(DATE));
+                content.issuedAt().atZone(VIETNAM).format(DATE));
     }
 
     private static String css(String documentNumber) {

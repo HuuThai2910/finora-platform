@@ -1,7 +1,7 @@
 package com.finora.user.service.impl;
 
-import com.finora.user.domain.LivenessAction;
-import com.finora.user.domain.LivenessStep;
+import com.finora.user.domain.enums.LivenessAction;
+import com.finora.user.domain.model.LivenessStep;
 import com.finora.user.service.LivenessChallengeGenerator;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;

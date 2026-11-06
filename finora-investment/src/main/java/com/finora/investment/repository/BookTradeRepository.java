@@ -1,19 +1,27 @@
 package com.finora.investment.repository;
 
-import com.finora.investment.domain.orderbook.BookTrade;
-import com.finora.investment.domain.orderbook.SettlementStatus;
+import com.finora.investment.domain.orderbook.entity.BookTrade;
+import com.finora.investment.domain.orderbook.enums.SettlementStatus;
 import org.springframework.data.domain.Page;
-import java.time.Instant;
-import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
+import java.util.List;
+
 public interface BookTradeRepository extends JpaRepository<BookTrade, Long> {
 
     /** Giao dịch gần nhất của một sổ, cho băng giá trên màn hình. */
     List<BookTrade> findByOrderBookIdOrderByExecutedAtDescIdDesc(Long orderBookId, Pageable pageable);
+
+    /** Khóa một lần khớp theo mã để nhân viên gửi thanh toán lại (chặn hai người bấm cùng lúc). */
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT t FROM BookTrade t WHERE t.tradeReference = :tradeReference")
+    java.util.Optional<BookTrade> findByTradeReferenceForUpdate(@Param("tradeReference") String tradeReference);
+
+    java.util.Optional<BookTrade> findByTradeReference(String tradeReference);
 
     /** Lần khớp chờ thanh toán đã tới hạn thử lại; cũ nhất trước để không bỏ đói giao dịch nào. */
     @Query("""

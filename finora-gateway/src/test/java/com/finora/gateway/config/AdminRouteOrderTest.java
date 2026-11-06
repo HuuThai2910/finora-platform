@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Route khớp theo thứ tự khai báo và Loan nhận {@code /api/v1/admin/**}: API admin của finora-user (người dùng,
- * vai trò nhân viên) phải được khai báo trước route đó ở cả cấu hình chạy IDE lẫn Docker.
+ * vai trò nhân viên, nhật ký hoạt động) phải được khai báo trước route đó ở cả cấu hình chạy IDE lẫn Docker.
  */
 class AdminRouteOrderTest {
 
@@ -35,7 +35,8 @@ class AdminRouteOrderTest {
         assertThat((List<String>) routes.get(userAdmin).get("predicates"))
                 .anySatisfy(predicate -> assertThat(predicate)
                         .contains("/api/v1/admin/users/**")
-                        .contains("/api/v1/admin/staff-roles/**"));
+                        .contains("/api/v1/admin/staff-roles/**")
+                        .contains("/api/v1/admin/activity-logs/**"));
     }
 
     private static int indexOf(List<Map<String, Object>> routes, String id) {

@@ -1,9 +1,10 @@
 package com.finora.loan.config;
 
-import com.finora.loan.domain.contract.SignatureProviderType;
+import com.finora.loan.domain.contract.enums.SignatureProviderType;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
 import java.net.URI;
 import java.time.Duration;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /** Cấu hình chọn provider phía server; secret SmartCA chỉ được truyền qua môi trường. */
 @ConfigurationProperties(prefix = "finora.signature")

@@ -1,6 +1,6 @@
 package com.finora.loan.controller;
 
-import com.finora.loan.domain.scoring.CreditAssessmentStatus;
+import com.finora.loan.domain.scoring.enums.CreditAssessmentStatus;
 import com.finora.loan.dto.scoring.request.ScoringRetryRequest;
 import com.finora.loan.dto.scoring.response.ScoringRetryAcceptedResponse;
 import com.finora.loan.service.scoring.CreditScoringAssessmentService;

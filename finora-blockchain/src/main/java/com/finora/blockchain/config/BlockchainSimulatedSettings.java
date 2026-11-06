@@ -1,10 +1,11 @@
 package com.finora.blockchain.config;
 
 import com.finora.common.environment.SimulatedSettingsCheck;
-import java.util.ArrayList;
-import java.util.List;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /** D37: receipt proof MOCK chỉ hợp lệ ở local/e2e/demo; production phải ghi Fabric thật (R6). */
 @Component

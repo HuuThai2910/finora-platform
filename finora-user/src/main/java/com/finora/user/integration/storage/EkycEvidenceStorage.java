@@ -1,6 +1,6 @@
 package com.finora.user.integration.storage;
 
-import com.finora.user.domain.EkycEvidenceStage;
+import com.finora.user.domain.enums.EkycEvidenceStage;
 
 /**
  * Kho lưu bằng chứng eKYC (ảnh hai mặt thẻ, video, khung hình, {@code result.json}) qua S3 API.

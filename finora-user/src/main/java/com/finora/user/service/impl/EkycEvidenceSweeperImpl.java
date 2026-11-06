@@ -1,10 +1,10 @@
 package com.finora.user.service.impl;
 
 import com.finora.user.config.EkycStorageProperties;
-import com.finora.user.domain.EkycAttempt;
-import com.finora.user.domain.EkycAttemptStatus;
-import com.finora.user.domain.EkycEvidence;
-import com.finora.user.domain.EkycEvidenceStage;
+import com.finora.user.domain.entity.EkycAttempt;
+import com.finora.user.domain.entity.EkycEvidence;
+import com.finora.user.domain.enums.EkycAttemptStatus;
+import com.finora.user.domain.enums.EkycEvidenceStage;
 import com.finora.user.repository.EkycAttemptRepository;
 import com.finora.user.repository.EkycEvidenceRepository;
 import com.finora.user.service.EkycEvidenceService;
@@ -50,10 +50,10 @@ public class EkycEvidenceSweeperImpl implements EkycEvidenceSweeper {
     static final int BATCH_SIZE = 100;
     static final int MAX_BATCHES = 10;
 
-    private final EkycAttemptRepository attemptRepository;
-    private final EkycEvidenceRepository evidenceRepository;
-    private final EkycEvidenceService evidenceService;
-    private final EkycStorageProperties storageProperties;
+    private final EkycAttemptRepository ekycAttemptRepository;
+    private final EkycEvidenceRepository ekycEvidenceRepository;
+    private final EkycEvidenceService ekycEvidenceService;
+    private final EkycStorageProperties ekycStorageProperties;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
 
@@ -76,16 +76,16 @@ public class EkycEvidenceSweeperImpl implements EkycEvidenceSweeper {
     @Override
     public SweepReport sweep() {
         Instant now = clock.instant();
-        Instant retentionCutoff = now.minus(Duration.ofDays(Math.max(1, storageProperties.getRetentionDays())));
+        Instant retentionCutoff = now.minus(Duration.ofDays(Math.max(1, ekycStorageProperties.getRetentionDays())));
         int abandoned = abandonStaleAttempts(now);
         int deleted = 0;
-        if (evidenceService.isEnabled()) {
-            String prefix = evidenceService.envPrefix() + "%";
-            deleted += deleteInBatches(pageable -> evidenceRepository.findLiveOfAttemptsInStatus(
+        if (ekycEvidenceService.isEnabled()) {
+            String prefix = ekycEvidenceService.envPrefix() + "%";
+            deleted += deleteInBatches(pageable -> ekycEvidenceRepository.findLiveOfAttemptsInStatus(
                     EkycAttemptStatus.ABANDONED, prefix, pageable), now);
-            deleted += deleteInBatches(pageable -> evidenceRepository.findLiveByStageCreatedBefore(
+            deleted += deleteInBatches(pageable -> ekycEvidenceRepository.findLiveByStageCreatedBefore(
                     EkycEvidenceStage.FINAL, retentionCutoff, prefix, pageable), now);
-            deleted += deleteInBatches(pageable -> evidenceRepository.findLiveCreatedBeforeWithdrawal(
+            deleted += deleteInBatches(pageable -> ekycEvidenceRepository.findLiveCreatedBeforeWithdrawal(
                     prefix, pageable), now);
         }
         int clearedDrafts = clearExpiredDrafts(retentionCutoff, now);
@@ -97,7 +97,7 @@ public class EkycEvidenceSweeperImpl implements EkycEvidenceSweeper {
         int total = 0;
         for (int batch = 0; batch < MAX_BATCHES; batch++) {
             Integer count = transactionTemplate.execute(tx -> {
-                List<EkycAttempt> stale = attemptRepository.findByStatusCreatedBefore(
+                List<EkycAttempt> stale = ekycAttemptRepository.findByStatusCreatedBefore(
                         EkycAttemptStatus.IN_PROGRESS, cutoff, PageRequest.of(0, BATCH_SIZE));
                 stale.forEach(attempt -> attempt.abandon(now));
                 return stale.size();
@@ -119,7 +119,7 @@ public class EkycEvidenceSweeperImpl implements EkycEvidenceSweeper {
             if (page.isEmpty()) {
                 break;
             }
-            List<String> deletedKeys = evidenceService.deleteObjects(
+            List<String> deletedKeys = ekycEvidenceService.deleteObjects(
                     page.stream().map(EkycEvidence::getObjectKey).toList());
             Set<String> deletedSet = Set.copyOf(deletedKeys);
             List<Long> ids = page.stream()
@@ -127,7 +127,7 @@ public class EkycEvidenceSweeperImpl implements EkycEvidenceSweeper {
                     .map(EkycEvidence::getId)
                     .collect(Collectors.toList());
             if (!ids.isEmpty()) {
-                transactionTemplate.executeWithoutResult(tx -> evidenceRepository.markDeleted(ids, now));
+                transactionTemplate.executeWithoutResult(tx -> ekycEvidenceRepository.markDeleted(ids, now));
             }
             total += ids.size();
             // Có object xoá lỗi (kho trục trặc) hoặc đã hết dữ liệu: dừng, vòng sau thử lại.
@@ -140,7 +140,7 @@ public class EkycEvidenceSweeperImpl implements EkycEvidenceSweeper {
 
     private int clearExpiredDrafts(Instant cutoff, Instant now) {
         Integer count = transactionTemplate.execute(tx -> {
-            List<EkycAttempt> decided = attemptRepository.findDecidedWithDraftBefore(
+            List<EkycAttempt> decided = ekycAttemptRepository.findDecidedWithDraftBefore(
                     List.of(EkycAttemptStatus.APPROVED, EkycAttemptStatus.REJECTED), cutoff,
                     PageRequest.of(0, BATCH_SIZE));
             decided.forEach(attempt -> attempt.clearDraft(now));

@@ -1,15 +1,16 @@
 package com.finora.notification.repository;
 
-import com.finora.notification.domain.InAppNotification;
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
+import com.finora.notification.domain.entity.InAppNotification;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 public interface InAppNotificationRepository extends JpaRepository<InAppNotification, UUID> {
     boolean existsBySourceEventIdAndRecipientIdAndType(UUID eventId, String recipientId, String type);

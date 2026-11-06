@@ -2,8 +2,8 @@ package com.finora.investment.service.messaging.impl;
 
 import com.finora.common.enums.investment.CommitmentStatus;
 import com.finora.common.enums.investment.ListingStatus;
-import com.finora.investment.domain.listing.MarketListing;
-import com.finora.investment.domain.messaging.ProcessedEvent;
+import com.finora.investment.domain.listing.entity.MarketListing;
+import com.finora.investment.domain.messaging.entity.ProcessedEvent;
 import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.messaging.event.LoanFundingCancelledEventData;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
@@ -43,9 +43,9 @@ public class LoanFundingCancelledHandlerImpl implements LoanFundingCancelledHand
             "DISBURSEMENT_FAILED", "Giải ngân thất bại khi tiền chưa chuyển; tiền giữ được trả lại ví");
 
     private final ProcessedEventRepository processedEventRepository;
-    private final MarketListingRepository listingRepository;
-    private final InvestmentCommitmentRepository commitmentRepository;
-    private final ListingCommitmentCanceller commitmentCanceller;
+    private final MarketListingRepository marketListingRepository;
+    private final InvestmentCommitmentRepository investmentCommitmentRepository;
+    private final ListingCommitmentCanceller listingCommitmentCanceller;
     private final Clock clock;
 
     @Override
@@ -60,7 +60,7 @@ public class LoanFundingCancelledHandlerImpl implements LoanFundingCancelledHand
         }
         boolean openWithdrawal = "BORROWER_WITHDREW".equals(data.reasonCode());
         MarketListing listing = openWithdrawal
-                ? listingRepository.findByApplicationNumberAndFundingRoundForUpdate(
+                ? marketListingRepository.findByApplicationNumberAndFundingRoundForUpdate(
                         data.applicationNumber(), data.fundingRound()).orElseThrow(() -> InvestmentDomainException.notFound(
                         "LISTING_NOT_FOUND", "Không tìm thấy listing của hồ sơ đã rút"))
                 : lockedAllocationListing(data);
@@ -72,13 +72,13 @@ public class LoanFundingCancelledHandlerImpl implements LoanFundingCancelledHand
         Instant now = clock.instant();
         if (listing.getStatus() != ListingStatus.CANCELLED) {
             requireNotDisbursed(listing);
-            int cancelled = commitmentCanceller.cancelActive(listing, ORDER_REASON, reasonDetail, ACTOR, now).count();
+            int cancelled = listingCommitmentCanceller.cancelActive(listing, ORDER_REASON, reasonDetail, ACTOR, now).count();
             listing.setStatus(ListingStatus.CANCELLED);
             listing.setCancelledAt(data.cancelledAt() == null ? now : data.cancelledAt());
             listing.setCancellationReason(data.reasonCode());
             listing.setUpdatedBy(ACTOR);
             listing.setUpdatedAt(now);
-            listingRepository.saveAndFlush(listing);
+            marketListingRepository.saveAndFlush(listing);
             log.info("Hủy đợt gọi vốn theo Loan: listingId={}, applicationNumber={}, reasonCode={}, commitments={}",
                     listing.getId(), listing.getApplicationNumber(), data.reasonCode(), cancelled);
         }
@@ -92,7 +92,7 @@ public class LoanFundingCancelledHandlerImpl implements LoanFundingCancelledHand
                 || data.allocationHash() == null || !data.allocationHash().matches("^[0-9a-f]{64}$")) {
             throw new IllegalArgumentException("LoanFundingCancelled thiếu listing/allocation đã khóa");
         }
-        return listingRepository.findByIdForUpdate(data.listingId())
+        return marketListingRepository.findByIdForUpdate(data.listingId())
                 .orElseThrow(() -> InvestmentDomainException.notFound(
                         "LISTING_NOT_FOUND", "Không tìm thấy listing của đợt gọi vốn bị hủy"));
     }
@@ -136,7 +136,7 @@ public class LoanFundingCancelledHandlerImpl implements LoanFundingCancelledHand
 
     private void requireNotDisbursed(MarketListing listing) {
         // Đã có LoanDisbursed hoặc phần vốn FINALIZED nghĩa là tiền đã capture: hủy lúc này sẽ trả tiền hai lần.
-        if (listing.getDisbursedAt() != null || !commitmentRepository
+        if (listing.getDisbursedAt() != null || !investmentCommitmentRepository
                 .findByListingIdAndStatus(listing.getId(), CommitmentStatus.FINALIZED).isEmpty()) {
             throw InvestmentDomainException.conflict(
                     "FUNDING_ALREADY_DISBURSED", "Khoản vay đã giải ngân nên không thể hủy đợt gọi vốn");

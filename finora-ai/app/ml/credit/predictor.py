@@ -37,6 +37,7 @@ from app.services.credit.rule_engine import (
     dem_luat_co_du_lieu,
     kiem_tra_chot_chan_cung,
     kiem_tra_yeu_cau_tham_dinh,
+    ly_do_chuyen_tham_dinh,
     quyet_dinh,
     tinh_diem_tong_hop,
     xep_hang,
@@ -191,10 +192,17 @@ class BoDuDoan:
         ly_do_tham_dinh = kiem_tra_yeu_cau_tham_dinh(ho_so)
         # Mẫu số là số luật ĐÃ CHẤM (đang bật), không phải hằng số: admin thêm bớt
         # luật thì ngưỡng "đủ dữ liệu để máy quyết" phải co giãn theo.
+        so_luat_co_du_lieu = dem_luat_co_du_lieu(rule_trace)
         decision = quyet_dinh(
-            evaluation_score, vi_pham, dem_luat_co_du_lieu(rule_trace), len(rule_trace),
+            evaluation_score, vi_pham, so_luat_co_du_lieu, len(rule_trace),
             ly_do_tham_dinh
         )
+        # Hồ sơ chuyển thẩm định luôn kèm mã lý do (kể cả khi chỉ vì điểm nằm giữa hai
+        # ngưỡng), để thẩm định viên biết vì sao máy không tự quyết.
+        if decision == "PENDING_REVIEW":
+            ly_do_tham_dinh = ly_do_chuyen_tham_dinh(
+                so_luat_co_du_lieu, len(rule_trace), ly_do_tham_dinh
+            )
 
         return {
             "pd_probability": round(pd_probability, 4),

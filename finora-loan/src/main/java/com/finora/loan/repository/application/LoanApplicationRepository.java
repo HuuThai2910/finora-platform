@@ -1,18 +1,19 @@
 package com.finora.loan.repository.application;
 
-import com.finora.loan.domain.application.LoanApplication;
-import com.finora.loan.domain.application.LoanApplicationStatus;
+import com.finora.loan.domain.application.entity.LoanApplication;
+import com.finora.loan.domain.application.enums.LoanApplicationStatus;
 import jakarta.persistence.LockModeType;
-import java.util.Collection;
-import java.util.List;
-import java.util.Optional;
-import java.time.Instant;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
 
 /**
  * Truy cập Loan Application mà không tải Product hoặc status history kèm theo.
@@ -41,8 +42,8 @@ public interface LoanApplicationRepository extends JpaRepository<LoanApplication
     java.math.BigDecimal sumOpenRequestedAmount(
             @Param("borrowerId") String borrowerId,
             @Param("statuses") Collection<LoanApplicationStatus> statuses,
-            @Param("closedFunding") Collection<com.finora.loan.domain.application.LoanFundingStatus> closedFunding,
-            @Param("closedTerms") Collection<com.finora.loan.domain.application.TermsConfirmationStatus> closedTerms);
+            @Param("closedFunding") Collection<com.finora.loan.domain.application.enums.LoanFundingStatus> closedFunding,
+            @Param("closedTerms") Collection<com.finora.loan.domain.application.enums.TermsConfirmationStatus> closedTerms);
 
     Optional<LoanApplication> findByApplicationNumber(String applicationNumber);
 
@@ -62,7 +63,7 @@ public interface LoanApplicationRepository extends JpaRepository<LoanApplication
 
     @Query("""
             select application.id from LoanApplication application
-            where application.termsConfirmationStatus = com.finora.loan.domain.application.TermsConfirmationStatus.PENDING
+            where application.termsConfirmationStatus = com.finora.loan.domain.application.enums.TermsConfirmationStatus.PENDING
               and application.termsExpiresAt <= :now
             order by application.termsExpiresAt asc, application.id asc
             """)
@@ -77,6 +78,15 @@ public interface LoanApplicationRepository extends JpaRepository<LoanApplication
     /** Hàng chờ admin luôn phân trang; assessment được batch-load ở service, không query theo từng row. */
     Page<LoanApplication> findByStatus(LoanApplicationStatus status, Pageable pageable);
 
+    /** Mã hồ sơ theo ID — trả cặp {@code [Long id, String applicationNumber]}. */
+    @org.springframework.data.jpa.repository.Query(
+            "select a.id, a.applicationNumber from LoanApplication a where a.id in :ids")
+    java.util.List<Object[]> findApplicationNumbers(
+            @org.springframework.data.repository.query.Param("ids") java.util.Collection<Long> ids);
+
+    /** Hồ sơ của một người vay theo trạng thái — trang khách hàng và trang thẩm định của admin. */
+    Page<LoanApplication> findByBorrowerIdAndStatus(String borrowerId, LoanApplicationStatus status, Pageable pageable);
+
     /** Worker chỉ lấy ID một batch nhỏ; entity được khóa riêng khi bắt đầu từng bước. */
     @Query("""
             select application.id from LoanApplication application
@@ -84,7 +94,7 @@ public interface LoanApplicationRepository extends JpaRepository<LoanApplication
             order by application.updatedAt asc, application.id asc
             """)
     List<Long> findIdsByStatusIn(
-            @Param("statuses") Collection<com.finora.loan.domain.application.LoanApplicationStatus> statuses,
+            @Param("statuses") Collection<com.finora.loan.domain.application.enums.LoanApplicationStatus> statuses,
             Pageable pageable
     );
 }

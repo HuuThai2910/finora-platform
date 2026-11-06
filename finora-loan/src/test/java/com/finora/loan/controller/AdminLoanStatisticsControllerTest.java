@@ -1,30 +1,17 @@
 package com.finora.loan.controller;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.finora.common.exception.GlobalExceptionHandler;
-import com.finora.loan.repository.statistics.LoanStatisticsRepository;
+import com.finora.loan.domain.servicing.model.LoanServicingHistory;
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.BucketProductCountRow;
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.BucketProductDisbursementRow;
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.FunnelRow;
-import com.finora.loan.repository.statistics.LoanStatisticsRepository.OutstandingByProductDpdRow;
-import com.finora.loan.domain.servicing.LoanServicingHistory;
 import com.finora.loan.repository.statistics.LoanStatisticsRepository.HistoryLoanRow;
+import com.finora.loan.repository.statistics.LoanStatisticsRepository.OutstandingByProductDpdRow;
+import com.finora.loan.repository.statistics.LoanStatisticsRepository;
 import com.finora.loan.service.statistics.AdminLoanStatisticsService;
 import com.finora.loan.service.statistics.PortfolioHistoryReader;
-import java.math.BigDecimal;
-import java.time.Clock;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
-import java.util.List;
-import java.util.Map;
+import com.finora.loan.service.statistics.impl.AdminLoanStatisticsServiceImpl;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +27,21 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.support.TransactionOperations;
+
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Map;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Kiểm tra hợp đồng HTTP mà web đang dựng song song: tên field, mã lỗi 400 và 403.
@@ -61,7 +63,7 @@ class AdminLoanStatisticsControllerTest {
     @BeforeEach
     void setUp() {
         AdminLoanStatisticsService service =
-                new AdminLoanStatisticsService(repository, historyReader, TransactionOperations.withoutTransaction(),
+                new AdminLoanStatisticsServiceImpl(repository, historyReader, TransactionOperations.withoutTransaction(),
                         Clock.fixed(NOW, ZoneOffset.UTC));
         // Giống cấu hình Jackson mặc định của Spring Boot: ngày giờ dạng ISO-8601, không phải mảng số.
         MappingJackson2HttpMessageConverter json = new MappingJackson2HttpMessageConverter(

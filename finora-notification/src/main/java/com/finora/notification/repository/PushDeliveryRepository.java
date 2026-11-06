@@ -1,18 +1,19 @@
 package com.finora.notification.repository;
 
-import com.finora.notification.domain.PushDelivery;
-import com.finora.notification.domain.PushDeliveryStatus;
+import com.finora.notification.domain.entity.PushDelivery;
+import com.finora.notification.domain.enums.PushDeliveryStatus;
 import jakarta.persistence.LockModeType;
-import java.time.Instant;
-import java.util.Collection;
-import java.util.List;
-import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
+import java.util.UUID;
 
 public interface PushDeliveryRepository extends JpaRepository<PushDelivery, Long> {
 

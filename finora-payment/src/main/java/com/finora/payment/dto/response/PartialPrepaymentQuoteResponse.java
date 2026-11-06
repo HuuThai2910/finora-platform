@@ -1,7 +1,8 @@
 package com.finora.payment.dto.response;
 
-import com.finora.payment.domain.repayment.PartialPrepaymentQuote;
-import com.finora.payment.domain.repayment.PartialPrepaymentQuoteStatus;
+import com.finora.payment.domain.repayment.entity.PartialPrepaymentQuote;
+import com.finora.payment.domain.repayment.enums.PartialPrepaymentQuoteStatus;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;

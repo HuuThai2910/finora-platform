@@ -1,10 +1,12 @@
 package com.finora.payment.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.common.exception.BusinessException;
-import java.time.Duration;
+import com.finora.common.messaging.KafkaDeadLetterTopic;
+import com.finora.common.messaging.KafkaErrorHandlers;
+import com.finora.common.messaging.KafkaEventPublisher;
+import com.finora.common.messaging.KafkaEventReader;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.common.TopicPartition;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.kafka.ConcurrentKafkaListenerContainerFactoryConfigurer;
 import org.springframework.context.annotation.Bean;
@@ -12,9 +14,10 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.ExponentialBackOff;
+
+import java.time.Duration;
 
 /**
  * Xử lý lỗi của consumer Payment ({@code DisbursementRequested}, {@code LoanDisbursed}, {@code NoteOwnershipChanged}),
@@ -42,19 +45,17 @@ public class PaymentKafkaConsumerConfiguration {
             @Value("${finora.payment.kafka.retry-initial-interval:1s}") Duration initialInterval,
             @Value("${finora.payment.kafka.retry-max-interval:30s}") Duration maxInterval,
             @Value("${finora.payment.kafka.retry-max-elapsed:3m}") Duration maxElapsed) {
-        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaTemplate,
-                (ConsumerRecord<?, ?> record, Exception exception) -> {
-                    // Không log payload: chỉ vị trí record và loại lỗi gốc.
-                    log.error("Event Payment vào DLT: topic={}, partition={}, offset={}, exception={}",
-                            record.topic(), record.partition(), record.offset(), rootType(exception));
-                    return new TopicPartition(record.topic() + deadLetterSuffix, -1);
-                });
         ExponentialBackOff backOff = new ExponentialBackOff(initialInterval.toMillis(), 2.0);
         backOff.setMaxInterval(maxInterval.toMillis());
         backOff.setMaxElapsedTime(maxElapsed.toMillis());
-        DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, backOff);
-        handler.addNotRetryableExceptions(IllegalArgumentException.class, BusinessException.class);
-        return handler;
+        return KafkaErrorHandlers.deadLetterErrorHandler(kafkaTemplate, backOff,
+                KafkaDeadLetterTopic.suffixAnyPartition(deadLetterSuffix),
+                // Không log payload: chỉ vị trí record và loại lỗi gốc.
+                (record, exception) -> log.error(
+                        "Event Payment vào DLT: topic={}, partition={}, offset={}, exception={}",
+                        record.topic(), record.partition(), record.offset(),
+                        KafkaErrorHandlers.rootCauseSimpleName(exception)),
+                IllegalArgumentException.class, BusinessException.class);
     }
 
     @Bean
@@ -68,9 +69,15 @@ public class PaymentKafkaConsumerConfiguration {
         return factory;
     }
 
-    private static String rootType(Throwable exception) {
-        Throwable current = exception;
-        while (current.getCause() != null && current.getCause() != current) current = current.getCause();
-        return current.getClass().getSimpleName();
+    /** Đọc và kiểm envelope/header event nhận; dùng ObjectMapper của Spring nên field lạ trong data bị bỏ qua. */
+    @Bean
+    KafkaEventReader kafkaEventReader(ObjectMapper objectMapper) {
+        return new KafkaEventReader(objectMapper);
+    }
+
+    /** Dựng envelope + header và gửi event outbox của Payment ({@code PaymentOutboxPublisher}). */
+    @Bean
+    KafkaEventPublisher kafkaEventPublisher(KafkaTemplate<String, String> kafkaTemplate, ObjectMapper objectMapper) {
+        return new KafkaEventPublisher(kafkaTemplate, objectMapper);
     }
 }

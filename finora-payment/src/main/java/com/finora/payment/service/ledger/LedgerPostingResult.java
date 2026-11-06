@@ -1,6 +1,7 @@
 package com.finora.payment.service.ledger;
 
-import com.finora.payment.domain.ledger.LedgerTransactionStatus;
+import com.finora.payment.domain.ledger.enums.LedgerTransactionStatus;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;

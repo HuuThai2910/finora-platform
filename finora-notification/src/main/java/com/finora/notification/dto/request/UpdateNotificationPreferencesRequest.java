@@ -1,10 +1,11 @@
 package com.finora.notification.dto.request;
 
-import com.finora.notification.domain.NotificationCategory;
+import com.finora.notification.domain.enums.NotificationCategory;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+
 import java.util.List;
 
 /** Bật/tắt push cho một hoặc nhiều nhóm; nhóm không có trong request giữ nguyên. */

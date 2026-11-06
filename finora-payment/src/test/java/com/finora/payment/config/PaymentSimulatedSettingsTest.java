@@ -1,9 +1,9 @@
 package com.finora.payment.config;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /** D37: provider tiền mock và khóa dev mặc định bị liệt kê để staging/production từ chối khởi động. */
 class PaymentSimulatedSettingsTest {

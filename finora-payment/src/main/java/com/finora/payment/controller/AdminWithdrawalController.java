@@ -5,8 +5,8 @@ import com.finora.payment.dto.response.AdminWithdrawalResponse;
 import com.finora.payment.service.withdrawal.AdminWithdrawalService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.UUID;
+
 /** Hàng đợi sự cố rút tiền cho ADMIN (R4). Gateway route đường này về Payment trước {@code /api/v1/admin/**} của Loan. */
 @RestController
 @RequestMapping("/api/v1/admin/withdrawals")
@@ -22,21 +24,22 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class AdminWithdrawalController {
 
-    private final AdminWithdrawalService service;
+    private final AdminWithdrawalService adminWithdrawalService;
 
     @GetMapping
-    public PageResponse<AdminWithdrawalResponse> list(@RequestParam(defaultValue = "0") @Min(0) int page,
+    public ResponseEntity<PageResponse<AdminWithdrawalResponse>> list(
+            @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-        return service.list(page, size);
+        return ResponseEntity.ok(adminWithdrawalService.list(page, size));
     }
 
     @GetMapping("/{withdrawalId}")
-    public AdminWithdrawalResponse find(@PathVariable UUID withdrawalId) {
-        return service.find(withdrawalId);
+    public ResponseEntity<AdminWithdrawalResponse> find(@PathVariable UUID withdrawalId) {
+        return ResponseEntity.ok(adminWithdrawalService.find(withdrawalId));
     }
 
     @PostMapping("/{withdrawalId}/recheck")
-    public AdminWithdrawalResponse recheck(@PathVariable UUID withdrawalId) {
-        return service.recheck(withdrawalId);
+    public ResponseEntity<AdminWithdrawalResponse> recheck(@PathVariable UUID withdrawalId) {
+        return ResponseEntity.ok(adminWithdrawalService.recheck(withdrawalId));
     }
 }

@@ -30,7 +30,7 @@ spring:
           - id: user-admin-service
             uri: http://localhost:8085
             predicates:
-              - Path=/api/v1/admin/users/**,/api/v1/admin/staff-roles/**
+              - Path=/api/v1/admin/users/**,/api/v1/admin/staff-roles/**,/api/v1/admin/activity-logs/**
           - id: user-service
             uri: http://localhost:8085
             predicates:
@@ -52,6 +52,13 @@ spring:
 
 server:
   port: 8080
+
+finora:
+  # Access log: mỗi lượt gọi /api/** một dòng JSON (logger finora.api); trên VM Azure Docker đẩy sang Log Analytics.
+  api-log:
+    enabled: ${API_LOG_ENABLED:true}
+    body-limit: ${API_LOG_BODY_LIMIT:8192}
+    logged-body-limit: ${API_LOG_LOGGED_BODY_LIMIT:1000}
 
 management:
   endpoint:

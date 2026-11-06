@@ -1,14 +1,15 @@
 package com.finora.loan.repository.servicing;
 
-import com.finora.loan.domain.servicing.RepaymentEventQuarantine;
-import com.finora.loan.domain.servicing.RepaymentEventQuarantineStatus;
+import com.finora.loan.domain.servicing.entity.RepaymentEventQuarantine;
+import com.finora.loan.domain.servicing.enums.RepaymentEventQuarantineStatus;
 import jakarta.persistence.LockModeType;
-import java.util.Optional;
-import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
+
+import java.util.Optional;
+import java.util.UUID;
 
 public interface RepaymentEventQuarantineRepository extends JpaRepository<RepaymentEventQuarantine, Long> {
     Optional<RepaymentEventQuarantine> findByEventId(UUID eventId);

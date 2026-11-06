@@ -1,8 +1,9 @@
 package com.finora.payment.service.wallet;
 
-import com.finora.payment.domain.wallet.PaymentWallet;
-import com.finora.payment.domain.wallet.WalletOwnerType;
-import com.finora.payment.domain.wallet.WalletStatus;
+import com.finora.payment.domain.wallet.entity.PaymentWallet;
+import com.finora.payment.domain.wallet.enums.WalletOwnerType;
+import com.finora.payment.domain.wallet.enums.WalletStatus;
+
 import java.math.BigDecimal;
 import java.util.UUID;
 

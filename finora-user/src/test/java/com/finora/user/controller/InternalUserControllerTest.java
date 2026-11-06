@@ -1,6 +1,6 @@
 package com.finora.user.controller;
 
-import com.finora.user.domain.UserProfile;
+import com.finora.user.domain.entity.UserProfile;
 import com.finora.user.repository.UserProfileRepository;
 import com.finora.user.service.UserIdentityService;
 import com.finora.user.service.impl.UserIdentityServiceImpl;
@@ -17,8 +17,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static com.finora.user.controller.ControllerTestSupport.authenticateWith;
-import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;

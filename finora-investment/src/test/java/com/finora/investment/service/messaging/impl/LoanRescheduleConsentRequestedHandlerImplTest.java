@@ -1,5 +1,23 @@
 package com.finora.investment.service.messaging.impl;
 
+import com.finora.investment.domain.note.entity.InvestmentNote;
+import com.finora.investment.messaging.event.InvestorServicingNotificationEventData;
+import com.finora.investment.messaging.event.LoanRescheduleConsentRequestedEventData;
+import com.finora.investment.repository.InvestmentNoteRepository;
+import com.finora.investment.repository.InvestorRescheduleConsentRepository;
+import com.finora.investment.repository.ProcessedEventRepository;
+import com.finora.investment.service.outbox.InvestmentOutboxService;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.UUID;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -9,23 +27,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-
-import com.finora.investment.domain.note.InvestmentNote;
-import com.finora.investment.messaging.event.InvestorServicingNotificationEventData;
-import com.finora.investment.messaging.event.LoanRescheduleConsentRequestedEventData;
-import com.finora.investment.repository.InvestmentNoteRepository;
-import com.finora.investment.repository.InvestorRescheduleConsentRepository;
-import com.finora.investment.repository.ProcessedEventRepository;
-import com.finora.investment.service.outbox.InvestmentOutboxService;
-import java.math.BigDecimal;
-import java.time.Clock;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
-import java.util.List;
-import java.util.UUID;
-import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 /**
  * P7 (W3F, D78): mở phiếu đồng thuận cơ cấu thì mời từng chủ phiếu qua {@code InvestorNoteServicingChanged.v1}; giữ quy

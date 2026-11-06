@@ -1,11 +1,11 @@
 package com.finora.payment.integration.fineract;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
 import com.finora.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class FineractQuoteErrorsTest {
 

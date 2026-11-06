@@ -1,9 +1,12 @@
 package com.finora.loan.service.contract;
 
-import com.finora.loan.dto.contract.request.SignLoanContractRequest;
 import com.finora.loan.dto.contract.request.DeclineLoanContractRequest;
+import com.finora.loan.dto.contract.request.SignLoanContractRequest;
 import com.finora.loan.dto.contract.response.InvestorContractResponse;
 
+/**
+ * Hợp đồng phía nhà đầu tư: xem, tải PDF, ký, từ chối phần vốn và đối soát phiên ký SmartCA.
+ */
 public interface InvestorContractService {
     java.util.List<InvestorContractResponse> listMine();
     InvestorContractResponse detail(String contractNumber);
@@ -19,6 +22,9 @@ public interface InvestorContractService {
 
     /**
      * Worker đối soát phiên SmartCA của một nhà đầu tư khi người dùng không quay lại app (không có security context).
+     *
+     * <p>Chỉ hỏi trạng thái, không gửi lại yêu cầu ký (người dùng không có mặt để xác nhận một push mới). Lỗi
+     * SmartCA tạm thời được bỏ qua tới lượt sau, trừ khi phiên đã quá hạn thì đóng phiên để giải phóng lượt ký.</p>
      *
      * @param sessionExpired phiên đã quá {@code finora.signature.pades.signing-session-timeout}: chưa có chữ ký thì
      *                       đóng phiên để bên khác ký tiếp

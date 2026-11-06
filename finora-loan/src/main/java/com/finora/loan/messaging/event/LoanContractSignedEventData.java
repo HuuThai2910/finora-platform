@@ -1,7 +1,8 @@
 package com.finora.loan.messaging.event;
 
-import com.finora.loan.domain.contract.SignatureMethod;
-import com.finora.loan.domain.contract.SignatureProviderType;
+import com.finora.loan.domain.contract.enums.SignatureMethod;
+import com.finora.loan.domain.contract.enums.SignatureProviderType;
+
 import java.time.Instant;
 
 public record LoanContractSignedEventData(

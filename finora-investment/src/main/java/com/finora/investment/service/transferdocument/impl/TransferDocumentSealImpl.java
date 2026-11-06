@@ -63,27 +63,27 @@ public class TransferDocumentSealImpl implements TransferDocumentSeal {
     private static final PadesSignatureLabel LABEL = new PadesSignatureLabel(
             "FINORA", "Xác nhận chuyển nhượng Note", "FINORA, Việt Nam");
 
-    private final PadesSignaturePreparer preparer;
-    private final PadesCmsBuilder cmsBuilder;
-    private final PadesSignatureEmbedder embedder;
-    private final PadesSignatureVerifier verifier;
+    private final PadesSignaturePreparer padesSignaturePreparer;
+    private final PadesCmsBuilder padesCmsBuilder;
+    private final PadesSignatureEmbedder padesSignatureEmbedder;
+    private final PadesSignatureVerifier padesSignatureVerifier;
     private final PrivateKey privateKey;
     private final X509Certificate certificate;
     private final List<X509Certificate> chain;
     private final boolean demo;
 
     public TransferDocumentSealImpl(
-            PadesSignaturePreparer preparer,
-            PadesCmsBuilder cmsBuilder,
-            PadesSignatureEmbedder embedder,
-            PadesSignatureVerifier verifier,
+            PadesSignaturePreparer padesSignaturePreparer,
+            PadesCmsBuilder padesCmsBuilder,
+            PadesSignatureEmbedder padesSignatureEmbedder,
+            PadesSignatureVerifier padesSignatureVerifier,
             TransferDocumentProperties properties,
             Clock clock
     ) {
-        this.preparer = preparer;
-        this.cmsBuilder = cmsBuilder;
-        this.embedder = embedder;
-        this.verifier = verifier;
+        this.padesSignaturePreparer = padesSignaturePreparer;
+        this.padesCmsBuilder = padesCmsBuilder;
+        this.padesSignatureEmbedder = padesSignatureEmbedder;
+        this.padesSignatureVerifier = padesSignatureVerifier;
         TransferDocumentProperties.Seal seal = properties.seal();
         Credential credential = seal.configured() ? load(seal) : demo(clock.instant());
         this.privateKey = credential.privateKey();
@@ -105,16 +105,16 @@ public class TransferDocumentSealImpl implements TransferDocumentSeal {
 
     @Override
     public byte[] seal(byte[] pdf, Instant now) {
-        PreparedPadesRevision prepared = preparer.prepare(pdf, LABEL, now);
-        byte[] attributes = cmsBuilder.signedAttributes(prepared.documentDigest(), certificate);
+        PreparedPadesRevision prepared = padesSignaturePreparer.prepare(pdf, LABEL, now);
+        byte[] attributes = padesCmsBuilder.signedAttributes(prepared.documentDigest(), certificate);
         byte[] signatureValue = sign(attributes);
-        if (!cmsBuilder.signatureMatches(attributes, signatureValue, certificate)) {
+        if (!padesCmsBuilder.signatureMatches(attributes, signatureValue, certificate)) {
             throw new PadesSignatureException("SEAL_SIGNATURE_INVALID", "Chữ ký con dấu không khớp chứng thư");
         }
-        byte[] cms = cmsBuilder.assemble(attributes, signatureValue, certificate, chain);
-        byte[] sealed = embedder.embed(
+        byte[] cms = padesCmsBuilder.assemble(attributes, signatureValue, certificate, chain);
+        byte[] sealed = padesSignatureEmbedder.embed(
                 prepared.content(), prepared.contentsOffset(), prepared.contentsLength(), cms);
-        if (verifier.verify(sealed).size() != 1) {
+        if (padesSignatureVerifier.verify(sealed).size() != 1) {
             throw new PadesSignatureException("SEAL_VERIFY_FAILED", "PDF sau khi đóng dấu không có đúng một chữ ký");
         }
         return sealed;

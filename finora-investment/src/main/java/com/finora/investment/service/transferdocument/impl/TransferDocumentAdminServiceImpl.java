@@ -3,8 +3,8 @@ package com.finora.investment.service.transferdocument.impl;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finora.investment.domain.transferdocument.NoteTransferDocument;
-import com.finora.investment.domain.transferdocument.NoteTransferDocumentStatus;
+import com.finora.investment.domain.transferdocument.entity.NoteTransferDocument;
+import com.finora.investment.domain.transferdocument.enums.NoteTransferDocumentStatus;
 import com.finora.investment.dto.response.TransferDocumentAdminResponse;
 import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.repository.BookTradeRepository;
@@ -23,17 +23,17 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class TransferDocumentAdminServiceImpl implements TransferDocumentAdminService {
 
-    private final NoteTransferDocumentRepository documentRepository;
-    private final BookTradeRepository tradeRepository;
-    private final TransferDocumentStateService stateService;
+    private final NoteTransferDocumentRepository noteTransferDocumentRepository;
+    private final BookTradeRepository bookTradeRepository;
+    private final TransferDocumentStateService transferDocumentStateService;
     private final ObjectMapper objectMapper;
 
     @Override
     @Transactional(readOnly = true)
     public Page<TransferDocumentAdminResponse> list(NoteTransferDocumentStatus status, Pageable pageable) {
         Page<NoteTransferDocumentRow> rows = status == null
-                ? documentRepository.findRows(pageable)
-                : documentRepository.findRowsByStatus(status, pageable);
+                ? noteTransferDocumentRepository.findRows(pageable)
+                : noteTransferDocumentRepository.findRowsByStatus(status, pageable);
         return rows.map(row -> response(row, null));
     }
 
@@ -41,7 +41,7 @@ public class TransferDocumentAdminServiceImpl implements TransferDocumentAdminSe
     @Transactional(readOnly = true)
     public TransferDocumentAdminResponse detail(String tradeReference) {
         NoteTransferDocument document = find(tradeReference);
-        var trade = tradeRepository.findById(document.getTradeId()).orElseThrow();
+        var trade = bookTradeRepository.findById(document.getTradeId()).orElseThrow();
         NoteTransferDocumentRow row = new NoteTransferDocumentRow(
                 document.getDocumentNumber(), document.getTradeReference(), document.getLoanId(),
                 document.getListingId(), trade.getSellerId(), trade.getBuyerId(), trade.getQuantity(),
@@ -63,11 +63,11 @@ public class TransferDocumentAdminServiceImpl implements TransferDocumentAdminSe
 
     @Override
     public void retry(String tradeReference) {
-        stateService.reopen(tradeReference);
+        transferDocumentStateService.reopen(tradeReference);
     }
 
     private NoteTransferDocument find(String tradeReference) {
-        return documentRepository.findByTradeReference(tradeReference)
+        return noteTransferDocumentRepository.findByTradeReference(tradeReference)
                 .orElseThrow(() -> InvestmentDomainException.notFound(
                         "TRANSFER_DOCUMENT_NOT_FOUND", "Không tìm thấy giấy xác nhận chuyển nhượng"));
     }

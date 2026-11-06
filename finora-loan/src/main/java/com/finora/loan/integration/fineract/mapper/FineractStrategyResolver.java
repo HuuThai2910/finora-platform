@@ -1,6 +1,6 @@
 package com.finora.loan.integration.fineract.mapper;
 
-import com.finora.loan.domain.product.RepaymentMethod;
+import com.finora.loan.domain.product.enums.RepaymentMethod;
 
 /** Cho gateway ngoài package mapper dùng đúng chiến lược Product theo version cấu hình core. */
 public final class FineractStrategyResolver {

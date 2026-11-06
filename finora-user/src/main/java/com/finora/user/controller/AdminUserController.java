@@ -5,11 +5,14 @@ import com.finora.common.security.SecurityUtils;
 import com.finora.common.statistics.StatisticsBucket;
 import com.finora.common.statistics.StatisticsPeriod;
 import com.finora.user.dto.request.AssignRoleRequest;
+import com.finora.user.dto.request.LockUserRequest;
+import com.finora.user.dto.request.UserSearchCriteria;
 import com.finora.user.dto.response.UserProfileResponse;
 import com.finora.user.dto.response.UserStatsResponse;
 import com.finora.user.dto.response.UserStatsSeriesResponse;
 import com.finora.user.service.UserProfileService;
 import com.finora.user.service.UserStatisticsService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
@@ -33,10 +36,13 @@ public class AdminUserController {
     private final UserStatisticsService userStatisticsService;
 
     /**
-     * Danh sách người dùng — lọc theo vai trò và trạng thái eKYC ở tầng DB.
+     * Danh sách người dùng — lọc theo vai trò, trạng thái eKYC, vai trò nhân viên và chuỗi tìm ở tầng DB.
      * <p>
      * Bỏ trống (hoặc {@code ALL}) là không lọc. Lọc ở đây thay vì ở client để
      * kết quả trải trên toàn bộ dữ liệu chứ không chỉ trang đang tải.
+     *
+     * @param q             chuỗi tìm: một phần họ tên (không phân biệt dấu) hoặc email, hoặc đúng số điện thoại / CCCD
+     * @param staffRoleCode mã vai trò nhân viên; có giá trị thì chỉ trả tài khoản nhân viên mang vai trò đó
      */
     @GetMapping
     @PreAuthorize("hasAnyAuthority('user:admin:read_all','ops:customer:view','ROLE_ADMIN')")
@@ -44,10 +50,12 @@ public class AdminUserController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String role,
-            @RequestParam(required = false) String ekycStatus) {
+            @RequestParam(required = false) String ekycStatus,
+            @RequestParam(required = false) String staffRoleCode,
+            @RequestParam(required = false) String q) {
 
-        return ResponseEntity.ok(
-                userProfileService.getAllUsers(role, ekycStatus, PageRequest.of(page, size)));
+        return ResponseEntity.ok(userProfileService.searchUsers(
+                new UserSearchCriteria(role, ekycStatus, staffRoleCode, q), PageRequest.of(Math.max(page, 0), size)));
     }
 
     /** Thống kê tổng số người dùng theo vai trò và trạng thái eKYC. */
@@ -86,10 +94,14 @@ public class AdminUserController {
         return ResponseEntity.ok(userProfileService.getUserById(id));
     }
 
+    /**
+     * Khóa tài khoản: body {@code {"reason":"..."}} bắt buộc. Khóa xong mọi phiên đang mở của người dùng bị đăng xuất
+     * (Keycloak thu hồi refresh token); access token đã cấp vẫn hợp lệ tới khi hết hạn.
+     */
     @PostMapping("/{id}/lock")
     @PreAuthorize("hasAnyAuthority('user:admin:lock','ops:customer:action','ROLE_ADMIN')")
-    public ResponseEntity<Void> lockUser(@PathVariable Long id) {
-        userProfileService.lockUser(id, SecurityUtils.getCurrentKeycloakUserId());
+    public ResponseEntity<Void> lockUser(@PathVariable Long id, @Valid @RequestBody LockUserRequest request) {
+        userProfileService.lockUser(id, request.reason(), SecurityUtils.getCurrentKeycloakUserId());
         return ResponseEntity.ok().build();
     }
 

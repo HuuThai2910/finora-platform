@@ -1,8 +1,9 @@
 package com.finora.payment.config;
 
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
 import java.math.BigDecimal;
 import java.time.Duration;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Policy rút tiền demo (Q4/D19, cấu hình được, không phải trích dẫn luật) và nhịp worker (R4, W3B).

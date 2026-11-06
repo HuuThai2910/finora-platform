@@ -3,18 +3,19 @@ package com.finora.loan.integration.fineract.mapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.finora.loan.domain.product.RepaymentMethod;
+import com.finora.loan.domain.product.enums.RepaymentMethod;
+import com.finora.loan.integration.fineract.FineractIntegrationException;
 import com.finora.loan.integration.fineract.contract.FineractProductConfiguration;
 import com.finora.loan.integration.fineract.contract.FineractProductCreationResult;
 import com.finora.loan.integration.fineract.contract.ScheduleCalculationRequest;
 import com.finora.loan.integration.fineract.contract.ScheduleCalculationResult;
-import com.finora.loan.integration.fineract.client.FineractIntegrationException;
-import com.finora.loan.support.HashingService;
+import com.finora.loan.util.HashingService;
+import org.junit.jupiter.api.Test;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
-import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

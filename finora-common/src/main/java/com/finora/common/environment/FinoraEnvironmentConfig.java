@@ -1,13 +1,14 @@
 package com.finora.common.environment;
 
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Cổng môi trường lúc khởi động (D37). Mọi service quét {@code com.finora.common} nên cùng chạy kiểm tra chung (khóa PIN

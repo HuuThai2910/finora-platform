@@ -1,10 +1,11 @@
 package com.finora.loan.config;
 
 import com.finora.common.environment.SimulatedSettingsCheck;
-import java.util.ArrayList;
-import java.util.List;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /** D37: chữ ký MOCK, booking Fineract mock và hồ sơ người vay mock chỉ hợp lệ ở local/e2e/demo. */
 @Component

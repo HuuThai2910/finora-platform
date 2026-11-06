@@ -9,14 +9,16 @@ import com.finora.investment.service.MarketListingService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
-import java.math.BigDecimal;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.math.BigDecimal;
 
 /**
  * Sàn khoản vay đang gọi vốn — phần đọc, dành cho nhà đầu tư.
@@ -27,7 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class MarketController {
 
-    private final MarketListingService listingService;
+    private final MarketListingService marketListingService;
 
     /**
      * Danh sách khoản vay trên sàn.
@@ -37,11 +39,13 @@ public class MarketController {
      * được khoản đã gọi đủ vốn đang chờ khóa vốn và phát hành Note.</p>
      */
     @GetMapping
-    public PageResponse<MarketListingResponse> search(
+    public ResponseEntity<PageResponse<MarketListingResponse>> search(
             @RequestParam(required = false) @Size(max = 20) String status,
             @RequestParam(required = false) @Size(max = 5) String grade,
             @RequestParam(required = false) BigDecimal minRate,
             @RequestParam(required = false) @Min(1) @Max(60) Integer maxTermMonths,
+            @RequestParam(required = false) @Size(max = 50) String q,
+            @RequestParam(required = false) @Size(max = 20) String sort,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
@@ -49,17 +53,19 @@ public class MarketController {
         // Xem Gọi vốn thấy hết.
         String hiddenBorrowerId = SecurityUtils.hasPermission(OpsFunction.FUNDING.view())
                 ? null : SecurityUtils.getCurrentUserId();
-        return listingService.search(status, grade, minRate, maxTermMonths, hiddenBorrowerId, page, size);
+        return ResponseEntity.ok(
+                marketListingService.search(status, grade, minRate, maxTermMonths, hiddenBorrowerId, q, sort, page,
+                        size));
     }
 
     @GetMapping("/{listingId}")
-    public MarketListingResponse detail(@PathVariable Long listingId) {
-        return listingService.detail(listingId);
+    public ResponseEntity<MarketListingResponse> detail(@PathVariable Long listingId) {
+        return ResponseEntity.ok(marketListingService.detail(listingId));
     }
 
     /** Tiến độ gọi vốn, dùng cho thanh phần trăm trên app và web. */
     @GetMapping("/{listingId}/progress")
-    public FundingProgressResponse progress(@PathVariable Long listingId) {
-        return listingService.progress(listingId);
+    public ResponseEntity<FundingProgressResponse> progress(@PathVariable Long listingId) {
+        return ResponseEntity.ok(marketListingService.progress(listingId));
     }
 }

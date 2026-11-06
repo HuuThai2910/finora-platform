@@ -2,13 +2,13 @@ package com.finora.user.service.impl;
 
 import com.finora.common.enums.user.EkycResultCode;
 import com.finora.common.enums.user.Gender;
+import com.finora.common.util.CryptoUtils;
 import com.finora.user.config.CryptoProperties;
-import com.finora.user.domain.EkycDraftFieldName;
-import com.finora.user.domain.EkycIdentityDraft;
-import com.finora.user.domain.UserProfile;
+import com.finora.user.domain.entity.UserProfile;
+import com.finora.user.domain.enums.EkycDraftFieldName;
+import com.finora.user.domain.model.EkycIdentityDraft;
 import com.finora.user.repository.UserProfileRepository;
 import com.finora.user.service.EkycIdentityService;
-import com.finora.user.support.CryptoUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 

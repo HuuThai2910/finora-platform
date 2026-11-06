@@ -1,6 +1,6 @@
 package com.finora.loan.repository.contract;
 
-import com.finora.loan.domain.contract.LoanContractStatusHistory;
+import com.finora.loan.domain.contract.entity.LoanContractStatusHistory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;

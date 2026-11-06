@@ -3,32 +3,32 @@ package com.finora.loan.service.contract.impl;
 import com.finora.common.exception.ResourceNotFoundException;
 import com.finora.common.logging.TraceContext;
 import com.finora.common.security.SecurityUtils;
-import com.finora.loan.domain.application.ActorType;
-import com.finora.loan.domain.application.LoanApplication;
-import com.finora.loan.domain.contract.ContractParty;
-import com.finora.loan.domain.contract.ContractPartyStatus;
-import com.finora.loan.domain.contract.ContractPartyType;
-import com.finora.loan.domain.contract.ContractPdfArtifactType;
-import com.finora.loan.domain.contract.ContractPdfSignature;
-import com.finora.loan.domain.contract.ContractPdfSignatureAbandonReason;
-import com.finora.loan.domain.contract.ContractPdfSignatureSummary;
-import com.finora.loan.domain.contract.LoanContract;
-import com.finora.loan.domain.contract.LoanContractDocument;
-import com.finora.loan.domain.contract.LoanContractStatus;
-import com.finora.loan.domain.contract.LoanContractStatusHistory;
-import com.finora.loan.domain.contract.SignatureProviderType;
-import com.finora.loan.domain.servicing.FinoraLoan;
-import com.finora.loan.dto.contract.request.SignLoanContractRequest;
+import com.finora.loan.domain.application.entity.LoanApplication;
+import com.finora.loan.domain.application.enums.ActorType;
+import com.finora.loan.domain.contract.entity.ContractParty;
+import com.finora.loan.domain.contract.entity.ContractPdfSignature;
+import com.finora.loan.domain.contract.entity.LoanContract;
+import com.finora.loan.domain.contract.entity.LoanContractDocument;
+import com.finora.loan.domain.contract.entity.LoanContractStatusHistory;
+import com.finora.loan.domain.contract.enums.ContractPartyStatus;
+import com.finora.loan.domain.contract.enums.ContractPartyType;
+import com.finora.loan.domain.contract.enums.ContractPdfArtifactType;
+import com.finora.loan.domain.contract.enums.ContractPdfSignatureAbandonReason;
+import com.finora.loan.domain.contract.enums.LoanContractStatus;
+import com.finora.loan.domain.contract.enums.SignatureProviderType;
+import com.finora.loan.domain.contract.model.ContractPdfSignatureSummary;
+import com.finora.loan.domain.servicing.entity.FinoraLoan;
 import com.finora.loan.dto.contract.request.DeclineLoanContractRequest;
+import com.finora.loan.dto.contract.request.SignLoanContractRequest;
 import com.finora.loan.dto.contract.response.InvestorContractResponse;
 import com.finora.loan.exception.LoanBusinessException;
-import com.finora.loan.integration.signature.DigestSignatureCommand;
-import com.finora.loan.integration.signature.SignatureCommand;
-import com.finora.loan.integration.signature.SignatureProvider;
-import com.finora.loan.integration.signature.SignatureSubmission;
-import com.finora.loan.integration.signature.SignatureSubmissionStatus;
-import com.finora.loan.integration.signature.SigningCertificate;
 import com.finora.loan.integration.signature.SmartCaIntegrationException;
+import com.finora.loan.integration.signature.client.SignatureProvider;
+import com.finora.loan.integration.signature.contract.DigestSignatureCommand;
+import com.finora.loan.integration.signature.contract.SignatureCommand;
+import com.finora.loan.integration.signature.contract.SignatureSubmission;
+import com.finora.loan.integration.signature.contract.SignatureSubmissionStatus;
+import com.finora.loan.integration.signature.contract.SigningCertificate;
 import com.finora.loan.messaging.event.BorrowerSignatureRequestedEventData;
 import com.finora.loan.repository.application.LoanApplicationRepository;
 import com.finora.loan.repository.contract.ContractPartyRepository;
@@ -36,48 +36,55 @@ import com.finora.loan.repository.contract.LoanContractDocumentRepository;
 import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.contract.LoanContractStatusHistoryRepository;
 import com.finora.loan.repository.servicing.FinoraLoanRepository;
-import com.finora.loan.service.contract.ContractPdfSignatureService;
 import com.finora.loan.service.contract.ContractConsentResult;
+import com.finora.loan.service.contract.ContractPdfSignatureService;
 import com.finora.loan.service.contract.InvestorContractService;
 import com.finora.loan.service.contract.LoanContractPdfContent;
 import com.finora.loan.service.contract.LoanContractStateService;
 import com.finora.loan.service.outbox.OutboxService;
-import com.finora.loan.support.HashingService;
-import java.nio.charset.StandardCharsets;
-import java.time.Clock;
-import java.time.Instant;
-import java.util.List;
-import java.util.UUID;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.math.BigDecimal;
-import java.util.function.Function;
-import java.util.function.Supplier;
-import java.util.stream.Collectors;
+import com.finora.loan.util.HashingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
+
+/**
+ * Hợp đồng phía nhà đầu tư: xem, tải PDF, ký, từ chối phần vốn và đối soát phiên ký SmartCA.
+ *
+ * <p>Lời gọi provider chữ ký nằm ngoài transaction; mỗi bước ghi chạy trong một {@link TransactionTemplate} riêng dưới
+ * khóa Contract.</p>
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class InvestorContractServiceImpl implements InvestorContractService {
 
-    private final LoanContractRepository contractRepository;
-    private final ContractPartyRepository partyRepository;
-    private final LoanContractDocumentRepository documentRepository;
-    private final LoanContractStatusHistoryRepository historyRepository;
-    private final LoanApplicationRepository applicationRepository;
+    private final LoanContractRepository loanContractRepository;
+    private final ContractPartyRepository contractPartyRepository;
+    private final LoanContractDocumentRepository loanContractDocumentRepository;
+    private final LoanContractStatusHistoryRepository loanContractStatusHistoryRepository;
+    private final LoanApplicationRepository loanApplicationRepository;
     private final FinoraLoanRepository finoraLoanRepository;
     private final SignatureProvider signatureProvider;
-    private final ContractPdfSignatureService pdfSignatureService;
+    private final ContractPdfSignatureService contractPdfSignatureService;
     private final HashingService hashingService;
     private final OutboxService outboxService;
-    private final LoanContractStateService contractStateService;
+    private final LoanContractStateService loanContractStateService;
     private final Clock clock;
     private final PlatformTransactionManager transactionManager;
 
@@ -86,17 +93,17 @@ public class InvestorContractServiceImpl implements InvestorContractService {
     public List<InvestorContractResponse> listMine() {
         String investorId = SecurityUtils.getCurrentUserId();
         LinkedHashMap<Long, ContractParty> firstPartyByContract = new LinkedHashMap<>();
-        partyRepository.findByPartyTypeAndPartyIdOrderByCreatedAtDesc(
+        contractPartyRepository.findByPartyTypeAndPartyIdOrderByCreatedAtDesc(
                         ContractPartyType.LENDER, investorId)
                 .forEach(party -> firstPartyByContract.putIfAbsent(party.getContractId(), party));
 
-        Map<Long, LoanContract> contracts = contractRepository.findAllById(firstPartyByContract.keySet()).stream()
+        Map<Long, LoanContract> contracts = loanContractRepository.findAllById(firstPartyByContract.keySet()).stream()
                 .collect(Collectors.toMap(LoanContract::getId, Function.identity()));
         List<Long> applicationIds = contracts.values().stream()
                 .map(LoanContract::getApplicationId)
                 .distinct()
                 .toList();
-        Map<Long, LoanApplication> applications = applicationRepository.findAllById(applicationIds).stream()
+        Map<Long, LoanApplication> applications = loanApplicationRepository.findAllById(applicationIds).stream()
                 .collect(Collectors.toMap(LoanApplication::getId, Function.identity()));
         Map<Long, FinoraLoan> loans = finoraLoanRepository.findByLoanApplicationIdIn(applicationIds).stream()
                 .collect(Collectors.toMap(FinoraLoan::getLoanApplicationId, Function.identity()));
@@ -139,7 +146,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
         String investorId = SecurityUtils.getCurrentUserId();
         LoanContract contract = contract(contractNumber);
         lenderParties(contract, investorId);
-        ContractPdfSignature latest = pdfSignatureService.latestSigned(contract.getId())
+        ContractPdfSignature latest = contractPdfSignatureService.latestSigned(contract.getId())
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Loan Contract signed PDF", "contractNumber", contractNumber));
         return new LoanContractPdfContent(
@@ -153,7 +160,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
         String investorId = SecurityUtils.getCurrentUserId();
         LoanContract contract = contract(contractNumber);
         lenderParties(contract, investorId);
-        LoanContractDocument receipt = documentRepository.findByContractIdAndArtifactType(
+        LoanContractDocument receipt = loanContractDocumentRepository.findByContractIdAndArtifactType(
                         contract.getId(), ContractPdfArtifactType.SIGNED_RECEIPT)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Loan Contract receipt", "contractNumber", contractNumber));
@@ -230,12 +237,12 @@ public class InvestorContractServiceImpl implements InvestorContractService {
                 contractNumber, investorId, request));
         ContractConsentResult result;
         try {
-            result = contractStateService.declineByInvestor(
+            result = loanContractStateService.declineByInvestor(
                     contractNumber, normalizedKey, requestHash, request, investorId);
         } catch (DataIntegrityViolationException conflict) {
             // Hai request cùng Idempotency-Key có thể cùng vượt qua lần đọc đầu. Transaction thua cuộc đã rollback;
             // đọc lại kết quả đã commit thay vì biến retry hợp lệ thành lỗi 500.
-            result = contractStateService.declineByInvestor(
+            result = loanContractStateService.declineByInvestor(
                     contractNumber, normalizedKey, requestHash, request, investorId);
         }
         if (result.expiredDuringRequest()) {
@@ -244,10 +251,6 @@ public class InvestorContractServiceImpl implements InvestorContractService {
         return detail(contractNumber);
     }
 
-    /**
-     * Worker chỉ hỏi trạng thái, không gửi lại yêu cầu ký (người dùng không có mặt để xác nhận một push mới). Lỗi
-     * SmartCA tạm thời được bỏ qua tới lượt sau, trừ khi phiên đã quá hạn thì đóng phiên để giải phóng lượt ký.
-     */
     @Override
     public void reconcilePadesSignature(String contractNumber, String investorId, boolean sessionExpired) {
         PadesLenderAttempt attempt;
@@ -361,7 +364,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
         }
         validateNewLenderSignature(contract, request);
         Instant now = clock.instant();
-        ContractPdfSignature signature = pdfSignatureService.signSynchronously(
+        ContractPdfSignature signature = contractPdfSignatureService.signSynchronously(
                 contract, signerRequest(investorId, certificate, normalizedKey, requestHash), now);
         for (ContractParty party : parties) {
             party.signMock(
@@ -369,7 +372,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
                     stablePartyIdempotencyKey(contractNumber, investorId, normalizedKey, party.getCommitmentId()),
                     requestHash, investorId, now);
         }
-        partyRepository.saveAllAndFlush(parties);
+        contractPartyRepository.saveAllAndFlush(parties);
         advanceContractIfAllLendersSigned(contract, signableDocument(contract), now);
         return response(contract, parties.getFirst());
     }
@@ -394,7 +397,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
         }
         validateNewLenderSignature(contract, request);
         Instant now = clock.instant();
-        ContractPdfSignature prepared = pdfSignatureService.prepare(
+        ContractPdfSignature prepared = contractPdfSignatureService.prepare(
                 contract, signerRequest(investorId, certificate, normalizedKey, requestHash), now);
         for (ContractParty party : parties) {
             party.beginDigitalSignature(
@@ -402,8 +405,8 @@ public class InvestorContractServiceImpl implements InvestorContractService {
                     stablePartyIdempotencyKey(contractNumber, investorId, normalizedKey, party.getCommitmentId()),
                     requestHash, investorId, now);
         }
-        partyRepository.saveAllAndFlush(parties);
-        return PadesLenderAttempt.of(prepared, pdfSignatureService.command(contract, prepared), false);
+        contractPartyRepository.saveAllAndFlush(parties);
+        return PadesLenderAttempt.of(prepared, contractPdfSignatureService.command(contract, prepared), false);
     }
 
     private PadesLenderAttempt existingPadesSignature(String contractNumber, String investorId) {
@@ -422,13 +425,13 @@ public class InvestorContractServiceImpl implements InvestorContractService {
     private PadesLenderAttempt resumedAttempt(LoanContract contract, List<ContractParty> parties, String investorId) {
         requireConsistentSigningState(parties);
         String transactionId = parties.getFirst().getSignatureTransactionId();
-        ContractPdfSignature pending = pdfSignatureService.inFlight(contract.getId())
+        ContractPdfSignature pending = contractPdfSignatureService.inFlight(contract.getId())
                 .filter(signature -> signature.getSignerType() == ContractPartyType.LENDER
                         && signature.getSignerId().equals(investorId)
                         && signature.getProviderTransactionId().equals(transactionId))
                 .orElseThrow(() -> LoanBusinessException.conflict(
                         "INVESTOR_SIGNATURE_STATE_MISMATCH", "Không tìm thấy phiên ký PDF đang chờ của nhà đầu tư"));
-        return PadesLenderAttempt.of(pending, pdfSignatureService.command(contract, pending), true);
+        return PadesLenderAttempt.of(pending, contractPdfSignatureService.command(contract, pending), true);
     }
 
     /**
@@ -444,7 +447,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
     ) {
         LoanContract contract = lockedContract(contractNumber);
         List<ContractParty> parties = lenderPartiesForUpdate(contract, investorId);
-        ContractPdfSignature signature = pdfSignatureService.find(signatureId);
+        ContractPdfSignature signature = contractPdfSignatureService.find(signatureId);
         if (parties.stream().allMatch(party -> party.getStatus() == ContractPartyStatus.SIGNED)
                 || !signature.isPrepared()) {
             return new PadesApplyResult(response(contract, parties.getFirst()), false);
@@ -466,11 +469,11 @@ public class InvestorContractServiceImpl implements InvestorContractService {
             closeLenderSession(parties, signature, ContractPdfSignatureAbandonReason.CONTRACT_CLOSED, now);
             return new PadesApplyResult(response(contract, parties.getFirst()), false);
         }
-        ContractPdfSignatureService.PadesCompletion completion = pdfSignatureService.complete(
+        ContractPdfSignatureService.PadesCompletion completion = contractPdfSignatureService.complete(
                 contract, signature, submission.signatureValue(), now);
         if (!completion.signed()) {
             parties.forEach(party -> party.expireDigitalSignatureSession(now));
-            partyRepository.saveAllAndFlush(parties);
+            contractPartyRepository.saveAllAndFlush(parties);
             return new PadesApplyResult(response(contract, parties.getFirst()), true);
         }
         for (ContractParty party : parties) {
@@ -478,7 +481,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
                     signature.getProviderTransactionId(), signature.getProviderDocumentId(),
                     completion.signature().getEvidenceHash(), investorId, now);
         }
-        partyRepository.saveAllAndFlush(parties);
+        contractPartyRepository.saveAllAndFlush(parties);
         advanceContractIfAllLendersSigned(contract, signableDocument(contract), now);
         return new PadesApplyResult(response(contract, parties.getFirst()), false);
     }
@@ -489,10 +492,10 @@ public class InvestorContractServiceImpl implements InvestorContractService {
         if (parties.stream().anyMatch(party -> party.getStatus() == ContractPartyStatus.SIGNING)) {
             return false;
         }
-        pdfSignatureService.inFlight(contract.getId())
+        contractPdfSignatureService.inFlight(contract.getId())
                 .filter(signature -> signature.getSignerType() == ContractPartyType.LENDER
                         && signature.getSignerId().equals(investorId))
-                .ifPresent(signature -> pdfSignatureService.abandon(
+                .ifPresent(signature -> contractPdfSignatureService.abandon(
                         signature, ContractPdfSignatureAbandonReason.SIGNING_SESSION_EXPIRED, clock.instant()));
         return true;
     }
@@ -503,9 +506,9 @@ public class InvestorContractServiceImpl implements InvestorContractService {
             ContractPdfSignatureAbandonReason reason,
             Instant now
     ) {
-        pdfSignatureService.abandon(signature, reason, now);
+        contractPdfSignatureService.abandon(signature, reason, now);
         parties.forEach(party -> party.expireDigitalSignatureSession(now));
-        partyRepository.saveAllAndFlush(parties);
+        contractPartyRepository.saveAllAndFlush(parties);
     }
 
     /** Idempotency và tranh chấp của cùng nhà đầu tư; giữ nguyên quy tắc của luồng ký trước R5. */
@@ -561,7 +564,8 @@ public class InvestorContractServiceImpl implements InvestorContractService {
         }
         LoanContractDocument document = signableDocument(contract);
         boolean consentMatches = contract.isPadesSigned()
-                ? pdfSignatureService.acceptsConsentHash(contract, document.getContentHash(), request.pdfDocumentHash())
+                ? contractPdfSignatureService.acceptsConsentHash(
+                        contract, document.getContentHash(), request.pdfDocumentHash())
                 : request.pdfDocumentHash() != null && document.getContentHash().equals(request.pdfDocumentHash());
         if (!consentMatches
                 || !document.getContentHash().equals(hashingService.sha256Bytes(document.contentCopy()))) {
@@ -605,7 +609,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
                                 contractNumber, investorId, normalizedKey, party.getCommitmentId()),
                         requestHash, investorId, now);
             }
-            partyRepository.saveAllAndFlush(parties);
+            contractPartyRepository.saveAllAndFlush(parties);
         }
         return new InvestorSignatureContext(
                 contractNumber, investorId, contract.getDocumentHash(), document.getContentHash(),
@@ -641,7 +645,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
         Instant now = clock.instant();
         if (submission.status() == SignatureSubmissionStatus.REJECTED) {
             parties.forEach(party -> party.resetRejectedDigitalSignature(context.investorId(), now));
-            partyRepository.saveAllAndFlush(parties);
+            contractPartyRepository.saveAllAndFlush(parties);
             return response(contract, parties.getFirst());
         }
         if (submission.status() != SignatureSubmissionStatus.COMPLETED) {
@@ -662,7 +666,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
                         context.requestHash(), context.investorId(), now);
             }
         }
-        partyRepository.saveAllAndFlush(parties);
+        contractPartyRepository.saveAllAndFlush(parties);
         advanceContractIfAllLendersSigned(contract, signableDocument(contract), now);
         return response(contract, parties.getFirst());
     }
@@ -672,23 +676,23 @@ public class InvestorContractServiceImpl implements InvestorContractService {
             LoanContractDocument document,
             Instant now
     ) {
-        if (partyRepository.countByContractIdAndPartyTypeAndStatusNot(
+        if (contractPartyRepository.countByContractIdAndPartyTypeAndStatusNot(
                 contract.getId(), ContractPartyType.LENDER, ContractPartyStatus.SIGNED) == 0) {
             contract.markBorrowerSignatureReady("SYSTEM-LENDER-SIGNATURES", now);
-            contractRepository.saveAndFlush(contract);
-            historyRepository.saveAndFlush(LoanContractStatusHistory.create(
+            loanContractRepository.saveAndFlush(contract);
+            loanContractStatusHistoryRepository.saveAndFlush(LoanContractStatusHistory.create(
                     contract.getId(), LoanContractStatus.PENDING_LENDER_SIGNATURES,
                     LoanContractStatus.PENDING_BORROWER_SIGNATURE, "ALL_LENDERS_SIGNED",
                     ActorType.SYSTEM, "SYSTEM-LENDER-SIGNATURES", now,
                     TraceContext.currentTraceIdOrCreate()));
-            LoanApplication application = applicationRepository.findById(contract.getApplicationId()).orElseThrow();
+            LoanApplication application = loanApplicationRepository.findById(contract.getApplicationId()).orElseThrow();
             // P1 (W3F): người nhận nằm ngay trong event; borrowerId là ID logic đã lưu trên hồ sơ, không phải PII.
             outboxService.recordForPublication(
                     "LoanContract", contract.getContractNumber(), "BorrowerSignatureRequested", 1,
                     new BorrowerSignatureRequestedEventData(
                             contract.getApplicationId(), application.getApplicationNumber(),
                             contract.getContractNumber(), contract.getDocumentHash(), document.getContentHash(),
-                            (int) partyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(
+                            (int) contractPartyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(
                                     contract.getId()).stream()
                                     .filter(party -> party.getPartyType() == ContractPartyType.LENDER)
                                     .map(ContractParty::getPartyId).distinct().count(),
@@ -746,11 +750,11 @@ public class InvestorContractServiceImpl implements InvestorContractService {
     }
 
     private void requireConsistentSigningState(List<ContractParty> parties) {
-        ContractParty first = parties.getFirst();
+        ContractParty firstParty = parties.getFirst();
         boolean consistent = parties.stream().allMatch(party ->
-                java.util.Objects.equals(first.getSignatureTransactionId(), party.getSignatureTransactionId())
+                java.util.Objects.equals(firstParty.getSignatureTransactionId(), party.getSignatureTransactionId())
                         && java.util.Objects.equals(
-                                first.getSignatureDocumentId(), party.getSignatureDocumentId()));
+                                firstParty.getSignatureDocumentId(), party.getSignatureDocumentId()));
         if (!consistent) {
             throw LoanBusinessException.conflict(
                     "INVESTOR_SIGNATURE_STATE_MISMATCH",
@@ -795,19 +799,19 @@ public class InvestorContractServiceImpl implements InvestorContractService {
     }
 
     private LoanContract contract(String contractNumber) {
-        return contractRepository.findByContractNumber(contractNumber)
+        return loanContractRepository.findByContractNumber(contractNumber)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Loan Contract", "contractNumber", contractNumber));
     }
 
     private LoanContract lockedContract(String contractNumber) {
-        return contractRepository.findByContractNumberForUpdate(contractNumber)
+        return loanContractRepository.findByContractNumberForUpdate(contractNumber)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Loan Contract", "contractNumber", contractNumber));
     }
 
     private List<ContractParty> lenderParties(LoanContract contract, String investorId) {
-        List<ContractParty> parties = partyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(
+        List<ContractParty> parties = contractPartyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(
                         contract.getId()).stream()
                 .filter(party -> party.getPartyType() == ContractPartyType.LENDER
                         && party.getPartyId().equals(investorId))
@@ -820,7 +824,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
     }
 
     private List<ContractParty> lenderPartiesForUpdate(LoanContract contract, String investorId) {
-        List<ContractParty> parties = partyRepository.findForUpdate(
+        List<ContractParty> parties = contractPartyRepository.findForUpdate(
                 contract.getId(), ContractPartyType.LENDER, investorId);
         if (parties.isEmpty()) {
             throw LoanBusinessException.forbidden(
@@ -830,7 +834,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
     }
 
     private LoanContractDocument signableDocument(LoanContract contract) {
-        return documentRepository.findByContractIdAndArtifactType(
+        return loanContractDocumentRepository.findByContractIdAndArtifactType(
                         contract.getId(), ContractPdfArtifactType.SIGNABLE)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Loan Contract PDF", "contractNumber", contract.getContractNumber()));
@@ -846,7 +850,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
                 || contract.getStatus() == LoanContractStatus.COMPLETED) {
             for (ContractPdfArtifactType type
                     : List.of(ContractPdfArtifactType.SIGNED_PDF, ContractPdfArtifactType.SIGNED_RECEIPT)) {
-                LoanContractDocument document = documentRepository.findByContractIdAndArtifactType(
+                LoanContractDocument document = loanContractDocumentRepository.findByContractIdAndArtifactType(
                         contract.getId(), type).orElse(null);
                 if (document != null) {
                     return document;
@@ -857,7 +861,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
     }
 
     private InvestorContractResponse response(LoanContract contract, ContractParty party) {
-        LoanApplication application = applicationRepository.findById(contract.getApplicationId()).orElseThrow();
+        LoanApplication application = loanApplicationRepository.findById(contract.getApplicationId()).orElseThrow();
         FinoraLoan loan = finoraLoanRepository.findByLoanApplicationId(contract.getApplicationId()).orElse(null);
         return response(contract, party, application, loan);
     }
@@ -869,15 +873,15 @@ public class InvestorContractServiceImpl implements InvestorContractService {
             FinoraLoan loan
     ) {
         LoanContractDocument document = currentDocument(contract);
-        List<ContractParty> all = partyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(
+        List<ContractParty> allParties = contractPartyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(
                 contract.getId());
-        BigDecimal investorAmount = all.stream()
+        BigDecimal investorAmount = allParties.stream()
                 .filter(item -> item.getPartyType() == ContractPartyType.LENDER
                         && item.getPartyId().equals(party.getPartyId()))
                 .map(ContractParty::getAllocationAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         List<ContractPdfSignatureSummary> signatures = contract.isPadesSigned()
-                ? pdfSignatureService.signedSummaries(contract.getId())
+                ? contractPdfSignatureService.signedSummaries(contract.getId())
                 : List.of();
         return new InvestorContractResponse(
                 contract.getContractNumber(), contract.getApplicationId(), application.getApplicationNumber(),
@@ -885,13 +889,13 @@ public class InvestorContractServiceImpl implements InvestorContractService {
                 contract.getStatus(), party.getStatus(),
                 contract.getVersion() == null ? 0L : contract.getVersion(), contract.getDocumentHash(),
                 document.getContentHash(), investorAmount, contract.getTermMonths(),
-                (int) all.stream().filter(item -> item.getPartyType() == ContractPartyType.LENDER).count(),
-                (int) all.stream().filter(item -> item.getPartyType() == ContractPartyType.LENDER
+                (int) allParties.stream().filter(item -> item.getPartyType() == ContractPartyType.LENDER).count(),
+                (int) allParties.stream().filter(item -> item.getPartyType() == ContractPartyType.LENDER
                         && item.getStatus() != ContractPartyStatus.SIGNED).count(),
                 signatureProvider.type(), signatureProvider.method(), contract.getExpiresAt(),
                 contract.getSignatureProfile(), signatures.size(),
                 signatures.isEmpty() ? null : signatures.getLast().contentHash(),
-                documentRepository.findContentHash(contract.getId(), ContractPdfArtifactType.SIGNED_RECEIPT)
+                loanContractDocumentRepository.findContentHash(contract.getId(), ContractPdfArtifactType.SIGNED_RECEIPT)
                         .orElse(null),
                 party.getSignedAt());
     }
@@ -983,7 +987,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
             String requestHash,
             String transactionId,
             String documentId,
-            com.finora.loan.domain.contract.SignatureMethod signatureMethod,
+            com.finora.loan.domain.contract.enums.SignatureMethod signatureMethod,
             boolean alreadySigned,
             boolean alreadyStarted
     ) {

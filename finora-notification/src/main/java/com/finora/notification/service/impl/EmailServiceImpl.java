@@ -2,7 +2,7 @@ package com.finora.notification.service.impl;
 
 import com.finora.notification.service.EmailService;
 import com.finora.notification.service.EmailTemplateService;
-import com.finora.notification.support.EmailMasker;
+import com.finora.notification.util.EmailMasker;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
@@ -25,8 +25,8 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class EmailServiceImpl implements EmailService {
 
-    private final JavaMailSender mailSender;
-    private final EmailTemplateService templateService;
+    private final JavaMailSender javaMailSender;
+    private final EmailTemplateService emailTemplateService;
 
     @Value("${spring.mail.username}")
     private String fromAddress;
@@ -35,21 +35,21 @@ public class EmailServiceImpl implements EmailService {
     public void sendWelcomeEmail(String toEmail, String fullName) {
         sendHtmlEmail(toEmail,
                 "Chào mừng bạn đến với FINORA!",
-                templateService.renderWelcomeEmail(fullName));
+                emailTemplateService.renderWelcomeEmail(fullName));
     }
 
     @Override
     public void sendPasswordResetOtp(String toEmail, String otp) {
         sendHtmlEmail(toEmail,
                 "Mã xác nhận đổi mật khẩu FINORA",
-                templateService.renderPasswordResetOtp(otp));
+                emailTemplateService.renderPasswordResetOtp(otp));
     }
 
     @Override
     public void sendSuspiciousActivityAlert(String toEmail, String ipAddress, String reason) {
         sendHtmlEmail(toEmail,
                 "Cảnh báo hoạt động đăng nhập bất thường — FINORA",
-                templateService.renderSuspiciousActivityAlert(ipAddress, reason));
+                emailTemplateService.renderSuspiciousActivityAlert(ipAddress, reason));
     }
 
     // ── Helper ──────────────────────────────────────────────────────
@@ -59,14 +59,14 @@ public class EmailServiceImpl implements EmailService {
      */
     private void sendHtmlEmail(String toEmail, String subject, String htmlContent) {
         try {
-            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessage message = javaMailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
             helper.setFrom(fromAddress);
             helper.setTo(toEmail);
             helper.setSubject(subject);
             helper.setText(htmlContent, true);
 
-            mailSender.send(message);
+            javaMailSender.send(message);
             log.info("Đã gửi email thành công: subject='{}', to='{}'", subject, EmailMasker.mask(toEmail));
 
         } catch (MessagingException e) {

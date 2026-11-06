@@ -1,8 +1,8 @@
 package com.finora.user.service;
 
-import com.finora.user.domain.EkycAttempt;
-import com.finora.user.domain.EkycEvidence;
-import com.finora.user.domain.EkycIdentityDraft;
+import com.finora.user.domain.entity.EkycAttempt;
+import com.finora.user.domain.entity.EkycEvidence;
+import com.finora.user.domain.model.EkycIdentityDraft;
 
 import java.time.Instant;
 import java.util.List;

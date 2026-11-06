@@ -1,6 +1,7 @@
 package com.finora.payment.dto.response;
 
 import com.finora.payment.service.wallet.WalletView;
+
 import java.math.BigDecimal;
 import java.util.UUID;
 

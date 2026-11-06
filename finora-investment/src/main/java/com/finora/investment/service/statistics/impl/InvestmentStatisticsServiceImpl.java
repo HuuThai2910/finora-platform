@@ -42,15 +42,15 @@ public class InvestmentStatisticsServiceImpl implements InvestmentStatisticsServ
 
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
 
-    private final InvestmentStatisticsRepository statisticsRepository;
+    private final InvestmentStatisticsRepository investmentStatisticsRepository;
     private final Clock clock;
 
     @Override
     @Transactional(readOnly = true)
     public InvestmentStatisticsSummaryResponse summary() {
-        List<ListingStatusRow> listingRows = statisticsRepository.listingsByStatus();
-        List<NoteStatusRow> noteRows = statisticsRepository.notesByStatus();
-        long activeConfigs = statisticsRepository.countActiveAutoInvestConfigs();
+        List<ListingStatusRow> listingRows = investmentStatisticsRepository.listingsByStatus();
+        List<NoteStatusRow> noteRows = investmentStatisticsRepository.notesByStatus();
+        long activeConfigs = investmentStatisticsRepository.countActiveAutoInvestConfigs();
 
         Map<String, Long> listingsByStatus = zeroFilled(ListingStatus.values());
         listingRows.forEach(row -> listingsByStatus.put(row.status(), row.listings()));
@@ -85,13 +85,13 @@ public class InvestmentStatisticsServiceImpl implements InvestmentStatisticsServ
         StatisticsPeriod period = StatisticsPeriod.of(from, to, bucket, clock);
 
         Map<LocalDate, CommitmentBucketRow> commitments = byBucket(
-                statisticsRepository.commitmentsByBucket(period), CommitmentBucketRow::bucketStart);
+                investmentStatisticsRepository.commitmentsByBucket(period), CommitmentBucketRow::bucketStart);
         Map<LocalDate, CountBucketRow> fullyFunded = byBucket(
-                statisticsRepository.fullyFundedListingsByBucket(period), CountBucketRow::bucketStart);
+                investmentStatisticsRepository.fullyFundedListingsByBucket(period), CountBucketRow::bucketStart);
         Map<LocalDate, TradeBucketRow> trades = byBucket(
-                statisticsRepository.tradesByBucket(period), TradeBucketRow::bucketStart);
+                investmentStatisticsRepository.tradesByBucket(period), TradeBucketRow::bucketStart);
         Map<LocalDate, AutoInvestBucketRow> autoInvest = byBucket(
-                statisticsRepository.autoInvestByBucket(period), AutoInvestBucketRow::bucketStart);
+                investmentStatisticsRepository.autoInvestByBucket(period), AutoInvestBucketRow::bucketStart);
 
         // Ghép bốn bản đồ theo từng cột của khoảng: cột không có dòng nào thành 0, không cần dense riêng.
         Map<LocalDate, Point> points = new LinkedHashMap<>();

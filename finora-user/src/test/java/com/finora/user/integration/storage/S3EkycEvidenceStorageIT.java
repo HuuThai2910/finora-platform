@@ -1,7 +1,7 @@
 package com.finora.user.integration.storage;
 
 import com.finora.user.config.EkycStorageProperties;
-import com.finora.user.domain.EkycEvidenceStage;
+import com.finora.user.domain.enums.EkycEvidenceStage;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

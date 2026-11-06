@@ -1,8 +1,8 @@
 package com.finora.investment.service.orderbook.impl;
 
-import com.finora.investment.client.PaymentClient;
-import com.finora.investment.client.PaymentHoldResult;
-import com.finora.investment.domain.orderbook.BookOrder;
+import com.finora.investment.domain.orderbook.entity.BookOrder;
+import com.finora.investment.integration.payment.client.PaymentClient;
+import com.finora.investment.integration.payment.contract.PaymentHoldResult;
 import com.finora.investment.repository.BookOrderRepository;
 import com.finora.investment.service.orderbook.OrderBookMaintenanceService;
 import com.finora.investment.service.orderbook.OrderBookTransactionService;
@@ -32,20 +32,20 @@ import java.time.Duration;
 @Service
 public class OrderBookMaintenanceServiceImpl implements OrderBookMaintenanceService {
 
-    private final BookOrderRepository orderRepository;
-    private final OrderBookTransactionService transactions;
+    private final BookOrderRepository bookOrderRepository;
+    private final OrderBookTransactionService orderBookTransactionService;
     private final PaymentClient paymentClient;
     private final Clock clock;
     private final Duration pendingFundsTimeout;
 
     public OrderBookMaintenanceServiceImpl(
-            BookOrderRepository orderRepository,
-            OrderBookTransactionService transactions,
+            BookOrderRepository bookOrderRepository,
+            OrderBookTransactionService orderBookTransactionService,
             PaymentClient paymentClient,
             Clock clock,
             @Value("${finora.investment.maintenance.pending-funds-timeout:2m}") Duration pendingFundsTimeout) {
-        this.orderRepository = orderRepository;
-        this.transactions = transactions;
+        this.bookOrderRepository = bookOrderRepository;
+        this.orderBookTransactionService = orderBookTransactionService;
         this.paymentClient = paymentClient;
         this.clock = clock;
         this.pendingFundsTimeout = pendingFundsTimeout;
@@ -55,15 +55,15 @@ public class OrderBookMaintenanceServiceImpl implements OrderBookMaintenanceServ
     public int expireStalePendingBids(int batchSize) {
         int expired = 0;
         var before = clock.instant().minus(pendingFundsTimeout);
-        for (BookOrder order : orderRepository.findStalePendingBids(before, PageRequest.of(0, batchSize))) {
+        for (BookOrder order : bookOrderRepository.findStalePendingBids(before, PageRequest.of(0, batchSize))) {
             PaymentHoldResult hold = paymentClient.hold(
                     order.getInvestorId(), order.getHoldAmount(), order.getOrderReference());
             if (hold.isSuccess()) {
-                if (transactions.expirePendingBid(order.getId(), hold.getHoldReference())) {
+                if (orderBookTransactionService.expirePendingBid(order.getId(), hold.getHoldReference())) {
                     expired++;
                 }
             } else if (!hold.isRetryable()) {
-                transactions.rejectBid(order.getId(), hold.getErrorCode(), hold.getErrorMessage());
+                orderBookTransactionService.rejectBid(order.getId(), hold.getErrorCode(), hold.getErrorMessage());
                 expired++;
             } else {
                 log.warn("Payment vẫn chưa trả lời khi đối soát lệnh mua: orderReference={}",
@@ -76,9 +76,9 @@ public class OrderBookMaintenanceServiceImpl implements OrderBookMaintenanceServ
     @Override
     public int closeFinishedBooks(int batchSize) {
         int cancelled = 0;
-        for (Long listingId : orderRepository.findListingsWithRestingOrdersButNoTradableNotes(
+        for (Long listingId : bookOrderRepository.findListingsWithRestingOrdersButNoTradableNotes(
                 PageRequest.of(0, batchSize))) {
-            cancelled += transactions.closeBook(listingId);
+            cancelled += orderBookTransactionService.closeBook(listingId);
         }
         return cancelled;
     }

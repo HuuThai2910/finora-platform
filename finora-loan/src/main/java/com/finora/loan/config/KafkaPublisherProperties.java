@@ -1,12 +1,13 @@
 package com.finora.loan.config;
 
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /** Cấu hình allowlist ánh xạ đúng event/version sang topic đã được hai owner duyệt. */
 @ConfigurationProperties(prefix = "finora.loan.kafka")

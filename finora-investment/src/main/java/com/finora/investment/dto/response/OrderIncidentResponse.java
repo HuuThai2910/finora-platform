@@ -1,6 +1,7 @@
 package com.finora.investment.dto.response;
 
-import com.finora.investment.domain.order.InvestmentOrder;
+import com.finora.investment.domain.order.entity.InvestmentOrder;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 

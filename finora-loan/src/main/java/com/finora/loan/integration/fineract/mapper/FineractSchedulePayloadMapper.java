@@ -1,11 +1,14 @@
 package com.finora.loan.integration.fineract.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.finora.loan.integration.fineract.client.FineractIntegrationException;
+import com.finora.loan.integration.fineract.FineractIntegrationException;
 import com.finora.loan.integration.fineract.contract.ScheduleCalculationRequest;
 import com.finora.loan.integration.fineract.contract.ScheduleCalculationResult;
 import com.finora.loan.integration.fineract.contract.SchedulePeriod;
-import com.finora.loan.support.HashingService;
+import com.finora.loan.util.HashingService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DateTimeException;
@@ -15,8 +18,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Component;
 
 /** Chỉ ánh xạ request/response của use case tính lịch trả dự kiến. */
 @Component
@@ -27,7 +28,7 @@ public class FineractSchedulePayloadMapper {
     private static final BigDecimal ZERO = new BigDecimal("0.00");
 
     private final HashingService hashingService;
-    private final FineractRepaymentPolicy repaymentPolicy;
+    private final FineractRepaymentPolicy fineractRepaymentPolicy;
 
     /** Ánh xạ đúng amount, term, rate và repayment method đã được Loan kiểm tra. */
     public Map<String, Object> toSchedulePayload(ScheduleCalculationRequest source, long fineractClientId) {
@@ -42,10 +43,10 @@ public class FineractSchedulePayloadMapper {
         payload.put("repaymentEvery", 1);
         payload.put("repaymentFrequencyType", 2);
         payload.put("interestRatePerPeriod", source.annualInterestRate());
-        payload.put("amortizationType", repaymentPolicy.amortizationType(source.repaymentMethod()));
-        payload.put("interestType", repaymentPolicy.interestType());
+        payload.put("amortizationType", fineractRepaymentPolicy.amortizationType(source.repaymentMethod()));
+        payload.put("interestType", fineractRepaymentPolicy.interestType());
         payload.put("interestCalculationPeriodType",
-                repaymentPolicy.interestCalculationPeriodType(source.coreConfigVersion()));
+                fineractRepaymentPolicy.interestCalculationPeriodType(source.coreConfigVersion()));
         payload.put("transactionProcessingStrategyCode",
                 FineractAllocationPolicy.strategy(source.coreConfigVersion(), source.repaymentMethod()));
         payload.put("expectedDisbursementDate", source.expectedDisbursementDate());

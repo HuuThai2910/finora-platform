@@ -1,8 +1,9 @@
 package com.finora.notification.dto.response;
 
-import com.finora.notification.domain.DevicePlatform;
-import com.finora.notification.domain.PushDevice;
-import com.finora.notification.domain.PushDeviceStatus;
+import com.finora.notification.domain.entity.PushDevice;
+import com.finora.notification.domain.enums.DevicePlatform;
+import com.finora.notification.domain.enums.PushDeviceStatus;
+
 import java.time.Instant;
 import java.util.UUID;
 

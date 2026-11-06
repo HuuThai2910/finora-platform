@@ -4,12 +4,12 @@ import com.finora.common.exception.ResourceNotFoundException;
 import com.finora.common.security.SecurityUtils;
 import com.finora.loan.config.LoanContractProperties;
 import com.finora.loan.config.LoanPricingDisclosureProperties;
-import com.finora.loan.domain.application.ActorType;
-import com.finora.loan.domain.application.LoanApplication;
-import com.finora.loan.domain.application.TermsConfirmationStatus;
-import com.finora.loan.domain.contract.LoanContract;
-import com.finora.loan.domain.core.ScheduleCalculationPurpose;
-import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
+import com.finora.loan.domain.application.entity.LoanApplication;
+import com.finora.loan.domain.application.enums.ActorType;
+import com.finora.loan.domain.application.enums.TermsConfirmationStatus;
+import com.finora.loan.domain.contract.entity.LoanContract;
+import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
+import com.finora.loan.domain.core.enums.ScheduleCalculationPurpose;
 import com.finora.loan.dto.application.request.ConfirmLoanTermsRequest;
 import com.finora.loan.dto.application.request.DeclineLoanTermsRequest;
 import com.finora.loan.dto.application.response.LoanApplicationResponse;
@@ -20,25 +20,32 @@ import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
 import com.finora.loan.service.application.LoanTermsConfirmationService;
 import com.finora.loan.service.funding.LoanFundingRequestService;
-import com.finora.loan.support.HashingService;
-import java.math.BigDecimal;
-import java.time.Clock;
-import java.time.Instant;
+import com.finora.loan.util.HashingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+
+/**
+ * Xác nhận điều khoản sau duyệt: chuẩn bị bằng chứng điều khoản cuối và nhận chấp nhận/từ chối của người vay.
+ *
+ * <p>Điều khoản cuối không bất lợi hơn lúc nộp và công bố lãi suất chưa đổi thì được tự động chấp nhận và mở gọi vốn
+ * ngay; ngược lại hồ sơ chờ người vay phản hồi.</p>
+ */
 @Service
 @RequiredArgsConstructor
 public class LoanTermsConfirmationServiceImpl implements LoanTermsConfirmationService {
 
-    private final LoanApplicationRepository applicationRepository;
-    private final ScheduleCalculationSnapshotRepository scheduleRepository;
-    private final LoanContractRepository contractRepository;
-    private final LoanFundingRequestService fundingRequestService;
-    private final LoanApplicationMapper mapper;
-    private final LoanContractProperties contractProperties;
-    private final LoanPricingDisclosureProperties disclosureProperties;
+    private final LoanApplicationRepository loanApplicationRepository;
+    private final ScheduleCalculationSnapshotRepository scheduleCalculationSnapshotRepository;
+    private final LoanContractRepository loanContractRepository;
+    private final LoanFundingRequestService loanFundingRequestService;
+    private final LoanApplicationMapper loanApplicationMapper;
+    private final LoanContractProperties loanContractProperties;
+    private final LoanPricingDisclosureProperties loanPricingDisclosureProperties;
     private final HashingService hashingService;
     private final Clock clock;
 
@@ -53,29 +60,29 @@ public class LoanTermsConfirmationServiceImpl implements LoanTermsConfirmationSe
             Instant now
     ) {
         if (application.getTermsConfirmationStatus() != null) {
-            return contractRepository.findByApplicationId(application.getId()).orElse(null);
+            return loanContractRepository.findByApplicationId(application.getId()).orElse(null);
         }
         ScheduleCalculationSnapshot initialSchedule = schedule(application, ScheduleCalculationPurpose.SUBMISSION_SCORING);
         validateFinalSchedule(application, finalSchedule);
         TermsEvidence evidence = TermsEvidence.from(
-                application, initialSchedule, finalSchedule, contractProperties.termsVersion());
-        boolean disclosureAllowsAutomaticContinuation = disclosureProperties.pricingDisclosureVersion()
+                application, initialSchedule, finalSchedule, loanContractProperties.termsVersion());
+        boolean disclosureAllowsAutomaticContinuation = loanPricingDisclosureProperties.pricingDisclosureVersion()
                 .equals(application.getPricingDisclosureVersionSnapshot());
         boolean autoAuthorized = disclosureAllowsAutomaticContinuation
                 && isNonWorsening(application, initialSchedule, finalSchedule);
         application.prepareTermsConfirmation(
                 autoAuthorized ? TermsConfirmationStatus.AUTO_AUTHORIZED : TermsConfirmationStatus.PENDING,
-                contractProperties.termsVersion(),
+                loanContractProperties.termsVersion(),
                 hashingService.sha256(evidence),
                 termsExpiresAt,
                 actorId,
                 now
         );
-        applicationRepository.saveAndFlush(application);
+        loanApplicationRepository.saveAndFlush(application);
         if (!autoAuthorized) {
             return null;
         }
-        fundingRequestService.request(application, now);
+        loanFundingRequestService.request(application, now);
         return null;
     }
 
@@ -98,10 +105,10 @@ public class LoanTermsConfirmationServiceImpl implements LoanTermsConfirmationSe
         application.acceptTerms(
                 request.applicationVersion(), request.termsVersion(), request.termsHash(),
                 normalizedKey, requestHash, borrowerId, now);
-        applicationRepository.saveAndFlush(application);
+        loanApplicationRepository.saveAndFlush(application);
         ScheduleCalculationSnapshot finalSchedule = schedule(application, ScheduleCalculationPurpose.CONTRACT);
         validateFinalSchedule(application, finalSchedule);
-        fundingRequestService.request(application, now);
+        loanFundingRequestService.request(application, now);
         return response(application);
     }
 
@@ -124,7 +131,7 @@ public class LoanTermsConfirmationServiceImpl implements LoanTermsConfirmationSe
                 request.applicationVersion(), request.termsVersion(), request.termsHash(),
                 request.reasonCode().name(), request.reasonDetail(), normalizedKey, requestHash,
                 borrowerId, clock.instant());
-        applicationRepository.saveAndFlush(application);
+        loanApplicationRepository.saveAndFlush(application);
         return response(application);
     }
 
@@ -159,19 +166,19 @@ public class LoanTermsConfirmationServiceImpl implements LoanTermsConfirmationSe
     }
 
     private ScheduleCalculationSnapshot schedule(LoanApplication application, ScheduleCalculationPurpose purpose) {
-        return scheduleRepository.findByApplicationIdAndPurpose(application.getId(), purpose)
+        return scheduleCalculationSnapshotRepository.findByApplicationIdAndPurpose(application.getId(), purpose)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Schedule Calculation Snapshot", "applicationId", application.getId()));
     }
 
     private LoanApplication locked(String applicationNumber) {
-        return applicationRepository.findByApplicationNumberForUpdate(applicationNumber)
+        return loanApplicationRepository.findByApplicationNumberForUpdate(applicationNumber)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Loan Application", "applicationNumber", applicationNumber));
     }
 
     private LoanApplicationResponse response(LoanApplication application) {
-        return mapper.toResponse(
+        return loanApplicationMapper.toResponse(
                 application,
                 schedule(application, ScheduleCalculationPurpose.SUBMISSION_SCORING),
                 schedule(application, ScheduleCalculationPurpose.CONTRACT)
@@ -180,7 +187,7 @@ public class LoanTermsConfirmationServiceImpl implements LoanTermsConfirmationSe
 
     private void rejectReusedKey(LoanApplication application, String idempotencyKey) {
         if (application.getTermsConsentIdempotencyKey() != null
-                || applicationRepository.findByTermsConsentIdempotencyKey(idempotencyKey).isPresent()) {
+                || loanApplicationRepository.findByTermsConsentIdempotencyKey(idempotencyKey).isPresent()) {
             throw LoanBusinessException.conflict(
                     "IDEMPOTENCY_KEY_REUSED",
                     "Idempotency-Key đã được dùng cho phản hồi điều khoản khác"

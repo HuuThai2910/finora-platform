@@ -1,13 +1,14 @@
 package com.finora.investment.repository;
 
-import com.finora.investment.domain.autoinvest.AutoInvestConfig;
+import com.finora.investment.domain.autoinvest.entity.AutoInvestConfig;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
 public interface AutoInvestConfigRepository extends JpaRepository<AutoInvestConfig, Long> {
 

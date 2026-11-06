@@ -1,7 +1,8 @@
 package com.finora.loan.config;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
 
 /** Policy local dùng để tạo đúng một phiên bản Contract và giới hạn thời gian chờ ký. */
 @ConfigurationProperties(prefix = "finora.loan.contract")

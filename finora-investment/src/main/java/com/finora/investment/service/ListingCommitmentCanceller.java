@@ -1,6 +1,6 @@
 package com.finora.investment.service;
 
-import com.finora.investment.domain.listing.MarketListing;
+import com.finora.investment.domain.listing.entity.MarketListing;
 
 import java.time.Instant;
 import java.util.List;

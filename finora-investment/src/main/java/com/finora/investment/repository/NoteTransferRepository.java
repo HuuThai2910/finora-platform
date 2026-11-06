@@ -1,8 +1,9 @@
 package com.finora.investment.repository;
 
-import com.finora.investment.domain.secondary.NoteTransfer;
-import java.util.List;
+import com.finora.investment.domain.secondary.entity.NoteTransfer;
 import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
 
 public interface NoteTransferRepository extends JpaRepository<NoteTransfer, Long> {
 

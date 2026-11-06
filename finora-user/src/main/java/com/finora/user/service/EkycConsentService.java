@@ -1,6 +1,6 @@
 package com.finora.user.service;
 
-import com.finora.user.domain.EkycConsent;
+import com.finora.user.domain.entity.EkycConsent;
 import com.finora.user.dto.request.EkycConsentAcceptRequest;
 import com.finora.user.dto.response.EkycConsentResponse;
 

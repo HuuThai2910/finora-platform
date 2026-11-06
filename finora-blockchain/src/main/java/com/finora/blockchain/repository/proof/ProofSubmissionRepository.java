@@ -1,15 +1,11 @@
 package com.finora.blockchain.repository.proof;
 
-import com.finora.blockchain.domain.proof.ProofChainCheckStatus;
-import com.finora.blockchain.domain.proof.ProofProviderType;
-import com.finora.blockchain.domain.proof.ProofSubmission;
-import com.finora.blockchain.domain.proof.ProofSubmissionStatus;
-import com.finora.blockchain.domain.proof.ProofType;
+import com.finora.blockchain.domain.proof.entity.ProofSubmission;
+import com.finora.blockchain.domain.proof.enums.ProofChainCheckStatus;
+import com.finora.blockchain.domain.proof.enums.ProofProviderType;
+import com.finora.blockchain.domain.proof.enums.ProofSubmissionStatus;
+import com.finora.blockchain.domain.proof.enums.ProofType;
 import jakarta.persistence.LockModeType;
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -17,6 +13,11 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 public interface ProofSubmissionRepository extends JpaRepository<ProofSubmission, Long>, ProofSubmissionInsert {
 

@@ -1,6 +1,6 @@
 package com.finora.user.mapper;
 
-import com.finora.user.domain.UserProfile;
+import com.finora.user.domain.entity.UserProfile;
 import com.finora.user.dto.response.UserProfileResponse;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;

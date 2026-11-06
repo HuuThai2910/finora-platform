@@ -11,6 +11,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,39 +31,39 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class ProofController {
 
-    private final ProofQueryService queryService;
-    private final ProofVerificationService verificationService;
-    private final ProofSubmissionService submissionService;
+    private final ProofQueryService proofQueryService;
+    private final ProofVerificationService proofVerificationService;
+    private final ProofSubmissionService proofSubmissionService;
 
     @GetMapping
-    public PageResponse<ProofResponse> search(
+    public ResponseEntity<PageResponse<ProofResponse>> search(
             @RequestParam(required = false) @Size(max = 40) String referenceType,
             @RequestParam(required = false) @Size(max = 100) String referenceId,
             @RequestParam(required = false) @Size(max = 30) String status,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
-        return queryService.search(referenceType, referenceId, status, page, size);
+        return ResponseEntity.ok(proofQueryService.search(referenceType, referenceId, status, page, size));
     }
 
     @GetMapping("/{proofId}")
-    public ProofResponse find(@PathVariable String proofId) {
-        return queryService.find(proofId);
+    public ResponseEntity<ProofResponse> find(@PathVariable String proofId) {
+        return ResponseEntity.ok(proofQueryService.find(proofId));
     }
 
     /** Đối chiếu DB ↔ Fabric; gửi kèm {@code artifact} (data của event nguồn) để kiểm luôn hash tính lại. */
     @PostMapping("/{proofId}/verify")
-    public ProofVerificationResponse verify(
+    public ResponseEntity<ProofVerificationResponse> verify(
             @PathVariable String proofId,
             @RequestBody(required = false) ProofVerificationRequest request
     ) {
-        return verificationService.verify(proofId, request == null ? null : request.artifact());
+        return ResponseEntity.ok(proofVerificationService.verify(proofId, request == null ? null : request.artifact()));
     }
 
     /** Đưa proof DEAD_LETTER về hàng đợi sau khi vận hành đã sửa nguyên nhân. */
     @PostMapping("/{proofId}/retry")
-    public ProofResponse retry(@PathVariable String proofId) {
-        submissionService.requeue(proofId);
-        return queryService.find(proofId);
+    public ResponseEntity<ProofResponse> retry(@PathVariable String proofId) {
+        proofSubmissionService.requeue(proofId);
+        return ResponseEntity.ok(proofQueryService.find(proofId));
     }
 }

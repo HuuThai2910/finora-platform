@@ -1,16 +1,17 @@
 package com.finora.investment.repository;
 
 import com.finora.common.enums.investment.OrderStatus;
-import com.finora.investment.domain.order.InvestmentOrder;
-import java.time.Instant;
-import java.util.Collection;
-import java.util.List;
-import java.util.Optional;
+import com.finora.investment.domain.order.entity.InvestmentOrder;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
 
 public interface InvestmentOrderRepository extends JpaRepository<InvestmentOrder, Long> {
 

@@ -2,7 +2,7 @@ package com.finora.user.service.impl;
 
 import com.finora.common.exception.BusinessException;
 import com.finora.common.security.ops.OpsFunction;
-import com.finora.user.domain.StaffRoleDefinition;
+import com.finora.user.domain.model.StaffRoleDefinition;
 import com.finora.user.dto.request.StaffRoleRequest;
 import com.finora.user.dto.response.OpsPermissionResponse;
 import com.finora.user.dto.response.StaffRoleResponse;

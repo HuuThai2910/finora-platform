@@ -1,11 +1,12 @@
 package com.finora.investment.service;
 
-import com.finora.investment.dto.request.CreateListingRequest;
-import java.math.BigDecimal;
 import com.finora.common.dto.PageResponse;
+import com.finora.investment.dto.request.CreateListingRequest;
 import com.finora.investment.dto.response.FundingProgressResponse;
 import com.finora.investment.dto.response.ListingInvestorResponse;
 import com.finora.investment.dto.response.MarketListingResponse;
+
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -27,6 +28,15 @@ public interface MarketListingService {
      * {@code ALL} để thấy mọi khoản — vì thao tác khóa vốn và phát hành Note chỉ áp
      * dụng cho khoản đã gọi đủ vốn.</p>
      */
+    /**
+     * Như {@link #search(String, String, BigDecimal, Integer, String, int, int)}, thêm chuỗi tìm theo mã hồ sơ/hợp đồng
+     * ({@code q}, khớp một phần, không phân biệt hoa thường) và kiểu sắp xếp {@code sort}: {@code rate} (lãi cao trước,
+     * mặc định), {@code newest} (mới lên sàn trước), {@code closing} (sắp hết hạn gọi vốn trước), {@code amount}
+     * (số tiền gọi lớn trước).
+     */
+    PageResponse<MarketListingResponse> search(String status, String creditGrade, BigDecimal minAnnualRate,
+            Integer maxTermMonths, String hiddenBorrowerId, String q, String sort, int page, int size);
+
     PageResponse<MarketListingResponse> search(
             String status,
             String creditGrade,

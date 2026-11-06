@@ -1,6 +1,6 @@
 package com.finora.investment.service.messaging.impl;
 
-import com.finora.investment.domain.messaging.ProcessedEvent;
+import com.finora.investment.domain.messaging.entity.ProcessedEvent;
 import com.finora.investment.dto.request.CreateListingRequest;
 import com.finora.investment.messaging.event.LoanFundingRequestedEventData;
 import com.finora.investment.repository.ProcessedEventRepository;
@@ -24,7 +24,7 @@ public class LoanFundingRequestedHandlerImpl implements LoanFundingRequestedHand
     private static final int EVENT_VERSION = 1;
 
     private final ProcessedEventRepository processedEventRepository;
-    private final MarketListingService listingService;
+    private final MarketListingService marketListingService;
     private final Clock clock;
 
     @Override
@@ -34,7 +34,7 @@ public class LoanFundingRequestedHandlerImpl implements LoanFundingRequestedHand
             return;
         }
         validate(data);
-        listingService.createListingFrom(CreateListingRequest.builder()
+        marketListingService.createListingFrom(CreateListingRequest.builder()
                 .loanId(data.loanApplicationId())
                 .applicationNumber(data.applicationNumber())
                 .listingVersion(data.listingVersion())

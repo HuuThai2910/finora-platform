@@ -1,13 +1,14 @@
 package com.finora.payment.repository.topup;
 
-import com.finora.payment.domain.topup.PaymentTopUp;
+import com.finora.payment.domain.topup.entity.PaymentTopUp;
 import jakarta.persistence.LockModeType;
-import java.util.Optional;
-import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.util.Optional;
+import java.util.UUID;
 
 public interface PaymentTopUpRepository extends JpaRepository<PaymentTopUp, Long> {
 

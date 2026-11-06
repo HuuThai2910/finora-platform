@@ -1,6 +1,6 @@
 package com.finora.loan.integration.fineract.mapper;
 
-import com.finora.loan.domain.product.RepaymentMethod;
+import com.finora.loan.domain.product.enums.RepaymentMethod;
 import org.springframework.stereotype.Component;
 
 /**

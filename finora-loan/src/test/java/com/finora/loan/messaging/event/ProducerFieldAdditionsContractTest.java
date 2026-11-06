@@ -1,18 +1,19 @@
 package com.finora.loan.messaging.event;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import com.finora.loan.domain.restructure.LoanRescheduleType;
+import com.finora.loan.domain.restructure.enums.LoanRescheduleType;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
+
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import org.junit.jupiter.api.Test;
-import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Dạng JSON của các field bổ sung P1–P3 (W3F) đúng như outbox Loan ghi ra: cùng tên/kiểu mà record của Notification đọc,

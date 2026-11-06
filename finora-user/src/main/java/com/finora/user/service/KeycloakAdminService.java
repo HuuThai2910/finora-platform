@@ -1,7 +1,7 @@
 package com.finora.user.service;
 
 import com.finora.common.enums.user.UserRole;
-import com.finora.user.domain.StaffRoleDefinition;
+import com.finora.user.domain.model.StaffRoleDefinition;
 import org.keycloak.representations.AccessTokenResponse;
 
 import java.util.List;

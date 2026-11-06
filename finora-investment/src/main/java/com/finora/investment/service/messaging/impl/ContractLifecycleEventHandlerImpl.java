@@ -1,8 +1,8 @@
 package com.finora.investment.service.messaging.impl;
 
 import com.finora.common.enums.investment.ListingStatus;
-import com.finora.investment.domain.listing.MarketListing;
-import com.finora.investment.domain.messaging.ProcessedEvent;
+import com.finora.investment.domain.listing.entity.MarketListing;
+import com.finora.investment.domain.messaging.entity.ProcessedEvent;
 import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.messaging.event.InvestorSignatureRequestedEventData;
 import com.finora.investment.messaging.event.LoanContractActivatedEventData;
@@ -23,7 +23,7 @@ import java.util.UUID;
 public class ContractLifecycleEventHandlerImpl implements ContractLifecycleEventHandler {
 
     private final ProcessedEventRepository processedEventRepository;
-    private final MarketListingRepository listingRepository;
+    private final MarketListingRepository marketListingRepository;
     private final Clock clock;
 
     @Override
@@ -57,7 +57,7 @@ public class ContractLifecycleEventHandlerImpl implements ContractLifecycleEvent
         listing.setContractDocumentHash(data.documentHash());
         listing.setUpdatedBy("SYSTEM-LOAN-EVENT");
         listing.setUpdatedAt(clock.instant());
-        listingRepository.saveAndFlush(listing);
+        marketListingRepository.saveAndFlush(listing);
         processedEventRepository.saveAndFlush(ProcessedEvent.create(
                 eventId, "InvestorSignatureRequested", 1, "finora-loan",
                 data.contractNumber(), occurredAt, clock.instant()));
@@ -95,7 +95,7 @@ public class ContractLifecycleEventHandlerImpl implements ContractLifecycleEvent
         listing.setContractActivatedAt(data.activatedAt());
         listing.setUpdatedBy("SYSTEM-LOAN-EVENT");
         listing.setUpdatedAt(clock.instant());
-        listingRepository.saveAndFlush(listing);
+        marketListingRepository.saveAndFlush(listing);
         processedEventRepository.saveAndFlush(ProcessedEvent.create(
                 eventId, "LoanContractActivated", 1, "finora-loan",
                 data.contractNumber(), occurredAt, clock.instant()));
@@ -112,7 +112,7 @@ public class ContractLifecycleEventHandlerImpl implements ContractLifecycleEvent
         if (listingId == null) {
             throw new IllegalArgumentException("listingId không được null");
         }
-        return listingRepository.findByIdForUpdate(listingId)
+        return marketListingRepository.findByIdForUpdate(listingId)
                 .orElseThrow(() -> InvestmentDomainException.notFound(
                         "LISTING_NOT_FOUND", "Không tìm thấy listing của Contract event"));
     }

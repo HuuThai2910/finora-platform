@@ -1,11 +1,12 @@
 package com.finora.investment.dto.request;
 
-import java.math.BigDecimal;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+
+import java.math.BigDecimal;
 
 /**
  * Yêu cầu tạo niêm yết gọi vốn từ khoản vay đã được duyệt.

@@ -1,8 +1,9 @@
 package com.finora.payment.dto.response;
 
-import com.finora.payment.domain.repayment.PaymentRepayment;
-import com.finora.payment.domain.repayment.PaymentRepaymentStatus;
-import com.finora.payment.domain.repayment.PaymentRepaymentType;
+import com.finora.payment.domain.repayment.entity.PaymentRepayment;
+import com.finora.payment.domain.repayment.enums.PaymentRepaymentStatus;
+import com.finora.payment.domain.repayment.enums.PaymentRepaymentType;
+
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;

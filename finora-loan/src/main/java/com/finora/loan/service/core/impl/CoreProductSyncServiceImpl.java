@@ -2,11 +2,11 @@ package com.finora.loan.service.core.impl;
 
 import com.finora.common.security.SecurityUtils;
 import com.finora.common.security.ops.OpsFunction;
-import com.finora.loan.domain.core.FineractCommand;
-import com.finora.loan.domain.core.FineractCommandStatus;
-import com.finora.loan.domain.product.LoanProduct;
+import com.finora.loan.domain.core.entity.FineractCommand;
+import com.finora.loan.domain.core.enums.FineractCommandStatus;
+import com.finora.loan.domain.product.entity.LoanProduct;
 import com.finora.loan.dto.core.response.CoreProductSyncResponse;
-import com.finora.loan.integration.fineract.client.FineractIntegrationException;
+import com.finora.loan.integration.fineract.FineractIntegrationException;
 import com.finora.loan.integration.fineract.client.FineractLoanProductGateway;
 import com.finora.loan.integration.fineract.contract.FineractProductCreationResult;
 import com.finora.loan.mapper.product.LoanProductMapper;
@@ -14,10 +14,11 @@ import com.finora.loan.service.core.CoreProductSyncService;
 import com.finora.loan.service.core.CoreProductSyncStateService;
 import com.finora.loan.service.core.ProductSyncExecution;
 import com.finora.loan.service.core.ProductSyncPreparation;
-import java.util.Optional;
-import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+
+import java.util.Optional;
 
 /** Điều phối đồng bộ Product mà không giữ transaction database trong lúc gọi Fineract. */
 @Service
@@ -25,19 +26,16 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class CoreProductSyncServiceImpl implements CoreProductSyncService {
 
-    private final CoreProductSyncStateService stateService;
-    private final FineractLoanProductGateway gateway;
-    private final LoanProductMapper productMapper;
+    private final CoreProductSyncStateService coreProductSyncStateService;
+    private final FineractLoanProductGateway fineractLoanProductGateway;
+    private final LoanProductMapper loanProductMapper;
 
-    /**
-     * Trả lại command cũ khi admin gửi trùng cùng business key. Command mới hoặc
-     * retry đến lượt sẽ được thực thi sau khi transaction chuẩn bị đã đóng.
-     */
     @Override
     public CoreProductSyncResponse synchronize(long productId, long version) {
         SecurityUtils.requirePermission(OpsFunction.LOAN_PRODUCT.action());
         // Commit command/mapping bền vững trước; tuyệt đối không giữ transaction khi gọi Fineract.
-        ProductSyncPreparation preparation = stateService.prepare(productId, version, SecurityUtils.getCurrentUserId());
+        ProductSyncPreparation preparation = coreProductSyncStateService.prepare(
+                productId, version, SecurityUtils.getCurrentUserId());
         if (preparation.executionRequired()) {
             execute(preparation.commandId());
         }
@@ -45,21 +43,20 @@ public class CoreProductSyncServiceImpl implements CoreProductSyncService {
         return response(productId, preparation.commandId());
     }
 
-    /** Worker và HTTP endpoint dùng chung một execution path idempotent. */
     @Override
     public void execute(String commandId) {
         // Khóa command ngắn hạn để request và retry worker không cùng thực thi một command.
-        ProductSyncExecution execution = stateService.startExecution(commandId);
+        ProductSyncExecution execution = coreProductSyncStateService.startExecution(commandId);
         if (!execution.executionRequired()) {
             return;
         }
         try {
             FineractProductCreationResult result = createOrReconcile(execution);
-            stateService.complete(commandId, result);
+            coreProductSyncStateService.complete(commandId, result);
             log.info("Đồng bộ Fineract Product thành công: commandId={}, productId={}, fineractProductId={}",
                     commandId, execution.configuration().loanProductId(), result.resourceId());
         } catch (FineractIntegrationException failure) {
-            stateService.fail(commandId, failure);
+            coreProductSyncStateService.fail(commandId, failure);
             log.warn("Đồng bộ Fineract Product chưa thành công: commandId={}, code={}, retryable={}, detail={}",
                     commandId, failure.getCode(), failure.isRetryable(), failure.getMessage());
         }
@@ -71,7 +68,7 @@ public class CoreProductSyncServiceImpl implements CoreProductSyncService {
      */
     private FineractProductCreationResult createOrReconcile(ProductSyncExecution execution) {
         String externalId = execution.configuration().externalId();
-        Optional<FineractProductCreationResult> existing = gateway.findProductByExternalId(
+        Optional<FineractProductCreationResult> existing = fineractLoanProductGateway.findProductByExternalId(
                 execution.configuration());
         if (existing.isPresent()) {
             log.info("Đã đối chiếu Product tồn tại trên Fineract: commandId={}, productId={}, fineractProductId={}",
@@ -80,10 +77,10 @@ public class CoreProductSyncServiceImpl implements CoreProductSyncService {
         }
 
         try {
-            return gateway.createProduct(execution.configuration(), execution.idempotencyKey());
+            return fineractLoanProductGateway.createProduct(execution.configuration(), execution.idempotencyKey());
         } catch (FineractIntegrationException createFailure) {
             try {
-                Optional<FineractProductCreationResult> created = gateway.findProductByExternalId(
+                Optional<FineractProductCreationResult> created = fineractLoanProductGateway.findProductByExternalId(
                         execution.configuration());
                 if (created.isPresent()) {
                     log.warn("POST Product không có kết quả chắc chắn nhưng đối chiếu đã tìm thấy Product: "
@@ -101,10 +98,10 @@ public class CoreProductSyncServiceImpl implements CoreProductSyncService {
     }
 
     private CoreProductSyncResponse response(long productId, String commandId) {
-        LoanProduct product = stateService.getProduct(productId);
-        FineractCommand command = stateService.getCommand(commandId);
+        LoanProduct product = coreProductSyncStateService.getProduct(productId);
+        FineractCommand command = coreProductSyncStateService.getCommand(commandId);
         return new CoreProductSyncResponse(
-                productMapper.toResponse(product),
+                loanProductMapper.toResponse(product),
                 commandId,
                 command.getStatus(),
                 command.getLastErrorCode()

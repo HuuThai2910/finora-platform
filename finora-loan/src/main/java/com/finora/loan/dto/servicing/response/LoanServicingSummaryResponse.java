@@ -1,6 +1,7 @@
 package com.finora.loan.dto.servicing.response;
 
-import com.finora.loan.domain.servicing.FinoraLoanStatus;
+import com.finora.loan.domain.servicing.enums.FinoraLoanStatus;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;

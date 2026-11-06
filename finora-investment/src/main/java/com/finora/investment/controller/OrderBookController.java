@@ -1,10 +1,10 @@
 package com.finora.investment.controller;
 
-import com.finora.common.security.pin.PinScope;
-import com.finora.common.security.pin.RequirePin;
 import com.finora.common.dto.PageResponse;
 import com.finora.common.security.SecurityUtils;
 import com.finora.common.security.ops.OpsFunction;
+import com.finora.common.security.pin.PinScope;
+import com.finora.common.security.pin.RequirePin;
 import com.finora.investment.dto.request.PlaceBookOrderRequest;
 import com.finora.investment.dto.response.BookOrderResponse;
 import com.finora.investment.dto.response.OrderBookPositionResponse;
@@ -23,6 +23,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,7 +33,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -49,25 +49,26 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @Validated
 public class OrderBookController {
 
-    private final OrderBookCommandService commandService;
-    private final OrderBookQueryService queryService;
-    private final OrderBookStreamService streamService;
+    private final OrderBookCommandService orderBookCommandService;
+    private final OrderBookQueryService orderBookQueryService;
+    private final OrderBookStreamService orderBookStreamService;
 
     /** Các khoản vay còn Note lưu hành, kèm giá mua/bán tốt nhất. */
     @GetMapping
-    public PageResponse<OrderBookSummaryResponse> listBooks(
+    public ResponseEntity<PageResponse<OrderBookSummaryResponse>> listBooks(
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
         // Khoản vay của chính người xem không hiện trên Sàn; quản trị viên và nhân viên có quyền Xem Chợ thứ cấp
         // thấy hết.
         String hiddenBorrowerId = SecurityUtils.hasPermission(OpsFunction.SECONDARY_MARKET.view())
                 ? null : SecurityUtils.getCurrentUserId();
-        return toPageResponse(queryService.listBooks(hiddenBorrowerId, PageRequest.of(page, size)));
+        return ResponseEntity.ok(
+                toPageResponse(orderBookQueryService.listBooks(hiddenBorrowerId, PageRequest.of(page, size))));
     }
 
     @GetMapping("/{listingId}")
-    public OrderBookSnapshotResponse snapshot(@PathVariable Long listingId) {
-        return queryService.snapshot(listingId);
+    public ResponseEntity<OrderBookSnapshotResponse> snapshot(@PathVariable Long listingId) {
+        return ResponseEntity.ok(orderBookQueryService.snapshot(listingId));
     }
 
     /**
@@ -76,13 +77,13 @@ public class OrderBookController {
      */
     @GetMapping(path = "/{listingId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@PathVariable Long listingId) {
-        return streamService.subscribe(listingId);
+        return orderBookStreamService.subscribe(listingId);
     }
 
     /** Số Note còn đặt bán được, số đang nằm trong lệnh bán, và lệnh còn hiệu lực của tôi. */
     @GetMapping("/{listingId}/me")
-    public OrderBookPositionResponse myPosition(@PathVariable Long listingId) {
-        return queryService.myPosition(listingId, SecurityUtils.getCurrentUserId());
+    public ResponseEntity<OrderBookPositionResponse> myPosition(@PathVariable Long listingId) {
+        return ResponseEntity.ok(orderBookQueryService.myPosition(listingId, SecurityUtils.getCurrentUserId()));
     }
 
     /**
@@ -91,28 +92,29 @@ public class OrderBookController {
      */
     @PostMapping("/{listingId}/orders")
     @RequirePin(PinScope.ORDER)
-    @ResponseStatus(HttpStatus.CREATED)
-    public BookOrderResponse placeOrder(
+    public ResponseEntity<BookOrderResponse> placeOrder(
             @PathVariable Long listingId,
             @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 100) String idempotencyKey,
             @Valid @RequestBody PlaceBookOrderRequest request) {
-        return commandService.placeOrder(listingId, idempotencyKey, request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(orderBookCommandService.placeOrder(listingId, idempotencyKey, request));
     }
 
     /** Lệnh của tôi trên mọi sổ, mới nhất trước; {@code active=true} chỉ lấy lệnh còn hiệu lực. */
     @GetMapping("/orders/mine")
-    public PageResponse<BookOrderResponse> myOrders(
+    public ResponseEntity<PageResponse<BookOrderResponse>> myOrders(
             @RequestParam(defaultValue = "false") boolean active,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-        return toPageResponse(queryService.myOrders(
-                SecurityUtils.getCurrentUserId(), active, PageRequest.of(page, size)));
+        return ResponseEntity.ok(toPageResponse(orderBookQueryService.myOrders(
+                SecurityUtils.getCurrentUserId(), active, PageRequest.of(page, size))));
     }
 
     /** Huỷ phần chưa khớp của lệnh; phần đã khớp giữ nguyên. */
     @DeleteMapping("/orders/{orderReference}")
-    public BookOrderResponse cancelOrder(@PathVariable @NotBlank @Size(max = 50) String orderReference) {
-        return commandService.cancelOrder(orderReference);
+    public ResponseEntity<BookOrderResponse> cancelOrder(
+            @PathVariable @NotBlank @Size(max = 50) String orderReference) {
+        return ResponseEntity.ok(orderBookCommandService.cancelOrder(orderReference));
     }
 
     private static <T> PageResponse<T> toPageResponse(Page<T> page) {

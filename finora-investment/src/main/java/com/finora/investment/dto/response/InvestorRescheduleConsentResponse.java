@@ -1,6 +1,7 @@
 package com.finora.investment.dto.response;
 
-import com.finora.investment.domain.restructure.InvestorRescheduleConsentStatus;
+import com.finora.investment.domain.restructure.enums.InvestorRescheduleConsentStatus;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;

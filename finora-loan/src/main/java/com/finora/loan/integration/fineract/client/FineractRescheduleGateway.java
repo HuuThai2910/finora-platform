@@ -1,6 +1,7 @@
 package com.finora.loan.integration.fineract.client;
 
-import com.finora.loan.domain.restructure.LoanRescheduleType;
+import com.finora.loan.domain.restructure.enums.LoanRescheduleType;
+
 import java.time.LocalDate;
 import java.util.Optional;
 

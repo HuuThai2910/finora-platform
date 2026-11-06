@@ -1,12 +1,13 @@
 package com.finora.notification.repository;
 
-import com.finora.notification.domain.LoanReference;
+import com.finora.notification.domain.entity.LoanReference;
 import jakarta.persistence.LockModeType;
-import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import java.util.Optional;
 
 public interface LoanReferenceRepository extends JpaRepository<LoanReference, Long> {
 

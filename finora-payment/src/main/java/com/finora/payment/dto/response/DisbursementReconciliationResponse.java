@@ -1,7 +1,8 @@
 package com.finora.payment.dto.response;
 
-import com.finora.payment.domain.disbursement.PaymentDisbursement;
-import com.finora.payment.domain.disbursement.PaymentDisbursementStatus;
+import com.finora.payment.domain.disbursement.entity.PaymentDisbursement;
+import com.finora.payment.domain.disbursement.enums.PaymentDisbursementStatus;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;

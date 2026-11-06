@@ -2,19 +2,19 @@ package com.finora.user.mapper;
 
 import com.finora.common.enums.user.EkycResultCode;
 import com.finora.common.enums.user.EkycStatus;
-import com.finora.user.domain.EkycDocumentDecision;
-import com.finora.user.domain.EkycDraftField;
-import com.finora.user.domain.EkycDraftFieldName;
-import com.finora.user.domain.EkycIdentityDraft;
-import com.finora.user.domain.EkycLivenessResult;
+import com.finora.user.domain.enums.EkycDocumentDecision;
+import com.finora.user.domain.enums.EkycDraftFieldName;
+import com.finora.user.domain.enums.EkycLivenessResult;
+import com.finora.user.domain.model.EkycDraftField;
+import com.finora.user.domain.model.EkycIdentityDraft;
 import com.finora.user.dto.response.EkycNextStep;
-import com.finora.user.dto.response.EkycResultResponse;
 import com.finora.user.dto.response.EkycResultResponse.DraftFieldView;
 import com.finora.user.dto.response.EkycResultResponse.DraftView;
 import com.finora.user.dto.response.EkycResultResponse.LivenessReason;
 import com.finora.user.dto.response.EkycResultResponse.LivenessView;
 import com.finora.user.dto.response.EkycResultResponse.RetakeItem;
-import com.finora.user.support.EkycMessages;
+import com.finora.user.dto.response.EkycResultResponse;
+import com.finora.user.util.EkycMessages;
 
 import java.util.List;
 

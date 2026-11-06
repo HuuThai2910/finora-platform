@@ -1,10 +1,8 @@
 package com.finora.notification.messaging.consumer;
 
 import lombok.RequiredArgsConstructor;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.support.KafkaHeaders;
-import org.springframework.messaging.handler.annotation.Header;
-import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
 /**
@@ -15,19 +13,12 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class InvestorServicingConsumer {
 
-    private final KafkaEventProcessor processor;
+    private final KafkaEventProcessor kafkaEventProcessor;
 
     @KafkaListener(id = "notification-investor-servicing",
             groupId = "${finora.notification.kafka.investor-servicing-group:notification-investor-servicing}",
             topics = "${finora.notification.kafka.note-servicing-changed-topic:finora.investment.note-servicing-changed}")
-    public void consume(@Payload String payload,
-            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
-            @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
-            @Header(KafkaHeaders.OFFSET) long offset,
-            @Header(name = "finora-event-id", required = false) String eventId,
-            @Header(name = "finora-event-type", required = false) String eventType,
-            @Header(name = "finora-event-version", required = false) String eventVersion) {
-        processor.process("notification-investor-servicing", topic, partition, offset, payload, eventId, eventType,
-                eventVersion);
+    public void consume(ConsumerRecord<String, String> record) {
+        kafkaEventProcessor.process("notification-investor-servicing", record);
     }
 }

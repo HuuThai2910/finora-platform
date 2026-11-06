@@ -1,5 +1,4 @@
 package com.finora.loan.config;
-
 import com.finora.common.security.DualBearerTokenResolver;
 import com.finora.common.security.KeycloakJwtAuthenticationConverter;
 import com.finora.common.security.ops.OpsFunction;
@@ -15,7 +14,9 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Stream;
 
 /**
  * Bảo vệ API của Loan Service bằng access token do Keycloak cấp.
@@ -35,8 +36,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final DualBearerTokenResolver bearerTokenResolver;
-    private final KeycloakJwtAuthenticationConverter keycloakRoleConverter;
+    private final DualBearerTokenResolver dualBearerTokenResolver;
+    private final KeycloakJwtAuthenticationConverter keycloakJwtAuthenticationConverter;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -53,6 +54,12 @@ public class SecurityConfig {
                         // Metric vận hành (số sự cố, hàng đợi) chỉ cho quản trị viên (W3E).
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         // Phân quyền nhân viên theo chức năng; ADMIN luôn qua (canView/canAct có sẵn ROLE_ADMIN).
+                        // Tra mã hồ sơ theo ID: các bảng đối soát/sự cố và trang hồ sơ vay đều cần.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/loan-applications/numbers")
+                        .hasAnyAuthority(Stream.concat(
+                                Arrays.stream(OpsFunction.LOAN_APPLICATION.canView()),
+                                Arrays.stream(OpsFunction.RECONCILIATION.canView()))
+                                .distinct().toArray(String[]::new))
                         // Hồ sơ vay: xem danh sách, chi tiết duyệt, giải thích và các lần chấm điểm.
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/admin/loan-applications",
@@ -112,8 +119,8 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2
-                        .jwt(jwt -> jwt.jwtAuthenticationConverter(keycloakRoleConverter))
-                        .bearerTokenResolver(bearerTokenResolver)
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(keycloakJwtAuthenticationConverter))
+                        .bearerTokenResolver(dualBearerTokenResolver)
                 );
 
         return http.build();

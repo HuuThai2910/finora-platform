@@ -5,6 +5,7 @@ import com.finora.loan.service.application.InvestorBorrowerProfileService;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -18,12 +19,12 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class InvestorLoanApplicationController {
 
-    private final InvestorBorrowerProfileService service;
+    private final InvestorBorrowerProfileService investorBorrowerProfileService;
 
     @GetMapping("/{applicationNumber}/borrower-profile")
-    public InvestorBorrowerProfileResponse borrowerProfile(
+    public ResponseEntity<InvestorBorrowerProfileResponse> borrowerProfile(
             @PathVariable @NotBlank @Size(max = 30) String applicationNumber
     ) {
-        return service.profile(applicationNumber);
+        return ResponseEntity.ok(investorBorrowerProfileService.profile(applicationNumber));
     }
 }

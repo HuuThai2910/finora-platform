@@ -1,7 +1,8 @@
 package com.finora.loan.config;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
 
 /** Policy relay outbox độc lập transport; Kafka adapter chỉ hoạt động khi được bật rõ ràng. */
 @ConfigurationProperties(prefix = "finora.loan.outbox")

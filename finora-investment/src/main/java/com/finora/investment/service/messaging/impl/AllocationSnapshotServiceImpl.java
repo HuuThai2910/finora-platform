@@ -2,9 +2,10 @@ package com.finora.investment.service.messaging.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finora.investment.domain.order.InvestmentCommitment;
+import com.finora.investment.domain.order.entity.InvestmentCommitment;
 import com.finora.investment.messaging.event.FundingAllocationEventData;
 import com.finora.investment.service.messaging.AllocationSnapshotService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -15,13 +16,10 @@ import java.util.List;
 
 /** Canonical allocation luôn sắp theo commitment ID trước khi tính SHA-256. */
 @Service
+@RequiredArgsConstructor
 public class AllocationSnapshotServiceImpl implements AllocationSnapshotService {
 
     private final ObjectMapper objectMapper;
-
-    public AllocationSnapshotServiceImpl(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
-    }
 
     @Override
     public AllocationSnapshot snapshot(List<InvestmentCommitment> commitments) {

@@ -1,8 +1,9 @@
 package com.finora.blockchain.config;
 
-import com.finora.blockchain.domain.proof.ProofProviderType;
-import java.time.Duration;
+import com.finora.blockchain.domain.proof.enums.ProofProviderType;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
 
 /**
  * Chính sách ghi proof; mặc định dùng mock và không tự chạy worker.

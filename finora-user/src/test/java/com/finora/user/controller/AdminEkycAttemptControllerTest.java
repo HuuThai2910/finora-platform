@@ -74,7 +74,7 @@ class AdminEkycAttemptControllerTest {
         when(reviewService.list(null, 0, 20)).thenReturn(PageResponse.<EkycAttemptSummaryResponse>builder()
                 .content(List.of(new EkycAttemptSummaryResponse(ATTEMPT, 7L, "nguoidung@example.test", "MANUAL_REVIEW",
                         "CCCD_CHIP_2021", "NEEDS_REVIEW", "REVIEW", 0.41, "GRAY", List.of("QR_MRZ_AGREE"),
-                        Instant.parse("2026-10-16T03:00:00Z"), Instant.parse("2026-10-16T03:05:00Z"))))
+                        Instant.parse("2026-10-16T03:00:00Z"), Instant.parse("2026-10-16T03:05:00Z"), null, null)))
                 .page(0).size(20).totalElements(1).totalPages(1).last(true).build());
 
         mockMvc.perform(get(BASE))

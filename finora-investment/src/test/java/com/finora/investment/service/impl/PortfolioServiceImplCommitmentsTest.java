@@ -1,7 +1,7 @@
 package com.finora.investment.service.impl;
 
 import com.finora.common.enums.investment.CommitmentStatus;
-import com.finora.investment.domain.order.InvestmentCommitment;
+import com.finora.investment.domain.order.entity.InvestmentCommitment;
 import com.finora.investment.mapper.InvestmentMapper;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
 import com.finora.investment.repository.InvestmentLoanServicingStateRepository;

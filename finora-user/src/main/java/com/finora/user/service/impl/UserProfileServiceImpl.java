@@ -1,32 +1,41 @@
 package com.finora.user.service.impl;
 
 import com.finora.common.dto.PageResponse;
+import com.finora.common.enums.user.EkycStatus;
+import com.finora.common.enums.user.UserRole;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.common.enums.user.EkycStatus;
-import com.finora.user.domain.UserProfile;
-import com.finora.common.enums.user.UserRole;
+import com.finora.common.util.CryptoUtils;
+import com.finora.common.util.PiiMasker;
+import com.finora.user.config.CryptoProperties;
+import com.finora.user.domain.entity.UserProfile;
+import com.finora.user.dto.request.UserSearchCriteria;
 import com.finora.user.dto.response.UserProfileResponse;
 import com.finora.user.dto.response.UserStatsResponse;
 import com.finora.user.mapper.UserProfileMapper;
 import com.finora.user.repository.UserProfileRepository;
+import com.finora.user.repository.UserProfileSpecifications;
 import com.finora.user.service.KeycloakAdminService;
 import com.finora.user.service.StaffRoleService;
 import com.finora.user.service.UserProfileService;
-import com.finora.user.support.PiiMasker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -48,6 +57,11 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final UserProfileMapper userProfileMapper;
     private final KeycloakAdminService keycloakAdminService;
     private final StaffRoleService staffRoleService;
+    private final CryptoProperties cryptoProperties;
+    private final Clock clock;
+
+    /** Giới hạn chuỗi tìm, đủ cho họ tên hoặc email dài. */
+    static final int MAX_SEARCH_LENGTH = 100;
 
     // ── Hồ sơ cá nhân ──────────────────────────────────────────────
 
@@ -62,21 +76,37 @@ public class UserProfileServiceImpl implements UserProfileService {
     // ── Quản trị (Admin) ────────────────────────────────────────────
 
     @Override
-    public PageResponse<UserProfileResponse> getAllUsers(String role, String ekycStatus, Pageable pageable) {
-        UserRole roleFilter = parseRole(role);
-        EkycStatus ekycFilter = parseEkycStatus(ekycStatus);
-
-        Page<UserProfile> page;
-        if (roleFilter != null && ekycFilter != null) {
-            page = userProfileRepository
-                    .findByRoleAndEkycStatusOrderByCreatedAtDesc(roleFilter, ekycFilter, pageable);
-        } else if (roleFilter != null) {
-            page = userProfileRepository.findByRoleOrderByCreatedAtDesc(roleFilter, pageable);
-        } else if (ekycFilter != null) {
-            page = userProfileRepository.findByEkycStatusOrderByCreatedAtDesc(ekycFilter, pageable);
-        } else {
-            page = userProfileRepository.findAllByOrderByCreatedAtDesc(pageable);
+    public PageResponse<UserProfileResponse> searchUsers(UserSearchCriteria criteria, Pageable pageable) {
+        UserRole roleFilter = parseRole(criteria.role());
+        EkycStatus ekycFilter = parseEkycStatus(criteria.ekycStatus());
+        String staffRoleFilter = isNoFilter(criteria.staffRoleCode()) ? null : criteria.staffRoleCode().trim();
+        if (staffRoleFilter != null) {
+            // Chỉ tài khoản STAFF mới mang mã vai trò nhân viên (ràng buộc ck_user_profiles_staff_role_code).
+            if (roleFilter != null && roleFilter != UserRole.STAFF) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "STAFF_ROLE_NOT_ALLOWED",
+                        "Chỉ lọc được vai trò nhân viên khi xem tài khoản nhân viên");
+            }
+            roleFilter = UserRole.STAFF;
         }
+
+        String search = null;
+        List<String> identifierHashes = List.of();
+        if (criteria.q() != null && !criteria.q().isBlank()) {
+            String raw = criteria.q().trim();
+            if (raw.length() > MAX_SEARCH_LENGTH) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "SEARCH_TOO_LONG",
+                        "Chuỗi tìm tối đa " + MAX_SEARCH_LENGTH + " ký tự");
+            }
+            search = UserProfileSpecifications.normalizeSearchText(raw);
+            identifierHashes = identifierCandidates(raw).stream()
+                    .map(value -> CryptoUtils.hmacSha256(value, cryptoProperties.getHmacSecret()))
+                    .toList();
+        }
+
+        Pageable sorted = PageRequest.of(pageable.getPageNumber(), Math.min(Math.max(pageable.getPageSize(), 1), 100),
+                Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
+        Page<UserProfile> page = userProfileRepository.findAll(UserProfileSpecifications.matching(
+                roleFilter, ekycFilter, staffRoleFilter, search, identifierHashes), sorted);
 
         return PageResponse.<UserProfileResponse>builder()
                 .content(page.getContent().stream()
@@ -97,6 +127,32 @@ public class UserProfileServiceImpl implements UserProfileService {
                 .byRole(toCountMap(userProfileRepository.countGroupedByRole()))
                 .byEkycStatus(toCountMap(userProfileRepository.countGroupedByEkycStatus()))
                 .build();
+    }
+
+    /**
+     * Các dạng viết có thể của số điện thoại / CCCD trong chuỗi tìm. Số được băm đúng như lúc đăng ký (chuỗi đã trim),
+     * nên ngoài chuỗi gốc còn thử bản chỉ có chữ số và hai cách viết đầu số Việt Nam {@code 0…} / {@code +84…}.
+     * Chuỗi không đủ 9–12 chữ số thì không phải số điện thoại hay CCCD, khỏi băm.
+     */
+    static Set<String> identifierCandidates(String raw) {
+        String digits = raw.chars().filter(Character::isDigit)
+                .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append).toString();
+        Set<String> candidates = new LinkedHashSet<>();
+        if (digits.length() < 9 || digits.length() > 12) {
+            return candidates;
+        }
+        candidates.add(raw);
+        candidates.add(digits);
+        if (digits.startsWith("84") && digits.length() == 11) {
+            String local = digits.substring(2);
+            candidates.add("0" + local);
+            candidates.add("+84" + local);
+        } else if (digits.startsWith("0") && digits.length() == 10) {
+            String local = digits.substring(1);
+            candidates.add("+84" + local);
+            candidates.add("84" + local);
+        }
+        return candidates;
     }
 
     /** Gom kết quả {@code [enum, count]} thành map khóa là tên enum. */
@@ -167,10 +223,21 @@ public class UserProfileServiceImpl implements UserProfileService {
 
     @Override
     @Transactional
-    public void lockUser(Long userId, UUID currentKeycloakId) {
+    public void lockUser(Long userId, String reason, UUID currentKeycloakId) {
+        if (reason == null || reason.isBlank()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "LOCK_REASON_REQUIRED", "Vui lòng nhập lý do khóa");
+        }
         UserProfile profile = findByIdOrThrow(userId);
         preventSelfAction(profile, currentKeycloakId, "Không thể tự khóa tài khoản của chính mình");
-        keycloakAdminService.disableUser(profile.getKeycloakUserId().toString());
+        String keycloakUserId = profile.getKeycloakUserId().toString();
+        keycloakAdminService.disableUser(keycloakUserId);
+
+        profile.markLocked(reason.trim(), currentKeycloakId, clock.instant());
+        userProfileRepository.save(profile);
+
+        // Tắt tài khoản chỉ chặn đăng nhập mới; đăng xuất để thu hồi refresh token của mọi phiên đang mở
+        // (app và web không làm mới phiên được nữa). Lỗi đăng xuất chỉ ghi log, không làm hỏng lệnh khóa.
+        keycloakAdminService.logoutUser(keycloakUserId);
         log.info("Admin đã khóa tài khoản userId={}, email={}",
                 userId, PiiMasker.maskEmail(profile.getEmail()));
     }
@@ -180,6 +247,8 @@ public class UserProfileServiceImpl implements UserProfileService {
     public void unlockUser(Long userId) {
         UserProfile profile = findByIdOrThrow(userId);
         keycloakAdminService.enableUser(profile.getKeycloakUserId().toString());
+        profile.clearLock();
+        userProfileRepository.save(profile);
         log.info("Admin đã mở khóa tài khoản userId={}, email={}",
                 userId, PiiMasker.maskEmail(profile.getEmail()));
     }

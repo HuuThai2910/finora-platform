@@ -1,6 +1,7 @@
 package com.finora.notification.service.intake;
 
 import com.finora.notification.service.delivery.NotificationDraft;
+
 import java.util.List;
 
 /** Quyết định của handler cho một event. */

@@ -1,8 +1,9 @@
 package com.finora.blockchain.service.proof;
 
-import com.finora.blockchain.domain.proof.ProofProviderType;
-import com.finora.blockchain.domain.proof.ProofSubmission;
-import com.finora.blockchain.domain.proof.ProofSubmissionStatus;
+import com.finora.blockchain.domain.proof.entity.ProofSubmission;
+import com.finora.blockchain.domain.proof.enums.ProofProviderType;
+import com.finora.blockchain.domain.proof.enums.ProofSubmissionStatus;
+
 import java.time.Instant;
 import java.util.UUID;
 

@@ -1,7 +1,7 @@
 package com.finora.investment.service.messaging.impl;
 
-import com.finora.investment.domain.messaging.ProcessedEvent;
-import com.finora.investment.domain.secondary.NoteRepaymentRedirect;
+import com.finora.investment.domain.messaging.entity.ProcessedEvent;
+import com.finora.investment.domain.secondary.entity.NoteRepaymentRedirect;
 import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.messaging.event.InvestorServicingNotificationEventData;
 import com.finora.investment.messaging.event.RepaymentDistributedEventData;
@@ -21,27 +21,34 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Xử lý event RepaymentDistributed: ghi tiền trả nợ vào từng Note, kiểm tổng phân bổ khớp số Payment báo và
+ * chuyển lại phần đã trả nhầm cho chủ cũ của Note. Mỗi event chỉ xử lý một lần theo {@code eventId}.
+ * <p>
+ * Note đã đổi chủ thì ghi một khoản chuyển lại để worker bảo trì chuyển tiền cho chủ hiện tại; thông báo
+ * {@code InvestorNoteServicingChanged} gửi chủ hiện tại theo Investment.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class RepaymentDistributedEventHandlerImpl implements RepaymentDistributedEventHandler {
 
-    private final InvestmentNoteRepository notes;
-    private final ProcessedEventRepository processed;
-    private final InvestmentOutboxService outbox;
-    private final NoteTransferRepository transfers;
-    private final NoteRepaymentRedirectRepository redirects;
+    private final InvestmentNoteRepository investmentNoteRepository;
+    private final ProcessedEventRepository processedEventRepository;
+    private final InvestmentOutboxService investmentOutboxService;
+    private final NoteTransferRepository noteTransferRepository;
+    private final NoteRepaymentRedirectRepository noteRepaymentRedirectRepository;
     private final Clock clock;
 
     @Override
     @Transactional
     public void handle(UUID eventId, Instant occurredAt, RepaymentDistributedEventData data) {
-        if (processed.existsByEventId(eventId)) return;
+        if (processedEventRepository.existsByEventId(eventId)) return;
         BigDecimal principalTotal = BigDecimal.ZERO.setScale(2);
         BigDecimal interestTotal = BigDecimal.ZERO.setScale(2);
         BigDecimal prepaymentFeeTotal = BigDecimal.ZERO.setScale(2);
         for (RepaymentDistributedEventData.NoteAllocation allocation : data.allocations()) {
-            var note = notes.findByIdForUpdate(allocation.noteId()).orElseThrow(() ->
+            var note = investmentNoteRepository.findByIdForUpdate(allocation.noteId()).orElseThrow(() ->
                     InvestmentDomainException.notFound("NOTE_NOT_FOUND", "Không tìm thấy Note trong phân bổ repayment"));
             if (!note.getLoanId().equals(data.loanApplicationId())
                     || !note.getNoteNumber().equals(allocation.noteNumber())) {
@@ -67,11 +74,11 @@ public class RepaymentDistributedEventHandlerImpl implements RepaymentDistribute
         }
         // Người nhận thông báo là chủ hiện tại theo Investment, không phải người Payment đã trả:
         // khoản trả nhầm chủ cũ sẽ được worker chuyển lại cho họ.
-        var currentOwners = notes.findAllById(data.allocations().stream()
+        var currentOwners = investmentNoteRepository.findAllById(data.allocations().stream()
                         .map(RepaymentDistributedEventData.NoteAllocation::noteId).toList()).stream()
                 .collect(java.util.stream.Collectors.toMap(
-                        com.finora.investment.domain.note.InvestmentNote::getId,
-                        com.finora.investment.domain.note.InvestmentNote::getInvestorId));
+                        com.finora.investment.domain.note.entity.InvestmentNote::getId,
+                        com.finora.investment.domain.note.entity.InvestmentNote::getInvestorId));
         var recipients = data.allocations().stream()
                 .map(item -> new InvestorServicingNotificationEventData.Recipient(
                         item.noteId(), item.noteNumber(), currentOwners.getOrDefault(item.noteId(), item.investorId()),
@@ -82,14 +89,14 @@ public class RepaymentDistributedEventHandlerImpl implements RepaymentDistribute
         if (!recipients.isEmpty()) {
             String changeType = "EARLY_SETTLEMENT".equals(data.repaymentType())
                     ? "EARLY_SETTLEMENT" : "REPAYMENT_CREDITED";
-            outbox.record("LOAN", data.loanApplicationId().toString(),
+            investmentOutboxService.record("LOAN", data.loanApplicationId().toString(),
                     "InvestorNoteServicingChanged", 1,
                     new InvestorServicingNotificationEventData(changeType,
                             data.loanApplicationId(), null, 0, 1, data.amount(),
                             null, "EARLY_SETTLEMENT".equals(data.repaymentType()),
                             data.completedAt(), recipients));
         }
-        processed.save(ProcessedEvent.create(eventId, "RepaymentDistributed", 1, "finora-payment",
+        processedEventRepository.save(ProcessedEvent.create(eventId, "RepaymentDistributed", 1, "finora-payment",
                 data.repaymentId().toString(), occurredAt, clock.instant()));
     }
 
@@ -104,14 +111,14 @@ public class RepaymentDistributedEventHandlerImpl implements RepaymentDistribute
      */
     private void redirectToCurrentOwner(java.util.UUID repaymentId, Long noteId, String paidTo,
             String currentOwner, BigDecimal amount) {
-        if (!transfers.existsByNoteIdAndSellerId(noteId, paidTo)) {
+        if (!noteTransferRepository.existsByNoteIdAndSellerId(noteId, paidTo)) {
             throw InvestmentDomainException.conflict("REPAYMENT_OWNER_MISMATCH",
                     "Payment chia tiền Note cho người không phải chủ và chưa từng bán Note này");
         }
-        if (amount.signum() <= 0 || redirects.existsByRepaymentIdAndNoteId(repaymentId, noteId)) {
+        if (amount.signum() <= 0 || noteRepaymentRedirectRepository.existsByRepaymentIdAndNoteId(repaymentId, noteId)) {
             return;
         }
-        redirects.save(NoteRepaymentRedirect.pending(
+        noteRepaymentRedirectRepository.save(NoteRepaymentRedirect.pending(
                 repaymentId, noteId, paidTo, currentOwner, amount, clock.instant()));
         log.warn("Repayment chia cho chủ cũ của Note, ghi khoản chuyển lại: repaymentId={}, noteId={}",
                 repaymentId, noteId);

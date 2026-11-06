@@ -21,6 +21,12 @@ public class AiServiceProperties {
 
     private Duration connectTimeout = Duration.ofSeconds(3);
 
+    /**
+     * Bước đọc thẻ giải QR, đọc MRZ bằng Tesseract, tìm chân dung và có thể hỏi Gemini điền chỗ trống; AI xử lý tuần
+     * tự nên một lần gọi có thể mất vài chục giây.
+     */
+    private Duration documentReadTimeout = Duration.ofSeconds(60);
+
     /** Phân tích video liveness chạy tuần tự (semaphore) ở AI nên có thể chờ lâu. */
     private Duration livenessReadTimeout = Duration.ofSeconds(60);
 }

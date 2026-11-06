@@ -2,6 +2,7 @@ package com.finora.loan.integration.fineract.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.finora.loan.config.FineractProperties;
+import com.finora.loan.integration.fineract.FineractIntegrationException;
 import com.finora.loan.integration.fineract.contract.ScheduleCalculationRequest;
 import com.finora.loan.integration.fineract.contract.ScheduleCalculationResult;
 import com.finora.loan.integration.fineract.mapper.FineractSchedulePayloadMapper;
@@ -13,39 +14,39 @@ import org.springframework.web.client.RestClient;
 public class FineractScheduleHttpClient implements FineractScheduleGateway {
 
     private final RestClient restClient;
-    private final FineractProperties properties;
-    private final FineractSchedulePayloadMapper payloadMapper;
-    private final FineractRequestExecutor requestExecutor;
+    private final FineractProperties fineractProperties;
+    private final FineractSchedulePayloadMapper fineractSchedulePayloadMapper;
+    private final FineractRequestExecutor fineractRequestExecutor;
     private volatile Long previewClientId;
 
     public FineractScheduleHttpClient(
             RestClient fineractRestClient,
-            FineractProperties properties,
-            FineractSchedulePayloadMapper payloadMapper,
-            FineractRequestExecutor requestExecutor
+            FineractProperties fineractProperties,
+            FineractSchedulePayloadMapper fineractSchedulePayloadMapper,
+            FineractRequestExecutor fineractRequestExecutor
     ) {
         this.restClient = fineractRestClient;
-        this.properties = properties;
-        this.payloadMapper = payloadMapper;
-        this.requestExecutor = requestExecutor;
+        this.fineractProperties = fineractProperties;
+        this.fineractSchedulePayloadMapper = fineractSchedulePayloadMapper;
+        this.fineractRequestExecutor = fineractRequestExecutor;
     }
 
     @Override
     public ScheduleCalculationResult calculateSchedule(ScheduleCalculationRequest request) {
         long resolvedPreviewClientId = resolvePreviewClientId();
-        JsonNode response = requestExecutor.execute(
+        JsonNode response = fineractRequestExecutor.execute(
                 FineractCallGroup.SCHEDULE,
                 "calculate-schedule",
                 () -> restClient.post()
                 .uri(uriBuilder -> uriBuilder.path("/loans")
                         .queryParam("command", "calculateLoanSchedule")
                         .build())
-                .headers(requestExecutor::authenticate)
-                .body(payloadMapper.toSchedulePayload(request, resolvedPreviewClientId))
+                .headers(fineractRequestExecutor::authenticate)
+                .body(fineractSchedulePayloadMapper.toSchedulePayload(request, resolvedPreviewClientId))
                 .retrieve()
                 .body(JsonNode.class)
         );
-        return payloadMapper.toScheduleResult(request, resolvedPreviewClientId, response);
+        return fineractSchedulePayloadMapper.toScheduleResult(request, resolvedPreviewClientId, response);
     }
 
     /** Resolve một lần Client kỹ thuật; Client này không được dùng để tạo khoản vay thật. */
@@ -54,8 +55,8 @@ public class FineractScheduleHttpClient implements FineractScheduleGateway {
         if (cached != null) {
             return cached;
         }
-        String externalId = properties.previewClientExternalId();
-        JsonNode response = requestExecutor.execute(
+        String externalId = fineractProperties.previewClientExternalId();
+        JsonNode response = fineractRequestExecutor.execute(
                 FineractCallGroup.SCHEDULE,
                 "find-preview-client",
                 () -> restClient.get()
@@ -63,11 +64,11 @@ public class FineractScheduleHttpClient implements FineractScheduleGateway {
                         .queryParam("externalId", externalId)
                         .queryParam("limit", 2)
                         .build())
-                .headers(requestExecutor::authenticate)
+                .headers(fineractRequestExecutor::authenticate)
                 .retrieve()
                 .body(JsonNode.class)
         );
-        long resolved = payloadMapper.findClientIdByExternalId(response, externalId)
+        long resolved = fineractSchedulePayloadMapper.findClientIdByExternalId(response, externalId)
                 .orElseThrow(() -> new FineractIntegrationException(
                         "FINERACT_PREVIEW_CLIENT_MISSING",
                         "Chưa có Client kỹ thuật để tính lịch trả dự kiến",

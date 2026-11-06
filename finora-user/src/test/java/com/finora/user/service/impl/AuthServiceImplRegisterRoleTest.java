@@ -3,7 +3,7 @@ package com.finora.user.service.impl;
 import com.finora.common.enums.user.UserRole;
 import com.finora.common.exception.BusinessException;
 import com.finora.user.config.CryptoProperties;
-import com.finora.user.domain.PendingRegistration;
+import com.finora.user.domain.model.PendingRegistration;
 import com.finora.user.dto.request.RegisterRequest;
 import com.finora.user.repository.UserProfileRepository;
 import com.finora.user.service.KeycloakAdminService;

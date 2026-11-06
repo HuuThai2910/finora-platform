@@ -2,6 +2,9 @@ package com.finora.investment.service.outbox;
 
 import lombok.Getter;
 
+/**
+ * Lỗi khi đẩy event outbox lên Kafka; {@code retryable} quyết định event được thử lại hay dừng.
+ */
 @Getter
 public class InvestmentOutboxPublishException extends RuntimeException {
 

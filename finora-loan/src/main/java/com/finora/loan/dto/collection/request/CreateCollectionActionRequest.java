@@ -1,10 +1,11 @@
 package com.finora.loan.dto.collection.request;
 
-import com.finora.loan.domain.collection.CollectionActionType;
+import com.finora.loan.domain.collection.enums.CollectionActionType;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 

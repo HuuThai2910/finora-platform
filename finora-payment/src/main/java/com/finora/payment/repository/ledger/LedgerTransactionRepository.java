@@ -1,16 +1,17 @@
 package com.finora.payment.repository.ledger;
 
-import com.finora.payment.domain.ledger.LedgerTransaction;
-import java.math.BigDecimal;
-import java.time.Instant;
-import java.util.Optional;
-import java.util.UUID;
-import java.util.List;
+import com.finora.payment.domain.ledger.entity.LedgerTransaction;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.data.domain.Pageable;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 public interface LedgerTransactionRepository extends JpaRepository<LedgerTransaction, Long> {
 
@@ -43,7 +44,7 @@ public interface LedgerTransactionRepository extends JpaRepository<LedgerTransac
 
     @Query("""
             select transaction from LedgerTransaction transaction
-            where transaction.status = com.finora.payment.domain.ledger.LedgerTransactionStatus.POSTED
+            where transaction.status = com.finora.payment.domain.ledger.enums.LedgerTransactionStatus.POSTED
               and exists (
                   select entry.id from LedgerEntry entry
                   where entry.transaction = transaction and entry.wallet.walletId = :walletId

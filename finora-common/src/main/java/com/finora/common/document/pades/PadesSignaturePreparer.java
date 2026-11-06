@@ -1,5 +1,10 @@
 package com.finora.common.document.pades;
 
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.interactive.digitalsignature.ExternalSigningSupport;
+import org.apache.pdfbox.pdmodel.interactive.digitalsignature.PDSignature;
+import org.apache.pdfbox.pdmodel.interactive.digitalsignature.SignatureOptions;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -8,10 +13,6 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.GregorianCalendar;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.interactive.digitalsignature.ExternalSigningSupport;
-import org.apache.pdfbox.pdmodel.interactive.digitalsignature.PDSignature;
-import org.apache.pdfbox.pdmodel.interactive.digitalsignature.SignatureOptions;
 
 /**
  * Thêm một trường chữ ký ẩn vào PDF bằng incremental update của PDFBox và chừa trống /Contents.

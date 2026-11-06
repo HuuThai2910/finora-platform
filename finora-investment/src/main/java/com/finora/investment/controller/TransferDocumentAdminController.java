@@ -1,7 +1,7 @@
 package com.finora.investment.controller;
 
 import com.finora.common.dto.PageResponse;
-import com.finora.investment.domain.transferdocument.NoteTransferDocumentStatus;
+import com.finora.investment.domain.transferdocument.enums.NoteTransferDocumentStatus;
 import com.finora.investment.dto.response.TransferDocumentAdminResponse;
 import com.finora.investment.service.transferdocument.TransferDocumentAdminService;
 import jakarta.validation.constraints.Max;
@@ -31,33 +31,33 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class TransferDocumentAdminController {
 
-    private final TransferDocumentAdminService adminService;
+    private final TransferDocumentAdminService transferDocumentAdminService;
 
     /** Mới nhất trước; {@code status} bỏ trống là tất cả. */
     @GetMapping
-    public PageResponse<TransferDocumentAdminResponse> list(
+    public ResponseEntity<PageResponse<TransferDocumentAdminResponse>> list(
             @RequestParam(required = false) NoteTransferDocumentStatus status,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-        Page<TransferDocumentAdminResponse> result = adminService.list(status, PageRequest.of(page, size));
-        return PageResponse.<TransferDocumentAdminResponse>builder()
+        Page<TransferDocumentAdminResponse> result = transferDocumentAdminService.list(status, PageRequest.of(page, size));
+        return ResponseEntity.ok(PageResponse.<TransferDocumentAdminResponse>builder()
                 .content(result.getContent())
                 .page(result.getNumber())
                 .size(result.getSize())
                 .totalElements(result.getTotalElements())
                 .totalPages(result.getTotalPages())
                 .last(result.isLast())
-                .build();
+                .build());
     }
 
     @GetMapping("/{tradeReference}")
-    public TransferDocumentAdminResponse detail(@PathVariable String tradeReference) {
-        return adminService.detail(tradeReference);
+    public ResponseEntity<TransferDocumentAdminResponse> detail(@PathVariable String tradeReference) {
+        return ResponseEntity.ok(transferDocumentAdminService.detail(tradeReference));
     }
 
     @GetMapping(value = "/{tradeReference}/pdf", produces = MediaType.APPLICATION_PDF_VALUE)
     public ResponseEntity<byte[]> pdf(@PathVariable String tradeReference) {
-        TransferDocumentAdminService.IssuedPdf pdf = adminService.pdf(tradeReference);
+        TransferDocumentAdminService.IssuedPdf pdf = transferDocumentAdminService.pdf(tradeReference);
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
@@ -67,7 +67,7 @@ public class TransferDocumentAdminController {
 
     @PostMapping("/{tradeReference}/retry")
     public ResponseEntity<Void> retry(@PathVariable String tradeReference) {
-        adminService.retry(tradeReference);
+        transferDocumentAdminService.retry(tradeReference);
         return ResponseEntity.noContent().build();
     }
 }

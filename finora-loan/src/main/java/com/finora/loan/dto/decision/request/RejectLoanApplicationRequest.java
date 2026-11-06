@@ -1,6 +1,6 @@
 package com.finora.loan.dto.decision.request;
 
-import com.finora.loan.domain.decision.AdminDecisionReasonCode;
+import com.finora.loan.domain.decision.enums.AdminDecisionReasonCode;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;

@@ -1,9 +1,10 @@
 package com.finora.blockchain.repository.operations;
 
 import com.finora.common.observability.OperationalMetricsProperties;
-import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+
+import javax.sql.DataSource;
 
 /**
  * Câu đếm hàng đợi proof cho gauge vận hành của Blockchain (W3E, D58). Chỉ đọc database của Blockchain.

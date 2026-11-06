@@ -76,6 +76,42 @@ logging:
   level:
     com.finora.investment: INFO
 
+resilience4j:
+  circuitbreaker:
+    instances:
+      # Lời gọi finora-payment (giữ/nhả/thanh toán/chuyển tiền) và finora-user (danh tính in giấy chuyển nhượng), giá trị
+      # như finora-loan. Mạch mở thì client trả đúng kết quả "không kết nối được" (thử lại được) như khi service tắt.
+      payment:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        # HTTP 4xx là câu trả lời của service (từ chối nghiệp vụ, token, quyền), không phải sự cố để mở mạch.
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+      user-identity:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+  timelimiter:
+    instances:
+      # Không khai thì Spring Cloud cắt mọi lời gọi sau 1 giây. RestClient của Investment chưa đặt read-timeout nên lấy mức
+      # rộng như Fineract ở finora-loan. Hết giờ là "không kết nối được": lệnh, lần khớp, khoản chuyển giữ nguyên chờ rồi thử
+      # lại bằng đúng khóa idempotency cũ, Payment trả lại kết quả của lần trước.
+      payment:
+        timeout-duration: ${INVESTMENT_PAYMENT_TIME_LIMITER_TIMEOUT:35s}
+        cancel-running-future: true
+      user-identity:
+        timeout-duration: ${INVESTMENT_USER_TIME_LIMITER_TIMEOUT:35s}
+        cancel-running-future: true
+
 finora:
   # Pin-token xác nhận thao tác nhạy cảm — khoá HS256 phải GIỐNG NHAU ở finora-user
   # (bên cấp) và payment/investment/loan (bên kiểm). Mặc định chỉ dùng cho máy dev.

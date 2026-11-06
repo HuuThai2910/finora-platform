@@ -1,14 +1,14 @@
 package com.finora.investment.service.orderbook.impl;
 
 import com.finora.common.enums.investment.NoteStatus;
-import com.finora.investment.domain.note.InvestmentNote;
-import com.finora.investment.domain.orderbook.BookOrder;
-import com.finora.investment.domain.orderbook.BookTrade;
-import com.finora.investment.domain.orderbook.CancelReason;
-import com.finora.investment.domain.orderbook.OrderBook;
-import com.finora.investment.domain.orderbook.OrderSide;
-import com.finora.investment.domain.orderbook.SettlementStatus;
-import com.finora.investment.domain.secondary.NoteTransfer;
+import com.finora.investment.domain.note.entity.InvestmentNote;
+import com.finora.investment.domain.orderbook.entity.BookOrder;
+import com.finora.investment.domain.orderbook.entity.BookTrade;
+import com.finora.investment.domain.orderbook.entity.OrderBook;
+import com.finora.investment.domain.orderbook.enums.CancelReason;
+import com.finora.investment.domain.orderbook.enums.OrderSide;
+import com.finora.investment.domain.orderbook.enums.SettlementStatus;
+import com.finora.investment.domain.secondary.entity.NoteTransfer;
 import com.finora.investment.messaging.event.NoteOwnershipChangedEventData;
 import com.finora.investment.repository.BookOrderRepository;
 import com.finora.investment.repository.BookTradeRepository;
@@ -16,8 +16,6 @@ import com.finora.investment.repository.InvestmentNoteRepository;
 import com.finora.investment.repository.NoteLockRepository;
 import com.finora.investment.repository.NoteTransferRepository;
 import com.finora.investment.service.orderbook.MatchingEngine;
-import com.finora.investment.service.orderbook.OrderBookPricing;
-import com.finora.investment.service.orderbook.OrderMatcher;
 import com.finora.investment.service.outbox.InvestmentOutboxService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,12 +46,12 @@ public class MatchingEngineImpl implements MatchingEngine {
     /** Số lệnh đối ứng đọc mỗi lượt; đủ lớn để thường chỉ cần một lượt, đủ nhỏ để không đọc vô hạn. */
     private static final int RESTING_BATCH = 200;
 
-    private final BookOrderRepository orderRepository;
-    private final BookTradeRepository tradeRepository;
-    private final InvestmentNoteRepository noteRepository;
-    private final NoteLockRepository lockRepository;
-    private final NoteTransferRepository transferRepository;
-    private final InvestmentOutboxService outboxService;
+    private final BookOrderRepository bookOrderRepository;
+    private final BookTradeRepository bookTradeRepository;
+    private final InvestmentNoteRepository investmentNoteRepository;
+    private final NoteLockRepository noteLockRepository;
+    private final NoteTransferRepository noteTransferRepository;
+    private final InvestmentOutboxService investmentOutboxService;
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
@@ -98,8 +96,8 @@ public class MatchingEngineImpl implements MatchingEngine {
     private List<BookOrder> findCrossing(OrderBook book, BookOrder incoming) {
         PageRequest page = PageRequest.of(0, Math.min(incoming.remainingQuantity(), RESTING_BATCH));
         return incoming.getSide() == OrderSide.BID
-                ? orderRepository.findCrossingAsks(book.getId(), incoming.getPricePermille(), page)
-                : orderRepository.findCrossingBids(book.getId(), incoming.getPricePermille(), page);
+                ? bookOrderRepository.findCrossingAsks(book.getId(), incoming.getPricePermille(), page)
+                : bookOrderRepository.findCrossingBids(book.getId(), incoming.getPricePermille(), page);
     }
 
     /**
@@ -112,7 +110,7 @@ public class MatchingEngineImpl implements MatchingEngine {
         BookOrder ask = incoming.getSide() == OrderSide.ASK ? incoming : resting;
         int price = resting.getPricePermille();
 
-        List<InvestmentNote> notes = noteRepository.findLockedByAskOrder(ask.getId(), PageRequest.of(0, quantity));
+        List<InvestmentNote> notes = investmentNoteRepository.findLockedByAskOrder(ask.getId(), PageRequest.of(0, quantity));
         if (!deliverable(notes, ask, quantity)) {
             // Note đã tất toán hoặc đổi chủ bằng đường khác trong lúc nằm trong lệnh bán: lệnh bán
             // không còn gì để giao. Huỷ nó thay vì để người mua trả tiền mà không nhận được Note.
@@ -146,7 +144,7 @@ public class MatchingEngineImpl implements MatchingEngine {
             defaulted = defaulted || note.getStatus() == NoteStatus.DEFAULTED;
         }
 
-        BookTrade trade = tradeRepository.save(BookTrade.builder()
+        BookTrade trade = bookTradeRepository.save(BookTrade.builder()
                 .tradeReference(newTradeReference())
                 .orderBookId(book.getId())
                 .listingId(book.getListingId())
@@ -198,12 +196,12 @@ public class MatchingEngineImpl implements MatchingEngine {
             note.setUpdatedAt(now);
             noteIds.add(note.getId());
         }
-        transferRepository.saveAll(transfers);
-        lockRepository.deleteByNoteIdIn(noteIds);
+        noteTransferRepository.saveAll(transfers);
+        noteLockRepository.deleteByNoteIdIn(noteIds);
 
         // Giữ cùng Kafka key với mọi event của khoản vay để ownership không vượt qua
         // repayment/disbursement của chính khoản vay đó trong cùng partition.
-        outboxService.record("LOAN", notes.get(0).getLoanId().toString(), "NoteOwnershipChanged", 1,
+        investmentOutboxService.record("LOAN", notes.get(0).getLoanId().toString(), "NoteOwnershipChanged", 1,
                 new NoteOwnershipChangedEventData(notes.get(0).getLoanId(), book.getListingId(), "VND",
                         "TRANSFERRED", trade.getTradeReference(), now,
                         notes.stream().map(note -> new NoteOwnershipChangedEventData.NoteOwner(
@@ -236,7 +234,7 @@ public class MatchingEngineImpl implements MatchingEngine {
     void cancelRemainder(BookOrder order, CancelReason reason, Instant now) {
         order.cancel(reason, "SYSTEM", now);
         if (order.getSide() == OrderSide.ASK) {
-            lockRepository.deleteByAskOrderId(order.getId());
+            noteLockRepository.deleteByAskOrderId(order.getId());
         }
     }
 

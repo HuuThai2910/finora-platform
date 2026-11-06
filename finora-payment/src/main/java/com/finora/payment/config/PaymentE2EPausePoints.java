@@ -1,10 +1,11 @@
 package com.finora.payment.config;
 
-import java.time.Duration;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+
+import java.time.Duration;
 
 /**
  * Điểm dừng chỉ cho drill E2E (Q13): giữ luồng đúng chỗ nguy hiểm để harness tắt JVM và chứng minh khởi động lại không

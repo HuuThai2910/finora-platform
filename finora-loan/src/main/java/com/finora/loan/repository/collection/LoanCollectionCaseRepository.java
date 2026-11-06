@@ -1,13 +1,15 @@
 package com.finora.loan.repository.collection;
 
-import com.finora.loan.domain.collection.*;
+import com.finora.loan.domain.collection.entity.*;
+import com.finora.loan.domain.collection.enums.*;
 import jakarta.persistence.LockModeType;
-import java.util.Optional;
-import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
+
+import java.util.Optional;
+import java.util.UUID;
 
 public interface LoanCollectionCaseRepository extends JpaRepository<LoanCollectionCase, Long> {
     Optional<LoanCollectionCase> findByCaseId(UUID caseId);

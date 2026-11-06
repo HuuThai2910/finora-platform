@@ -1,7 +1,8 @@
 package com.finora.loan.dto.servicing.response;
 
-import com.finora.loan.domain.servicing.ReconciliationIncidentStatus;
-import com.finora.loan.domain.servicing.ReconciliationIncidentType;
+import com.finora.loan.domain.servicing.enums.ReconciliationIncidentStatus;
+import com.finora.loan.domain.servicing.enums.ReconciliationIncidentType;
+
 import java.time.Instant;
 import java.util.UUID;
 

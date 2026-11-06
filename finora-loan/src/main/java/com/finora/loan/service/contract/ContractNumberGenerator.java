@@ -1,17 +1,10 @@
 package com.finora.loan.service.contract;
 
-import java.util.Locale;
-import java.util.UUID;
-import org.springframework.stereotype.Component;
+/**
+ * Sinh mã hợp đồng vay dạng {@code LC-} và 20 ký tự hex viết hoa.
+ */
+public interface ContractNumberGenerator {
 
-@Component
-public class ContractNumberGenerator {
-
-    public String next() {
-        return "LC-" + UUID.randomUUID()
-                .toString()
-                .replace("-", "")
-                .substring(0, 20)
-                .toUpperCase(Locale.ROOT);
-    }
+    /** Mã hợp đồng mới. */
+    String next();
 }

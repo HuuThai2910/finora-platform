@@ -1,7 +1,8 @@
 package com.finora.loan.dto.contract.response;
 
-import com.finora.loan.domain.application.ActorType;
-import com.finora.loan.domain.contract.LoanContractStatus;
+import com.finora.loan.domain.application.enums.ActorType;
+import com.finora.loan.domain.contract.enums.LoanContractStatus;
+
 import java.time.Instant;
 
 public record LoanContractHistoryResponse(

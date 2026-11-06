@@ -1,16 +1,17 @@
 package com.finora.loan.mapper.scoring;
 
-import com.finora.loan.domain.application.LoanApplication;
-import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
-import com.finora.loan.domain.product.RepaymentMethod;
-import com.finora.loan.domain.scoring.BorrowerCreditProfile;
-import com.finora.loan.domain.scoring.BorrowerEligibilityCheck;
-import com.finora.loan.domain.scoring.IncomeVerificationStatus;
+import com.finora.loan.domain.application.entity.LoanApplication;
+import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
+import com.finora.loan.domain.product.enums.RepaymentMethod;
+import com.finora.loan.domain.scoring.entity.BorrowerCreditProfile;
+import com.finora.loan.domain.scoring.entity.BorrowerEligibilityCheck;
+import com.finora.loan.domain.scoring.enums.IncomeVerificationStatus;
 import com.finora.loan.integration.ai.contract.AiCreditScoreRequest;
-import com.finora.loan.support.HashingService;
-import java.math.BigDecimal;
+import com.finora.loan.util.HashingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
 
 @Component
 @RequiredArgsConstructor

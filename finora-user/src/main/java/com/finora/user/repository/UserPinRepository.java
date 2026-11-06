@@ -1,6 +1,6 @@
 package com.finora.user.repository;
 
-import com.finora.user.domain.UserPin;
+import com.finora.user.domain.entity.UserPin;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;

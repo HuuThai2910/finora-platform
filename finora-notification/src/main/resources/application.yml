@@ -162,3 +162,25 @@ finora:
       offsets-days: ${NOTIFICATION_DUE_REMINDER_OFFSETS_DAYS:3,0}
       batch-size: ${NOTIFICATION_DUE_REMINDER_BATCH_SIZE:200}
       cron: ${NOTIFICATION_DUE_REMINDER_CRON:0 5 8-20 * * *}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      # Expo Push (ExpoPushSender, cả /send và /getReceipts). Circuit mở thì không gọi Expo: lô gửi nhận lỗi tạm thời
+      # EXPO_CIRCUIT_OPEN, đọc receipt trả rỗng, worker thử lại theo backoff như khi Expo không với tới được.
+      expo-push:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        # HTTP 4xx (kể cả 429) là request sai hoặc bị giới hạn tần suất, không phải Expo sập; không tính để mở circuit.
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+  timelimiter:
+    instances:
+      expo-push:
+        # Cao hơn connect-timeout + read-timeout của Expo (3s + 10s) để HTTP client tự phân loại timeout trước.
+        timeout-duration: ${EXPO_PUSH_TIME_LIMITER_TIMEOUT:15s}
+        cancel-running-future: true

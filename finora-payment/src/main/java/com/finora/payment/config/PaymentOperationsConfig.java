@@ -3,9 +3,10 @@ package com.finora.payment.config;
 import com.finora.common.observability.OperationalGauge;
 import com.finora.common.observability.OperationalGaugeSet;
 import com.finora.payment.repository.operations.PaymentOperationalMetricsRepository;
-import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.List;
 
 /**
  * Gauge vận hành của Payment (W3E, D58): outbox và bốn hàng đợi đối soát tiền (trả nợ, giải ngân, nạp tiền, rút tiền W3B).

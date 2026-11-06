@@ -1,5 +1,15 @@
 package com.finora.loan.integration.fineract.client;
 
+import com.finora.loan.config.FineractBookingProperties;
+import com.finora.loan.domain.restructure.enums.LoanRescheduleType;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
+
+import java.time.LocalDate;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -10,15 +20,6 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
-
-import com.finora.loan.config.FineractBookingProperties;
-import com.finora.loan.domain.restructure.LoanRescheduleType;
-import java.time.LocalDate;
-import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 
 class FineractRescheduleHttpClientTest {
     @Test

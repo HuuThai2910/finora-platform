@@ -1,7 +1,8 @@
 package com.finora.loan.messaging.event;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.finora.loan.domain.restructure.LoanRescheduleType;
+import com.finora.loan.domain.restructure.enums.LoanRescheduleType;
+
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;

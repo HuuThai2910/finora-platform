@@ -1,9 +1,10 @@
 package com.finora.notification.messaging.consumer;
 
 import com.finora.notification.config.NotificationProperties;
+import org.springframework.stereotype.Component;
+
 import java.util.HashMap;
 import java.util.Map;
-import org.springframework.stereotype.Component;
 
 /**
  * Topic → loại event duy nhất được phép trên topic đó (mỗi topic FINORA mang một loại event). Header

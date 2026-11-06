@@ -1,24 +1,24 @@
 package com.finora.investment.service.statistics.impl;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
-
 import com.finora.common.exception.BusinessException;
 import com.finora.common.statistics.StatisticsBucket;
 import com.finora.common.statistics.StatisticsPeriod;
-import com.finora.investment.dto.response.InvestmentStatisticsSeriesResponse;
 import com.finora.investment.dto.response.InvestmentStatisticsSeriesResponse.Point;
+import com.finora.investment.dto.response.InvestmentStatisticsSeriesResponse;
 import com.finora.investment.dto.response.InvestmentStatisticsSummaryResponse;
-import com.finora.investment.repository.InvestmentStatisticsRepository;
 import com.finora.investment.repository.InvestmentStatisticsRepository.AutoInvestBucketRow;
 import com.finora.investment.repository.InvestmentStatisticsRepository.CommitmentBucketRow;
 import com.finora.investment.repository.InvestmentStatisticsRepository.CountBucketRow;
 import com.finora.investment.repository.InvestmentStatisticsRepository.ListingStatusRow;
 import com.finora.investment.repository.InvestmentStatisticsRepository.NoteStatusRow;
 import com.finora.investment.repository.InvestmentStatisticsRepository.TradeBucketRow;
+import com.finora.investment.repository.InvestmentStatisticsRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -26,11 +26,12 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class InvestmentStatisticsServiceImplTest {

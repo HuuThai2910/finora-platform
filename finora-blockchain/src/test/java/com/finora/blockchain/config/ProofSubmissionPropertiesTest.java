@@ -1,11 +1,12 @@
 package com.finora.blockchain.config;
 
+import com.finora.blockchain.domain.proof.enums.ProofProviderType;
+import org.junit.jupiter.api.Test;
+
+import java.time.Duration;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
-
-import com.finora.blockchain.domain.proof.ProofProviderType;
-import java.time.Duration;
-import org.junit.jupiter.api.Test;
 
 class ProofSubmissionPropertiesTest {
 

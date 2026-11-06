@@ -1,8 +1,8 @@
 package com.finora.user.repository;
 
-import com.finora.user.domain.EkycAttemptStatus;
-import com.finora.user.domain.EkycEvidence;
-import com.finora.user.domain.EkycEvidenceStage;
+import com.finora.user.domain.entity.EkycEvidence;
+import com.finora.user.domain.enums.EkycAttemptStatus;
+import com.finora.user.domain.enums.EkycEvidenceStage;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;

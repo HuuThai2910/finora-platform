@@ -4,7 +4,7 @@ import java.time.Duration;
 import java.util.UUID;
 
 /**
- * Bộ đếm ngắn hạn của luồng eKYC trên Redis.
+ * Bộ đếm ngắn hạn của luồng eKYC trong kho tạm.
  * <ul>
  *   <li>{@code ekyc_retake_count:<uid>} (1 giờ): số lần phải chụp lại thẻ; gửi cho AI để sau 2 lần AI
  *       chuyển mâu thuẫn dai dẳng sang chờ duyệt thay vì bắt chụp mãi.</li>
@@ -38,8 +38,8 @@ public interface EkycCounterStore {
     void resetLivenessFailures(UUID keycloakUserId);
 
     /**
-     * Đăng ký hash của video/bộ ảnh bằng {@code SET NX}: nguyên tử nên hai request gửi cùng file đồng thời
-     * cũng chỉ một request được nhận.
+     * Đăng ký hash của video/bộ ảnh bằng ghi-nếu-chưa-có (như {@code SET NX}): nguyên tử nên hai request gửi
+     * cùng file đồng thời cũng chỉ một request được nhận.
      *
      * @return {@code true} nếu file chưa từng được gửi trong 30 ngày
      */

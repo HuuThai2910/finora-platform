@@ -1,7 +1,8 @@
 package com.finora.loan.config;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
 
 /**
  * Kết nối tới finora-user để đọc tóm tắt eKYC của người vay khi nộp hồ sơ (W2-KYC). Timeout ngắn vì cuộc gọi nằm trong

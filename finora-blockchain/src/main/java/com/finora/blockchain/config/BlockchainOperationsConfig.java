@@ -3,10 +3,11 @@ package com.finora.blockchain.config;
 import com.finora.blockchain.repository.operations.BlockchainOperationalMetricsRepository;
 import com.finora.common.observability.OperationalGauge;
 import com.finora.common.observability.OperationalGaugeSet;
-import java.util.List;
-import java.util.Map;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.List;
+import java.util.Map;
 
 /**
  * Gauge hàng đợi proof của Blockchain (W3E, D58). Endpoint {@code /actuator/metrics} chưa mở ở Blockchain vì service

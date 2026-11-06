@@ -1,45 +1,19 @@
 package com.finora.notification.service;
 
-import com.finora.common.security.SecurityUtils;
 import com.finora.notification.dto.response.InAppNotificationResponse;
-import com.finora.notification.repository.InAppNotificationRepository;
-import java.time.Clock;
+
 import java.util.List;
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /** Hộp thư trong app của người đang đăng nhập; người nhận luôn lấy từ JWT, không nhận từ request. */
-@Service
-@RequiredArgsConstructor
-public class InAppNotificationQueryService {
-    private final InAppNotificationRepository repository;
-    private final Clock clock;
+public interface InAppNotificationQueryService {
 
-    @Transactional(readOnly = true)
-    public List<InAppNotificationResponse> list(int limit) {
-        String userId = SecurityUtils.getCurrentUserId();
-        return repository.findByRecipientIdOrderByOccurredAtDescIdDesc(
-                        userId, PageRequest.of(0, Math.min(Math.max(limit, 1), 100))).stream()
-                .map(InAppNotificationResponse::from).toList();
-    }
+    List<InAppNotificationResponse> list(int limit);
 
-    @Transactional(readOnly = true)
-    public long unreadCount() {
-        return repository.countByRecipientIdAndReadAtIsNull(SecurityUtils.getCurrentUserId());
-    }
+    long unreadCount();
 
-    @Transactional
-    public void markRead(UUID id) {
-        repository.findByIdAndRecipientId(id, SecurityUtils.getCurrentUserId())
-                .ifPresent(value -> value.markRead(clock.instant()));
-    }
+    void markRead(UUID id);
 
     /** Một câu UPDATE cho mọi tin chưa đọc, thay cho việc app gọi {@code /{id}/read} từng tin. */
-    @Transactional
-    public int markAllRead() {
-        return repository.markAllRead(SecurityUtils.getCurrentUserId(), clock.instant());
-    }
+    int markAllRead();
 }

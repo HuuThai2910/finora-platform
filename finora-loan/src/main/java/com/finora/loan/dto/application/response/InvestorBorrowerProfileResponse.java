@@ -1,15 +1,16 @@
 package com.finora.loan.dto.application.response;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.finora.loan.domain.application.CreditInformationSource;
-import com.finora.loan.domain.application.EducationLevel;
-import com.finora.loan.domain.application.HomeOwnership;
-import com.finora.loan.domain.application.LoanDecisionSource;
-import com.finora.loan.domain.application.LoanPurpose;
-import com.finora.loan.domain.product.RepaymentMethod;
-import com.finora.loan.domain.scoring.BorrowerKycStatus;
-import com.finora.loan.domain.scoring.BorrowerProfileSource;
-import com.finora.loan.domain.scoring.CreditProfileSource;
+import com.finora.loan.domain.application.enums.CreditInformationSource;
+import com.finora.loan.domain.application.enums.EducationLevel;
+import com.finora.loan.domain.application.enums.HomeOwnership;
+import com.finora.loan.domain.application.enums.LoanDecisionSource;
+import com.finora.loan.domain.application.enums.LoanPurpose;
+import com.finora.loan.domain.product.enums.RepaymentMethod;
+import com.finora.loan.domain.scoring.enums.BorrowerKycStatus;
+import com.finora.loan.domain.scoring.enums.BorrowerProfileSource;
+import com.finora.loan.domain.scoring.enums.CreditProfileSource;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;

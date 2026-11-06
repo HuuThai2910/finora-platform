@@ -4,6 +4,9 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.SmartLifecycle;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -13,8 +16,6 @@ import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.SmartLifecycle;
 
 /**
  * Đăng ký gauge vận hành và làm mới chúng định kỳ (W3E, D58).

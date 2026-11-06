@@ -2,7 +2,8 @@ package com.finora.loan.integration.ai.contract;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.finora.loan.domain.scoring.AiRecommendation;
+import com.finora.loan.domain.scoring.enums.AiRecommendation;
+
 import java.math.BigDecimal;
 import java.util.List;
 

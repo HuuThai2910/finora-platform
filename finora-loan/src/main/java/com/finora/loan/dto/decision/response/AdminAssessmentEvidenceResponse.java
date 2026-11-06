@@ -1,7 +1,8 @@
 package com.finora.loan.dto.decision.response;
 
-import com.finora.loan.domain.scoring.AiRecommendation;
-import com.finora.loan.domain.scoring.CreditAssessmentStatus;
+import com.finora.loan.domain.scoring.enums.AiRecommendation;
+import com.finora.loan.domain.scoring.enums.CreditAssessmentStatus;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 

@@ -26,7 +26,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class UserStatisticsServiceImpl implements UserStatisticsService {
 
-    private final UserStatisticsRepository statisticsRepository;
+    private final UserStatisticsRepository userStatisticsRepository;
     private final Clock clock;
 
     @Override
@@ -35,12 +35,12 @@ public class UserStatisticsServiceImpl implements UserStatisticsService {
         StatisticsPeriod period = StatisticsPeriod.of(from, to, bucket, clock);
 
         Map<LocalDate, Point> byBucket = new HashMap<>();
-        for (RegistrationBucketRow row : statisticsRepository.countRegistrations(period)) {
+        for (RegistrationBucketRow row : userStatisticsRepository.countRegistrations(period)) {
             byBucket.put(row.bucketStart(), new Point(
                     row.bucketStart(), row.registered(), row.borrowers(), row.investors(), 0, 0));
         }
         // Cột eKYC cắt theo mốc hoàn tất, có thể rơi vào cột không có người đăng ký mới nên phải gộp.
-        for (EkycBucketRow row : statisticsRepository.countEkycCompletions(period)) {
+        for (EkycBucketRow row : userStatisticsRepository.countEkycCompletions(period)) {
             Point current = byBucket.getOrDefault(row.bucketStart(), Point.empty(row.bucketStart()));
             byBucket.put(row.bucketStart(), new Point(
                     row.bucketStart(),

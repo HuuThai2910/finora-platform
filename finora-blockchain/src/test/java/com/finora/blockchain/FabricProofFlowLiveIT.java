@@ -1,35 +1,22 @@
 package com.finora.blockchain;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finora.blockchain.domain.proof.ProofProviderType;
-import com.finora.blockchain.domain.proof.ProofSubmission;
-import com.finora.blockchain.domain.proof.ProofSubmissionStatus;
-import com.finora.blockchain.integration.proof.LedgerProofRecord;
-import com.finora.blockchain.integration.proof.ProofLedger;
-import com.finora.blockchain.integration.proof.ProofLedgerCommand;
-import com.finora.blockchain.integration.proof.ProofLedgerException;
-import com.finora.blockchain.integration.proof.ProofLedgerReceipt;
-import com.finora.blockchain.messaging.MilestoneProofRegistrar;
-import com.finora.blockchain.messaging.ProofMilestone;
+import com.finora.blockchain.domain.proof.entity.ProofSubmission;
+import com.finora.blockchain.domain.proof.enums.ProofProviderType;
+import com.finora.blockchain.domain.proof.enums.ProofSubmissionStatus;
+import com.finora.blockchain.integration.fabric.ProofLedgerException;
+import com.finora.blockchain.integration.fabric.client.ProofLedger;
+import com.finora.blockchain.integration.fabric.contract.LedgerProofRecord;
+import com.finora.blockchain.integration.fabric.contract.ProofLedgerCommand;
+import com.finora.blockchain.integration.fabric.contract.ProofLedgerReceipt;
+import com.finora.blockchain.messaging.consumer.MilestoneProofRegistrar;
+import com.finora.blockchain.messaging.event.ProofMilestone;
 import com.finora.blockchain.repository.proof.ProofSubmissionRepository;
 import com.finora.blockchain.service.proof.ProofSubmissionProcessor;
 import com.finora.blockchain.service.proof.ProofSubmissionView;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import com.finora.common.messaging.FinoraKafkaHeaders;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,6 +33,23 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Chạy thật trên mạng Fabric local (opt-in, W3D): {@code docker/fabric-network/fabric-network.ps1 -Action Up} rồi
@@ -123,8 +127,9 @@ class FabricProofFlowLiveIT {
         for (Map.Entry<ProofMilestone, String> artifact : artifacts.entrySet()) {
             UUID eventId = UUID.randomUUID();
             ProofSubmissionView registered = registrar.register(artifact.getKey(),
-                    "{\"eventId\":\"" + eventId + "\",\"occurredAt\":\"2026-10-17T05:00:00Z\",\"version\":1,\"data\":"
-                            + artifact.getValue() + "}", eventId.toString(), artifact.getKey().eventType(), "1");
+                    record("{\"eventId\":\"" + eventId + "\",\"occurredAt\":\"2026-10-17T05:00:00Z\","
+                            + "\"version\":1,\"data\":" + artifact.getValue() + "}", eventId.toString(),
+                            artifact.getKey().eventType(), "1"));
             ProofSubmission pending = repository.findByProofId(registered.proofId()).orElseThrow();
             assertThat(pending.getProvider()).isEqualTo(ProofProviderType.HYPERLEDGER_FABRIC);
 
@@ -183,5 +188,19 @@ class FabricProofFlowLiveIT {
                 + " dbHash=" + "1".repeat(64) + " -> MISMATCHED");
         evidence.add("resend contract proof -> same tx " + again.transactionId());
         evidence.forEach(line -> System.out.println("[FABRIC-EVIDENCE] " + line));
+    }
+
+    private static ConsumerRecord<String, String> record(String payload, String id, String type, String version) {
+        ConsumerRecord<String, String> record = new ConsumerRecord<>("finora.test", 0, 0L, null, payload);
+        addHeader(record, FinoraKafkaHeaders.EVENT_ID, id);
+        addHeader(record, FinoraKafkaHeaders.EVENT_TYPE, type);
+        addHeader(record, FinoraKafkaHeaders.EVENT_VERSION, version);
+        return record;
+    }
+
+    private static void addHeader(ConsumerRecord<String, String> record, String name, String value) {
+        if (value != null) {
+            record.headers().add(name, value.getBytes(StandardCharsets.UTF_8));
+        }
     }
 }

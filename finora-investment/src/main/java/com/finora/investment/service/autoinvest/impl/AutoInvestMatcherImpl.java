@@ -2,10 +2,10 @@ package com.finora.investment.service.autoinvest.impl;
 
 import com.finora.common.enums.investment.ListingStatus;
 import com.finora.common.enums.investment.OrderStatus;
-import com.finora.investment.domain.autoinvest.AutoInvestConfig;
-import com.finora.investment.domain.autoinvest.AutoInvestMatch;
-import com.finora.investment.domain.listing.MarketListing;
-import com.finora.investment.domain.order.InvestmentOrder;
+import com.finora.investment.domain.autoinvest.entity.AutoInvestConfig;
+import com.finora.investment.domain.autoinvest.entity.AutoInvestMatch;
+import com.finora.investment.domain.listing.entity.MarketListing;
+import com.finora.investment.domain.order.entity.InvestmentOrder;
 import com.finora.investment.dto.request.PlaceOrderRequest;
 import com.finora.investment.dto.response.OrderResponse;
 import com.finora.investment.exception.InvestmentDomainException;
@@ -51,17 +51,17 @@ public class AutoInvestMatcherImpl implements AutoInvestMatcher {
     private static final Set<String> INSUFFICIENT_FUNDS_CODES =
             Set.of("PAYMENT_INSUFFICIENT_BALANCE", "INSUFFICIENT_BALANCE");
 
-    private final MarketListingRepository listingRepository;
-    private final AutoInvestConfigRepository configRepository;
-    private final AutoInvestMatchRepository matchRepository;
-    private final InvestmentOrderRepository orderRepository;
+    private final MarketListingRepository marketListingRepository;
+    private final AutoInvestConfigRepository autoInvestConfigRepository;
+    private final AutoInvestMatchRepository autoInvestMatchRepository;
+    private final InvestmentOrderRepository investmentOrderRepository;
     private final FundingService fundingService;
-    private final com.finora.investment.config.InvestorRiskDisclosureProperties riskDisclosure;
+    private final com.finora.investment.config.InvestorRiskDisclosureProperties investorRiskDisclosureProperties;
     private final Clock clock;
 
     @Override
     public boolean processListing(Long listingId) {
-        Optional<MarketListing> found = listingRepository.findById(listingId);
+        Optional<MarketListing> found = marketListingRepository.findById(listingId);
         if (found.isEmpty()) {
             return false;
         }
@@ -70,7 +70,7 @@ public class AutoInvestMatcherImpl implements AutoInvestMatcher {
             return markProcessed(listingId);
         }
 
-        List<AutoInvestConfig> candidates = configRepository.findCandidates(
+        List<AutoInvestConfig> candidates = autoInvestConfigRepository.findCandidates(
                 listingId, listing.getFundingOpenedAt(),
                 listing.getAnnualInterestRate(), listing.getTermMonths());
 
@@ -80,13 +80,13 @@ public class AutoInvestMatcherImpl implements AutoInvestMatcher {
                 continue;
             }
             // Q5: quy tắc chưa xác nhận bản công bố rủi ro hiện hành thì tạm dừng; ghi lý do để nhà đầu tư thấy.
-            if (!config.acknowledgedFor(riskDisclosure.version())) {
+            if (!config.acknowledgedFor(investorRiskDisclosureProperties.version())) {
                 record(AutoInvestMatch.skipped(config.getInvestorId(), listingId, RISK_ACKNOWLEDGEMENT_OUTDATED, null,
                         clock.instant()));
                 continue;
             }
             // Đọc lại mỗi vòng: lệnh vừa chốt và lệnh đặt tay song song đều làm vốn còn lại giảm.
-            MarketListing current = listingRepository.findById(listingId).orElseThrow();
+            MarketListing current = marketListingRepository.findById(listingId).orElseThrow();
             if (!acceptsOrders(current)) {
                 return markProcessed(listingId);
             }
@@ -110,12 +110,12 @@ public class AutoInvestMatcherImpl implements AutoInvestMatcher {
 
         // Lệnh tự động của lần quét trước còn dở: làm tiếp đúng lệnh đó, cùng số tiền, để khóa
         // idempotency không bị coi là dùng lại cho nội dung khác.
-        Optional<InvestmentOrder> previous = orderRepository.findByInvestorIdAndIdempotencyKey(investorId, key);
+        Optional<InvestmentOrder> previous = investmentOrderRepository.findByInvestorIdAndIdempotencyKey(investorId, key);
         BigDecimal amount;
         if (previous.isPresent()) {
             amount = previous.get().getAmount();
         } else {
-            if (orderRepository.existsByListingIdAndInvestorIdAndStatusIn(listingId, investorId, LIVE_ORDER_STATUSES)) {
+            if (investmentOrderRepository.existsByListingIdAndInvestorIdAndStatusIn(listingId, investorId, LIVE_ORDER_STATUSES)) {
                 record(AutoInvestMatch.skipped(investorId, listingId, ALREADY_INVESTED, null, clock.instant()));
                 return Step.CONTINUE;
             }
@@ -187,14 +187,14 @@ public class AutoInvestMatcherImpl implements AutoInvestMatcher {
     }
 
     private boolean markProcessed(Long listingId) {
-        listingRepository.markAutoInvestProcessed(listingId, clock.instant());
+        marketListingRepository.markAutoInvestProcessed(listingId, clock.instant());
         return true;
     }
 
     /** Hai worker cùng xét một cặp thì dòng thứ hai vi phạm unique — bỏ qua là đúng. */
     private void record(AutoInvestMatch match) {
         try {
-            matchRepository.save(match);
+            autoInvestMatchRepository.save(match);
         } catch (DataIntegrityViolationException duplicate) {
             log.info("Auto-Invest đã ghi nhật ký cặp này: listingId={}", match.getListingId());
         }

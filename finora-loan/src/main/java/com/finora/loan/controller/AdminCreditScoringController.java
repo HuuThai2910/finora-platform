@@ -1,10 +1,10 @@
 package com.finora.loan.controller;
 
+import com.finora.loan.dto.response.PageResponse;
 import com.finora.loan.dto.scoring.request.ScoringRetryRequest;
 import com.finora.loan.dto.scoring.response.CreditAssessmentDetailResponse;
 import com.finora.loan.dto.scoring.response.CreditAssessmentSummaryResponse;
 import com.finora.loan.dto.scoring.response.ScoringRetryAcceptedResponse;
-import com.finora.loan.dto.common.PageResponse;
 import com.finora.loan.service.scoring.CreditScoringAssessmentService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -30,23 +30,23 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class AdminCreditScoringController {
 
-    private final CreditScoringAssessmentService service;
+    private final CreditScoringAssessmentService creditScoringAssessmentService;
 
     @GetMapping("/assessments")
-    public PageResponse<CreditAssessmentSummaryResponse> list(
+    public ResponseEntity<PageResponse<CreditAssessmentSummaryResponse>> list(
             @PathVariable String applicationNumber,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
-        return service.list(applicationNumber, page, size);
+        return ResponseEntity.ok(creditScoringAssessmentService.list(applicationNumber, page, size));
     }
 
     @GetMapping("/assessments/{assessmentId}")
-    public CreditAssessmentDetailResponse detail(
+    public ResponseEntity<CreditAssessmentDetailResponse> detail(
             @PathVariable String applicationNumber,
             @PathVariable @Positive Long assessmentId
     ) {
-        return service.detail(applicationNumber, assessmentId);
+        return ResponseEntity.ok(creditScoringAssessmentService.detail(applicationNumber, assessmentId));
     }
 
     @PostMapping("/scoring-retry")
@@ -55,6 +55,7 @@ public class AdminCreditScoringController {
             @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 150) String idempotencyKey,
             @Valid @RequestBody ScoringRetryRequest request
     ) {
-        return ResponseEntity.accepted().body(service.retry(applicationNumber, idempotencyKey, request));
+        return ResponseEntity.accepted()
+                .body(creditScoringAssessmentService.retry(applicationNumber, idempotencyKey, request));
     }
 }

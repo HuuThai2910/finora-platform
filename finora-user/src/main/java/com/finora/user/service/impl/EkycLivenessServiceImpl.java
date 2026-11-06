@@ -7,21 +7,22 @@ import com.finora.common.enums.user.EkycResultCode;
 import com.finora.common.enums.user.EkycStatus;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.user.client.AiLivenessClient.AiLivenessException;
-import com.finora.user.client.AiLivenessClient.LivenessMedia;
-import com.finora.user.client.AiLivenessClient.LivenessResult;
-import com.finora.user.client.AiLivenessClient.LivenessSpec;
-import com.finora.user.client.AiLivenessClient.SpecStep;
-import com.finora.user.client.AiLivenessClient;
-import com.finora.user.domain.EkycAttempt;
-import com.finora.user.domain.EkycEvidence;
-import com.finora.user.domain.EkycIdentityDraft;
-import com.finora.user.domain.EkycLivenessResult;
-import com.finora.user.domain.LivenessStep;
-import com.finora.user.domain.UserProfile;
+import com.finora.common.util.Sha256;
+import com.finora.user.domain.entity.EkycAttempt;
+import com.finora.user.domain.entity.EkycEvidence;
+import com.finora.user.domain.entity.UserProfile;
+import com.finora.user.domain.enums.EkycLivenessResult;
+import com.finora.user.domain.model.EkycIdentityDraft;
+import com.finora.user.domain.model.LivenessStep;
 import com.finora.user.dto.response.EkycNextStep;
 import com.finora.user.dto.response.EkycResultResponse;
 import com.finora.user.dto.response.LivenessChallengeResponse;
+import com.finora.user.integration.ai.client.AiLivenessClient.AiLivenessException;
+import com.finora.user.integration.ai.client.AiLivenessClient.LivenessMedia;
+import com.finora.user.integration.ai.client.AiLivenessClient.LivenessResult;
+import com.finora.user.integration.ai.client.AiLivenessClient.LivenessSpec;
+import com.finora.user.integration.ai.client.AiLivenessClient.SpecStep;
+import com.finora.user.integration.ai.client.AiLivenessClient;
 import com.finora.user.integration.storage.EkycStorageException;
 import com.finora.user.mapper.EkycResultMapper;
 import com.finora.user.repository.EkycAttemptRepository;
@@ -42,8 +43,7 @@ import com.finora.user.service.EkycRateLimitService;
 import com.finora.user.service.EkycResultFile;
 import com.finora.user.service.EkycSessionCleanup;
 import com.finora.user.service.LivenessChallengeGenerator;
-import com.finora.user.support.EkycMessages;
-import com.finora.user.support.Sha256;
+import com.finora.user.util.EkycMessages;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -89,20 +89,20 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
     };
 
     private final UserProfileRepository userProfileRepository;
-    private final EkycAttemptRepository attemptRepository;
-    private final EkycEvidenceRepository evidenceRepository;
-    private final EkycConsentService consentService;
-    private final EkycDraftStore draftStore;
-    private final EkycChallengeStore challengeStore;
-    private final EkycRateLimitService rateLimitService;
-    private final EkycCounterStore counterStore;
-    private final AiLivenessClient livenessClient;
-    private final EkycEvidenceService evidenceService;
-    private final EkycAttemptService attemptService;
-    private final EkycResultFile resultFile;
-    private final EkycSessionCleanup sessionCleanup;
-    private final EkycClaimPublisher claimPublisher;
-    private final LivenessChallengeGenerator challengeGenerator;
+    private final EkycAttemptRepository ekycAttemptRepository;
+    private final EkycEvidenceRepository ekycEvidenceRepository;
+    private final EkycConsentService ekycConsentService;
+    private final EkycDraftStore ekycDraftStore;
+    private final EkycChallengeStore ekycChallengeStore;
+    private final EkycRateLimitService ekycRateLimitService;
+    private final EkycCounterStore ekycCounterStore;
+    private final AiLivenessClient aiLivenessClient;
+    private final EkycEvidenceService ekycEvidenceService;
+    private final EkycAttemptService ekycAttemptService;
+    private final EkycResultFile ekycResultFile;
+    private final EkycSessionCleanup ekycSessionCleanup;
+    private final EkycClaimPublisher ekycClaimPublisher;
+    private final LivenessChallengeGenerator livenessChallengeGenerator;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
@@ -115,19 +115,20 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
         if (profile.getEkycStatus() == EkycStatus.MANUAL_REVIEW) {
             throw conflict(EkycResultCode.REVIEW_PENDING);
         }
-        if (consentService.findActiveConsent(profile.getId()).isEmpty()) {
+        if (ekycConsentService.findActiveConsent(profile.getId()).isEmpty()) {
             throw conflict(EkycResultCode.CONSENT_REQUIRED);
         }
-        EkycIdentityDraft draft = draftStore.find(keycloakUserId)
+        EkycIdentityDraft draft = ekycDraftStore.find(keycloakUserId)
                 .orElseThrow(() -> conflict(EkycResultCode.DRAFT_EXPIRED));
-        if (!rateLimitService.tryAcquireChallengeSlot(keycloakUserId)) {
+        if (!ekycRateLimitService.tryAcquireChallengeSlot(keycloakUserId)) {
             throw new BusinessException(HttpStatus.TOO_MANY_REQUESTS, EkycResultCode.RATE_LIMITED.name(),
                     EkycMessages.result(EkycResultCode.RATE_LIMITED));
         }
-        List<LivenessStep> steps = challengeGenerator.generate();
+        List<LivenessStep> steps = livenessChallengeGenerator.generate();
         UUID sessionId = UUID.randomUUID();
         Instant issuedAt = clock.instant().truncatedTo(ChronoUnit.SECONDS);
-        challengeStore.save(keycloakUserId, new StoredChallenge(sessionId, steps, draft.attemptId(), issuedAt.toString()));
+        ekycChallengeStore.save(keycloakUserId,
+                new StoredChallenge(sessionId, steps, draft.attemptId(), issuedAt.toString()));
         log.info("Cấp thử thách liveness: userProfileId={}, attemptId={}", profile.getId(), draft.attemptId());
         return new LivenessChallengeResponse(
                 sessionId,
@@ -146,34 +147,34 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
         Instant now = clock.instant();
 
         // 1. Rate limit
-        if (!rateLimitService.tryAcquireLivenessSlot(keycloakUserId)) {
+        if (!ekycRateLimitService.tryAcquireLivenessSlot(keycloakUserId)) {
             return EkycResultMapper.simple(status, EkycResultCode.RATE_LIMITED, EkycNextStep.LIVENESS);
         }
-        // 2. Thử thách dùng một lần (GETDEL), đúng phiên và còn hạn
-        Optional<StoredChallenge> challenge = challengeStore.consume(keycloakUserId);
+        // 2. Thử thách dùng một lần (lấy và xoá trong một câu lệnh), đúng phiên và còn hạn
+        Optional<StoredChallenge> challenge = ekycChallengeStore.consume(keycloakUserId);
         if (challenge.isEmpty() || !matchesSession(challenge.get(), upload.sessionId())
                 || challenge.get().issuedAtInstant().plus(EkycChallengeStore.CHALLENGE_TTL).isBefore(now)) {
             return EkycResultMapper.simple(status, EkycResultCode.CHALLENGE_EXPIRED, EkycNextStep.LIVENESS);
         }
         // 3. Bản nháp của đúng lượt mà thử thách đã gắn
-        EkycIdentityDraft draft = draftStore.find(keycloakUserId).orElse(null);
+        EkycIdentityDraft draft = ekycDraftStore.find(keycloakUserId).orElse(null);
         if (draft == null) {
             return EkycResultMapper.simple(status, EkycResultCode.DRAFT_EXPIRED);
         }
         if (!draft.attemptId().equals(challenge.get().attemptId())) {
             return EkycResultMapper.simple(status, EkycResultCode.CHALLENGE_EXPIRED, EkycNextStep.LIVENESS);
         }
-        EkycAttempt attempt = attemptRepository.findByPublicId(draft.attemptId())
+        EkycAttempt attempt = ekycAttemptRepository.findByPublicId(draft.attemptId())
                 .filter(found -> found.isInProgress() && found.getUserProfileId().equals(profile.getId()))
                 .orElse(null);
         if (attempt == null) {
-            draftStore.remove(keycloakUserId);
+            ekycDraftStore.remove(keycloakUserId);
             return EkycResultMapper.simple(status, EkycResultCode.DRAFT_EXPIRED);
         }
         // 4. Kích thước và kiểu file
         PreparedMedia media = prepareMedia(upload);
         // 5. Chống phát lại: cùng một file đã từng gửi trong 30 ngày
-        if (!counterStore.registerMedia(media.sha256())) {
+        if (!ekycCounterStore.registerMedia(media.sha256())) {
             log.warn("Video/ảnh liveness bị gửi lại: userProfileId={}, attemptId={}", profile.getId(), draft.attemptId());
             return recordFailure(keycloakUserId, profile, attempt, draft, List.of(MEDIA_REPLAYED), null,
                     draft.livenessThresholdsVersion(), media.captureMode(), draft.livenessRound(), List.of(), now);
@@ -181,7 +182,7 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
         // 6. AI chấm
         LivenessResult result;
         try {
-            result = livenessClient.analyze(
+            result = aiLivenessClient.analyze(
                     new LivenessSpec(toSpecSteps(challenge.get().steps()), draft.portraitEmbeddingB64(),
                             media.captureMode(), media.frameTimesMs(), normalizePlatform(upload.platform())),
                     media.toClientMedia());
@@ -192,7 +193,7 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
                         EkycMessages.livenessReason("VIDEO_UNREADABLE").orElse(EkycMessages.LIVENESS_RETAKE),
                         draft, EkycNextStep.LIVENESS, null, "RETAKE", null, List.of("VIDEO_UNREADABLE"), false);
             }
-            rateLimitService.releaseLivenessSlot(keycloakUserId);
+            ekycRateLimitService.releaseLivenessSlot(keycloakUserId);
             log.warn("Không gọi được AI chấm liveness: userProfileId={}, status={}", profile.getId(), e.getStatus());
             return EkycResultMapper.simple(status, EkycResultCode.AI_UNAVAILABLE, EkycNextStep.LIVENESS);
         }
@@ -200,7 +201,7 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
         int round = draft.livenessRound() + 1;
         List<StoredEvidence> stored;
         try {
-            stored = evidenceService.storeLiveness(profile.getId(), draft.attemptId(), round,
+            stored = ekycEvidenceService.storeLiveness(profile.getId(), draft.attemptId(), round,
                     media.video(), media.stills(), result.evidenceFrames());
         } catch (EkycStorageException e) {
             log.warn("Không lưu được video liveness: userProfileId={}, attemptId={}, cause={}",
@@ -234,10 +235,10 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
                                                 Instant now) {
         EkycIdentityDraft updated = draft.withLiveness(conclusion, score, reasons, thresholdsVersion, captureMode, round);
         if (!persistLiveness(attempt, updated, conclusion, stored, now)) {
-            draftStore.remove(keycloakUserId);
+            ekycDraftStore.remove(keycloakUserId);
             return EkycResultMapper.simple(status, EkycResultCode.DRAFT_EXPIRED);
         }
-        draftStore.save(keycloakUserId, updated);
+        ekycDraftStore.save(keycloakUserId, updated);
         EkycResultCode code = conclusion == EkycLivenessResult.PASS
                 ? EkycResultCode.LIVENESS_PASSED
                 : EkycResultCode.LIVENESS_REVIEW;
@@ -250,10 +251,10 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
                                             List<StoredEvidence> stored, Instant now) {
         EkycIdentityDraft updated = draft.withLivenessRound(round);
         if (!persistLiveness(attempt, updated, null, stored, now)) {
-            draftStore.remove(keycloakUserId);
+            ekycDraftStore.remove(keycloakUserId);
             return EkycResultMapper.simple(status, EkycResultCode.DRAFT_EXPIRED);
         }
-        draftStore.save(keycloakUserId, updated);
+        ekycDraftStore.save(keycloakUserId, updated);
         String message = EkycResultMapper.toReasons(reasons).stream()
                 .findFirst()
                 .map(EkycResultResponse.LivenessReason::message)
@@ -275,14 +276,14 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
         EkycIdentityDraft updated = draft.withLiveness(EkycLivenessResult.FAIL, score, reasons, thresholdsVersion,
                 captureMode, round);
         if (!persistLiveness(attempt, updated, EkycLivenessResult.FAIL, stored, now)) {
-            draftStore.remove(keycloakUserId);
+            ekycDraftStore.remove(keycloakUserId);
             return EkycResultMapper.simple(status, EkycResultCode.DRAFT_EXPIRED);
         }
-        int failures = counterStore.recordLivenessFailure(keycloakUserId);
+        int failures = ekycCounterStore.recordLivenessFailure(keycloakUserId);
         if (failures >= EkycCounterStore.MAX_LIVENESS_FAILURES) {
             return escalateToReview(keycloakUserId, profile, attempt, updated, reasons, score, now);
         }
-        draftStore.save(keycloakUserId, updated);
+        ekycDraftStore.save(keycloakUserId, updated);
         EkycResultCode code = reasons.contains("FACE_MISMATCH")
                 ? EkycResultCode.FACE_MISMATCH
                 : EkycResultCode.LIVENESS_FAILED;
@@ -296,14 +297,14 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
     private EkycResultResponse escalateToReview(UUID keycloakUserId, UserProfile profile, EkycAttempt attempt,
                                                 EkycIdentityDraft draft, List<String> reasons, Double score,
                                                 Instant now) {
-        List<EkycEvidence> liveEvidence = evidenceRepository.findByAttemptIdOrderByIdAsc(attempt.getId()).stream()
+        List<EkycEvidence> liveEvidence = ekycEvidenceRepository.findByAttemptIdOrderByIdAsc(attempt.getId()).stream()
                 .filter(evidence -> !evidence.isDeleted())
                 .toList();
-        evidenceService.markFinal(liveEvidence.stream().map(EkycEvidence::getObjectKey).toList());
+        ekycEvidenceService.markFinal(liveEvidence.stream().map(EkycEvidence::getObjectKey).toList());
         StoredEvidence result = null;
         try {
-            result = evidenceService.storeResult(profile.getId(), draft.attemptId(),
-                    resultFile.build(attempt, draft, "MANUAL_REVIEW", liveEvidence, now));
+            result = ekycEvidenceService.storeResult(profile.getId(), draft.attemptId(),
+                    ekycResultFile.build(attempt, draft, "MANUAL_REVIEW", liveEvidence, now));
         } catch (EkycStorageException e) {
             // Video và ảnh thẻ đã nằm trên kho; thiếu bản tóm tắt không được chặn việc chuyển duyệt tay.
             log.warn("Không ghi được result.json khi chuyển duyệt tay: attemptId={}", draft.attemptId());
@@ -312,19 +313,19 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
         Boolean escalated = transactionTemplate.execute(tx -> {
             UserProfile fresh = userProfileRepository.findById(profile.getId())
                     .orElseThrow(() -> new ResourceNotFoundException("Hồ sơ người dùng", "id", profile.getId()));
-            EkycAttempt current = attemptRepository.findById(attempt.getId()).orElse(null);
+            EkycAttempt current = ekycAttemptRepository.findById(attempt.getId()).orElse(null);
             if (current == null || !current.isInProgress()
                     || fresh.getEkycStatus() == EkycStatus.VERIFIED || fresh.getEkycStatus() == EkycStatus.MANUAL_REVIEW) {
                 return false;
             }
-            attemptService.submitForReview(fresh, current, draft, resultFileEvidence, now);
+            ekycAttemptService.submitForReview(fresh, current, draft, resultFileEvidence, now);
             return true;
         });
-        sessionCleanup.clearAll(keycloakUserId);
+        ekycSessionCleanup.clearAll(keycloakUserId);
         if (!Boolean.TRUE.equals(escalated)) {
             return EkycResultMapper.simple(profile.getEkycStatus(), EkycResultCode.DRAFT_EXPIRED);
         }
-        claimPublisher.publish(keycloakUserId, EkycStatus.MANUAL_REVIEW);
+        ekycClaimPublisher.publish(keycloakUserId, EkycStatus.MANUAL_REVIEW);
         log.info("Trượt liveness {} lần, chuyển duyệt tay: userProfileId={}, attemptId={}",
                 EkycCounterStore.MAX_LIVENESS_FAILURES, profile.getId(), draft.attemptId());
         return EkycResultMapper.liveness(EkycStatus.MANUAL_REVIEW, EkycResultCode.REVIEW_PENDING,
@@ -336,11 +337,11 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
     private boolean persistLiveness(EkycAttempt attempt, EkycIdentityDraft updated, EkycLivenessResult conclusion,
                                     List<StoredEvidence> stored, Instant now) {
         Boolean persisted = transactionTemplate.execute(tx -> {
-            EkycAttempt current = attemptRepository.findById(attempt.getId()).orElse(null);
+            EkycAttempt current = ekycAttemptRepository.findById(attempt.getId()).orElse(null);
             if (current == null || !current.isInProgress()) {
                 return false;
             }
-            attemptService.recordLiveness(current, conclusion, updated.livenessReasons(), updated.faceMatchScore(),
+            ekycAttemptService.recordLiveness(current, conclusion, updated.livenessReasons(), updated.faceMatchScore(),
                     updated.combinedThresholdsVersion(), stored, now);
             return true;
         });

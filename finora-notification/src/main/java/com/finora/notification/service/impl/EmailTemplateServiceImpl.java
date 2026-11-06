@@ -1,7 +1,7 @@
 package com.finora.notification.service.impl;
 
 import com.finora.notification.service.EmailTemplateService;
-import com.finora.notification.support.HtmlSanitizer;
+import com.finora.notification.util.HtmlSanitizer;
 import org.springframework.stereotype.Service;
 
 /**

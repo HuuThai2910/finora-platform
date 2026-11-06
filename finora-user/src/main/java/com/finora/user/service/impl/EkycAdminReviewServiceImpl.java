@@ -5,14 +5,14 @@ import com.finora.common.enums.user.EkycResultCode;
 import com.finora.common.enums.user.EkycStatus;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.user.domain.EkycAttempt;
-import com.finora.user.domain.EkycAttemptStatus;
-import com.finora.user.domain.EkycConsent;
-import com.finora.user.domain.EkycDraftFieldName;
-import com.finora.user.domain.EkycEvidence;
-import com.finora.user.domain.EkycEvidenceAccessLog;
-import com.finora.user.domain.EkycIdentityDraft;
-import com.finora.user.domain.UserProfile;
+import com.finora.user.domain.entity.EkycAttempt;
+import com.finora.user.domain.entity.EkycConsent;
+import com.finora.user.domain.entity.EkycEvidence;
+import com.finora.user.domain.entity.EkycEvidenceAccessLog;
+import com.finora.user.domain.entity.UserProfile;
+import com.finora.user.domain.enums.EkycAttemptStatus;
+import com.finora.user.domain.enums.EkycDraftFieldName;
+import com.finora.user.domain.model.EkycIdentityDraft;
 import com.finora.user.dto.response.EkycAttemptDetailResponse.EvidenceItem;
 import com.finora.user.dto.response.EkycAttemptDetailResponse;
 import com.finora.user.dto.response.EkycAttemptSummaryResponse;
@@ -30,7 +30,7 @@ import com.finora.user.service.EkycAttemptService;
 import com.finora.user.service.EkycClaimPublisher;
 import com.finora.user.service.EkycEvidenceService;
 import com.finora.user.service.EkycIdentityService;
-import com.finora.user.support.EkycMessages;
+import com.finora.user.util.EkycMessages;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -65,15 +65,15 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
 
     static final int MAX_PAGE_SIZE = 100;
 
-    private final EkycAttemptRepository attemptRepository;
-    private final EkycEvidenceRepository evidenceRepository;
-    private final EkycEvidenceAccessLogRepository accessLogRepository;
-    private final EkycConsentRepository consentRepository;
+    private final EkycAttemptRepository ekycAttemptRepository;
+    private final EkycEvidenceRepository ekycEvidenceRepository;
+    private final EkycEvidenceAccessLogRepository ekycEvidenceAccessLogRepository;
+    private final EkycConsentRepository ekycConsentRepository;
     private final UserProfileRepository userProfileRepository;
-    private final EkycAttemptService attemptService;
-    private final EkycIdentityService identityService;
-    private final EkycEvidenceService evidenceService;
-    private final EkycClaimPublisher claimPublisher;
+    private final EkycAttemptService ekycAttemptService;
+    private final EkycIdentityService ekycIdentityService;
+    private final EkycEvidenceService ekycEvidenceService;
+    private final EkycClaimPublisher ekycClaimPublisher;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
 
@@ -82,8 +82,22 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
         EkycAttemptStatus filter = parseStatus(status);
         PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), MAX_PAGE_SIZE));
         Page<EkycAttemptSummaryRow> rows = filter == null
-                ? attemptRepository.findAllSummaries(pageable)
-                : attemptRepository.findSummariesByStatus(filter, pageable);
+                ? ekycAttemptRepository.findAllSummaries(pageable)
+                : ekycAttemptRepository.findSummariesByStatus(filter, pageable);
+        return PageResponse.<EkycAttemptSummaryResponse>builder()
+                .content(rows.getContent().stream().map(row -> toSummary(row.attempt(), row.email())).toList())
+                .page(rows.getNumber())
+                .size(rows.getSize())
+                .totalElements(rows.getTotalElements())
+                .totalPages(rows.getTotalPages())
+                .last(rows.isLast())
+                .build();
+    }
+
+    @Override
+    public PageResponse<EkycAttemptSummaryResponse> listForUser(Long userProfileId, int page, int size) {
+        PageRequest pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), MAX_PAGE_SIZE));
+        Page<EkycAttemptSummaryRow> rows = ekycAttemptRepository.findSummariesByUserProfileId(userProfileId, pageable);
         return PageResponse.<EkycAttemptSummaryResponse>builder()
                 .content(rows.getContent().stream().map(row -> toSummary(row.attempt(), row.email())).toList())
                 .page(rows.getNumber())
@@ -99,7 +113,8 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
         UUID publicId = parseAttemptId(attemptId);
         return transactionTemplate.execute(tx -> {
             EkycAttempt attempt = findAttempt(publicId);
-            accessLogRepository.save(EkycEvidenceAccessLog.of(attempt.getId(), null, adminKeycloakId, clock.instant()));
+            ekycEvidenceAccessLogRepository.save(
+                    EkycEvidenceAccessLog.of(attempt.getId(), null, adminKeycloakId, clock.instant()));
             return toDetail(attempt);
         });
     }
@@ -110,17 +125,17 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
         Long numericEvidenceId = parseEvidenceId(evidenceId);
         EkycEvidence evidence = transactionTemplate.execute(tx -> {
             EkycAttempt attempt = findAttempt(publicId);
-            EkycEvidence found = evidenceRepository.findByIdAndAttemptId(numericEvidenceId, attempt.getId())
+            EkycEvidence found = ekycEvidenceRepository.findByIdAndAttemptId(numericEvidenceId, attempt.getId())
                     .orElseThrow(() -> new ResourceNotFoundException("Bằng chứng eKYC", "evidenceId", evidenceId));
             if (found.isDeleted()) {
                 throw evidenceDeleted();
             }
-            accessLogRepository.save(EkycEvidenceAccessLog.of(attempt.getId(), found.getId(), adminKeycloakId,
+            ekycEvidenceAccessLogRepository.save(EkycEvidenceAccessLog.of(attempt.getId(), found.getId(), adminKeycloakId,
                     clock.instant()));
             return found;
         });
         try {
-            StoredObject object = evidenceService.open(evidence.getObjectKey());
+            StoredObject object = ekycEvidenceService.open(evidence.getObjectKey());
             log.info("Admin mở bằng chứng eKYC: attemptId={}, evidenceId={}, kind={}, admin={}",
                     publicId, evidence.getId(), evidence.getKind(), adminKeycloakId);
             long length = object.contentLength() >= 0 ? object.contentLength() : evidence.getSizeBytes();
@@ -143,24 +158,24 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
             decision = transactionTemplate.execute(tx -> {
                 EkycAttempt attempt = findAttempt(publicId);
                 UserProfile profile = requireReviewable(attempt);
-                EkycIdentityDraft draft = attemptService.readDraft(attempt.getDraftEncrypted());
+                EkycIdentityDraft draft = ekycAttemptService.readDraft(attempt.getDraftEncrypted());
                 if (draft == null) {
                     throw new BusinessException(HttpStatus.CONFLICT, "ATTEMPT_DRAFT_MISSING",
                             "Lượt xác minh không còn bản nháp để duyệt.");
                 }
-                Optional<EkycResultCode> idProblem = identityService.checkIdNumber(
+                Optional<EkycResultCode> idProblem = ekycIdentityService.checkIdNumber(
                         profile, draft.value(EkycDraftFieldName.ID_NUMBER));
                 if (idProblem.isPresent()) {
                     throw new BusinessException(HttpStatus.CONFLICT, idProblem.get().name(),
                             EkycMessages.result(idProblem.get()));
                 }
-                identityService.applyIdentity(profile, draft);
+                ekycIdentityService.applyIdentity(profile, draft);
                 boolean livenessVerified = attempt.getLivenessResult() != null
                         && attempt.getLivenessResult().allowsConfirmation();
                 profile.markEkycVerified(attempt.getFaceMatchScore(), livenessVerified, now);
                 attempt.approve(adminKeycloakId, trimToNull(note), now);
-                attemptService.ensureCicTask(profile.getId(), now);
-                attemptRepository.saveAndFlush(attempt);
+                ekycAttemptService.ensureCicTask(profile.getId(), now);
+                ekycAttemptRepository.saveAndFlush(attempt);
                 return new Decision(profile.getKeycloakUserId(), EkycStatus.VERIFIED, toDetail(attempt));
             });
         } catch (OptimisticLockingFailureException e) {
@@ -169,7 +184,7 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
             throw new BusinessException(HttpStatus.CONFLICT, EkycResultCode.ID_TAKEN.name(),
                     EkycMessages.result(EkycResultCode.ID_TAKEN));
         }
-        claimPublisher.publish(decision.keycloakUserId(), decision.status());
+        ekycClaimPublisher.publish(decision.keycloakUserId(), decision.status());
         log.info("Admin duyệt eKYC: attemptId={}, admin={}", publicId, adminKeycloakId);
         return decision.detail();
     }
@@ -189,13 +204,13 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
                 UserProfile profile = requireReviewable(attempt);
                 attempt.reject(adminKeycloakId, note.trim(), now);
                 profile.markEkycFailed(now);
-                attemptRepository.saveAndFlush(attempt);
+                ekycAttemptRepository.saveAndFlush(attempt);
                 return new Decision(profile.getKeycloakUserId(), EkycStatus.FAILED, toDetail(attempt));
             });
         } catch (OptimisticLockingFailureException e) {
             throw alreadyDecided();
         }
-        claimPublisher.publish(decision.keycloakUserId(), decision.status());
+        ekycClaimPublisher.publish(decision.keycloakUserId(), decision.status());
         log.info("Admin từ chối eKYC: attemptId={}, admin={}", publicId, adminKeycloakId);
         return decision.detail();
     }
@@ -216,7 +231,7 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
     }
 
     private EkycAttemptSummaryResponse toSummary(EkycAttempt attempt, String email) {
-        List<String> livenessReasons = attemptService.readCodes(attempt.getLivenessReasons());
+        List<String> livenessReasons = ekycAttemptService.readCodes(attempt.getLivenessReasons());
         return new EkycAttemptSummaryResponse(
                 attempt.getPublicId(),
                 attempt.getUserProfileId(),
@@ -227,9 +242,11 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
                 nameOf(attempt.getLivenessResult()),
                 attempt.getFaceMatchScore(),
                 EkycAttemptService.faceMatchZone(livenessReasons),
-                attemptService.readCodes(attempt.getDocumentReasons()),
+                ekycAttemptService.readCodes(attempt.getDocumentReasons()),
                 attempt.getCreatedAt(),
-                attempt.getSubmittedAt());
+                attempt.getSubmittedAt(),
+                attempt.getDecidedAt(),
+                attempt.getReviewNote());
     }
 
     private EkycAttemptDetailResponse toDetail(EkycAttempt attempt) {
@@ -238,12 +255,12 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
                 .orElse(null);
         String consentVersion = attempt.getConsentId() == null
                 ? null
-                : consentRepository.findById(attempt.getConsentId()).map(EkycConsent::getVersion).orElse(null);
-        List<EvidenceItem> evidence = evidenceRepository.findByAttemptIdOrderByIdAsc(attempt.getId()).stream()
+                : ekycConsentRepository.findById(attempt.getConsentId()).map(EkycConsent::getVersion).orElse(null);
+        List<EvidenceItem> evidence = ekycEvidenceRepository.findByAttemptIdOrderByIdAsc(attempt.getId()).stream()
                 .map(item -> new EvidenceItem(item.getId(), item.getKind().name(), item.getLabel(),
                         item.getContentType(), item.getSizeBytes(), item.isDeleted()))
                 .toList();
-        List<String> livenessReasons = attemptService.readCodes(attempt.getLivenessReasons());
+        List<String> livenessReasons = ekycAttemptService.readCodes(attempt.getLivenessReasons());
         // Chỉ lưu UUID Keycloak của người duyệt; tra hồ sơ lúc đọc để hiện email/họ tên. Admin tạo thẳng trên
         // Keycloak không có hồ sơ FINORA thì để null — web hiện mã rút gọn như trước.
         Optional<UserProfile> reviewer = attempt.getReviewerKeycloakId() == null
@@ -259,10 +276,10 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
                 nameOf(attempt.getLivenessResult()),
                 attempt.getFaceMatchScore(),
                 EkycAttemptService.faceMatchZone(livenessReasons),
-                attemptService.readCodes(attempt.getDocumentReasons()),
+                ekycAttemptService.readCodes(attempt.getDocumentReasons()),
                 attempt.getCreatedAt(),
                 attempt.getSubmittedAt(),
-                EkycResultMapper.toDraftView(attemptService.readDraft(attempt.getDraftEncrypted())),
+                EkycResultMapper.toDraftView(ekycAttemptService.readDraft(attempt.getDraftEncrypted())),
                 livenessReasons,
                 consentVersion,
                 evidence,
@@ -274,7 +291,7 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
     }
 
     private EkycAttempt findAttempt(UUID publicId) {
-        return attemptRepository.findByPublicId(publicId)
+        return ekycAttemptRepository.findByPublicId(publicId)
                 .orElseThrow(() -> new ResourceNotFoundException("Lượt eKYC", "attemptId", publicId));
     }
 

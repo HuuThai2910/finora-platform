@@ -1,6 +1,7 @@
 package com.finora.investment.dto.response;
 
 import com.finora.common.statistics.StatisticsBucket;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;

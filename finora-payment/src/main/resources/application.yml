@@ -165,3 +165,69 @@ finora:
     outbox-delay: ${PAYMENT_OUTBOX_DELAY:3000}
     # Thời gian tối đa chờ broker xác nhận một event; quá hạn thì thử lại sau, consumer chống trùng theo eventId.
     outbox-publish-timeout: ${PAYMENT_OUTBOX_PUBLISH_TIMEOUT:10s}
+
+# Circuit breaker cho lời gọi ra ngoài, cùng giá trị với finora-loan. Mỗi instance phải có time limiter cùng
+# tên vì Spring Cloud CircuitBreaker mặc định cắt lời gọi sau 1 giây. Circuit mở hay quá time limiter đều được
+# client xử lý như Fineract/ZaloPay sập (chưa lấy được, hoặc chưa biết kết quả phải đối soát), không bao giờ
+# như bị từ chối.
+resilience4j:
+  circuitbreaker:
+    instances:
+      # Đọc nghĩa vụ/báo giá Fineract trước khi trừ tiền; tách riêng để báo giá lỗi không chặn ghi trả nợ.
+      fineract-repayment-quote:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        # HTTP 4xx là Fineract từ chối request (nghiệp vụ/credential), không phải sự cố tạm thời để mở circuit.
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+      # Ghi repayment vào Fineract và đọc breakdown ngay sau đó.
+      fineract-repayment-posting:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+      # Tra cứu repayment theo externalId khi đối soát (worker và admin).
+      fineract-repayment-reconciliation:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+      # Tạo đơn nạp tiền ZaloPay.
+      zalopay-topup:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+  timelimiter:
+    instances:
+      fineract-repayment-quote:
+        # Cao hơn connect-timeout + read-timeout của RestClient Fineract (3s + 15s) để HTTP client tự phân loại
+        # timeout trước; cùng biến môi trường với finora-loan.
+        timeout-duration: ${FINERACT_TIME_LIMITER_TIMEOUT:35s}
+        cancel-running-future: true
+      fineract-repayment-posting:
+        timeout-duration: ${FINERACT_TIME_LIMITER_TIMEOUT:35s}
+        cancel-running-future: true
+      fineract-repayment-reconciliation:
+        timeout-duration: ${FINERACT_TIME_LIMITER_TIMEOUT:35s}
+        cancel-running-future: true
+      zalopay-topup:
+        # Cao hơn connect-timeout + read-timeout của ZaloPay (3s + 10s), chừa thời gian bắt tay TLS.
+        timeout-duration: ${ZALOPAY_TIME_LIMITER_TIMEOUT:20s}
+        cancel-running-future: true

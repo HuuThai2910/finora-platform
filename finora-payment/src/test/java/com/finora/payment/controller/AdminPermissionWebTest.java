@@ -1,11 +1,5 @@
 package com.finora.payment.controller;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 import com.finora.common.security.DualBearerTokenResolver;
 import com.finora.common.security.KeycloakJwtAuthenticationConverter;
 import com.finora.common.security.ops.OpsFunction;
@@ -13,7 +7,6 @@ import com.finora.payment.config.PaymentSecurityConfig;
 import com.finora.payment.service.disbursement.AdminDisbursementReconciliationService;
 import com.finora.payment.service.repayment.AdminRepaymentReconciliationService;
 import com.finora.payment.service.withdrawal.AdminWithdrawalService;
-import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -26,6 +19,14 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultMatcher;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Phân quyền nhân viên trên {@code /api/v1/admin/**} của Payment theo {@code PaymentSecurityConfig} thật: Rút tiền

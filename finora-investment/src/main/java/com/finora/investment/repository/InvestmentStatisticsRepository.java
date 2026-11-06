@@ -2,17 +2,18 @@ package com.finora.investment.repository;
 
 import com.finora.common.enums.investment.CommitmentStatus;
 import com.finora.common.statistics.StatisticsPeriod;
-import com.finora.investment.domain.autoinvest.AutoInvestMatch;
-import com.finora.investment.domain.orderbook.SettlementStatus;
+import com.finora.investment.domain.autoinvest.entity.AutoInvestMatch;
+import com.finora.investment.domain.orderbook.enums.SettlementStatus;
+import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.stereotype.Repository;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-import lombok.RequiredArgsConstructor;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.stereotype.Repository;
 
 /**
  * Câu tổng hợp cho trang thống kê quản trị của Investment (STATS-001).

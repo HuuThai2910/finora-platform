@@ -31,23 +31,6 @@ spring:
           issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/finora}
           jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/finora/protocol/openid-connect/certs}
 
-  # Redis — OTP storage (TTL 5 phút) và rate limiting (brute-force detection)
-  data:
-    redis:
-      host: ${USER_REDIS_HOST:localhost}
-      port: ${USER_REDIS_PORT:6381}
-      password: ${USER_REDIS_PASSWORD:}
-
-  # Feign — bước đọc thẻ eKYC ở finora-ai giải QR, đọc MRZ bằng Tesseract, tìm chân dung (YuNet/SFace)
-  # và có thể hỏi Gemini điền chỗ trống; AI xử lý tuần tự nên một lần gọi có thể mất vài chục giây.
-  cloud:
-    openfeign:
-      client:
-        config:
-          ai-ekyc-service:
-            connect-timeout: 3000
-            read-timeout: 60000
-
   # Video liveness gửi multipart (≤ 10 MB) hoặc tối đa 20 ảnh tĩnh (≤ 1,5 MB mỗi ảnh).
   # Vượt giới hạn → 413 PAYLOAD_TOO_LARGE (UploadExceptionHandler).
   servlet:
@@ -73,10 +56,10 @@ management:
       group:
         liveness:
           include: livenessState
-        # Mọi API cần PostgreSQL; đăng ký/đăng nhập (OTP, giới hạn dò mật khẩu) cần Redis riêng của User.
+        # Mọi API cần PostgreSQL, kể cả OTP, giới hạn dò mật khẩu và bản nháp eKYC (kho tạm trong DB của User).
         # Keycloak dùng chung mọi service nên không vào readiness: Keycloak tắt sẽ rút mọi service khỏi traffic cùng lúc.
         readiness:
-          include: readinessState,db,redis
+          include: readinessState,db
 
 # Keycloak Admin Client — tạo user, gán role, đổi mật khẩu
 keycloak:
@@ -87,7 +70,7 @@ keycloak:
     client-secret: ${KEYCLOAK_CLIENT_SECRET:}
 
 # Mã hóa PII (CCCD, SĐT) — secret key cho HMAC-SHA256 và AES-256-GCM
-# Notification service — gọi qua Feign (internal HTTP, không qua gateway)
+# Notification service — gọi qua RestClient (internal HTTP, không qua gateway)
 finora:
   # Pin-token xác nhận thao tác nhạy cảm — khoá HS256 phải GIỐNG NHAU ở finora-user
   # (bên cấp) và payment/investment/loan (bên kiểm). Mặc định chỉ dùng cho máy dev.
@@ -96,6 +79,10 @@ finora:
     token-ttl: ${FINORA_PIN_TOKEN_TTL:PT3M}
   notification:
     url: ${NOTIFICATION_SERVICE_URL:http://localhost:8086}
+  # Nhật ký hoạt động (web quản trị): đọc access log của Gateway trên Azure Log Analytics bằng managed identity
+  # của VM. Máy dev để trống thì API trả 503.
+  activity-log:
+    workspace-id: ${ACTIVITY_LOG_WORKSPACE_ID:}
   cic:
     url: ${CIC_SERVICE_URL:http://localhost:9000}
     mapping:
@@ -112,6 +99,9 @@ finora:
   ai:
     url: ${AI_SERVICE_URL:http://localhost:8000}
     connect-timeout: 3s
+    # Bước đọc thẻ giải QR, đọc MRZ bằng Tesseract, tìm chân dung (YuNet/SFace) và có thể hỏi Gemini điền
+    # chỗ trống; AI xử lý tuần tự nên một lần gọi có thể mất vài chục giây.
+    document-read-timeout: 60s
     liveness-read-timeout: 60s
   # eKYC (EKYC-002): điều khoản đồng ý, kho bằng chứng S3 và worker quét dọn.
   ekyc:
@@ -139,6 +129,11 @@ finora:
       enabled: ${EKYC_SWEEPER_ENABLED:true}
       interval-ms: ${EKYC_SWEEPER_INTERVAL_MS:3600000}
       initial-delay-ms: ${EKYC_SWEEPER_INITIAL_DELAY_MS:300000}
+  # Kho trạng thái tạm (OTP, giới hạn tốc độ, đăng ký tạm, bản nháp eKYC) trong PostgreSQL của User:
+  # worker xoá hẳn dòng hết hạn mỗi 5 phút để bản nháp eKYC (embedding khuôn mặt) không nằm lại.
+  temporary-store:
+    cleanup-delay-ms: ${USER_TEMPORARY_STORE_CLEANUP_DELAY_MS:300000}
+    cleanup-initial-delay-ms: ${USER_TEMPORARY_STORE_CLEANUP_INITIAL_DELAY_MS:60000}
   crypto:
     hmac-secret: ${FINORA_HMAC_SECRET:change-me-in-production-hmac-secret-key-32chars}
     aes-secret: ${FINORA_AES_SECRET:change-me-prod-aes-256-key-32ch!}
@@ -146,3 +141,79 @@ finora:
     cookie:
       domain: ${AUTH_COOKIE_DOMAIN:localhost}
       secure: ${AUTH_COOKIE_SECURE:false}
+
+# Mỗi hệ thống ngoài một circuit breaker (cấu hình như finora-loan). Circuit mở thì client ném đúng lỗi
+# "không gọi được" như khi hệ thống đó sập, nơi gọi xử lý như cũ.
+resilience4j:
+  circuitbreaker:
+    instances:
+      ai:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        # HTTP 4xx là sai request/credential (ảnh hỏng, video không đọc được...), không phải sự cố tạm thời để mở circuit.
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+      notification:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+      cic:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+      log-analytics:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+      keycloak-admin:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        # Sai mật khẩu (401), tài khoản bị khóa (400) không tính là Keycloak lỗi.
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+  # Spring Cloud CircuitBreaker mặc định cắt mọi lời gọi sau 1 giây; mỗi instance phải đặt riêng.
+  timelimiter:
+    instances:
+      ai:
+        # Cao hơn RestClient read-timeout (60 giây, kết nối 3 giây) để HTTP client tự phân loại timeout trước.
+        timeout-duration: 65s
+        cancel-running-future: true
+      notification:
+        # Cao hơn RestClient read-timeout (60 giây, kết nối 10 giây) để HTTP client tự phân loại timeout trước.
+        timeout-duration: 75s
+        cancel-running-future: true
+      cic:
+        # Cao hơn RestClient read-timeout (60 giây, kết nối 10 giây) để HTTP client tự phân loại timeout trước.
+        timeout-duration: 75s
+        cancel-running-future: true
+      log-analytics:
+        # Cao hơn RestClient read-timeout (20 giây, kết nối 3 giây) để HTTP client tự phân loại timeout trước.
+        timeout-duration: 25s
+        cancel-running-future: true
+      keycloak-admin:
+        # Token endpoint gọi bằng RestClient không đặt timeout (như RestTemplate cũ); đây là giới hạn duy nhất.
+        timeout-duration: 30s
+        cancel-running-future: true

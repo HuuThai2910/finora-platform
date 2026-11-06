@@ -1,10 +1,5 @@
 package com.finora.loan.controller;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 import com.finora.common.security.DualBearerTokenResolver;
 import com.finora.common.security.KeycloakJwtAuthenticationConverter;
 import com.finora.common.security.SecurityUtils;
@@ -20,10 +15,6 @@ import com.finora.loan.service.scoring.CreditScoringAssessmentService;
 import com.finora.loan.service.servicing.AdminLoanServicingReconciliationService;
 import com.finora.loan.service.servicing.AdminRepaymentEventQuarantineService;
 import com.finora.loan.service.statistics.AdminLoanStatisticsService;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -39,6 +30,16 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Stream;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Phân quyền nhân viên ở tầng URL của {@code SecurityConfig} thật: mỗi API quản trị cần đúng quyền Xem/Thao tác

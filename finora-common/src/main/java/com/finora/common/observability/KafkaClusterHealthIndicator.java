@@ -1,5 +1,12 @@
 package com.finora.common.observability;
 
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.DescribeClusterOptions;
+import org.apache.kafka.clients.admin.DescribeClusterResult;
+import org.apache.kafka.common.Node;
+import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.actuate.health.HealthIndicator;
+
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -9,12 +16,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
-import org.apache.kafka.clients.admin.Admin;
-import org.apache.kafka.clients.admin.DescribeClusterOptions;
-import org.apache.kafka.clients.admin.DescribeClusterResult;
-import org.apache.kafka.common.Node;
-import org.springframework.boot.actuate.health.Health;
-import org.springframework.boot.actuate.health.HealthIndicator;
 
 /**
  * Health {@code kafka}: broker có trả lời {@code describeCluster} trong thời gian cho phép không (W3E, D56).

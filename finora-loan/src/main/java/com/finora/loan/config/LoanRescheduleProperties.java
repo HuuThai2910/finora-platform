@@ -1,7 +1,8 @@
 package com.finora.loan.config;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
 
 @ConfigurationProperties(prefix = "finora.loan.reschedule")
 public record LoanRescheduleProperties(

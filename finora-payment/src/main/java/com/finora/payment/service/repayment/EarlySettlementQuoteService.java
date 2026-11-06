@@ -1,95 +1,21 @@
 package com.finora.payment.service.repayment;
 
-import com.finora.common.exception.BusinessException;
-import com.finora.common.security.SecurityUtils;
-import com.finora.payment.config.EarlySettlementPolicyProperties;
-import com.finora.payment.domain.repayment.EarlySettlementQuote;
-import com.finora.payment.domain.servicing.PaymentLoanAccount;
 import com.finora.payment.dto.response.EarlySettlementQuoteResponse;
-import com.finora.payment.integration.fineract.EarlySettlementCoreQuote;
-import com.finora.payment.integration.fineract.FineractQuoteErrors;
-import com.finora.payment.integration.fineract.RepaymentCoreGateway;
-import com.finora.payment.repository.repayment.EarlySettlementQuoteRepository;
-import com.finora.payment.repository.servicing.PaymentLoanAccountRepository;
-import java.time.Clock;
-import java.time.LocalDate;
+
 import java.util.UUID;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 
-@Service
-@RequiredArgsConstructor
-public class EarlySettlementQuoteService {
-    private final PaymentLoanAccountRepository loanAccounts;
-    private final EarlySettlementQuoteRepository quotes;
-    private final RepaymentInFlightGuard inFlight;
-    private final RepaymentCoreGateway fineract;
-    private final EarlySettlementFeeCalculator feeCalculator;
-    private final EarlySettlementPolicyProperties policy;
-    private final Clock clock;
-    private final TransactionTemplate transactionTemplate;
+/**
+ * Báo giá tất toán khoản vay cho người vay: đọc báo giá Fineract, tính phí theo biểu phí của chính hợp đồng và lưu báo
+ * giá có hạn dùng để lệnh tất toán thu đúng con số đã báo.
+ */
+public interface EarlySettlementQuoteService {
 
-    public EarlySettlementQuoteResponse create(Long loanApplicationId) {
-        String borrowerId = SecurityUtils.getCurrentUserId();
-        QuotePreparation preparation = transactionTemplate.execute(status -> prepare(loanApplicationId, borrowerId));
-        if (preparation == null) throw new IllegalStateException("Không chuẩn bị được báo giá tất toán");
-        LocalDate today = LocalDate.now(clock);
-        EarlySettlementCoreQuote core = FineractQuoteErrors.read(
-                () -> fineract.earlySettlementQuote(preparation.fineractLoanId(), today));
-        // Biểu phí của chính hợp đồng (snapshot trên tài khoản), không phải biểu phí đang áp cho hợp đồng mới.
-        EarlySettlementFeeCalculator.Fee fee = feeCalculator.calculate(preparation.policyVersion(), core);
-        var now = clock.instant();
-        EarlySettlementQuote saved = transactionTemplate.execute(status -> {
-            PaymentLoanAccount account = requireActiveAccount(loanApplicationId, borrowerId);
-            if (!account.getFineractLoanId().equals(preparation.fineractLoanId())) {
-                throw new BusinessException(HttpStatus.CONFLICT, "PAYMENT_LOAN_CHANGED",
-                        "Khoản vay đã thay đổi trong lúc lập báo giá");
-            }
-            return quotes.save(EarlySettlementQuote.create(account, core, fee.rate(), fee.amount(),
-                    fee.investorShare(), fee.finoraShare(), fee.policyVersion(),
-                    now.plus(policy.quoteTtl()), now));
-        });
-        if (saved == null) throw new IllegalStateException("Không lưu được báo giá tất toán");
-        return EarlySettlementQuoteResponse.from(saved, now);
-    }
+    /**
+     * Lập báo giá tất toán cho khoản vay của người dùng hiện tại; chỉ khoản vay core V4 còn hoạt động và không còn
+     * khoản đã thu đang chờ ghi Fineract.
+     */
+    EarlySettlementQuoteResponse create(Long loanApplicationId);
 
-    @Transactional(readOnly = true)
-    public EarlySettlementQuoteResponse get(UUID quoteId) {
-        EarlySettlementQuote quote = quotes.findByQuoteId(quoteId)
-                .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "EARLY_SETTLEMENT_QUOTE_NOT_FOUND",
-                        "Không tìm thấy báo giá tất toán"));
-        if (!quote.getBorrowerId().equals(SecurityUtils.getCurrentUserId())) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "EARLY_SETTLEMENT_QUOTE_OWNER_MISMATCH",
-                    "Không được xem báo giá của người khác");
-        }
-        return EarlySettlementQuoteResponse.from(quote, clock.instant());
-    }
-
-    private QuotePreparation prepare(Long applicationId, String borrowerId) {
-        PaymentLoanAccount account = requireActiveAccount(applicationId, borrowerId);
-        // D17: core V1–V3 báo giá tất toán gồm cả lãi các tháng tương lai (B29), không cho tự tất toán.
-        SelfServicePrepaymentPolicy.requireDailyInterestCore(account);
-        inFlight.requireNoneBeforeQuote(applicationId);
-        return new QuotePreparation(account.getFineractLoanId(), account.getEarlySettlementPolicyVersion());
-    }
-
-    private PaymentLoanAccount requireActiveAccount(Long applicationId, String borrowerId) {
-        PaymentLoanAccount account = loanAccounts.findByLoanApplicationId(applicationId)
-                .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "PAYMENT_LOAN_NOT_FOUND",
-                        "Khoản vay chưa sẵn sàng để tất toán"));
-        if (!account.getBorrowerId().equals(borrowerId)) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "PAYMENT_LOAN_OWNER_MISMATCH",
-                    "Khoản vay không thuộc người dùng hiện tại");
-        }
-        if (account.getStatus() != PaymentLoanAccount.Status.ACTIVE) {
-            throw new BusinessException(HttpStatus.CONFLICT, "PAYMENT_LOAN_NOT_ACTIVE",
-                    "Khoản vay không còn hoạt động");
-        }
-        return account;
-    }
-
-    private record QuotePreparation(Long fineractLoanId, String policyVersion) {}
+    /** Báo giá tất toán theo mã; báo giá của người khác trả {@code 403 EARLY_SETTLEMENT_QUOTE_OWNER_MISMATCH}. */
+    EarlySettlementQuoteResponse get(UUID quoteId);
 }

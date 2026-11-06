@@ -1,6 +1,8 @@
 package com.finora.common.statistics;
 
 import com.finora.common.exception.BusinessException;
+import org.springframework.http.HttpStatus;
+
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -11,7 +13,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
-import org.springframework.http.HttpStatus;
 
 /**
  * Khoảng thời gian của một chuỗi thống kê quản trị, đã nới ra cho tròn cột.

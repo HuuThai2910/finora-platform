@@ -4,26 +4,27 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.finora.loan.integration.fineract.contract.FineractProductConfiguration;
 import com.finora.loan.integration.fineract.contract.FineractProductCreationResult;
 import com.finora.loan.integration.fineract.mapper.FineractProductPayloadMapper;
-import java.util.Optional;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+
+import java.util.Optional;
 
 /** REST adapter chỉ dành cho tạo và đối chiếu Loan Product trên Fineract. */
 @Component
 public class FineractProductHttpClient implements FineractLoanProductGateway {
 
     private final RestClient restClient;
-    private final FineractProductPayloadMapper payloadMapper;
-    private final FineractRequestExecutor requestExecutor;
+    private final FineractProductPayloadMapper fineractProductPayloadMapper;
+    private final FineractRequestExecutor fineractRequestExecutor;
 
     public FineractProductHttpClient(
             RestClient fineractRestClient,
-            FineractProductPayloadMapper payloadMapper,
-            FineractRequestExecutor requestExecutor
+            FineractProductPayloadMapper fineractProductPayloadMapper,
+            FineractRequestExecutor fineractRequestExecutor
     ) {
         this.restClient = fineractRestClient;
-        this.payloadMapper = payloadMapper;
-        this.requestExecutor = requestExecutor;
+        this.fineractProductPayloadMapper = fineractProductPayloadMapper;
+        this.fineractRequestExecutor = fineractRequestExecutor;
     }
 
     @Override
@@ -31,27 +32,27 @@ public class FineractProductHttpClient implements FineractLoanProductGateway {
             FineractProductConfiguration configuration
     ) {
         String externalId = configuration.externalId();
-        JsonNode response = requestExecutor.execute(FineractCallGroup.PRODUCT,
+        JsonNode response = fineractRequestExecutor.execute(FineractCallGroup.PRODUCT,
                 "find-product-by-external-id", () -> restClient.get()
                 .uri(uriBuilder -> uriBuilder.path("/loanproducts")
                         .queryParam("fields", "id,externalId")
                         .build())
-                .headers(requestExecutor::authenticate)
+                .headers(fineractRequestExecutor::authenticate)
                 .retrieve()
                 .body(JsonNode.class));
         Optional<FineractProductCreationResult> reconciled =
-                payloadMapper.findProductByExternalId(response, externalId);
+                fineractProductPayloadMapper.findProductByExternalId(response, externalId);
         if (reconciled.isEmpty()) {
             return Optional.empty();
         }
         long productId = reconciled.orElseThrow().resourceId();
-        JsonNode product = requestExecutor.execute(FineractCallGroup.PRODUCT,
+        JsonNode product = fineractRequestExecutor.execute(FineractCallGroup.PRODUCT,
                 "read-reconciled-product", () -> restClient.get()
                 .uri("/loanproducts/{id}", productId)
-                .headers(requestExecutor::authenticate)
+                .headers(fineractRequestExecutor::authenticate)
                 .retrieve()
                 .body(JsonNode.class));
-        payloadMapper.validateReconciledProduct(
+        fineractProductPayloadMapper.validateReconciledProduct(
                 product, configuration.configVersion(), configuration.repaymentMethod());
         return reconciled;
     }
@@ -61,20 +62,20 @@ public class FineractProductHttpClient implements FineractLoanProductGateway {
             FineractProductConfiguration configuration,
             String idempotencyKey
     ) {
-        JsonNode response = requestExecutor.execute(
+        JsonNode response = fineractRequestExecutor.execute(
                 FineractCallGroup.PRODUCT,
                 "create-product",
                 () -> restClient.post()
                 .uri("/loanproducts")
                 .headers(headers -> {
-                    requestExecutor.authenticate(headers);
+                    fineractRequestExecutor.authenticate(headers);
                     headers.set("Idempotency-Key", idempotencyKey);
                 })
-                .body(payloadMapper.toCreateProductPayload(configuration))
+                .body(fineractProductPayloadMapper.toCreateProductPayload(configuration))
                 .retrieve()
                 .body(JsonNode.class)
         );
-        String snapshot = payloadMapper.sanitizedProductResponse(response);
+        String snapshot = fineractProductPayloadMapper.sanitizedProductResponse(response);
         return new FineractProductCreationResult(response.path("resourceId").asLong(), snapshot);
     }
 }

@@ -1,9 +1,9 @@
 package com.finora.user.service;
 
-import com.finora.user.domain.EkycAttempt;
-import com.finora.user.domain.EkycIdentityDraft;
-import com.finora.user.domain.EkycLivenessResult;
-import com.finora.user.domain.UserProfile;
+import com.finora.user.domain.entity.EkycAttempt;
+import com.finora.user.domain.entity.UserProfile;
+import com.finora.user.domain.enums.EkycLivenessResult;
+import com.finora.user.domain.model.EkycIdentityDraft;
 import com.finora.user.service.EkycEvidenceService.StoredEvidence;
 
 import java.time.Instant;

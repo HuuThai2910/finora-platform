@@ -1,5 +1,31 @@
 package com.finora.investment.service.messaging.impl;
 
+import com.finora.common.enums.investment.NoteStatus;
+import com.finora.investment.domain.note.entity.InvestmentNote;
+import com.finora.investment.domain.secondary.entity.NoteRepaymentRedirect;
+import com.finora.investment.exception.InvestmentDomainException;
+import com.finora.investment.messaging.event.InvestorServicingNotificationEventData;
+import com.finora.investment.messaging.event.RepaymentDistributedEventData;
+import com.finora.investment.repository.InvestmentNoteRepository;
+import com.finora.investment.repository.NoteRepaymentRedirectRepository;
+import com.finora.investment.repository.NoteTransferRepository;
+import com.finora.investment.repository.ProcessedEventRepository;
+import com.finora.investment.service.outbox.InvestmentOutboxService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -9,31 +35,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-
-import com.finora.common.enums.investment.NoteStatus;
-import com.finora.investment.domain.note.InvestmentNote;
-import com.finora.investment.domain.secondary.NoteRepaymentRedirect;
-import com.finora.investment.exception.InvestmentDomainException;
-import com.finora.investment.messaging.event.InvestorServicingNotificationEventData;
-import com.finora.investment.messaging.event.RepaymentDistributedEventData;
-import com.finora.investment.repository.InvestmentNoteRepository;
-import com.finora.investment.repository.NoteRepaymentRedirectRepository;
-import com.finora.investment.repository.NoteTransferRepository;
-import com.finora.investment.repository.ProcessedEventRepository;
-import com.finora.investment.service.outbox.InvestmentOutboxService;
-import java.math.BigDecimal;
-import java.time.Clock;
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class RepaymentDistributedEventHandlerImplTest {
@@ -70,8 +71,8 @@ class RepaymentDistributedEventHandlerImplTest {
 
         ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
         verify(outbox).record(anyString(), anyString(), eq("InvestorNoteServicingChanged"), anyInt(), payload.capture());
-        var data = (InvestorServicingNotificationEventData) payload.getValue();
-        assertThat(data.recipients()).extracting(InvestorServicingNotificationEventData.Recipient::amount)
+        var notification = (InvestorServicingNotificationEventData) payload.getValue();
+        assertThat(notification.recipients()).extracting(InvestorServicingNotificationEventData.Recipient::amount)
                 .containsExactly("110.00", "110.00");
         verify(redirects, never()).save(any());
     }

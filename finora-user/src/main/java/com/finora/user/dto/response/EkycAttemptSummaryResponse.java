@@ -11,6 +11,8 @@ import java.util.UUID;
  * @param faceMatchZone {@code HIGH | GRAY | LOW}, suy từ mã lý do liveness đã lưu; {@code null} khi chưa so mặt
  * @param reasons       mã lý do/cảnh báo của bước đọc thẻ (không có giá trị trường)
  * @param submittedAt   thời điểm gửi duyệt hoặc tự xác minh; {@code null} khi lượt chưa kết thúc
+ * @param decidedAt     thời điểm nhân viên duyệt hoặc từ chối; {@code null} khi chưa có quyết định của người
+ * @param reviewNote    ghi chú của người duyệt; với lượt bị từ chối đây là lý do khách thấy trên app
  */
 public record EkycAttemptSummaryResponse(
         UUID attemptId,
@@ -24,6 +26,8 @@ public record EkycAttemptSummaryResponse(
         String faceMatchZone,
         List<String> reasons,
         Instant createdAt,
-        Instant submittedAt
+        Instant submittedAt,
+        Instant decidedAt,
+        String reviewNote
 ) {
 }

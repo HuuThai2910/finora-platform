@@ -410,3 +410,19 @@ class TestNguongQuyetDinhDocLapVoiHang:
 
         assert response.status_code == 422
         assert "toàn bộ hạng thấp nhất" in response.json()["detail"]
+
+
+class TestKhoaLacQuan:
+    """Hai người cùng sửa: lần lưu dựa trên phiên bản cũ bị 409, không ghi đè."""
+
+    def test_luu_dung_phien_ban(self, client):
+        d = client.get(URL).json()
+        r = client.put(URL, json={"rules": d["rules"], "expected_version": d["decision_policy_version"]})
+        assert r.status_code == 200
+
+    def test_phien_ban_cu_bi_409(self, client):
+        d = client.get(URL).json()
+        assert client.put(URL, json={"rules": d["rules"]}).status_code == 200
+        r = client.put(URL, json={"rules": d["rules"], "expected_version": d["decision_policy_version"]})
+        assert r.status_code == 409
+        assert "người khác" in r.json()["detail"]

@@ -1,9 +1,9 @@
 package com.finora.user.service.impl;
 
+import com.finora.common.util.Sha256;
 import com.finora.user.config.EkycConsentProperties;
 import com.finora.user.config.EkycStorageProperties;
 import com.finora.user.service.EkycConsentDocument;
-import com.finora.user.support.Sha256;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StreamUtils;

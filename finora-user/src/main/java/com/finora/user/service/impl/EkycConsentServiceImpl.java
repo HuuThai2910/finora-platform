@@ -3,11 +3,11 @@ package com.finora.user.service.impl;
 import com.finora.common.enums.user.EkycStatus;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.user.domain.EkycAttempt;
-import com.finora.user.domain.EkycAttemptStatus;
-import com.finora.user.domain.EkycConsent;
-import com.finora.user.domain.EkycEvidence;
-import com.finora.user.domain.UserProfile;
+import com.finora.user.domain.entity.EkycAttempt;
+import com.finora.user.domain.entity.EkycConsent;
+import com.finora.user.domain.entity.EkycEvidence;
+import com.finora.user.domain.entity.UserProfile;
+import com.finora.user.domain.enums.EkycAttemptStatus;
 import com.finora.user.dto.request.EkycConsentAcceptRequest;
 import com.finora.user.dto.response.EkycConsentResponse;
 import com.finora.user.repository.EkycAttemptRepository;
@@ -42,7 +42,7 @@ import java.util.UUID;
  * <p>
  * Rút lại: (1) một transaction ghi {@code withdrawn_at}, bỏ lượt đang mở, xoá bản nháp mã hoá và đưa hồ
  * sơ về chưa xác minh — số định danh (hash + bản mã hoá) được <b>giữ</b> để một CCCD không mở nhiều tài
- * khoản; (2) sau commit mới dọn Redis, ghi claim Keycloak và xoá object trên kho theo tiền tố người dùng;
+ * khoản; (2) sau commit mới dọn kho tạm, ghi claim Keycloak và xoá object trên kho theo tiền tố người dùng;
  * (3) xoá được thì đánh dấu {@code deleted_at}, xoá hỏng thì worker quét dọn thử lại (bằng chứng tạo
  * trước lần rút đồng ý).
  */
@@ -52,13 +52,13 @@ import java.util.UUID;
 public class EkycConsentServiceImpl implements EkycConsentService {
 
     private final UserProfileRepository userProfileRepository;
-    private final EkycConsentRepository consentRepository;
-    private final EkycAttemptRepository attemptRepository;
-    private final EkycEvidenceRepository evidenceRepository;
-    private final EkycConsentDocument document;
-    private final EkycEvidenceService evidenceService;
-    private final EkycSessionCleanup sessionCleanup;
-    private final EkycClaimPublisher claimPublisher;
+    private final EkycConsentRepository ekycConsentRepository;
+    private final EkycAttemptRepository ekycAttemptRepository;
+    private final EkycEvidenceRepository ekycEvidenceRepository;
+    private final EkycConsentDocument ekycConsentDocument;
+    private final EkycEvidenceService ekycEvidenceService;
+    private final EkycSessionCleanup ekycSessionCleanup;
+    private final EkycClaimPublisher ekycClaimPublisher;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
 
@@ -70,15 +70,15 @@ public class EkycConsentServiceImpl implements EkycConsentService {
 
     @Override
     public Optional<EkycConsent> findActiveConsent(Long userProfileId) {
-        return consentRepository.findFirstByUserProfileIdAndWithdrawnAtIsNullOrderByAcceptedAtDescIdDesc(userProfileId)
-                .filter(consent -> consent.isActiveFor(document.version(), document.textSha256()));
+        return ekycConsentRepository.findFirstByUserProfileIdAndWithdrawnAtIsNullOrderByAcceptedAtDescIdDesc(userProfileId)
+                .filter(consent -> consent.isActiveFor(ekycConsentDocument.version(), ekycConsentDocument.textSha256()));
     }
 
     @Override
     public EkycConsentResponse accept(UUID keycloakUserId, EkycConsentAcceptRequest request) {
         UserProfile profile = findProfileOrThrow(keycloakUserId);
         String hash = request.textSha256().toLowerCase(Locale.ROOT);
-        if (!document.version().equals(request.version()) || !document.textSha256().equals(hash)) {
+        if (!ekycConsentDocument.version().equals(request.version()) || !ekycConsentDocument.textSha256().equals(hash)) {
             throw new BusinessException(HttpStatus.CONFLICT, "CONSENT_VERSION_STALE",
                     "Điều khoản đã được cập nhật. Vui lòng tải lại và đọc bản mới trước khi đồng ý.");
         }
@@ -87,8 +87,9 @@ public class EkycConsentServiceImpl implements EkycConsentService {
             return toResponse(active.get());
         }
         String platform = request.platform() == null ? null : request.platform().toLowerCase(Locale.ROOT);
-        EkycConsent saved = consentRepository.save(EkycConsent.accept(profile.getId(), document.version(),
-                EkycConsentDocument.PURPOSES, document.textSha256(), platform, request.appVersion(), clock.instant()));
+        EkycConsent saved = ekycConsentRepository.save(EkycConsent.accept(profile.getId(), ekycConsentDocument.version(),
+                EkycConsentDocument.PURPOSES, ekycConsentDocument.textSha256(), platform, request.appVersion(),
+                clock.instant()));
         log.info("Ghi nhận đồng ý điều khoản eKYC: userProfileId={}, version={}, platform={}",
                 profile.getId(), saved.getVersion(), platform);
         return toResponse(saved);
@@ -104,13 +105,13 @@ public class EkycConsentServiceImpl implements EkycConsentService {
             UserProfile fresh = userProfileRepository.findById(profileId)
                     .orElseThrow(() -> new ResourceNotFoundException("Hồ sơ người dùng", "id", profileId));
             EkycStatus before = fresh.getEkycStatus();
-            consentRepository.findByUserProfileIdAndWithdrawnAtIsNull(profileId)
+            ekycConsentRepository.findByUserProfileIdAndWithdrawnAtIsNull(profileId)
                     .forEach(consent -> consent.withdraw(now));
             Map<Long, EkycAttempt> touched = new LinkedHashMap<>();
-            attemptRepository.findByUserProfileIdAndStatusIn(profileId,
+            ekycAttemptRepository.findByUserProfileIdAndStatusIn(profileId,
                             List.of(EkycAttemptStatus.IN_PROGRESS, EkycAttemptStatus.MANUAL_REVIEW))
                     .forEach(attempt -> touched.put(attempt.getId(), attempt));
-            attemptRepository.findByUserProfileIdAndDraftEncryptedIsNotNull(profileId)
+            ekycAttemptRepository.findByUserProfileIdAndDraftEncryptedIsNotNull(profileId)
                     .forEach(attempt -> touched.putIfAbsent(attempt.getId(), attempt));
             touched.values().forEach(attempt -> attempt.withdraw(now));
             fresh.resetEkycAfterConsentWithdrawal();
@@ -118,18 +119,18 @@ public class EkycConsentServiceImpl implements EkycConsentService {
         });
 
         // Sau commit: dọn trạng thái tạm, cập nhật claim, xoá bằng chứng trên kho.
-        sessionCleanup.clearAll(keycloakUserId);
+        ekycSessionCleanup.clearAll(keycloakUserId);
         if (change != null && change.before() != change.after()) {
-            claimPublisher.publish(keycloakUserId, change.after());
+            ekycClaimPublisher.publish(keycloakUserId, change.after());
         }
-        if (evidenceService.deleteUserObjects(profileId)) {
+        if (ekycEvidenceService.deleteUserObjects(profileId)) {
             transactionTemplate.executeWithoutResult(status -> {
-                List<Long> ids = evidenceRepository
-                        .findLiveByUserProfileId(profileId, evidenceService.envPrefix() + "%").stream()
+                List<Long> ids = ekycEvidenceRepository
+                        .findLiveByUserProfileId(profileId, ekycEvidenceService.envPrefix() + "%").stream()
                         .map(EkycEvidence::getId)
                         .toList();
                 if (!ids.isEmpty()) {
-                    evidenceRepository.markDeleted(ids, now);
+                    ekycEvidenceRepository.markDeleted(ids, now);
                 }
             });
         }
@@ -140,12 +141,12 @@ public class EkycConsentServiceImpl implements EkycConsentService {
 
     private EkycConsentResponse toResponse(EkycConsent active) {
         return new EkycConsentResponse(
-                document.version(),
+                ekycConsentDocument.version(),
                 EkycConsentDocument.TITLE,
-                document.body(),
+                ekycConsentDocument.body(),
                 EkycConsentDocument.CONSENT_LABEL,
                 EkycConsentDocument.PURPOSES,
-                document.textSha256(),
+                ekycConsentDocument.textSha256(),
                 active != null,
                 active == null ? null : active.getAcceptedAt());
     }

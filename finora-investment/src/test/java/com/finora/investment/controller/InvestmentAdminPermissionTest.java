@@ -1,12 +1,5 @@
 package com.finora.investment.controller;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 import com.finora.common.security.DualBearerTokenResolver;
 import com.finora.common.security.KeycloakJwtAuthenticationConverter;
 import com.finora.common.security.ops.OpsFunction;
@@ -31,6 +24,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultMatcher;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Phân quyền nhân viên trên {@code /investments/admin/**} theo {@code SecurityConfig} thật: mỗi đường dẫn kiểm quyền
@@ -63,6 +63,8 @@ class InvestmentAdminPermissionTest {
     private TransferDocumentAdminService transferDocumentAdminService;
     @MockBean
     private InvestmentStatisticsService statisticsService;
+    @MockBean
+    private com.finora.investment.service.AdminInvestorPortfolioService adminInvestorPortfolioService;
     @MockBean
     private JwtDecoder jwtDecoder;
 
@@ -115,6 +117,18 @@ class InvestmentAdminPermissionTest {
         perform(post(ADMIN + "/transfer-documents/TRD-1/retry"), staff, status().isForbidden());
         perform(post(ADMIN + "/transfer-documents/TRD-1/retry"),
                 staff(OpsFunction.SECONDARY_MARKET.view(), OpsFunction.SECONDARY_MARKET.action()), passesSecurity());
+        // Đợt 2: xem Note của lần khớp; gửi thanh toán lại cần quyền Thao tác.
+        perform(get(ADMIN + "/order-books/trades/TRD-1/notes"), staff, passesSecurity());
+        perform(post(ADMIN + "/order-books/trades/TRD-1/retry-settlement"), staff, status().isForbidden());
+        perform(post(ADMIN + "/order-books/trades/TRD-1/retry-settlement"),
+                staff(OpsFunction.SECONDARY_MARKET.view(), OpsFunction.SECONDARY_MARKET.action()), passesSecurity());
+    }
+
+    @Test
+    void customerViewerReadsInvestorNotes() throws Exception {
+        perform(get(ADMIN + "/investors/42/notes"), staff(OpsFunction.CUSTOMER.view()), passesSecurity());
+        perform(get(ADMIN + "/investors/42/notes"), staff(OpsFunction.FUNDING.view()), passesSecurity());
+        perform(get(ADMIN + "/investors/42/notes"), staff(OpsFunction.DASHBOARD.view()), status().isForbidden());
     }
 
     @Test

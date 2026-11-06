@@ -6,6 +6,7 @@ import com.finora.investment.dto.response.InvestmentStatisticsSeriesResponse;
 import com.finora.investment.dto.response.InvestmentStatisticsSummaryResponse;
 import com.finora.investment.service.statistics.InvestmentStatisticsService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -20,12 +21,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class InvestmentStatisticsAdminController {
 
-    private final InvestmentStatisticsService statisticsService;
+    private final InvestmentStatisticsService investmentStatisticsService;
 
     /** Ảnh chụp hiện tại: listing theo trạng thái, vốn đang gom, Note và Auto-Invest đang bật. */
     @GetMapping("/summary")
-    public InvestmentStatisticsSummaryResponse summary() {
-        return statisticsService.summary();
+    public ResponseEntity<InvestmentStatisticsSummaryResponse> summary() {
+        return ResponseEntity.ok(investmentStatisticsService.summary());
     }
 
     /**
@@ -39,11 +40,14 @@ public class InvestmentStatisticsAdminController {
      * @param bucket {@code DAY} (mặc định), {@code WEEK} hoặc {@code MONTH}
      */
     @GetMapping("/series")
-    public InvestmentStatisticsSeriesResponse series(
+    public ResponseEntity<InvestmentStatisticsSeriesResponse> series(
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
             @RequestParam(required = false) String bucket) {
-        return statisticsService.series(StatisticsPeriod.parseDate(from, "from"), StatisticsPeriod.parseDate(to, "to"), StatisticsBucket.parse(bucket));
+        return ResponseEntity.ok(investmentStatisticsService.series(
+                StatisticsPeriod.parseDate(from, "from"),
+                StatisticsPeriod.parseDate(to, "to"),
+                StatisticsBucket.parse(bucket)));
     }
 
 

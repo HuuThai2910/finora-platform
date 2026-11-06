@@ -64,6 +64,12 @@ public class UserProfileResponse {
      */
     private Boolean locked;
 
+    /** Lý do khóa do nhân viên nhập lúc khóa; {@code null} khi không khóa hoặc khóa từ trước khi có cột này. */
+    private String lockReason;
+
+    /** Thời điểm khóa gần nhất. */
+    private Instant lockedAt;
+
     /** Mã vai trò nhân viên ({@code STAFF_*}) — chỉ có với tài khoản {@code STAFF}. */
     private String staffRoleCode;
 

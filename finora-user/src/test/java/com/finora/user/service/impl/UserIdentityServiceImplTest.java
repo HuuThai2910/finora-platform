@@ -1,18 +1,19 @@
 package com.finora.user.service.impl;
 
+import com.finora.common.exception.ResourceNotFoundException;
+import com.finora.user.domain.entity.UserProfile;
+import com.finora.user.dto.response.UserIdentityResponse;
+import com.finora.user.repository.UserProfileRepository;
+import org.junit.jupiter.api.Test;
+
+import java.util.Optional;
+import java.util.UUID;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-
-import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.user.domain.UserProfile;
-import com.finora.user.dto.response.UserIdentityResponse;
-import com.finora.user.repository.UserProfileRepository;
-import java.util.Optional;
-import java.util.UUID;
-import org.junit.jupiter.api.Test;
 
 /** Danh tính cho giấy chuyển nhượng Note: tra theo ID hồ sơ hoặc Keycloak UUID, CCCD chỉ giữ 4 số cuối. */
 class UserIdentityServiceImplTest {

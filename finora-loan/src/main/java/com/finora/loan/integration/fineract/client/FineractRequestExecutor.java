@@ -5,13 +5,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.loan.config.FineractProperties;
+import com.finora.loan.integration.fineract.FineractIntegrationException;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
-import java.io.IOException;
-import java.net.SocketTimeoutException;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.TimeoutException;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
 import org.springframework.http.HttpHeaders;
@@ -21,8 +17,16 @@ import org.springframework.util.StopWatch;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.io.IOException;
+import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.TimeoutException;
+
 /** Dùng chung xác thực, circuit breaker, đo latency và phân loại lỗi cho mọi Fineract adapter. */
 @Component
+@RequiredArgsConstructor
 @Slf4j
 public class FineractRequestExecutor {
 
@@ -30,22 +34,12 @@ public class FineractRequestExecutor {
     private static final int MAX_DETAIL_PART_LENGTH = 300;
     private static final int MAX_ERROR_DETAIL_LENGTH = 1_000;
 
-    private final FineractProperties properties;
+    private final FineractProperties fineractProperties;
     private final CircuitBreakerFactory<?, ?> circuitBreakerFactory;
     private final ObjectMapper objectMapper;
 
-    public FineractRequestExecutor(
-            FineractProperties properties,
-            CircuitBreakerFactory<?, ?> circuitBreakerFactory,
-            ObjectMapper objectMapper
-    ) {
-        this.properties = properties;
-        this.circuitBreakerFactory = circuitBreakerFactory;
-        this.objectMapper = objectMapper;
-    }
-
     public void authenticate(HttpHeaders headers) {
-        if (properties.password() == null || properties.password().isBlank()) {
+        if (fineractProperties.password() == null || fineractProperties.password().isBlank()) {
             throw new FineractIntegrationException(
                     "FINERACT_CREDENTIAL_MISSING",
                     "Chưa cấu hình FINERACT_API_PASSWORD",
@@ -53,7 +47,7 @@ public class FineractRequestExecutor {
                     null
             );
         }
-        headers.setBasicAuth(properties.username(), properties.password());
+        headers.setBasicAuth(fineractProperties.username(), fineractProperties.password());
     }
 
     /**

@@ -1,6 +1,6 @@
 package com.finora.loan.repository.application;
 
-import com.finora.loan.domain.application.LoanApplicationStatusHistory;
+import com.finora.loan.domain.application.entity.LoanApplicationStatusHistory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;

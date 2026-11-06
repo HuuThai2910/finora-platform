@@ -1,10 +1,11 @@
 package com.finora.user.config;
 
 import com.finora.common.environment.SimulatedSettingsCheck;
-import java.util.ArrayList;
-import java.util.List;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /** D37: khóa HMAC/AES mặc định trong {@code application.yml} (mã hóa CCCD, số điện thoại) chỉ hợp lệ ở local/e2e/demo. */
 @Component

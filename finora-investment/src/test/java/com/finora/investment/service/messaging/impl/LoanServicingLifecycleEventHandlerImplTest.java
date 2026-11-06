@@ -1,32 +1,33 @@
 package com.finora.investment.service.messaging.impl;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
-import com.finora.investment.domain.note.InvestmentLoanServicingState;
 import com.finora.common.enums.investment.NoteStatus;
+import com.finora.investment.domain.note.entity.InvestmentLoanServicingState;
 import com.finora.investment.messaging.event.LoanDelinquencyChangedEventData;
 import com.finora.investment.messaging.event.LoanRescheduledEventData;
 import com.finora.investment.messaging.event.LoanSettledEventData;
 import com.finora.investment.repository.InvestmentLoanServicingStateRepository;
-import com.finora.investment.repository.ProcessedEventRepository;
 import com.finora.investment.repository.InvestmentNoteRepository;
+import com.finora.investment.repository.ProcessedEventRepository;
 import com.finora.investment.service.outbox.InvestmentOutboxService;
-import java.time.Clock;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
-import java.util.Optional;
-import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class LoanServicingLifecycleEventHandlerImplTest {

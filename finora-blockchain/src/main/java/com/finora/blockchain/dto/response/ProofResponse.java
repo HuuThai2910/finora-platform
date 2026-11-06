@@ -1,9 +1,10 @@
 package com.finora.blockchain.dto.response;
 
-import com.finora.blockchain.domain.proof.ProofChainCheckStatus;
-import com.finora.blockchain.domain.proof.ProofProviderType;
-import com.finora.blockchain.domain.proof.ProofSubmissionStatus;
-import com.finora.blockchain.domain.proof.ProofType;
+import com.finora.blockchain.domain.proof.enums.ProofChainCheckStatus;
+import com.finora.blockchain.domain.proof.enums.ProofProviderType;
+import com.finora.blockchain.domain.proof.enums.ProofSubmissionStatus;
+import com.finora.blockchain.domain.proof.enums.ProofType;
+
 import java.time.Instant;
 import java.util.UUID;
 

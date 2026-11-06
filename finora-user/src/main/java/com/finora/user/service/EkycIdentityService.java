@@ -2,8 +2,8 @@ package com.finora.user.service;
 
 import com.finora.common.enums.user.EkycResultCode;
 import com.finora.common.enums.user.Gender;
-import com.finora.user.domain.EkycIdentityDraft;
-import com.finora.user.domain.UserProfile;
+import com.finora.user.domain.entity.UserProfile;
+import com.finora.user.domain.model.EkycIdentityDraft;
 import com.finora.user.util.CccdMatcher;
 
 import java.text.Normalizer;

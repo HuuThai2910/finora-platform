@@ -1,10 +1,11 @@
 package com.finora.loan.dto.decision.response;
 
-import com.finora.loan.domain.application.LoanApplicationStatus;
-import com.finora.loan.domain.application.LoanDecisionSource;
-import com.finora.loan.domain.application.LoanPurpose;
-import com.finora.loan.domain.application.TermsConfirmationStatus;
-import com.finora.loan.domain.product.RepaymentMethod;
+import com.finora.loan.domain.application.enums.LoanApplicationStatus;
+import com.finora.loan.domain.application.enums.LoanDecisionSource;
+import com.finora.loan.domain.application.enums.LoanPurpose;
+import com.finora.loan.domain.application.enums.TermsConfirmationStatus;
+import com.finora.loan.domain.product.enums.RepaymentMethod;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 

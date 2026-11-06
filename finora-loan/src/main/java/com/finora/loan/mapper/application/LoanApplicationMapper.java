@@ -1,26 +1,24 @@
 package com.finora.loan.mapper.application;
 
-import com.finora.loan.domain.application.ApplicantFinancialSnapshot;
-import com.finora.loan.domain.application.LoanApplication;
-import com.finora.loan.domain.application.LoanApplicationStatusHistory;
-import com.finora.loan.domain.core.ScheduleCalculationSnapshot;
+import com.finora.loan.domain.application.entity.ApplicantFinancialSnapshot;
+import com.finora.loan.domain.application.entity.LoanApplication;
+import com.finora.loan.domain.application.entity.LoanApplicationStatusHistory;
+import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
 import com.finora.loan.dto.application.response.ApplicantFinancialResponse;
-import com.finora.loan.dto.application.response.LoanApplicationResponse;
 import com.finora.loan.dto.application.response.LoanApplicationHistoryResponse;
+import com.finora.loan.dto.application.response.LoanApplicationResponse;
 import com.finora.loan.dto.application.response.LoanFundingResponse;
 import com.finora.loan.dto.application.response.LoanProductSnapshotResponse;
 import com.finora.loan.dto.application.response.TermsConfirmationResponse;
 import com.finora.loan.mapper.core.ScheduleCalculationSnapshotMapper;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor
 public class LoanApplicationMapper {
 
-    private final ScheduleCalculationSnapshotMapper scheduleMapper;
-
-    public LoanApplicationMapper(ScheduleCalculationSnapshotMapper scheduleMapper) {
-        this.scheduleMapper = scheduleMapper;
-    }
+    private final ScheduleCalculationSnapshotMapper scheduleCalculationSnapshotMapper;
 
     public LoanApplicationHistoryResponse toHistoryResponse(LoanApplicationStatusHistory history) {
         return new LoanApplicationHistoryResponse(
@@ -44,8 +42,8 @@ public class LoanApplicationMapper {
                 application.getPurposeDetail(),
                 financial(application.getFinancialSnapshot()),
                 product(application),
-                scheduleMapper.toResponse(calculationSnapshot),
-                scheduleMapper.toResponse(finalCalculationSnapshot),
+                scheduleCalculationSnapshotMapper.toResponse(calculationSnapshot),
+                scheduleCalculationSnapshotMapper.toResponse(finalCalculationSnapshot),
                 application.getFinalAnnualInterestRate(),
                 application.getPricingCreditGrade(),
                 application.getPricingAdjustmentPercentagePoints(),

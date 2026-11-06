@@ -1,13 +1,14 @@
 package com.finora.loan.dto.contract.response;
 
-import com.finora.loan.domain.contract.ContractDeclineReasonCode;
-import com.finora.loan.domain.contract.ContractSignatureProfile;
-import com.finora.loan.domain.contract.LoanContractStatus;
-import com.finora.loan.domain.contract.SignatureMethod;
-import com.finora.loan.domain.contract.SignatureProviderType;
-import com.finora.loan.domain.product.RepaymentMethod;
-import com.finora.loan.domain.disbursement.DisbursementSagaStatus;
+import com.finora.loan.domain.contract.enums.ContractDeclineReasonCode;
+import com.finora.loan.domain.contract.enums.ContractSignatureProfile;
+import com.finora.loan.domain.contract.enums.LoanContractStatus;
+import com.finora.loan.domain.contract.enums.SignatureMethod;
+import com.finora.loan.domain.contract.enums.SignatureProviderType;
+import com.finora.loan.domain.disbursement.enums.DisbursementSagaStatus;
+import com.finora.loan.domain.product.enums.RepaymentMethod;
 import com.finora.loan.dto.core.response.SchedulePeriodResponse;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;

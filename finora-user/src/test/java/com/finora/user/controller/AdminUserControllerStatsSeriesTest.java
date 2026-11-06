@@ -3,8 +3,8 @@ package com.finora.user.controller;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.finora.common.exception.GlobalExceptionHandler;
 import com.finora.user.exception.SecurityExceptionHandler;
-import com.finora.user.repository.UserStatisticsRepository;
 import com.finora.user.repository.UserStatisticsRepository.RegistrationBucketRow;
+import com.finora.user.repository.UserStatisticsRepository;
 import com.finora.user.service.UserProfileService;
 import com.finora.user.service.UserStatisticsService;
 import com.finora.user.service.impl.UserStatisticsServiceImpl;
@@ -39,7 +39,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * Kiểm tra biên HTTP của {@code /admin/users/stats/series}: quyền, mã lỗi khoảng sai và hình dạng JSON.
  * <p>
- * Không dựng Spring context (cần Keycloak, Redis, Feign); thay vào đó bọc controller bằng đúng
+ * Không dựng Spring context (cần Keycloak, database, client HTTP); thay vào đó bọc controller bằng đúng
  * interceptor {@code @PreAuthorize} mà Spring Security dùng, và gắn hai advice lỗi thật của module.
  */
 @ExtendWith(MockitoExtension.class)

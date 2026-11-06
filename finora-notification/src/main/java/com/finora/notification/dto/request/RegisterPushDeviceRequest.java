@@ -1,6 +1,6 @@
 package com.finora.notification.dto.request;
 
-import com.finora.notification.domain.DevicePlatform;
+import com.finora.notification.domain.enums.DevicePlatform;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;

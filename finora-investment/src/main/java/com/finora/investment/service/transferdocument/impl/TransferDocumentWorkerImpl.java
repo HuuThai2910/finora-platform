@@ -20,14 +20,14 @@ import org.springframework.stereotype.Component;
         havingValue = "true", matchIfMissing = true)
 public class TransferDocumentWorkerImpl implements TransferDocumentWorker {
 
-    private final TransferDocumentIssuer issuer;
-    private final TransferDocumentProperties properties;
+    private final TransferDocumentIssuer transferDocumentIssuer;
+    private final TransferDocumentProperties transferDocumentProperties;
 
     @Override
     @Scheduled(fixedDelayString = "${finora.investment.transfer-document.delay:10000}")
     public void run() {
         try {
-            issuer.issueDue(properties.batchSize());
+            transferDocumentIssuer.issueDue(transferDocumentProperties.batchSize());
         } catch (RuntimeException failure) {
             log.error("Worker giấy xác nhận chuyển nhượng gặp lỗi: exceptionType={}", failure.getClass().getName());
         }

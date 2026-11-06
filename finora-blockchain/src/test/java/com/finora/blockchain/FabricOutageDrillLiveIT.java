@@ -1,25 +1,18 @@
 package com.finora.blockchain;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.finora.blockchain.domain.proof.ProofChainCheckStatus;
-import com.finora.blockchain.domain.proof.ProofSubmission;
-import com.finora.blockchain.domain.proof.ProofSubmissionStatus;
-import com.finora.blockchain.messaging.MilestoneProofRegistrar;
-import com.finora.blockchain.messaging.ProofMilestone;
+import com.finora.blockchain.domain.proof.entity.ProofSubmission;
+import com.finora.blockchain.domain.proof.enums.ProofChainCheckStatus;
+import com.finora.blockchain.domain.proof.enums.ProofSubmissionStatus;
+import com.finora.blockchain.messaging.consumer.MilestoneProofRegistrar;
+import com.finora.blockchain.messaging.event.ProofMilestone;
 import com.finora.blockchain.repository.proof.ProofSubmissionRepository;
 import com.finora.blockchain.service.proof.ProofSubmissionProcessor;
 import com.finora.blockchain.service.proof.ProofSubmissionView;
 import com.finora.blockchain.service.proof.ProofVerificationService;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.UUID;
+import com.finora.common.messaging.FinoraKafkaHeaders;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +25,16 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Drill sự cố Fabric thật (opt-in riêng vì dừng container {@code finora-fabric-peer0-org2}): khi peer của tổ chức kiểm
@@ -83,8 +86,8 @@ class FabricOutageDrillLiveIT {
         UUID eventId = UUID.randomUUID();
         String data = "{\"repaymentId\":\"" + repaymentId + "\",\"loanApplicationId\":901,\"amount\":\"1726000.00\"}";
         ProofSubmissionView registered = registrar.register(ProofMilestone.REPAYMENT_DISTRIBUTED,
-                "{\"eventId\":\"" + eventId + "\",\"occurredAt\":\"2026-10-17T05:00:00Z\",\"version\":1,\"data\":" + data + "}",
-                eventId.toString(), "RepaymentDistributed", "1");
+                record("{\"eventId\":\"" + eventId + "\",\"occurredAt\":\"2026-10-17T05:00:00Z\",\"version\":1,\"data\":"
+                        + data + "}", eventId.toString(), "RepaymentDistributed", "1"));
         Long id = repository.findByProofId(registered.proofId()).orElseThrow().getId();
 
         docker("stop", AUDITOR_PEER);
@@ -145,5 +148,19 @@ class FabricOutageDrillLiveIT {
             Thread.sleep(2_000);
         }
         throw new IllegalStateException(container + " chưa healthy sau " + timeout);
+    }
+
+    private static ConsumerRecord<String, String> record(String payload, String id, String type, String version) {
+        ConsumerRecord<String, String> record = new ConsumerRecord<>("finora.test", 0, 0L, null, payload);
+        addHeader(record, FinoraKafkaHeaders.EVENT_ID, id);
+        addHeader(record, FinoraKafkaHeaders.EVENT_TYPE, type);
+        addHeader(record, FinoraKafkaHeaders.EVENT_VERSION, version);
+        return record;
+    }
+
+    private static void addHeader(ConsumerRecord<String, String> record, String name, String value) {
+        if (value != null) {
+            record.headers().add(name, value.getBytes(StandardCharsets.UTF_8));
+        }
     }
 }

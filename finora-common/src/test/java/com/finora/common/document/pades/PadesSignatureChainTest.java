@@ -1,12 +1,6 @@
 package com.finora.common.document.pades;
 
 import com.finora.common.document.pades.PadesTestSigners.TestSigner;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.time.Instant;
-import java.util.Arrays;
-import java.util.HexFormat;
-import java.util.List;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.PDSignature;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -26,6 +20,13 @@ import org.bouncycastle.cms.CMSSignedData;
 import org.bouncycastle.cms.SignerInformation;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.HexFormat;
+import java.util.List;
 
 import static com.finora.common.document.pades.PadesTestSigners.newSigner;
 import static org.assertj.core.api.Assertions.assertThat;

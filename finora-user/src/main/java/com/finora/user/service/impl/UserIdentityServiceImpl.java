@@ -1,11 +1,11 @@
 package com.finora.user.service.impl;
 
 import com.finora.common.exception.ResourceNotFoundException;
-import com.finora.user.domain.UserProfile;
+import com.finora.common.util.PiiMasker;
+import com.finora.user.domain.entity.UserProfile;
 import com.finora.user.dto.response.UserIdentityResponse;
 import com.finora.user.repository.UserProfileRepository;
 import com.finora.user.service.UserIdentityService;
-import com.finora.user.support.PiiMasker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

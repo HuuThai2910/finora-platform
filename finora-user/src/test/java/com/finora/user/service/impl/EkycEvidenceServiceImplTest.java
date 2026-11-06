@@ -1,15 +1,15 @@
 package com.finora.user.service.impl;
 
-import com.finora.user.client.AiLivenessClient.EvidenceFrame;
+import com.finora.common.util.Sha256;
 import com.finora.user.config.EkycStorageProperties;
-import com.finora.user.domain.EkycEvidenceKind;
-import com.finora.user.domain.EkycEvidenceStage;
+import com.finora.user.domain.enums.EkycEvidenceKind;
+import com.finora.user.domain.enums.EkycEvidenceStage;
+import com.finora.user.integration.ai.client.AiLivenessClient.EvidenceFrame;
 import com.finora.user.integration.storage.EkycEvidenceStorage;
 import com.finora.user.integration.storage.EkycStorageException;
 import com.finora.user.service.EkycEvidenceService.BinaryFile;
 import com.finora.user.service.EkycEvidenceService.StoredEvidence;
-import com.finora.user.support.EkycTestData;
-import com.finora.user.support.Sha256;
+import com.finora.user.util.EkycTestData;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

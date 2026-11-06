@@ -1,8 +1,8 @@
 package com.finora.investment.service.outbox.impl;
 
 import com.finora.investment.config.InvestmentOutboxProperties;
-import com.finora.investment.domain.outbox.InvestmentOutboxEvent;
-import com.finora.investment.domain.outbox.InvestmentOutboxEventStatus;
+import com.finora.investment.domain.outbox.entity.InvestmentOutboxEvent;
+import com.finora.investment.domain.outbox.enums.InvestmentOutboxEventStatus;
 import com.finora.investment.repository.InvestmentOutboxEventRepository;
 import com.finora.investment.service.outbox.ClaimedInvestmentOutboxMessage;
 import com.finora.investment.service.outbox.InvestmentOutboxMessage;
@@ -18,55 +18,61 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Trạng thái event outbox: lấy event đến hạn, nhận event (khoá + lease), ghi đã gửi hoặc lỗi.
+ * <p>
+ * Event PROCESSING quá {@code processingLease} được nhận lại; mất lease quá {@code maxAttempts} lần thì ghi lỗi
+ * không thử lại.
+ */
 @Service
 @RequiredArgsConstructor
 public class InvestmentOutboxStateServiceImpl implements InvestmentOutboxStateService {
 
-    private final InvestmentOutboxEventRepository repository;
-    private final InvestmentOutboxProperties properties;
+    private final InvestmentOutboxEventRepository investmentOutboxEventRepository;
+    private final InvestmentOutboxProperties investmentOutboxProperties;
     private final Clock clock;
 
     @Override
     @Transactional(readOnly = true)
     public List<Long> dueIds() {
         Instant now = clock.instant();
-        return repository.findDueIds(
+        return investmentOutboxEventRepository.findDueIds(
                 InvestmentOutboxEventStatus.PENDING,
                 InvestmentOutboxEventStatus.PROCESSING,
                 now,
-                now.minus(properties.processingLease()),
-                PageRequest.of(0, properties.batchSize()));
+                now.minus(investmentOutboxProperties.processingLease()),
+                PageRequest.of(0, investmentOutboxProperties.batchSize()));
     }
 
     @Override
     @Transactional
     public ClaimedInvestmentOutboxMessage claim(Long id) {
-        InvestmentOutboxEvent event = repository.findByIdForUpdate(id).orElse(null);
+        InvestmentOutboxEvent event = investmentOutboxEventRepository.findByIdForUpdate(id).orElse(null);
         if (event == null) {
             return null;
         }
         Instant now = clock.instant();
-        Instant leaseExpiredBefore = now.minus(properties.processingLease());
+        Instant leaseExpiredBefore = now.minus(investmentOutboxProperties.processingLease());
         if (event.getStatus() == InvestmentOutboxEventStatus.PROCESSING
                 && event.getProcessingStartedAt() != null
                 && !event.getProcessingStartedAt().isAfter(leaseExpiredBefore)
-                && event.getAttemptCount() >= properties.maxAttempts()) {
+                && event.getAttemptCount() >= investmentOutboxProperties.maxAttempts()) {
             event.markFailure(
                     "OUTBOX_PROCESSING_LEASE_EXHAUSTED",
                     "Relay mất processing lease quá số lần cho phép",
                     false,
-                    properties.maxAttempts(),
+                    investmentOutboxProperties.maxAttempts(),
                     now,
                     event.getProcessingToken(),
                     now);
-            repository.saveAndFlush(event);
+            investmentOutboxEventRepository.saveAndFlush(event);
             return null;
         }
         UUID token = UUID.randomUUID();
         if (!event.claim(now, leaseExpiredBefore, token)) {
             return null;
         }
-        repository.saveAndFlush(event);
+        investmentOutboxEventRepository.saveAndFlush(event);
         return new ClaimedInvestmentOutboxMessage(event.getId(), token, new InvestmentOutboxMessage(
                 event.getEventId(), event.getAggregateType(), event.getAggregateId(),
                 event.getEventType(), event.getEventVersion(), event.getPayloadJson(),
@@ -76,38 +82,38 @@ public class InvestmentOutboxStateServiceImpl implements InvestmentOutboxStateSe
     @Override
     @Transactional
     public void markPublished(Long id, UUID token) {
-        InvestmentOutboxEvent event = repository.findByIdForUpdate(id).orElse(null);
+        InvestmentOutboxEvent event = investmentOutboxEventRepository.findByIdForUpdate(id).orElse(null);
         if (event == null) {
             return;
         }
         event.markPublished(token, clock.instant());
-        repository.saveAndFlush(event);
+        investmentOutboxEventRepository.saveAndFlush(event);
     }
 
     @Override
     @Transactional
     public void markFailed(Long id, UUID token, String code, String detail, boolean retryable) {
-        InvestmentOutboxEvent event = repository.findByIdForUpdate(id).orElse(null);
+        InvestmentOutboxEvent event = investmentOutboxEventRepository.findByIdForUpdate(id).orElse(null);
         if (event == null) {
             return;
         }
         Instant now = clock.instant();
-        event.markFailure(code, detail, retryable, properties.maxAttempts(),
+        event.markFailure(code, detail, retryable, investmentOutboxProperties.maxAttempts(),
                 now.plus(backoff(event.getAttemptCount())), token, now);
-        repository.saveAndFlush(event);
+        investmentOutboxEventRepository.saveAndFlush(event);
     }
 
     private Duration backoff(int attemptCount) {
-        Duration delay = properties.retryBackoff();
+        Duration delay = investmentOutboxProperties.retryBackoff();
         for (int attempt = 1;
-             attempt < attemptCount && delay.compareTo(properties.maximumBackoff()) < 0;
+             attempt < attemptCount && delay.compareTo(investmentOutboxProperties.maximumBackoff()) < 0;
              attempt++) {
             try {
                 Duration doubled = delay.multipliedBy(2);
-                delay = doubled.compareTo(properties.maximumBackoff()) > 0
-                        ? properties.maximumBackoff() : doubled;
+                delay = doubled.compareTo(investmentOutboxProperties.maximumBackoff()) > 0
+                        ? investmentOutboxProperties.maximumBackoff() : doubled;
             } catch (ArithmeticException overflow) {
-                return properties.maximumBackoff();
+                return investmentOutboxProperties.maximumBackoff();
             }
         }
         return delay;

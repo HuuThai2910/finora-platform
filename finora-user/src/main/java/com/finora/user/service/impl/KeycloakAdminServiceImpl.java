@@ -1,14 +1,14 @@
 package com.finora.user.service.impl;
 
+import com.finora.common.enums.user.UserRole;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.security.ops.OpsFunction;
-import com.finora.user.domain.StaffRoleDefinition;
+import com.finora.common.util.PiiMasker;
 import com.finora.user.config.KeycloakAdminProperties;
-import com.finora.common.enums.user.UserRole;
+import com.finora.user.domain.model.StaffRoleDefinition;
 import com.finora.user.service.KeycloakAdminService;
-import com.finora.user.support.PiiMasker;
+import com.finora.user.util.ExternalCallFailures;
 import jakarta.ws.rs.core.Response;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.keycloak.OAuth2Constants;
 import org.keycloak.admin.client.Keycloak;
@@ -22,12 +22,15 @@ import org.keycloak.representations.idm.ClientRepresentation;
 import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -38,6 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -46,11 +50,16 @@ import java.util.stream.Collectors;
  * Sử dụng service account (client_credentials) để tạo user, gán role, đổi mật khẩu
  * và vô hiệu hóa tài khoản. Token endpoint được gọi trực tiếp cho các thao tác
  * xác thực người dùng (password grant, refresh).
+ * <p>
+ * Lời gọi token endpoint đi qua circuit breaker {@value #CIRCUIT_BREAKER}: circuit đang mở thì ném
+ * {@code ResourceAccessException} như khi Keycloak không kết nối được. Lời gọi Admin API qua thư viện
+ * {@code keycloak-admin-client} không đi qua circuit breaker.
  */
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class KeycloakAdminServiceImpl implements KeycloakAdminService {
+
+    public static final String CIRCUIT_BREAKER = "keycloak-admin";
 
     /** Tên attribute trên Keycloak, phải khớp {@code user.attribute} của protocol mapper "user-id". */
     private static final String USER_ID_ATTRIBUTE = "user_id";
@@ -67,24 +76,54 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
     /** Attribute giữ tên hiển thị có dấu của vai trò nhân viên. */
     private static final String DISPLAY_NAME_ATTRIBUTE = "displayName";
 
-    private final KeycloakAdminProperties properties;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final KeycloakAdminProperties keycloakAdminProperties;
+    private final RestClient restClient;
+    private final CircuitBreakerFactory<?, ?> circuitBreakerFactory;
+
+    /**
+     * Token endpoint gọi bằng {@link RestClient} không đặt timeout, dùng bộ chuyển đổi mặc định — giống
+     * {@code new RestTemplate()} trước đây.
+     */
+    @Autowired
+    public KeycloakAdminServiceImpl(KeycloakAdminProperties keycloakAdminProperties,
+            CircuitBreakerFactory<?, ?> circuitBreakerFactory) {
+        this(keycloakAdminProperties, RestClient.builder().requestFactory(new SimpleClientHttpRequestFactory()).build(),
+                circuitBreakerFactory);
+    }
+
+    /** Dùng trong test để gắn {@code MockRestServiceServer}. */
+    KeycloakAdminServiceImpl(KeycloakAdminProperties keycloakAdminProperties, RestClient restClient,
+            CircuitBreakerFactory<?, ?> circuitBreakerFactory) {
+        this.keycloakAdminProperties = keycloakAdminProperties;
+        this.restClient = restClient;
+        this.circuitBreakerFactory = circuitBreakerFactory;
+    }
+
+    /**
+     * Gọi token endpoint qua circuit breaker. Lỗi của {@link RestClient} ném nguyên vẹn (nơi gọi vẫn bắt
+     * {@link HttpClientErrorException} như trước); circuit mở hoặc quá giờ thành lỗi mất kết nối.
+     */
+    private <T> T callTokenEndpoint(Supplier<T> call) {
+        return circuitBreakerFactory.create(CIRCUIT_BREAKER).run(call, failure -> {
+            throw ExternalCallFailures.asRestClientException(failure, "Keycloak");
+        });
+    }
 
     // ── Admin client (service account) ──────────────────────────────
 
     private Keycloak getKeycloakInstance() {
         return KeycloakBuilder.builder()
-                .serverUrl(properties.getServerUrl())
-                .realm(properties.getRealm())
+                .serverUrl(keycloakAdminProperties.getServerUrl())
+                .realm(keycloakAdminProperties.getRealm())
                 .grantType(OAuth2Constants.CLIENT_CREDENTIALS)
-                .clientId(properties.getClientId())
-                .clientSecret(properties.getClientSecret())
+                .clientId(keycloakAdminProperties.getClientId())
+                .clientSecret(keycloakAdminProperties.getClientSecret())
                 .build();
     }
 
     /** Package-private để test thay bằng mock, không phải dựng Keycloak thật. */
     RealmResource getRealmResource() {
-        return getKeycloakInstance().realm(properties.getRealm());
+        return getKeycloakInstance().realm(keycloakAdminProperties.getRealm());
     }
 
     // ── Quản lý người dùng ──────────────────────────────────────────
@@ -142,28 +181,26 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
 
     @Override
     public AccessTokenResponse getUserToken(String email, String password) {
-        String tokenUrl = properties.getServerUrl() + "/realms/" + properties.getRealm()
+        String tokenUrl = keycloakAdminProperties.getServerUrl() + "/realms/" + keycloakAdminProperties.getRealm()
                 + "/protocol/openid-connect/token";
 
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
         params.add("grant_type", OAuth2Constants.PASSWORD);
-        params.add("client_id", properties.getClientId());
-        params.add("client_secret", properties.getClientSecret());
+        params.add("client_id", keycloakAdminProperties.getClientId());
+        params.add("client_secret", keycloakAdminProperties.getClientSecret());
         params.add("username", email);
         params.add("password", password);
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-
         try {
-            ResponseEntity<AccessTokenResponse> response = restTemplate.exchange(
-                    tokenUrl,
-                    HttpMethod.POST,
-                    new HttpEntity<>(params, headers),
-                    AccessTokenResponse.class);
+            AccessTokenResponse response = callTokenEndpoint(() -> restClient.post()
+                    .uri(tokenUrl)
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(params)
+                    .retrieve()
+                    .body(AccessTokenResponse.class));
 
             log.info("Xác thực Keycloak thành công cho email={}", PiiMasker.maskEmail(email));
-            return response.getBody();
+            return response;
 
         } catch (HttpClientErrorException.Unauthorized e) {
             log.warn("Xác thực Keycloak thất bại (sai mật khẩu) cho email={}",
@@ -187,27 +224,25 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
 
     @Override
     public AccessTokenResponse refreshToken(String refreshToken) {
-        String tokenUrl = properties.getServerUrl() + "/realms/" + properties.getRealm()
+        String tokenUrl = keycloakAdminProperties.getServerUrl() + "/realms/" + keycloakAdminProperties.getRealm()
                 + "/protocol/openid-connect/token";
 
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
         params.add("grant_type", OAuth2Constants.REFRESH_TOKEN);
-        params.add("client_id", properties.getClientId());
-        params.add("client_secret", properties.getClientSecret());
+        params.add("client_id", keycloakAdminProperties.getClientId());
+        params.add("client_secret", keycloakAdminProperties.getClientSecret());
         params.add("refresh_token", refreshToken);
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-
         try {
-            ResponseEntity<AccessTokenResponse> response = restTemplate.exchange(
-                    tokenUrl,
-                    HttpMethod.POST,
-                    new HttpEntity<>(params, headers),
-                    AccessTokenResponse.class);
+            AccessTokenResponse response = callTokenEndpoint(() -> restClient.post()
+                    .uri(tokenUrl)
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(params)
+                    .retrieve()
+                    .body(AccessTokenResponse.class));
 
             log.debug("Đã làm mới token thành công");
-            return response.getBody();
+            return response;
 
         } catch (HttpClientErrorException e) {
             log.warn("Làm mới token thất bại: status={}", e.getStatusCode());
@@ -596,7 +631,7 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
         List<ClientRepresentation> clients = realmResource.clients().findByClientId(OpsFunction.CLIENT_ID);
         if (clients == null || clients.isEmpty()) {
             log.error("Realm {} chưa có client {} — chạy docker/keycloak/add-staff-rbac.sh",
-                    properties.getRealm(), OpsFunction.CLIENT_ID);
+                    keycloakAdminProperties.getRealm(), OpsFunction.CLIENT_ID);
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "STAFF_RBAC_NOT_CONFIGURED",
                     "Hệ thống xác thực chưa được cấu hình phân quyền nhân viên");
         }
@@ -637,21 +672,22 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
 
     @Override
     public void revokeRefreshToken(String refreshToken) {
-        String revokeUrl = properties.getServerUrl() + "/realms/" + properties.getRealm()
+        String revokeUrl = keycloakAdminProperties.getServerUrl() + "/realms/" + keycloakAdminProperties.getRealm()
                 + "/protocol/openid-connect/revoke";
 
         MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
-        params.add("client_id", properties.getClientId());
-        params.add("client_secret", properties.getClientSecret());
+        params.add("client_id", keycloakAdminProperties.getClientId());
+        params.add("client_secret", keycloakAdminProperties.getClientSecret());
         params.add("token", refreshToken);
         params.add("token_type_hint", "refresh_token");
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-
         try {
-            restTemplate.exchange(revokeUrl, HttpMethod.POST,
-                    new HttpEntity<>(params, headers), Void.class);
+            callTokenEndpoint(() -> restClient.post()
+                    .uri(revokeUrl)
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(params)
+                    .retrieve()
+                    .toBodilessEntity());
             log.debug("Đã thu hồi refresh token thành công");
         } catch (Exception e) {
             log.warn("Không thể thu hồi refresh token: {}", e.getMessage());

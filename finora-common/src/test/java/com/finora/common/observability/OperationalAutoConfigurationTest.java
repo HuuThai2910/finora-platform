@@ -1,11 +1,7 @@
 package com.finora.common.observability;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import java.util.List;
-import java.util.Map;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -14,6 +10,11 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.core.KafkaAdmin;
+
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 class OperationalAutoConfigurationTest {
 

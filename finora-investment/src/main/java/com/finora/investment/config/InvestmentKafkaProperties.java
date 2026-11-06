@@ -1,8 +1,9 @@
 package com.finora.investment.config;
 
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
 import java.time.Duration;
 import java.util.regex.Pattern;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "finora.investment.kafka")
 public record InvestmentKafkaProperties(

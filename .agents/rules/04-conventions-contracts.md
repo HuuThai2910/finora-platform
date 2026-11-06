@@ -6,8 +6,9 @@
 - Hậu tố: `Controller`, `Service`, `Repository`, `Request`, `Response`, `Event`, `Config`, `Exception`, `Mapper`.
 - Entity số ít, không hậu tố `Entity`; MUST NOT dùng Lombok `@Data` trên JPA entity.
 - Java service dùng layered package theo `03-architecture-structure.md`; tên class service/controller phải phản ánh resource hoặc use case, tránh class tổng quát phình lớn.
-- MUST NOT tạo hậu tố `ServiceImpl` nếu chỉ có một implementation và không có boundary cần interface.
-- Unit test `*Test`; integration/Testcontainers `*IT`.
+- Bean trong `service/**` MUST có interface + `<Interface>Impl` ở `impl/` (xem `03-architecture-structure.md`); bản giả lập đặt `Mock*`.
+- Field inject đặt theo tên kiểu viết camelCase (`private final FinoraLoanRepository finoraLoanRepository;`); method là động từ + đối tượng; không viết tắt khó hiểu cho biến (`res`, `tmp`, `obj`...).
+- Unit test `*Test`; integration/Testcontainers `*IT`; test của `XImpl` là `XImplTest` cùng gói `impl/`.
 - Python theo PEP 8, type hint cho public function, format bằng Ruff; FastAPI/Pydantic, không Django.
 - TypeScript tương lai: component `PascalCase.tsx`, hook `useX.ts`, file khác kebab-case; API qua `src/api/`, server state dùng TanStack Query, không fetch trong component hoặc Redux nếu chưa có quyết định mới.
 

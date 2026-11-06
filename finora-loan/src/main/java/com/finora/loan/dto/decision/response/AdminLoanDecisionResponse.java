@@ -1,8 +1,9 @@
 package com.finora.loan.dto.decision.response;
 
-import com.finora.loan.domain.application.LoanApplicationStatus;
-import com.finora.loan.domain.application.TermsConfirmationStatus;
-import com.finora.loan.domain.contract.LoanContractStatus;
+import com.finora.loan.domain.application.enums.LoanApplicationStatus;
+import com.finora.loan.domain.application.enums.TermsConfirmationStatus;
+import com.finora.loan.domain.contract.enums.LoanContractStatus;
+
 import java.time.Instant;
 
 public record AdminLoanDecisionResponse(

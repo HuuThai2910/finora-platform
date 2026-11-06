@@ -2,20 +2,28 @@ package com.finora.investment.service.impl;
 
 import com.finora.common.security.SecurityUtils;
 import com.finora.common.security.ops.OpsFunction;
-import com.finora.investment.domain.settings.FundingSettings;
+import com.finora.investment.domain.settings.entity.FundingSettings;
 import com.finora.investment.dto.request.UpdateFundingSettingsRequest;
 import com.finora.investment.dto.response.FundingSettingsResponse;
 import com.finora.investment.exception.InvestmentDomainException;
 import com.finora.investment.repository.FundingSettingsRepository;
 import com.finora.investment.service.FundingSettingsService;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.Instant;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
+
+/**
+ * Tham số gọi vốn toàn sàn mà quản trị đổi được lúc chạy.
+ * <p>
+ * Lưu ở một dòng duy nhất của {@code funding_settings} ({@code FundingSettings.SINGLETON_ID}); các hàm
+ * {@code current*} dùng mặc định trong code khi chưa có dòng. Đổi tham số cần quyền thao tác chức năng cấu hình
+ * gọi vốn.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -25,7 +33,7 @@ public class FundingSettingsServiceImpl implements FundingSettingsService {
     public static final BigDecimal DEFAULT_MIN_INVESTMENT = new BigDecimal("1000000.00");
     public static final int DEFAULT_FUNDING_DAYS = 14;
 
-    private final FundingSettingsRepository repository;
+    private final FundingSettingsRepository fundingSettingsRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -76,21 +84,21 @@ public class FundingSettingsServiceImpl implements FundingSettingsService {
     @Override
     @Transactional(readOnly = true)
     public BigDecimal currentNoteDenomination() {
-        FundingSettings settings = repository.findById(FundingSettings.SINGLETON_ID).orElse(null);
+        FundingSettings settings = fundingSettingsRepository.findById(FundingSettings.SINGLETON_ID).orElse(null);
         return settings != null ? settings.getNoteDenomination() : DEFAULT_NOTE_DENOMINATION;
     }
 
     @Override
     @Transactional(readOnly = true)
     public BigDecimal currentMinInvestment() {
-        FundingSettings settings = repository.findById(FundingSettings.SINGLETON_ID).orElse(null);
+        FundingSettings settings = fundingSettingsRepository.findById(FundingSettings.SINGLETON_ID).orElse(null);
         return settings != null ? settings.getMinInvestmentAmount() : DEFAULT_MIN_INVESTMENT;
     }
 
     @Override
     @Transactional(readOnly = true)
     public int currentFundingDays() {
-        FundingSettings settings = repository.findById(FundingSettings.SINGLETON_ID).orElse(null);
+        FundingSettings settings = fundingSettingsRepository.findById(FundingSettings.SINGLETON_ID).orElse(null);
         return settings != null
                 ? settings.getFundingDays()
                 : DEFAULT_FUNDING_DAYS;
@@ -103,7 +111,7 @@ public class FundingSettingsServiceImpl implements FundingSettingsService {
      * tục với giá trị mặc định trong file sẽ che mất sự cố — nên báo lỗi thẳng.</p>
      */
     private FundingSettings load() {
-        return repository.findById(FundingSettings.SINGLETON_ID)
+        return fundingSettingsRepository.findById(FundingSettings.SINGLETON_ID)
                 .orElseThrow(() -> new IllegalStateException(
                         "Thiếu bản ghi funding_settings id=1; kiểm tra migration V2"));
     }

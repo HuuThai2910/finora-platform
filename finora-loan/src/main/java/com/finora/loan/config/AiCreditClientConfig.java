@@ -1,7 +1,6 @@
 package com.finora.loan.config;
 
 import com.finora.common.security.service.ClientCredentialsTokenProvider;
-import java.time.Clock;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -9,6 +8,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+
+import java.time.Clock;
 
 @Configuration
 @EnableConfigurationProperties({AiCreditProperties.class, BorrowerEligibilityProperties.class})

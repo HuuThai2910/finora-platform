@@ -1,6 +1,7 @@
 package com.finora.investment.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.finora.common.messaging.KafkaEventPublisher;
 import com.finora.investment.messaging.producer.InvestmentKafkaOutboxPublisher;
 import com.finora.investment.service.outbox.InvestmentOutboxPublisher;
 import org.springframework.context.annotation.Bean;
@@ -11,11 +12,15 @@ import org.springframework.kafka.core.KafkaTemplate;
 public class InvestmentKafkaOutboxConfiguration {
 
     @Bean
+    KafkaEventPublisher kafkaEventPublisher(KafkaTemplate<String, String> kafkaTemplate, ObjectMapper objectMapper) {
+        return new KafkaEventPublisher(kafkaTemplate, objectMapper);
+    }
+
+    @Bean
     InvestmentOutboxPublisher investmentOutboxPublisher(
-            KafkaTemplate<String, String> kafkaTemplate,
-            ObjectMapper objectMapper,
+            KafkaEventPublisher kafkaEventPublisher,
             InvestmentKafkaProperties properties
     ) {
-        return new InvestmentKafkaOutboxPublisher(kafkaTemplate, objectMapper, properties);
+        return new InvestmentKafkaOutboxPublisher(kafkaEventPublisher, properties);
     }
 }

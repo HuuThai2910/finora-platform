@@ -1,6 +1,7 @@
 package com.finora.payment.dto.response;
 
-import com.finora.payment.domain.hold.PaymentHold;
+import com.finora.payment.domain.hold.entity.PaymentHold;
+
 import java.math.BigDecimal;
 
 public record HoldResponse(String holdReference, BigDecimal amount, String currency, String status) {

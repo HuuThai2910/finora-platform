@@ -1,21 +1,10 @@
 package com.finora.blockchain.config;
 
-import com.finora.blockchain.integration.proof.fabric.FabricLedgerClient;
-import com.finora.blockchain.integration.proof.fabric.GatewayFabricLedgerClient;
+import com.finora.blockchain.integration.fabric.client.FabricLedgerClient;
+import com.finora.blockchain.integration.fabric.client.impl.GatewayFabricLedgerClient;
 import io.grpc.ManagedChannel;
 import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
-import java.io.IOException;
-import java.io.Reader;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.InvalidKeyException;
-import java.security.PrivateKey;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
-import java.time.Duration;
-import java.util.concurrent.TimeUnit;
-import javax.net.ssl.SSLException;
 import lombok.extern.slf4j.Slf4j;
 import org.hyperledger.fabric.client.Gateway;
 import org.hyperledger.fabric.client.identity.Identities;
@@ -26,6 +15,18 @@ import org.hyperledger.fabric.client.identity.X509Identity;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import javax.net.ssl.SSLException;
+import java.io.IOException;
+import java.io.Reader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.InvalidKeyException;
+import java.security.PrivateKey;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Kết nối Fabric Gateway chỉ khi operator chọn {@code HYPERLEDGER_FABRIC} (W3D, D53). Thiếu hoặc hỏng file danh tính

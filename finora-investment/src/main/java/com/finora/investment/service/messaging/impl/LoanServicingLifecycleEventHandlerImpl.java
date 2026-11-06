@@ -1,8 +1,8 @@
 package com.finora.investment.service.messaging.impl;
 
 import com.finora.common.enums.investment.NoteStatus;
-import com.finora.investment.domain.messaging.ProcessedEvent;
-import com.finora.investment.domain.note.InvestmentLoanServicingState;
+import com.finora.investment.domain.messaging.entity.ProcessedEvent;
+import com.finora.investment.domain.note.entity.InvestmentLoanServicingState;
 import com.finora.investment.messaging.event.InvestorServicingNotificationEventData;
 import com.finora.investment.messaging.event.LoanDelinquencyChangedEventData;
 import com.finora.investment.messaging.event.LoanRescheduledEventData;
@@ -22,6 +22,13 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Xử lý event vòng đời khoản vay từ Loan (cơ cấu, tất toán, đổi nhóm nợ): cập nhật trạng thái khoản vay phía
+ * Investment và báo cho nhà đầu tư đang giữ Note. Mỗi event chỉ xử lý một lần theo {@code eventId}.
+ * <p>
+ * Thông báo đi qua outbox {@code InvestorNoteServicingChanged} tới chủ các Note ACTIVE/DEFAULTED; nhóm nợ từ 3
+ * trở lên chuyển Note sang DEFAULTED, về lại 1–2 thì trả Note về ACTIVE.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -29,45 +36,45 @@ public class LoanServicingLifecycleEventHandlerImpl implements LoanServicingLife
 
     private static final int BAD_DEBT_GROUP = 3;
 
-    private final InvestmentLoanServicingStateRepository states;
-    private final ProcessedEventRepository processed;
-    private final InvestmentNoteRepository notes;
-    private final InvestmentOutboxService outbox;
+    private final InvestmentLoanServicingStateRepository investmentLoanServicingStateRepository;
+    private final ProcessedEventRepository processedEventRepository;
+    private final InvestmentNoteRepository investmentNoteRepository;
+    private final InvestmentOutboxService investmentOutboxService;
     private final Clock clock;
 
     @Override
     @Transactional
     public void rescheduled(UUID eventId, Instant receivedAt, LoanRescheduledEventData data) {
-        if (processed.existsByEventId(eventId)) return;
+        if (processedEventRepository.existsByEventId(eventId)) return;
         var now = clock.instant();
-        var state = states.findByApplicationIdForUpdate(data.loanApplicationId()).orElse(null);
+        var state = investmentLoanServicingStateRepository.findByApplicationIdForUpdate(data.loanApplicationId()).orElse(null);
         if (state == null) {
-            states.save(InvestmentLoanServicingState.rescheduled(data.loanApplicationId(), data.loanNumber(),
+            investmentLoanServicingStateRepository.save(InvestmentLoanServicingState.rescheduled(data.loanApplicationId(), data.loanNumber(),
                     data.requestId(), data.newMaturityDate(), data.occurredAt(), now));
         } else {
             state.applyReschedule(data.requestId(), data.newMaturityDate(), data.occurredAt(), now);
         }
         publishToInvestors(data.loanApplicationId(), data.loanNumber(), "RESCHEDULED",
                 0, 1, "0.00", data.newMaturityDate(), true, data.occurredAt());
-        processed.save(ProcessedEvent.create(eventId, "LoanRescheduled", 1, "finora-loan",
+        processedEventRepository.save(ProcessedEvent.create(eventId, "LoanRescheduled", 1, "finora-loan",
                 data.requestId().toString(), receivedAt, now));
     }
 
     @Override
     @Transactional
     public void settled(UUID eventId, Instant receivedAt, LoanSettledEventData data) {
-        if (processed.existsByEventId(eventId)) return;
+        if (processedEventRepository.existsByEventId(eventId)) return;
         var now = clock.instant();
-        var state = states.findByApplicationIdForUpdate(data.loanApplicationId()).orElse(null);
+        var state = investmentLoanServicingStateRepository.findByApplicationIdForUpdate(data.loanApplicationId()).orElse(null);
         if (state == null) {
-            states.save(InvestmentLoanServicingState.settled(data.loanApplicationId(), data.loanNumber(),
+            investmentLoanServicingStateRepository.save(InvestmentLoanServicingState.settled(data.loanApplicationId(), data.loanNumber(),
                     data.settledAt(), now));
         } else {
             state.settle(data.settledAt(), now);
         }
         publishToInvestors(data.loanApplicationId(), data.loanNumber(), "SETTLED",
                 0, 1, "0.00", null, true, data.settledAt());
-        processed.save(ProcessedEvent.create(eventId, "LoanSettled", 1, "finora-loan",
+        processedEventRepository.save(ProcessedEvent.create(eventId, "LoanSettled", 1, "finora-loan",
                 data.loanApplicationId().toString(), receivedAt, now));
     }
 
@@ -75,15 +82,15 @@ public class LoanServicingLifecycleEventHandlerImpl implements LoanServicingLife
     @Transactional
     public void delinquencyChanged(UUID eventId, Instant receivedAt,
             LoanDelinquencyChangedEventData data) {
-        if (processed.existsByEventId(eventId)) return;
+        if (processedEventRepository.existsByEventId(eventId)) return;
         validate(data);
         var now = clock.instant();
-        var state = states.findByApplicationIdForUpdate(data.loanApplicationId()).orElse(null);
+        var state = investmentLoanServicingStateRepository.findByApplicationIdForUpdate(data.loanApplicationId()).orElse(null);
         BigDecimal overdue = new BigDecimal(data.overdueAmount());
         BigDecimal outstanding = new BigDecimal(data.totalOutstanding());
         boolean applied = true;
         if (state == null) {
-            states.save(InvestmentLoanServicingState.delinquency(
+            investmentLoanServicingStateRepository.save(InvestmentLoanServicingState.delinquency(
                     data.loanApplicationId(), data.loanNumber(), data.daysPastDue(),
                     data.debtGroup(), overdue, data.overdueSince(), outstanding,
                     data.dataAsOf(), receivedAt, now));
@@ -102,7 +109,7 @@ public class LoanServicingLifecycleEventHandlerImpl implements LoanServicingLife
         publishToInvestors(data.loanApplicationId(), data.loanNumber(), changeType,
                 data.daysPastDue(), data.debtGroup(), data.overdueAmount(), null,
                 push, data.dataAsOf());
-        processed.save(ProcessedEvent.create(eventId, "LoanDelinquencyChanged", 1,
+        processedEventRepository.save(ProcessedEvent.create(eventId, "LoanDelinquencyChanged", 1,
                 "finora-loan", data.loanApplicationId().toString(), receivedAt, now));
     }
 
@@ -113,8 +120,8 @@ public class LoanServicingLifecycleEventHandlerImpl implements LoanServicingLife
      */
     private void syncNoteDefaultStatus(Long loanId, int debtGroup, Instant now) {
         int changed = debtGroup >= BAD_DEBT_GROUP
-                ? notes.transitionStatusByLoan(loanId, NoteStatus.ACTIVE, NoteStatus.DEFAULTED, now)
-                : notes.transitionStatusByLoan(loanId, NoteStatus.DEFAULTED, NoteStatus.ACTIVE, now);
+                ? investmentNoteRepository.transitionStatusByLoan(loanId, NoteStatus.ACTIVE, NoteStatus.DEFAULTED, now)
+                : investmentNoteRepository.transitionStatusByLoan(loanId, NoteStatus.DEFAULTED, NoteStatus.ACTIVE, now);
         if (changed > 0) {
             log.info("Đổi trạng thái nợ xấu của Note: loanId={}, debtGroup={}, notes={}",
                     loanId, debtGroup, changed);
@@ -134,13 +141,13 @@ public class LoanServicingLifecycleEventHandlerImpl implements LoanServicingLife
     private void publishToInvestors(Long loanId, String loanNumber, String changeType,
             int daysPastDue, int debtGroup, String amount, java.time.LocalDate maturityDate,
             boolean push, Instant changedAt) {
-        var recipients = notes.findByLoanIdAndStatusIn(loanId,
+        var recipients = investmentNoteRepository.findByLoanIdAndStatusIn(loanId,
                         java.util.List.of(NoteStatus.ACTIVE, NoteStatus.DEFAULTED)).stream()
                 .map(note -> new InvestorServicingNotificationEventData.Recipient(
                         note.getId(), note.getNoteNumber(), note.getInvestorId(), null))
                 .toList();
         if (recipients.isEmpty()) return;
-        outbox.record("LOAN", loanId.toString(), "InvestorNoteServicingChanged", 1,
+        investmentOutboxService.record("LOAN", loanId.toString(), "InvestorNoteServicingChanged", 1,
                 new InvestorServicingNotificationEventData(changeType, loanId, loanNumber,
                         daysPastDue, debtGroup, amount, maturityDate, push, changedAt, recipients));
     }

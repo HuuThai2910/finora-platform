@@ -16,8 +16,8 @@ import org.springframework.security.web.SecurityFilterChain;
 public class NotificationSecurityConfig {
     public static final String INTERNAL_SEND_AUTHORITY = "notification:internal:send";
 
-    private final DualBearerTokenResolver bearerTokenResolver;
-    private final KeycloakJwtAuthenticationConverter converter;
+    private final DualBearerTokenResolver dualBearerTokenResolver;
+    private final KeycloakJwtAuthenticationConverter keycloakJwtAuthenticationConverter;
 
     @Bean
     SecurityFilterChain notificationSecurityFilterChain(HttpSecurity http) throws Exception {
@@ -41,8 +41,8 @@ public class NotificationSecurityConfig {
                         .requestMatchers("/api/v1/notifications/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth -> oauth
-                        .jwt(jwt -> jwt.jwtAuthenticationConverter(converter))
-                        .bearerTokenResolver(bearerTokenResolver))
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(keycloakJwtAuthenticationConverter))
+                        .bearerTokenResolver(dualBearerTokenResolver))
                 .build();
     }
 }

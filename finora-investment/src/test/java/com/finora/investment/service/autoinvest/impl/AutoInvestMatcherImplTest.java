@@ -1,5 +1,31 @@
 package com.finora.investment.service.autoinvest.impl;
 
+import com.finora.common.enums.investment.ListingStatus;
+import com.finora.investment.domain.autoinvest.entity.AutoInvestConfig;
+import com.finora.investment.domain.autoinvest.entity.AutoInvestMatch;
+import com.finora.investment.domain.listing.entity.MarketListing;
+import com.finora.investment.domain.order.entity.InvestmentOrder;
+import com.finora.investment.dto.request.PlaceOrderRequest;
+import com.finora.investment.dto.response.OrderResponse;
+import com.finora.investment.exception.InvestmentDomainException;
+import com.finora.investment.repository.AutoInvestConfigRepository;
+import com.finora.investment.repository.AutoInvestMatchRepository;
+import com.finora.investment.repository.InvestmentOrderRepository;
+import com.finora.investment.repository.MarketListingRepository;
+import com.finora.investment.service.FundingService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
@@ -10,31 +36,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-
-import com.finora.common.enums.investment.ListingStatus;
-import com.finora.investment.domain.autoinvest.AutoInvestConfig;
-import com.finora.investment.domain.autoinvest.AutoInvestMatch;
-import com.finora.investment.domain.listing.MarketListing;
-import com.finora.investment.domain.order.InvestmentOrder;
-import com.finora.investment.dto.request.PlaceOrderRequest;
-import com.finora.investment.dto.response.OrderResponse;
-import com.finora.investment.exception.InvestmentDomainException;
-import com.finora.investment.repository.AutoInvestConfigRepository;
-import com.finora.investment.repository.AutoInvestMatchRepository;
-import com.finora.investment.repository.InvestmentOrderRepository;
-import com.finora.investment.repository.MarketListingRepository;
-import com.finora.investment.service.FundingService;
-import java.math.BigDecimal;
-import java.time.Clock;
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 /**
  * Nhánh quyết định của {@link AutoInvestMatcherImpl} với repository và FundingService giả.

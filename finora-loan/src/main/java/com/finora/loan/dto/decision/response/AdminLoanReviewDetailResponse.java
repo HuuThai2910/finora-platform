@@ -1,17 +1,18 @@
 package com.finora.loan.dto.decision.response;
 
-import com.finora.loan.domain.application.LoanApplicationStatus;
-import com.finora.loan.domain.application.LoanDecisionSource;
-import com.finora.loan.domain.application.TermsConfirmationStatus;
-import com.finora.loan.domain.application.LoanPurpose;
-import com.finora.loan.domain.product.RepaymentMethod;
-import com.finora.loan.domain.scoring.BorrowerKycStatus;
-import com.finora.loan.domain.scoring.BorrowerProfileSource;
-import com.finora.loan.domain.scoring.CreditProfileSource;
-import com.finora.loan.domain.scoring.EligibilityResult;
+import com.finora.loan.domain.application.enums.LoanApplicationStatus;
+import com.finora.loan.domain.application.enums.LoanDecisionSource;
+import com.finora.loan.domain.application.enums.LoanPurpose;
+import com.finora.loan.domain.application.enums.TermsConfirmationStatus;
+import com.finora.loan.domain.product.enums.RepaymentMethod;
+import com.finora.loan.domain.scoring.enums.BorrowerKycStatus;
+import com.finora.loan.domain.scoring.enums.BorrowerProfileSource;
+import com.finora.loan.domain.scoring.enums.CreditProfileSource;
+import com.finora.loan.domain.scoring.enums.EligibilityResult;
 import com.finora.loan.dto.application.response.ApplicantFinancialResponse;
 import com.finora.loan.dto.application.response.LoanApplicationHistoryResponse;
 import com.finora.loan.dto.application.response.ScheduleCalculationSnapshotResponse;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -50,7 +51,12 @@ public record AdminLoanReviewDetailResponse(
         String adminDecidedBy,
         Instant adminDecidedAt,
         /** Số hợp đồng; {@code null} cho tới khi Contract được lập (sau khi khoản vay đủ vốn). */
-        String contractNumber
+        String contractNumber,
+        /**
+         * Mã lý do AI chuyển hồ sơ cho người thẩm định (vd. {@code SCORE_IN_REVIEW_BAND}); rỗng khi AI không chuyển
+         * hoặc lần chấm diễn ra trước khi Loan lưu trường này.
+         */
+        List<String> aiReviewReasons
 ) {
     public record EligibilityEvidence(
             Integer age,

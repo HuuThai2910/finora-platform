@@ -2,7 +2,6 @@ package com.finora.investment.service.orderbook.impl;
 
 import com.finora.investment.service.orderbook.OrderBookSettlementService;
 import com.finora.investment.service.orderbook.OrderBookSettlementWorker;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -17,22 +16,26 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 @ConditionalOnProperty(prefix = "finora.investment.order-book.settlement", name = "enabled",
         havingValue = "true", matchIfMissing = true)
 public class OrderBookSettlementWorkerImpl implements OrderBookSettlementWorker {
 
-    private final OrderBookSettlementService settlementService;
+    private final OrderBookSettlementService orderBookSettlementService;
+    private final int batchSize;
 
-    @Value("${finora.investment.order-book.settlement.batch-size:50}")
-    private int batchSize;
+    public OrderBookSettlementWorkerImpl(
+            OrderBookSettlementService orderBookSettlementService,
+            @Value("${finora.investment.order-book.settlement.batch-size:50}") int batchSize) {
+        this.orderBookSettlementService = orderBookSettlementService;
+        this.batchSize = batchSize;
+    }
 
     @Override
     @Scheduled(fixedDelayString = "${finora.investment.order-book.settlement.delay:2000}")
     public void run() {
         try {
-            settlementService.settleDue(batchSize);
-            settlementService.releaseFinished(batchSize);
+            orderBookSettlementService.settleDue(batchSize);
+            orderBookSettlementService.releaseFinished(batchSize);
         } catch (RuntimeException failure) {
             log.error("Worker thanh toán sổ lệnh gặp lỗi: exceptionType={}", failure.getClass().getName());
         }

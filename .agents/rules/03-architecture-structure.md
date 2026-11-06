@@ -19,23 +19,38 @@ Chi tiết quyền sở hữu, System of Record và state authority được đ�
 ```text
 com.finora.<service>/
 ├── controller/
-├── service/
+├── service/                 # interface
+│   └── impl/                # <Interface>Impl
 ├── domain/
+│   ├── entity/              # @Entity, @Embeddable, @MappedSuperclass
+│   ├── enums/
+│   └── model/               # value object/record không phải bảng
 ├── repository/
 ├── dto/
 │   ├── request/
 │   └── response/
 ├── mapper/
-├── integration/
+├── integration/<hệ thống>/
+│   ├── client/              # (+ client/impl/ khi có nhiều bản: thật, Mock*)
+│   └── contract/
 ├── messaging/
 │   ├── producer/
 │   ├── consumer/
 │   └── event/
 ├── config/
-└── exception/
+├── exception/
+└── util/
 ```
 
-Đây là cấu trúc chuẩn cho code Java mới. Không bắt buộc tạo đủ thư mục ngay từ đầu; chỉ tạo khi có file thật thuộc trách nhiệm đó.
+Đây là cấu trúc chuẩn cho code Java mới (REFACTOR-001, mẫu là finora-user). Không bắt buộc tạo đủ thư mục ngay từ đầu; chỉ tạo khi có file thật thuộc trách nhiệm đó. Layer lớn chia nhóm nghiệp vụ thì giữ cùng mẫu bên trong nhóm: `service/<nhóm>/impl/`, `domain/<nhóm>/entity|enums|model/`. Không dùng `support/`, `client/` ở gốc service, `messaging/` phẳng.
+
+Quy ước "mỗi việc một cách":
+
+- Gọi HTTP chỉ dùng `RestClient`; mọi client gọi hệ thống ngoài đi qua circuit breaker resilience4j (Spring Cloud CircuitBreaker) với time limiter lớn hơn connect + read timeout của client.
+- Gửi/nhận Kafka dùng bộ chung `com.finora.common.messaging` (`KafkaEventEnvelope`, `KafkaEventPublisher`, `KafkaEventReader`, `KafkaErrorHandlers`); payload sự kiện, outbox, `processed_events` vẫn ở từng service.
+- Controller trả `ResponseEntity<DTO>`; endpoint `BaseResponse` cũ mà mobile đang đọc giữ nguyên.
+- Bản giả lập đặt tên `Mock*`; tiện ích nhiều service dùng chung ở `com.finora.common.util`, tiện ích riêng ở `util/`.
+- Field inject đặt theo tên kiểu viết camelCase; inject bằng `@RequiredArgsConstructor`; log bằng `@Slf4j`; import xếp theo kiểu IntelliJ (nhóm còn lại → `javax`/`java` → `static`).
 
 ### Trách nhiệm từng layer
 
@@ -76,8 +91,7 @@ mapper     → repository
 - Layered architecture không có nghĩa mỗi service chỉ có một class `LoanService`, `PaymentService` hoặc `UserService` khổng lồ.
 - MUST chia service theo nhóm use case có trách nhiệm rõ, ví dụ `LoanApplicationService`, `LoanApprovalService`, `DisbursementSagaService`, `RepaymentService`.
 - SHOULD chia controller theo resource/use case khi endpoint không còn cùng một responsibility.
-- Chỉ tạo interface service khi có ít nhất hai implementation, là integration boundary cần thay thế, hoặc có lý do kiểm thử/kiến trúc được ghi rõ.
-- MUST NOT tạo cặp `XService`/`XServiceImpl` theo thói quen khi chỉ có một implementation.
+- MUST tách interface + Impl cho mọi bean `@Service`/`@Component` trong `service/**`: interface giữ tên ở `service/` (hoặc `service/<nhóm>/`), triển khai `<Interface>Impl` ở `impl/` bên cạnh; Javadoc method ở interface. Controller, consumer, producer, config, mapper, repository, integration client không tách interface.
 
 ### Entity, DTO và persistence
 

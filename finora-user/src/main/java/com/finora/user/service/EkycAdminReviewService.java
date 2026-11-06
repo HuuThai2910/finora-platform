@@ -18,6 +18,9 @@ public interface EkycAdminReviewService {
      */
     PageResponse<EkycAttemptSummaryResponse> list(String status, int page, int size);
 
+    /** Mọi lượt xác minh của một khách, mới nhất trước — lịch sử ở trang chi tiết khách hàng. */
+    PageResponse<EkycAttemptSummaryResponse> listForUser(Long userProfileId, int page, int size);
+
     /** Chi tiết lượt, có bản nháp đã giải mã; ghi nhật ký truy cập (không gắn file cụ thể). */
     EkycAttemptDetailResponse detail(String attemptId, UUID adminKeycloakId);
 

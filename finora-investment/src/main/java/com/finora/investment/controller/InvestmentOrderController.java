@@ -11,9 +11,9 @@ import com.finora.investment.service.PortfolioService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,8 +21,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /**
  * Đặt lệnh đầu tư và xem danh mục.
@@ -42,29 +43,29 @@ public class InvestmentOrderController {
 
     @PostMapping("/listings/{listingId}/orders")
     @RequirePin(PinScope.INVEST)
-    @ResponseStatus(HttpStatus.CREATED)
-    public OrderResponse placeOrder(
+    public ResponseEntity<OrderResponse> placeOrder(
             @PathVariable Long listingId,
             @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 150) String idempotencyKey,
             @Valid @RequestBody PlaceOrderRequest request
     ) {
-        return fundingService.placeOrder(listingId, idempotencyKey, request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(fundingService.placeOrder(listingId, idempotencyKey, request));
     }
 
     @PostMapping("/orders/{orderReference}/cancel")
-    public OrderResponse cancelOrder(
+    public ResponseEntity<OrderResponse> cancelOrder(
             @PathVariable @NotBlank @Size(max = 50) String orderReference
     ) {
-        return fundingService.cancelOrder(orderReference);
+        return ResponseEntity.ok(fundingService.cancelOrder(orderReference));
     }
 
     @GetMapping("/portfolio")
-    public PortfolioResponse portfolio() {
-        return portfolioService.portfolio();
+    public ResponseEntity<PortfolioResponse> portfolio() {
+        return ResponseEntity.ok(portfolioService.portfolio());
     }
 
     @GetMapping("/commitments")
-    public List<CommitmentResponse> commitments() {
-        return portfolioService.myCommitments();
+    public ResponseEntity<List<CommitmentResponse>> commitments() {
+        return ResponseEntity.ok(portfolioService.myCommitments());
     }
 }

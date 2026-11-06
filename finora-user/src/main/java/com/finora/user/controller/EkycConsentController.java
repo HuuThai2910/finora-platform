@@ -26,25 +26,25 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class EkycConsentController {
 
-    private final EkycConsentService consentService;
+    private final EkycConsentService ekycConsentService;
 
     @GetMapping
     @PreAuthorize("hasAuthority('user:cccd:scan')")
     public BaseResponse<EkycConsentResponse> getConsent() {
-        return BaseResponse.success(consentService.getConsent(SecurityUtils.getCurrentKeycloakUserId()));
+        return BaseResponse.success(ekycConsentService.getConsent(SecurityUtils.getCurrentKeycloakUserId()));
     }
 
     /** Đồng ý đúng phiên bản và nội dung đã đọc; lệch bản hiện hành trả {@code 409 CONSENT_VERSION_STALE}. */
     @PostMapping
     @PreAuthorize("hasAuthority('user:cccd:scan')")
     public BaseResponse<EkycConsentResponse> acceptConsent(@Valid @RequestBody EkycConsentAcceptRequest request) {
-        return BaseResponse.success(consentService.accept(SecurityUtils.getCurrentKeycloakUserId(), request));
+        return BaseResponse.success(ekycConsentService.accept(SecurityUtils.getCurrentKeycloakUserId(), request));
     }
 
     /** Rút lại: xoá ảnh/video và bản nháp, hồ sơ về chưa xác minh (giữ hash số định danh). */
     @DeleteMapping
     @PreAuthorize("hasAuthority('user:cccd:scan')")
     public BaseResponse<EkycConsentResponse> withdrawConsent() {
-        return BaseResponse.success(consentService.withdraw(SecurityUtils.getCurrentKeycloakUserId()));
+        return BaseResponse.success(ekycConsentService.withdraw(SecurityUtils.getCurrentKeycloakUserId()));
     }
 }

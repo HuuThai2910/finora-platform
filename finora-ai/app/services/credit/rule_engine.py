@@ -422,3 +422,23 @@ def quyet_dinh(
     if evaluation_score < thresholds["auto_reject"]:
         return "REJECTED"
     return "PENDING_REVIEW"
+
+
+def ly_do_chuyen_tham_dinh(
+    so_luat_co_du_lieu: int,
+    so_luat_da_cham: int,
+    ly_do_tham_dinh: list[str] | None = None,
+) -> list[str]:
+    """Mã lý do cho một hồ sơ ĐÃ được `quyet_dinh` chuyển PENDING_REVIEW.
+
+    Gọi sau khi đã có quyết định, nên không đổi kết quả chấm; chỉ ghi rõ vì sao
+    hồ sơ cần người xem để Loan lưu và web quản trị hiện cho thẩm định viên:
+      - mã thẩm định bắt buộc (CIC…) nếu có;
+      - INSUFFICIENT_RULE_DATA khi tra được quá ít dữ liệu cho bộ luật;
+      - SCORE_IN_REVIEW_BAND khi điểm nằm giữa ngưỡng từ chối và ngưỡng duyệt.
+    """
+    if ly_do_tham_dinh:
+        return list(ly_do_tham_dinh)
+    if so_luat_co_du_lieu < so_luat_toi_thieu_co_du_lieu(so_luat_da_cham):
+        return ["INSUFFICIENT_RULE_DATA"]
+    return ["SCORE_IN_REVIEW_BAND"]

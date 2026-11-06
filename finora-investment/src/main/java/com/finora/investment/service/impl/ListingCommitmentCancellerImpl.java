@@ -2,9 +2,9 @@ package com.finora.investment.service.impl;
 
 import com.finora.common.enums.investment.CommitmentStatus;
 import com.finora.common.enums.investment.OrderStatus;
-import com.finora.investment.domain.listing.MarketListing;
-import com.finora.investment.domain.order.InvestmentCommitment;
-import com.finora.investment.domain.order.InvestmentOrder;
+import com.finora.investment.domain.listing.entity.MarketListing;
+import com.finora.investment.domain.order.entity.InvestmentCommitment;
+import com.finora.investment.domain.order.entity.InvestmentOrder;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
 import com.finora.investment.repository.InvestmentOrderRepository;
 import com.finora.investment.service.ListingCommitmentCanceller;
@@ -31,20 +31,20 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ListingCommitmentCancellerImpl implements ListingCommitmentCanceller {
 
-    private final InvestmentCommitmentRepository commitmentRepository;
-    private final InvestmentOrderRepository orderRepository;
+    private final InvestmentCommitmentRepository investmentCommitmentRepository;
+    private final InvestmentOrderRepository investmentOrderRepository;
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public CancelledCommitments cancelActive(MarketListing listing, String reasonCode, String reasonDetail, String actor,
             Instant now) {
         List<InvestmentCommitment> active =
-                commitmentRepository.findByListingIdAndStatus(listing.getId(), CommitmentStatus.ACTIVE);
+                investmentCommitmentRepository.findByListingIdAndStatus(listing.getId(), CommitmentStatus.ACTIVE);
         if (active.isEmpty()) {
             return CancelledCommitments.NONE;
         }
         // Đọc lệnh của cả lô trong một truy vấn thay vì mỗi phần vốn một lần.
-        Map<Long, InvestmentOrder> orders = orderRepository
+        Map<Long, InvestmentOrder> orders = investmentOrderRepository
                 .findAllById(active.stream().map(InvestmentCommitment::getOrderId).toList())
                 .stream().collect(Collectors.toMap(InvestmentOrder::getId, Function.identity()));
         BigDecimal released = BigDecimal.ZERO;

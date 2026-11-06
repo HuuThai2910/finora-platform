@@ -1,21 +1,25 @@
 package com.finora.investment.service.impl;
 
-import com.finora.investment.config.InvestorRiskDisclosureProperties;
-import com.finora.investment.service.FundingService;
-import com.finora.investment.service.InvestorEligibility;
-import com.finora.investment.service.OrderTransactionService;
 import com.finora.common.enums.investment.OrderStatus;
 import com.finora.common.security.SecurityUtils;
-import com.finora.investment.domain.order.InvestmentOrder;
+import com.finora.investment.config.InvestorRiskDisclosureProperties;
+import com.finora.investment.domain.order.entity.InvestmentOrder;
 import com.finora.investment.dto.request.PlaceOrderRequest;
 import com.finora.investment.dto.response.OrderResponse;
 import com.finora.investment.exception.InvestmentDomainException;
-import com.finora.investment.client.PaymentCallException;
-import com.finora.investment.client.PaymentClient;
-import com.finora.investment.client.PaymentHoldResult;
-import com.finora.investment.client.PaymentHoldView;
+import com.finora.investment.integration.payment.PaymentCallException;
+import com.finora.investment.integration.payment.client.PaymentClient;
+import com.finora.investment.integration.payment.contract.PaymentHoldResult;
+import com.finora.investment.integration.payment.contract.PaymentHoldView;
 import com.finora.investment.mapper.InvestmentMapper;
 import com.finora.investment.repository.InvestmentOrderRepository;
+import com.finora.investment.service.FundingService;
+import com.finora.investment.service.InvestorEligibility;
+import com.finora.investment.service.OrderTransactionService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -23,9 +27,6 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Optional;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
 
 /**
  * Luồng gọi vốn F04: đặt lệnh, giữ tiền, tạo cam kết.
@@ -52,12 +53,12 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class FundingServiceImpl implements FundingService {
 
-    private final InvestmentOrderRepository orderRepository;
-    private final OrderTransactionService transactions;
+    private final InvestmentOrderRepository investmentOrderRepository;
+    private final OrderTransactionService orderTransactionService;
     private final PaymentClient paymentClient;
-    private final InvestmentMapper mapper;
-    private final InvestorEligibility eligibility;
-    private final InvestorRiskDisclosureProperties riskDisclosure;
+    private final InvestmentMapper investmentMapper;
+    private final InvestorEligibility investorEligibility;
+    private final InvestorRiskDisclosureProperties investorRiskDisclosureProperties;
 
     /**
      * Đặt một lệnh đầu tư vào khoản vay đang gọi vốn.
@@ -67,11 +68,11 @@ public class FundingServiceImpl implements FundingService {
      */
     @Override
     public OrderResponse placeOrder(Long listingId, String idempotencyKey, PlaceOrderRequest request) {
-        eligibility.requireVerifiedInvestor();
+        investorEligibility.requireVerifiedInvestor();
         String investorId = SecurityUtils.getCurrentUserId();
         // Gửi lại cùng khóa là hỏi kết quả của lệnh đã ghi nhận (xác nhận đã lưu lúc tạo lệnh). Chỉ lệnh mới phải mang
         // xác nhận hiện hành; kiểm lại ở lần gửi lại sẽ báo lỗi cho một lệnh đã giữ tiền nếu version vừa đổi.
-        if (orderRepository.findByInvestorIdAndIdempotencyKey(investorId, idempotencyKey).isEmpty()) {
+        if (investmentOrderRepository.findByInvestorIdAndIdempotencyKey(investorId, idempotencyKey).isEmpty()) {
             requireRiskAcknowledgement(request);
         }
         return placeOrderFor(investorId, listingId, idempotencyKey, request);
@@ -87,7 +88,7 @@ public class FundingServiceImpl implements FundingService {
             throw InvestmentDomainException.invalidInput("RISK_ACKNOWLEDGEMENT_REQUIRED",
                     "Bạn cần xác nhận đã đọc và hiểu công bố rủi ro trước khi góp vốn");
         }
-        if (!riskDisclosure.version().equals(version.trim())) {
+        if (!investorRiskDisclosureProperties.version().equals(version.trim())) {
             throw InvestmentDomainException.conflict("RISK_DISCLOSURE_OUTDATED",
                     "Công bố rủi ro đã được cập nhật, vui lòng đọc lại trước khi góp vốn");
         }
@@ -106,7 +107,7 @@ public class FundingServiceImpl implements FundingService {
             String investorId, Long listingId, String idempotencyKey, PlaceOrderRequest request) {
         String requestHash = hashRequest(listingId, request.amount());
 
-        Optional<InvestmentOrder> replayed = orderRepository
+        Optional<InvestmentOrder> replayed = investmentOrderRepository
                 .findByInvestorIdAndIdempotencyKey(investorId, idempotencyKey);
         if (replayed.isPresent()) {
             InvestmentOrder existing = replayed.get();
@@ -119,12 +120,12 @@ public class FundingServiceImpl implements FundingService {
                 );
             }
             if (existing.getStatus() != OrderStatus.PENDING_FUNDS) {
-                return mapper.toOrderResponse(existing);
+                return investmentMapper.toOrderResponse(existing);
             }
             return holdAndCommit(existing, listingId);
         }
 
-        InvestmentOrder order = transactions.createPendingOrder(
+        InvestmentOrder order = orderTransactionService.createPendingOrder(
                 listingId, investorId, idempotencyKey, requestHash, request);
         return holdAndCommit(order, listingId);
     }
@@ -148,15 +149,15 @@ public class FundingServiceImpl implements FundingService {
             if (hold.isAlreadyReleased()) {
                 // Payment trả lại khoản giữ cũ của chính mã lệnh nhưng đã nhả (lần chốt trước đã từ chối và nhả rồi mới
                 // mất kết quả): không được cam kết trên khoản không còn tiền (R3).
-                return transactions.rejectWithReleasedHold(order.getId(), hold.getHoldReference());
+                return orderTransactionService.rejectWithReleasedHold(order.getId(), hold.getHoldReference());
             }
             if (hold.isHoldAnomaly()) {
-                return transactions.rejectWithHoldAnomaly(order.getId(), hold.getHoldReference(), hold.getHoldStatus());
+                return orderTransactionService.rejectWithHoldAnomaly(order.getId(), hold.getHoldReference(), hold.getHoldStatus());
             }
-            return transactions.rejectForFailedHold(order.getId(), hold);
+            return orderTransactionService.rejectForFailedHold(order.getId(), hold);
         }
 
-        OrderResponse response = transactions.confirmCommitment(order.getId(), listingId, hold.getHoldReference());
+        OrderResponse response = orderTransactionService.confirmCommitment(order.getId(), listingId, hold.getHoldReference());
         return releaseIfFinished(order.getOrderReference(), response);
     }
 
@@ -166,7 +167,7 @@ public class FundingServiceImpl implements FundingService {
      * dần, hoặc dừng cho vận hành khi Payment trả lỗi chắc chắn.
      */
     private OrderResponse releaseIfFinished(String orderReference, OrderResponse response) {
-        InvestmentOrder order = orderRepository.findByOrderReference(orderReference).orElse(null);
+        InvestmentOrder order = investmentOrderRepository.findByOrderReference(orderReference).orElse(null);
         if (order == null || order.getPaymentHoldReference() == null || order.getPaymentReleasedAt() != null
                 || order.getReleaseBlockedAt() != null
                 || (order.getStatus() != OrderStatus.CANCELLED && order.getStatus() != OrderStatus.REJECTED)) {
@@ -174,22 +175,22 @@ public class FundingServiceImpl implements FundingService {
         }
         try {
             paymentClient.release(order.getPaymentHoldReference(), order.getOrderReference());
-            transactions.markHoldReleased(order.getId());
+            orderTransactionService.markHoldReleased(order.getId());
         } catch (PaymentCallException failure) {
-            transactions.recordReleaseFailure(order.getId(), failure.getCode(), failure.isRetryable(), Instant.now());
+            orderTransactionService.recordReleaseFailure(order.getId(), failure.getCode(), failure.isRetryable(), Instant.now());
             log.warn("Chưa nhả được tiền giữ, worker sẽ xử lý tiếp: orderReference={}, code={}, retryable={}",
                     orderReference, failure.getCode(), failure.isRetryable());
         }
-        return mapper.toOrderResponse(orderRepository.findById(order.getId()).orElseThrow());
+        return investmentMapper.toOrderResponse(investmentOrderRepository.findById(order.getId()).orElseThrow());
     }
 
     @Override
     public OrderResponse resumePendingOrder(Long orderId) {
-        InvestmentOrder order = orderRepository.findById(orderId)
+        InvestmentOrder order = investmentOrderRepository.findById(orderId)
                 .orElseThrow(() -> InvestmentDomainException.notFound(
                         "ORDER_NOT_FOUND", "Không tìm thấy lệnh đầu tư"));
         if (order.getStatus() != OrderStatus.PENDING_FUNDS) {
-            return mapper.toOrderResponse(order);
+            return investmentMapper.toOrderResponse(order);
         }
         // R3: hỏi Payment khoản giữ của mã lệnh trước, không đổi gì. Đang giữ đúng số tiền thì chốt luôn; đã nhả hoặc đã
         // vào giải ngân thì không được cam kết; chưa có thì mới gửi lại lời gọi giữ tiền (idempotent theo mã lệnh).
@@ -197,12 +198,12 @@ public class FundingServiceImpl implements FundingService {
         if (existing.isPresent()) {
             PaymentHoldView hold = existing.get();
             if (hold.held() && hold.amount() != null && hold.amount().compareTo(order.getAmount()) == 0) {
-                OrderResponse response = transactions.confirmCommitment(
+                OrderResponse response = orderTransactionService.confirmCommitment(
                         order.getId(), order.getListingId(), hold.holdReference());
                 return releaseIfFinished(order.getOrderReference(), response);
             }
-            if (hold.released()) return transactions.rejectWithReleasedHold(order.getId(), hold.holdReference());
-            return transactions.rejectWithHoldAnomaly(order.getId(), hold.holdReference(),
+            if (hold.released()) return orderTransactionService.rejectWithReleasedHold(order.getId(), hold.holdReference());
+            return orderTransactionService.rejectWithHoldAnomaly(order.getId(), hold.holdReference(),
                     hold.held() ? "AMOUNT_MISMATCH" : hold.status());
         }
         return holdAndCommit(order, order.getListingId());
@@ -211,7 +212,7 @@ public class FundingServiceImpl implements FundingService {
     /** Hủy lệnh đã cam kết và nhả tiền về ví. */
     @Override
     public OrderResponse cancelOrder(String orderReference) {
-        OrderResponse cancelled = transactions.cancelOrder(orderReference);
+        OrderResponse cancelled = orderTransactionService.cancelOrder(orderReference);
         return releaseIfFinished(orderReference, cancelled);
     }
 

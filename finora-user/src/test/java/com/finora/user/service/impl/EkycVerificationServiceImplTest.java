@@ -5,24 +5,24 @@ import com.finora.common.enums.user.EkycResultCode;
 import com.finora.common.enums.user.EkycStatus;
 import com.finora.common.enums.user.Gender;
 import com.finora.common.exception.BusinessException;
-import com.finora.user.client.AiEkycClient;
-import com.finora.user.client.AiEkycClient.DocumentResult;
-import com.finora.user.client.AiEkycClient.Portrait;
-import com.finora.user.client.AiEkycClient.RetakeHint;
-import com.finora.user.domain.CicMappingTask;
-import com.finora.user.domain.EkycAttempt;
-import com.finora.user.domain.EkycAttemptStatus;
-import com.finora.user.domain.EkycConsent;
-import com.finora.user.domain.EkycDocumentDecision;
-import com.finora.user.domain.EkycEvidence;
-import com.finora.user.domain.EkycEvidenceKind;
-import com.finora.user.domain.EkycEvidenceStage;
-import com.finora.user.domain.EkycIdentityDraft;
-import com.finora.user.domain.EkycLivenessResult;
-import com.finora.user.domain.UserProfile;
+import com.finora.user.domain.entity.CicMappingTask;
+import com.finora.user.domain.entity.EkycAttempt;
+import com.finora.user.domain.entity.EkycConsent;
+import com.finora.user.domain.entity.EkycEvidence;
+import com.finora.user.domain.entity.UserProfile;
+import com.finora.user.domain.enums.EkycAttemptStatus;
+import com.finora.user.domain.enums.EkycDocumentDecision;
+import com.finora.user.domain.enums.EkycEvidenceKind;
+import com.finora.user.domain.enums.EkycEvidenceStage;
+import com.finora.user.domain.enums.EkycLivenessResult;
+import com.finora.user.domain.model.EkycIdentityDraft;
 import com.finora.user.dto.request.EkycVerifyRequest;
 import com.finora.user.dto.response.EkycNextStep;
 import com.finora.user.dto.response.EkycResultResponse;
+import com.finora.user.integration.ai.client.AiEkycClient.DocumentResult;
+import com.finora.user.integration.ai.client.AiEkycClient.Portrait;
+import com.finora.user.integration.ai.client.AiEkycClient.RetakeHint;
+import com.finora.user.integration.ai.client.AiEkycClient;
 import com.finora.user.integration.storage.EkycStorageException;
 import com.finora.user.repository.CicMappingTaskRepository;
 import com.finora.user.repository.EkycAttemptRepository;
@@ -33,15 +33,13 @@ import com.finora.user.service.EkycClaimPublisher;
 import com.finora.user.service.EkycConsentService;
 import com.finora.user.service.EkycCounterStore;
 import com.finora.user.service.EkycDraftStore;
-import com.finora.user.service.EkycEvidenceService;
 import com.finora.user.service.EkycEvidenceService.StoredEvidence;
+import com.finora.user.service.EkycEvidenceService;
 import com.finora.user.service.EkycIdentityService;
 import com.finora.user.service.EkycRateLimitService;
 import com.finora.user.service.EkycResultFile;
 import com.finora.user.service.EkycSessionCleanup;
-import com.finora.user.support.EkycTestData;
-import feign.FeignException;
-import feign.Request;
+import com.finora.user.util.EkycTestData;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -56,7 +54,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -64,9 +61,9 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static com.finora.user.support.EkycTestData.ID_NUMBER;
-import static com.finora.user.support.EkycTestData.JPEG_BASE64;
-import static com.finora.user.support.EkycTestData.hash;
+import static com.finora.user.util.EkycTestData.ID_NUMBER;
+import static com.finora.user.util.EkycTestData.JPEG_BASE64;
+import static com.finora.user.util.EkycTestData.hash;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -249,7 +246,7 @@ class EkycVerificationServiceImplTest {
         @Test
         void aiBusy503ReturnsAiUnavailableAndGivesBackTheSlot() {
             givenReadyForAi();
-            when(aiEkycClient.analyzeDocument(any())).thenThrow(feignError(503));
+            when(aiEkycClient.analyzeDocument(any())).thenThrow(aiError(503));
 
             EkycResultResponse result = service().verify(USER_ID, request());
 
@@ -260,7 +257,7 @@ class EkycVerificationServiceImplTest {
         @Test
         void aiRejectingTheImageIsOcrFailedAndKeepsTheSlot() {
             givenReadyForAi();
-            when(aiEkycClient.analyzeDocument(any())).thenThrow(feignError(422));
+            when(aiEkycClient.analyzeDocument(any())).thenThrow(aiError(422));
 
             EkycResultResponse result = service().verify(USER_ID, request());
 
@@ -652,15 +649,7 @@ class EkycVerificationServiceImplTest {
                 kind == EkycEvidenceKind.RESULT ? EkycEvidenceStage.FINAL : EkycEvidenceStage.PENDING);
     }
 
-    private static FeignException feignError(int status) {
-        Request request = Request.create(Request.HttpMethod.POST, "http://ai/api/v1/ai/ekyc/document",
-                Map.<String, Collection<String>>of(), new byte[0], StandardCharsets.UTF_8, null);
-        return FeignException.errorStatus("analyzeDocument", feign.Response.builder()
-                .status(status)
-                .reason("error")
-                .request(request)
-                .headers(Map.of())
-                .body(new byte[0])
-                .build());
+    private static AiEkycClient.AiEkycException aiError(int status) {
+        return new AiEkycClient.AiEkycException("AI trả HTTP " + status + " khi đọc thẻ", status);
     }
 }

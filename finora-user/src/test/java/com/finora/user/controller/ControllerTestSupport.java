@@ -24,7 +24,7 @@ import java.util.UUID;
 
 /**
  * Dựng MockMvc độc lập cho controller eKYC: bọc controller bằng đúng interceptor {@code @PreAuthorize}
- * và gắn các advice lỗi thật của module, không dựng Spring context (không cần Keycloak, Redis, database).
+ * và gắn các advice lỗi thật của module, không dựng Spring context (không cần Keycloak, database).
  */
 final class ControllerTestSupport {
 

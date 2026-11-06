@@ -1,16 +1,17 @@
 package com.finora.user.service.impl;
 
+import com.finora.common.util.PiiMasker;
 import com.finora.user.service.RateLimitService;
-import com.finora.user.support.PiiMasker;
+import com.finora.user.service.TemporaryStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 
 /**
- * Triển khai dịch vụ giới hạn tốc độ và lưu trữ OTP — sử dụng Redis với TTL.
+ * Triển khai dịch vụ giới hạn tốc độ và lưu trữ OTP — trạng thái tạm có thời hạn trong PostgreSQL
+ * của service ({@link TemporaryStore}).
  * <p>
  * Bảo vệ chống brute-force đăng nhập và dò OTP 6 chữ số.
  * <p>
@@ -49,26 +50,23 @@ public class RateLimitServiceImpl implements RateLimitService {
     private static final String KEY_REGISTRATION_OTP_ATTEMPT = "reg_otp_attempt:";
     private static final String KEY_OTP_RATE = "otp_rate:";
 
-    private final StringRedisTemplate redisTemplate;
+    private final TemporaryStore temporaryStore;
 
     @Override
     public boolean isLoginBlocked(String key) {
-        return Boolean.TRUE.equals(redisTemplate.hasKey(KEY_LOGIN_BLOCK + key));
+        return temporaryStore.exists(KEY_LOGIN_BLOCK + key);
     }
 
     @Override
     public int recordFailedLogin(String email, String ipAddress) {
         String failKey = KEY_LOGIN_FAIL + email;
 
-        Long count = redisTemplate.opsForValue().increment(failKey);
-        if (count != null && count == 1) {
-            redisTemplate.expire(failKey, Duration.ofMinutes(LOGIN_FAIL_TTL_MINUTES));
-        }
-
-        int currentCount = count != null ? count.intValue() : 1;
+        // Cửa sổ 5 phút tính từ lần sai đầu tiên, các lần sai sau không kéo dài
+        int currentCount = (int) temporaryStore.incrementWithinWindow(
+                failKey, Duration.ofMinutes(LOGIN_FAIL_TTL_MINUTES));
 
         if (currentCount >= MAX_LOGIN_FAILURES) {
-            redisTemplate.opsForValue().set(
+            temporaryStore.put(
                     KEY_LOGIN_BLOCK + email, "blocked",
                     Duration.ofMinutes(LOGIN_BLOCK_TTL_MINUTES));
             log.warn("Tài khoản bị khóa tạm do đăng nhập sai {} lần: email={}, ip={}",
@@ -80,7 +78,7 @@ public class RateLimitServiceImpl implements RateLimitService {
 
     @Override
     public void resetFailedLogin(String email) {
-        redisTemplate.delete(KEY_LOGIN_FAIL + email);
+        temporaryStore.deleteCounter(KEY_LOGIN_FAIL + email);
     }
 
     @Override
@@ -117,20 +115,18 @@ public class RateLimitServiceImpl implements RateLimitService {
 
     @Override
     public void clearRegistrationOtp(String email) {
-        redisTemplate.delete(KEY_REGISTRATION_OTP + email);
-        redisTemplate.delete(KEY_REGISTRATION_OTP_ATTEMPT + email);
+        temporaryStore.delete(KEY_REGISTRATION_OTP + email);
+        temporaryStore.deleteCounter(KEY_REGISTRATION_OTP_ATTEMPT + email);
     }
 
     @Override
     public boolean recordOtpRequest(String email) {
         String rateKey = KEY_OTP_RATE + email;
 
-        Long count = redisTemplate.opsForValue().increment(rateKey);
-        if (count != null && count == 1) {
-            redisTemplate.expire(rateKey, Duration.ofHours(1));
-        }
+        // Cửa sổ một giờ tính từ yêu cầu đầu tiên
+        long count = temporaryStore.incrementWithinWindow(rateKey, Duration.ofHours(1));
 
-        if (count != null && count > MAX_OTP_REQUESTS_PER_HOUR) {
+        if (count > MAX_OTP_REQUESTS_PER_HOUR) {
             log.warn("Vượt giới hạn yêu cầu OTP ({} lần/giờ) cho email={}", count, PiiMasker.maskEmail(email));
             return false;
         }
@@ -146,7 +142,7 @@ public class RateLimitServiceImpl implements RateLimitService {
     // ── Phần dùng chung cho mọi loại OTP ────────────────────────────
 
     private void storeOtp(String otpKey, String otp) {
-        redisTemplate.opsForValue().set(otpKey, otp, Duration.ofMinutes(OTP_TTL_MINUTES));
+        temporaryStore.put(otpKey, otp, Duration.ofMinutes(OTP_TTL_MINUTES));
     }
 
     /**
@@ -160,27 +156,24 @@ public class RateLimitServiceImpl implements RateLimitService {
      */
     private boolean matchOtp(
             String otpKey, String attemptKey, String otp, String subjectForLog, boolean consumeOnMatch) {
-        Long attempts = redisTemplate.opsForValue().increment(attemptKey);
-        if (attempts != null && attempts == 1) {
-            redisTemplate.expire(attemptKey, Duration.ofMinutes(OTP_TTL_MINUTES));
-        }
+        long attempts = temporaryStore.incrementWithinWindow(attemptKey, Duration.ofMinutes(OTP_TTL_MINUTES));
 
-        if (attempts != null && attempts > MAX_OTP_ATTEMPTS) {
-            redisTemplate.delete(otpKey);
-            redisTemplate.delete(attemptKey);
+        if (attempts > MAX_OTP_ATTEMPTS) {
+            temporaryStore.delete(otpKey);
+            temporaryStore.deleteCounter(attemptKey);
             log.warn("Vượt ngưỡng thử OTP ({} lần) cho {} — đã xóa OTP", attempts, subjectForLog);
             return false;
         }
 
-        String storedOtp = redisTemplate.opsForValue().get(otpKey);
+        String storedOtp = temporaryStore.find(otpKey).orElse(null);
         if (storedOtp == null) {
             return false;
         }
 
         if (storedOtp.equals(otp)) {
             if (consumeOnMatch) {
-                redisTemplate.delete(otpKey);
-                redisTemplate.delete(attemptKey);
+                temporaryStore.delete(otpKey);
+                temporaryStore.deleteCounter(attemptKey);
             }
             return true;
         }
