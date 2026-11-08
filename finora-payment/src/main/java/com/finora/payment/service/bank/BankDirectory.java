@@ -1,6 +1,7 @@
 package com.finora.payment.service.bank;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
@@ -32,6 +33,8 @@ public class BankDirectory {
     private final List<BankInfo> banks;
     private final Map<String, BankInfo> byCode;
 
+    // Có hai constructor nên Spring cần được chỉ rõ constructor nào dùng để tạo bean.
+    @Autowired
     public BankDirectory(ObjectMapper objectMapper) {
         this(load(objectMapper));
     }

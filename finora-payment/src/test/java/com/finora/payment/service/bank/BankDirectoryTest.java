@@ -2,6 +2,7 @@ package com.finora.payment.service.bank;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import java.util.List;
 
@@ -33,6 +34,16 @@ class BankDirectoryTest {
         assertThat(directory.find("AGR")).map(BankInfo::code).hasValue("VBA");
         assertThat(directory.find("XYZ")).isEmpty();
         assertThat(directory.displayName("XYZ")).isEqualTo("XYZ");
+    }
+
+    @Test
+    void springCreatesTheBeanThroughTheObjectMapperConstructor() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(ObjectMapper.class);
+            context.register(BankDirectory.class);
+            context.refresh();
+            assertThat(context.getBean(BankDirectory.class).find("VCB")).isPresent();
+        }
     }
 
     @Test
