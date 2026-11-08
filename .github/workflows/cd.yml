@@ -4,7 +4,7 @@
 #   - gate:   commit phải đến từ PR đã merge và check "CI passed" của PR đó xanh (CI chỉ chạy ở PR, CI-001)
 #   - plan:   so nội dung từng image với bản mới nhất trên GHCR (nhãn revision của tag `main`) để biết service nào build lại
 #   - build:  build + đẩy image lên GHCR, tag sha-<7 ký tự commit>
-#   - retag:  service không đổi được gắn thêm tag sha-<commit> trỏ tới image hiện có, để commit nào cũng đủ 9 tag
+#   - retag:  service không đổi được gắn thêm tag sha-<commit> trỏ tới image hiện có, để commit nào cũng đủ 10 tag
 #             (quay lại bản cũ không phải build lại)
 #   - deploy: đăng nhập Azure bằng OIDC, bật VM nếu đang tắt, chạy deploy/cd-deploy.sh trong VM qua run-command
 #             (không cần SSH), đợi /_status.json báo sẵn sàng, VM vốn tắt thì tắt lại
@@ -28,7 +28,7 @@ on:
         required: false
         default: ""
       services:
-        description: "Service cần thay: để trống = theo thay đổi; all = cả 9; hoặc danh sách như loan,user"
+        description: "Service cần thay: để trống = theo thay đổi; all = cả 10 (kể cả fabric-ccaas); hoặc danh sách như loan,user"
         required: false
         default: ""
       skip_ci_check:
@@ -144,11 +144,12 @@ jobs:
           set -euo pipefail
           registry="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
           tag="sha-${SHA:0:7}"
-          all=(fineract ai user notification payment investment loan blockchain gateway)
+          all=(fineract ai user notification payment investment loan blockchain gateway fabric-ccaas)
 
           paths_for() {
             case "$1" in
               fineract) echo '^docker/fineract/' ;;
+              fabric-ccaas) echo '^docker/fabric-network/chaincode/' ;;
               ai) echo '^(finora-ai/(main\.py|requirements\.txt|app/|scripts/download_face_models\.py|models/|config/)|docker/Dockerfile\.ai)' ;;
               gateway) echo '^(finora-gateway/(pom\.xml|src/main/)|pom\.xml$|docker/Dockerfile\.java-service$|\.dockerignore$)' ;;
               *) echo "^(finora-$1/(pom\.xml|src/main/)|finora-common/(pom\.xml|src/main/)|pom\.xml$|docker/Dockerfile\.java-service$|\.dockerignore$)" ;;
@@ -194,7 +195,9 @@ jobs:
             deploy+=("${build[@]}")
             if (( ${#deploy[@]} )); then
               deploy_flag=true
-            elif [[ "${before_ok}" == "true" ]] && git diff --name-only "${BEFORE}" "${SHA}" -- deploy/ | grep -q .; then
+            elif [[ "${before_ok}" == "true" ]] \
+                && git diff --name-only "${BEFORE}" "${SHA}" -- deploy/ docker/fabric-network/config docker/fabric-network/scripts \
+                | grep -q .; then
               deploy_flag=true
             elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
               deploy_flag=true
@@ -289,6 +292,10 @@ jobs:
               build_args= ;;
             ai)
               context=.; file=docker/Dockerfile.ai; build_args= ;;
+            fabric-ccaas)
+              # Chaincode finora-ledger chạy dạng CCaaS (W3D, D51); build chạy go vet + unit test trước khi đóng gói.
+              context=docker/fabric-network/chaincode/finora-ledger
+              file=docker/fabric-network/chaincode/finora-ledger/Dockerfile; build_args= ;;
             *)
               context=.; file=docker/Dockerfile.java-service; build_args="SERVICE_MODULE=finora-${SERVICE}" ;;
           esac

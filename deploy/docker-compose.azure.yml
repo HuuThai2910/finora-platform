@@ -450,11 +450,15 @@ services:
     networks:
       - finora
 
-  # Proof bốn mốc nghiệp vụ và hash giấy chuyển nhượng Note. Ledger MOCK: VM không chạy mạng Fabric.
+  # Proof bốn mốc nghiệp vụ và hash giấy chuyển nhượng Note, ghi lên mạng Fabric trong VM (FAB-AZ-001, trước đó MOCK).
+  # Proof cũ ghi bằng MOCK giữ nguyên, API verify báo NOT_ON_CHAIN_MOCK. Fabric tắt chỉ làm proof chờ retry.
   blockchain:
     <<: *java-service
     image: ${FINORA_REGISTRY:-ghcr.io/huuthai2910}/finora-blockchain:${BLOCKCHAIN_TAG:?Thiếu BLOCKCHAIN_TAG trong images.env}
     mem_limit: 450m
+    volumes:
+      # Bản danh tính User1@org1 do cd-deploy.sh chép, chỉ uid 10001 (user của image) đọc được.
+      - ${FINORA_FABRIC_DIR:-/opt/finora/fabric}/client:/fabric-client:ro
     environment:
       <<: *spring-env
       BLOCKCHAIN_DB_URL: jdbc:postgresql://blockchain-db:5432/finora_blockchain
@@ -463,7 +467,13 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       BLOCKCHAIN_KAFKA_LISTENER_ENABLED: "true"
       BLOCKCHAIN_PROOF_WORKER_ENABLED: "true"
-      BLOCKCHAIN_PROOF_PROVIDER: MOCK
+      BLOCKCHAIN_PROOF_PROVIDER: HYPERLEDGER_FABRIC
+      # Đối chiếu DB với Fabric định kỳ (D86); proof MOCK được bỏ qua.
+      BLOCKCHAIN_PROOF_RECONCILIATION_ENABLED: "true"
+      FABRIC_PEER_ENDPOINT: peer0.org1.finora.local:7051
+      FABRIC_CERT_PATH: /fabric-client/cert.pem
+      FABRIC_KEY_PATH: /fabric-client/key.pem
+      FABRIC_TLS_CERT_PATH: /fabric-client/tls-ca.crt
     depends_on:
       kafka:
         condition: service_healthy
@@ -477,6 +487,194 @@ services:
           bash -c "exec 3<>/dev/tcp/127.0.0.1/8083;
           printf 'GET /actuator/health/readiness HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
           head -n 1 <&3 | grep -q ' 200'"
+
+  # ============================ HYPERLEDGER FABRIC (FAB-AZ-001) ============================
+  # Như docker/docker-compose.yml profile `fabric` (W3D, D50–D51): 1 orderer Raft + peer0 của Org1 (FINORA, ghi) và
+  # Org2 (kiểm toán, phải endorse mọi lần ghi), LevelDB, chaincode finora-ledger dạng CCaaS (không mount docker.sock).
+  # Đo ở W3D: khoảng 190 MiB khi chạy. Crypto/genesis/package nằm ở /opt/finora/fabric do cd-deploy.sh sinh bằng
+  # fabric-tools; không cổng nào mở ra ngoài VM.
+  fabric-orderer:
+    image: ghcr.io/hyperledger/fabric-orderer:2.5.16
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 256m
+    environment:
+      FABRIC_LOGGING_SPEC: INFO
+      ORDERER_GENERAL_LISTENADDRESS: 0.0.0.0
+      ORDERER_GENERAL_LISTENPORT: "7050"
+      ORDERER_GENERAL_LOCALMSPID: OrdererMSP
+      ORDERER_GENERAL_LOCALMSPDIR: /var/hyperledger/orderer/msp
+      ORDERER_GENERAL_TLS_ENABLED: "true"
+      ORDERER_GENERAL_TLS_PRIVATEKEY: /var/hyperledger/orderer/tls/server.key
+      ORDERER_GENERAL_TLS_CERTIFICATE: /var/hyperledger/orderer/tls/server.crt
+      ORDERER_GENERAL_TLS_ROOTCAS: "[/var/hyperledger/orderer/tls/ca.crt]"
+      ORDERER_GENERAL_CLUSTER_CLIENTCERTIFICATE: /var/hyperledger/orderer/tls/server.crt
+      ORDERER_GENERAL_CLUSTER_CLIENTPRIVATEKEY: /var/hyperledger/orderer/tls/server.key
+      ORDERER_GENERAL_CLUSTER_ROOTCAS: "[/var/hyperledger/orderer/tls/ca.crt]"
+      # Channel participation API: không có system channel, orderer join finora-channel bằng osnadmin.
+      ORDERER_GENERAL_BOOTSTRAPMETHOD: none
+      ORDERER_CHANNELPARTICIPATION_ENABLED: "true"
+      ORDERER_ADMIN_TLS_ENABLED: "true"
+      ORDERER_ADMIN_TLS_CERTIFICATE: /var/hyperledger/orderer/tls/server.crt
+      ORDERER_ADMIN_TLS_PRIVATEKEY: /var/hyperledger/orderer/tls/server.key
+      ORDERER_ADMIN_TLS_ROOTCAS: "[/var/hyperledger/orderer/tls/ca.crt]"
+      ORDERER_ADMIN_TLS_CLIENTROOTCAS: "[/var/hyperledger/orderer/tls/ca.crt]"
+      ORDERER_ADMIN_LISTENADDRESS: 0.0.0.0:7053
+      ORDERER_OPERATIONS_LISTENADDRESS: 0.0.0.0:9443
+      ORDERER_METRICS_PROVIDER: disabled
+    volumes:
+      - ${FINORA_FABRIC_DIR:-/opt/finora/fabric}/crypto-config/ordererOrganizations/finora.local/orderers/orderer.finora.local/msp:/var/hyperledger/orderer/msp:ro
+      - ${FINORA_FABRIC_DIR:-/opt/finora/fabric}/crypto-config/ordererOrganizations/finora.local/orderers/orderer.finora.local/tls:/var/hyperledger/orderer/tls:ro
+      - fabric-orderer-data:/var/hyperledger/production/orderer
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/9443;
+          printf 'GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200 '"
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    networks:
+      finora:
+        aliases:
+          - orderer.finora.local
+
+  fabric-peer0-org1:
+    image: ghcr.io/hyperledger/fabric-peer:2.5.16
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 384m
+    environment: &fabric-peer-common
+      FABRIC_LOGGING_SPEC: INFO
+      # core.yaml của chính image nhưng bỏ vm.endpoint (sinh bởi network.sh generate): chỉ dùng builder ccaas.
+      FABRIC_CFG_PATH: /var/hyperledger/peercfg
+      CORE_PEER_ID: peer0.org1.finora.local
+      CORE_PEER_ADDRESS: peer0.org1.finora.local:7051
+      CORE_PEER_LISTENADDRESS: 0.0.0.0:7051
+      CORE_PEER_CHAINCODEADDRESS: peer0.org1.finora.local:7052
+      CORE_PEER_CHAINCODELISTENADDRESS: 0.0.0.0:7052
+      CORE_PEER_GOSSIP_BOOTSTRAP: peer0.org1.finora.local:7051
+      CORE_PEER_GOSSIP_EXTERNALENDPOINT: peer0.org1.finora.local:7051
+      CORE_PEER_LOCALMSPID: Org1MSP
+      CORE_PEER_MSPCONFIGPATH: /var/hyperledger/peer/msp
+      CORE_PEER_TLS_ENABLED: "true"
+      CORE_PEER_TLS_CERT_FILE: /var/hyperledger/peer/tls/server.crt
+      CORE_PEER_TLS_KEY_FILE: /var/hyperledger/peer/tls/server.key
+      CORE_PEER_TLS_ROOTCERT_FILE: /var/hyperledger/peer/tls/ca.crt
+      CORE_PEER_PROFILE_ENABLED: "false"
+      CORE_LEDGER_STATE_STATEDATABASE: goleveldb
+      CORE_OPERATIONS_LISTENADDRESS: 0.0.0.0:9444
+      CORE_METRICS_PROVIDER: disabled
+      CORE_CHAINCODE_EXECUTETIMEOUT: 60s
+      CHAINCODE_AS_A_SERVICE_BUILDER_CONFIG: '{"peername":"peer0org1"}'
+    volumes:
+      - ${FINORA_FABRIC_DIR:-/opt/finora/fabric}/crypto-config/peerOrganizations/org1.finora.local/peers/peer0.org1.finora.local/msp:/var/hyperledger/peer/msp:ro
+      - ${FINORA_FABRIC_DIR:-/opt/finora/fabric}/crypto-config/peerOrganizations/org1.finora.local/peers/peer0.org1.finora.local/tls:/var/hyperledger/peer/tls:ro
+      - ${FINORA_FABRIC_DIR:-/opt/finora/fabric}/build/peercfg:/var/hyperledger/peercfg:ro
+      - fabric-peer0-org1-data:/var/hyperledger/production
+    depends_on:
+      fabric-orderer:
+        condition: service_healthy
+    healthcheck: &fabric-peer-health
+      test:
+        - CMD-SHELL
+        - >-
+          bash -c "exec 3<>/dev/tcp/127.0.0.1/9444;
+          printf 'GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3;
+          head -n 1 <&3 | grep -q ' 200 '"
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    networks:
+      finora:
+        aliases:
+          - peer0.org1.finora.local
+
+  fabric-peer0-org2:
+    image: ghcr.io/hyperledger/fabric-peer:2.5.16
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 384m
+    environment:
+      <<: *fabric-peer-common
+      CORE_PEER_ID: peer0.org2.finora.local
+      CORE_PEER_ADDRESS: peer0.org2.finora.local:9051
+      CORE_PEER_LISTENADDRESS: 0.0.0.0:9051
+      CORE_PEER_CHAINCODEADDRESS: peer0.org2.finora.local:9052
+      CORE_PEER_CHAINCODELISTENADDRESS: 0.0.0.0:9052
+      CORE_PEER_GOSSIP_BOOTSTRAP: peer0.org2.finora.local:9051
+      CORE_PEER_GOSSIP_EXTERNALENDPOINT: peer0.org2.finora.local:9051
+      CORE_PEER_LOCALMSPID: Org2MSP
+      CHAINCODE_AS_A_SERVICE_BUILDER_CONFIG: '{"peername":"peer0org2"}'
+    volumes:
+      - ${FINORA_FABRIC_DIR:-/opt/finora/fabric}/crypto-config/peerOrganizations/org2.finora.local/peers/peer0.org2.finora.local/msp:/var/hyperledger/peer/msp:ro
+      - ${FINORA_FABRIC_DIR:-/opt/finora/fabric}/crypto-config/peerOrganizations/org2.finora.local/peers/peer0.org2.finora.local/tls:/var/hyperledger/peer/tls:ro
+      - ${FINORA_FABRIC_DIR:-/opt/finora/fabric}/build/peercfg:/var/hyperledger/peercfg:ro
+      - fabric-peer0-org2-data:/var/hyperledger/production
+    depends_on:
+      fabric-orderer:
+        condition: service_healthy
+    healthcheck: *fabric-peer-health
+    networks:
+      finora:
+        aliases:
+          - peer0.org2.finora.local
+
+  # Mỗi tổ chức chạy chaincode riêng; peer gọi tới theo connection.json trong package CCaaS. Image do CD build từ
+  # docker/fabric-network/chaincode/finora-ledger; package ID không đổi nên thay mã chỉ cần tạo lại container.
+  fabric-ccaas-org1:
+    image: ${FINORA_REGISTRY:-ghcr.io/huuthai2910}/finora-fabric-ccaas:${FABRIC_CCAAS_TAG:?Thiếu FABRIC_CCAAS_TAG trong images.env}
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 64m
+    environment:
+      CHAINCODE_SERVER_ADDRESS: 0.0.0.0:9999
+      CHAINCODE_ID_FILE: /var/hyperledger/ccaas/package-id
+      FINORA_PROOF_WRITER_MSPIDS: Org1MSP
+    volumes:
+      - ${FINORA_FABRIC_DIR:-/opt/finora/fabric}/build/chaincode:/var/hyperledger/ccaas:ro
+    networks:
+      finora:
+        aliases:
+          - peer0org1-finora-ledger
+
+  fabric-ccaas-org2:
+    image: ${FINORA_REGISTRY:-ghcr.io/huuthai2910}/finora-fabric-ccaas:${FABRIC_CCAAS_TAG:?Thiếu FABRIC_CCAAS_TAG trong images.env}
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 64m
+    environment:
+      CHAINCODE_SERVER_ADDRESS: 0.0.0.0:9999
+      CHAINCODE_ID_FILE: /var/hyperledger/ccaas/package-id
+      FINORA_PROOF_WRITER_MSPIDS: Org1MSP
+    volumes:
+      - ${FINORA_FABRIC_DIR:-/opt/finora/fabric}/build/chaincode:/var/hyperledger/ccaas:ro
+    networks:
+      finora:
+        aliases:
+          - peer0org2-finora-ledger
+
+  # Công cụ một lần (cd-deploy.sh gọi `finora-compose --profile fabric-tools run --rm -T fabric-tools <bước>`):
+  # cryptogen/configtxgen/osnadmin/peer CLI chạy docker/fabric-network/scripts/network.sh của bản deploy.
+  fabric-tools:
+    profiles: ["fabric-tools"]
+    image: ghcr.io/hyperledger/fabric-tools:2.5.16
+    entrypoint: ["/bin/bash", "/work/scripts/network.sh"]
+    working_dir: /work
+    environment:
+      FABRIC_CFG_PATH: /etc/hyperledger/fabric
+      FABRIC_LOGGING_SPEC: WARN
+    volumes:
+      - ../docker/fabric-network/config:/work/config:ro
+      - ../docker/fabric-network/scripts:/work/scripts:ro
+      - ${FINORA_FABRIC_DIR:-/opt/finora/fabric}/crypto-config:/work/crypto-config
+      - ${FINORA_FABRIC_DIR:-/opt/finora/fabric}/build:/work/build
+    networks:
+      - finora
 
   gateway:
     <<: *java-service
@@ -512,6 +710,9 @@ volumes:
   blockchain-db-data:
   caddy-data:
   caddy-config:
+  fabric-orderer-data:
+  fabric-peer0-org1-data:
+  fabric-peer0-org2-data:
 
 networks:
   finora:

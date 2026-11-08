@@ -57,6 +57,7 @@ Bố cục từ CD-001 (lần deploy đầu bằng CD tự chuyển từ bố c�
 | `/opt/finora/releases/<commit>/deploy` | Thư mục `deploy/` của từng commit đã deploy (giữ 5 bản gần nhất) |
 | `/opt/finora/current` | Symlink tới bản đang chạy |
 | `/opt/finora/config/Caddyfile` | Caddyfile đang dùng (bind mount cố định, đổi bản deploy không tạo lại Caddy) |
+| `/opt/finora/fabric` | Mạng Fabric: `crypto-config/` (khóa cryptogen), `build/` (genesis block, package chaincode, `core.yaml`, dấu `.network-ready`), `client/` (danh tính User1@org1 cho blockchain, chủ uid 10001). Quyền 700, sinh một lần |
 | `/opt/finora/state/images.env` | Tag image GHCR đang chạy của từng service (`LOAN_TAG=sha-…`); `images.env.prev` là bản trước |
 | `/opt/finora/state/deployed-commit`, `deploy-<commit>.log` | Commit đang chạy và log từng lần deploy |
 | `/opt/finora/state` | Như trước: `api-access.log` (Caddy), `public/_status.json` (trạng thái container), `keep-awake` |
@@ -67,8 +68,9 @@ Mọi lệnh compose trên VM đi qua `sudo finora-compose …` (nạp đúng fi
 
 `docker-compose.azure.yml` khác bản chạy ở máy dev:
 - Image ứng dụng lấy từ GHCR (`ghcr.io/huuthai2910/finora-<service>:sha-<commit>`), không build trên VM.
-- Thêm `notification`, `blockchain` (ledger MOCK, không chạy mạng Fabric) và `blockchain-db` (PostgreSQL trong VM,
-  mật khẩu `BLOCKCHAIN_VM_DB_PASSWORD` trong `deploy.env`).
+- Thêm `notification`, `blockchain` và `blockchain-db` (PostgreSQL trong VM, mật khẩu `BLOCKCHAIN_VM_DB_PASSWORD`
+  trong `deploy.env`).
+- Mạng Hyperledger Fabric chạy luôn trong VM (mục "Fabric trên VM"), `blockchain` ghi proof lên đó thay cho MOCK.
 - Không mở cổng service ra ngoài; Keycloak và Fineract chỉ mở ở 127.0.0.1 của VM.
 - Giới hạn RAM từng container; heap JVM tính theo giới hạn đó.
 - Kafka heap 256 MB.
@@ -83,7 +85,8 @@ Từ 02/11 `/api/v1/notifications` đi qua gateway: gọi thẳng thì notificat
 của bản web Expo dùng khi kiểm thử.
 
 Trang đánh thức đọc `_status.json` do `finora-status.sh` ghi; danh sách service trong script phải khớp compose
-(02/11: bỏ `fineract-db`, thêm `blockchain-db`, `blockchain`), nếu không web kẹt ở màn "Đang khởi động".
+(02/11: bỏ `fineract-db`, thêm `blockchain-db`, `blockchain`; 08/11 thêm 5 container Fabric), nếu không web kẹt ở màn
+"Đang khởi động".
 
 Caddy còn bỏ header `Origin` khi nó đúng bằng `https://<WEB_DOMAIN>`. Lý do:
 - Rewrite của Vercel đổi Host sang domain VM, nên Spring thấy Origin khác Host và coi là gọi chéo origin.
@@ -95,6 +98,29 @@ Caddy còn bỏ header `Origin` khi nó đúng bằng `https://<WEB_DOMAIN>`. L�
 Từ 02/11 Fineract dùng hai database trên Neon (`fineract_tenants`, `fineract_default`) như máy dev, thông tin
 kết nối lấy từ `docker/.env`. PostgreSQL cũ trong VM (`fineract-db`, dữ liệu `pg_dump` ngày 15/10) không chạy nữa,
 chỉ giữ volume ở profile `legacy`.
+
+## Fabric trên VM (FAB-AZ-001, từ 08/11/2026)
+
+Cùng mạng với `docker/fabric-network` ở máy dev (W3D): 1 orderer Raft, peer0 của Org1 (FINORA, ghi proof) và peer0
+của Org2 (đơn vị kiểm toán, phải endorse mọi lần ghi), LevelDB, chaincode `finora-ledger` dạng chaincode-as-a-service
+(mỗi tổ chức một container). Đo ở W3D khoảng 190 MiB khi chạy; giới hạn cứng orderer 256 MB, mỗi peer 384 MB, mỗi
+chaincode 64 MB. Không cổng nào mở ra ngoài VM; `blockchain` gọi `peer0.org1.finora.local:7051` trong mạng Docker.
+
+- Image orderer/peer/tools: `ghcr.io/hyperledger/fabric-*:2.5.16`. Chaincode: CD build từ
+  `docker/fabric-network/chaincode/finora-ledger` thành `ghcr.io/huuthai2910/finora-fabric-ccaas` (service CD
+  `fabric-ccaas`, biến `FABRIC_CCAAS_TAG`).
+- Lần deploy đầu có Fabric, `cd-deploy.sh` chạy `fabric-tools generate` (cryptogen, genesis block, package CCaaS,
+  `core.yaml`) vào `/opt/finora/fabric`, chép danh tính User1@org1 sang `/opt/finora/fabric/client` cho uid 10001; sau
+  khi cụm healthy thì chạy `fabric-tools all` (orderer + 2 peer join `finora-channel`, cài/approve/commit chaincode,
+  đọc thử qua từng peer) rồi đặt dấu `build/.network-ready`. Các lần sau bỏ qua hai bước này. Hỏng thì cả lần deploy
+  quay về bản trước (blockchain về MOCK).
+- Proof ghi trước 08/11 bằng MOCK giữ nguyên; `POST /api/v1/blockchain/proofs/{id}/verify` trả `NOT_ON_CHAIN_MOCK`.
+- Đọc một proof thẳng từ peer kiểm toán:
+  `sudo finora-compose --profile fabric-tools run --rm -T fabric-tools proof org2 <proofId>`.
+- Dựng lại mạng từ đầu (mất ledger Fabric, proof trong DB cần ghi lại): `sudo finora-compose rm -sf fabric-orderer
+  fabric-peer0-org1 fabric-peer0-org2 fabric-ccaas-org1 fabric-ccaas-org2`, xóa volume `finora_fabric-*` và
+  `/opt/finora/fabric`, rồi chạy tay CD với `services` = `fabric-ccaas`.
+- Đổi `docker/fabric-network/config` (configtx, crypto-config) không có tác dụng với mạng đã dựng; phải dựng lại như trên.
 
 ## Log trên Azure (từ 03/11/2026)
 

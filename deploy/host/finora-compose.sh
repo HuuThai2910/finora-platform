@@ -11,6 +11,8 @@ FINORA_ROOT=${FINORA_ROOT:-/opt/finora}
 RELEASE_DIR=${FINORA_RELEASE_DIR:-$FINORA_ROOT/current/deploy}
 export FINORA_ENV_DIR=$FINORA_ROOT/env
 export FINORA_CADDYFILE=$FINORA_ROOT/config/Caddyfile
+# Crypto, genesis block, package chaincode của mạng Fabric (sinh một lần, không nằm trong thư mục release).
+export FINORA_FABRIC_DIR=$FINORA_ROOT/fabric
 
 exec docker compose \
   -f "$RELEASE_DIR/docker-compose.azure.yml" \
