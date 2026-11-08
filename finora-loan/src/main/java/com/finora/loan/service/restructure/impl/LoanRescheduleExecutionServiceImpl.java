@@ -5,6 +5,7 @@ import com.finora.loan.domain.restructure.entity.*;
 import com.finora.loan.domain.restructure.enums.*;
 import com.finora.loan.domain.servicing.entity.FinoraLoan;
 import com.finora.loan.domain.servicing.entity.LoanServicingProjection;
+import com.finora.loan.domain.servicing.enums.FinoraLoanStatus;
 import com.finora.loan.domain.servicing.model.LoanServicingSnapshot;
 import com.finora.loan.integration.fineract.FineractIntegrationException;
 import com.finora.loan.integration.fineract.client.FineractRescheduleGateway;
@@ -14,6 +15,9 @@ import com.finora.loan.messaging.event.LoanRescheduledEventData;
 import com.finora.loan.repository.restructure.LoanRescheduleRequestRepository;
 import com.finora.loan.repository.servicing.FinoraLoanRepository;
 import com.finora.loan.repository.servicing.LoanServicingProjectionRepository;
+import com.finora.loan.repository.servicing.LoanServicingScheduleVersionRepository;
+import com.finora.loan.domain.servicing.entity.LoanServicingScheduleVersion;
+import com.finora.loan.mapper.core.ScheduleCalculationSnapshotMapper;
 import com.finora.loan.service.collection.CollectionCaseService;
 import com.finora.loan.service.outbox.OutboxService;
 import com.finora.loan.service.restructure.LoanRescheduleExecutionService;
@@ -42,6 +46,8 @@ public class LoanRescheduleExecutionServiceImpl implements LoanRescheduleExecuti
     private final LoanRescheduleRequestRepository loanRescheduleRequestRepository;
     private final FinoraLoanRepository finoraLoanRepository;
     private final LoanServicingProjectionRepository loanServicingProjectionRepository;
+    private final LoanServicingScheduleVersionRepository loanServicingScheduleVersionRepository;
+    private final ScheduleCalculationSnapshotMapper scheduleCalculationSnapshotMapper;
     private final FineractRescheduleGateway fineractRescheduleGateway;
     private final FineractServicingGateway fineractServicingGateway;
     private final LoanRescheduleProperties loanRescheduleProperties;
@@ -133,6 +139,13 @@ public class LoanRescheduleExecutionServiceImpl implements LoanRescheduleExecuti
         LocalDate previousMaturity = request.getOriginalMaturityDate();
         int previousDpd = projection.getDaysPastDue();
         projection.applyCoreSnapshot(snapshot, now);
+        if (snapshot.periods().isEmpty()) {
+            throw new IllegalStateException("Fineract không trả lịch mới sau khi duyệt cơ cấu");
+        }
+        int scheduleVersion = loanServicingScheduleVersionRepository.maximumVersion(loan.getId()) + 1;
+        loanServicingScheduleVersionRepository.save(LoanServicingScheduleVersion.create(
+                loan.getId(), request.getRequestId(), scheduleVersion,
+                scheduleCalculationSnapshotMapper.periodsJson(snapshot.periods()), now));
         loan.completeRestructuring(now);
         CollectionCaseService.DebtGroupChange groups = collectionCaseService.apply(loan, projection, previousDpd, now);
         request.complete(snapshot.maturityDate(), now);
@@ -166,6 +179,12 @@ public class LoanRescheduleExecutionServiceImpl implements LoanRescheduleExecuti
         Instant now = clock.instant();
         Duration backoff = backoff(request.getAttemptCount());
         request.fail(code, retryable, loanRescheduleProperties.maxAttempts(), now.plus(backoff), now);
+        if (request.getStatus() == LoanRescheduleStatus.MANUAL_REVIEW) {
+            FinoraLoan loan = finoraLoanRepository.findByIdForUpdate(request.getFinoraLoanId()).orElseThrow();
+            var previous = request.getPreviousLoanStatus() == null
+                    ? FinoraLoanStatus.ACTIVE : request.getPreviousLoanStatus();
+            loan.restoreAfterFailedRestructuring(previous, now);
+        }
     }
 
     private Duration backoff(int attempt) {

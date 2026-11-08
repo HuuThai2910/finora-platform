@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
 import com.finora.loan.dto.application.response.ScheduleCalculationSnapshotResponse;
 import com.finora.loan.dto.core.response.SchedulePeriodResponse;
+import com.finora.loan.domain.servicing.model.LoanServicingPeriod;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -42,11 +43,22 @@ public class ScheduleCalculationSnapshotMapper {
     }
 
     public List<SchedulePeriodResponse> periods(ScheduleCalculationSnapshot snapshot) {
+        return periods(snapshot.getPeriodsSnapshotJson());
+    }
+
+    public List<SchedulePeriodResponse> periods(String periodsSnapshotJson) {
         try {
-            // Đọc đúng snapshot đã dùng khi nộp hồ sơ; không gọi lại Fineract vì kết quả có thể đã thay đổi.
-            return List.copyOf(objectMapper.readValue(snapshot.getPeriodsSnapshotJson(), PERIOD_LIST_TYPE));
+            return List.copyOf(objectMapper.readValue(periodsSnapshotJson, PERIOD_LIST_TYPE));
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Schedule periods snapshot trong Loan DB không hợp lệ", exception);
+        }
+    }
+
+    public String periodsJson(List<LoanServicingPeriod> periods) {
+        try {
+            return objectMapper.writeValueAsString(periods);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Không thể đóng băng lịch Fineract", exception);
         }
     }
 }

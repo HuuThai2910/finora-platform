@@ -26,7 +26,7 @@ class LoanRescheduleRequestTest {
 
         assertThat(request.claim(NOW, Duration.ofMinutes(2))).isNull();
         assertThat(request.getStatus()).isEqualTo(LoanRescheduleStatus.PENDING_INVESTOR_CONSENT);
-        request.investorsApproved(NOW);
+        request.investorsApproved(com.finora.loan.domain.servicing.enums.FinoraLoanStatus.ACTIVE, NOW);
 
         assertThat(request.claim(NOW, Duration.ofMinutes(2))).isEqualTo(LoanRescheduleStep.CREATE);
         assertThat(request.getStatus()).isEqualTo(LoanRescheduleStatus.CREATING);
@@ -37,7 +37,7 @@ class LoanRescheduleRequestTest {
     void staleCreateIsOnlyTakenOverAfterLeaseAndReconcilesBeforeRetry() {
         LoanRescheduleRequest request = extension();
         request.approveForInvestorConsent("admin", null, "decision-1", NOW);
-        request.investorsApproved(NOW);
+        request.investorsApproved(com.finora.loan.domain.servicing.enums.FinoraLoanStatus.ACTIVE, NOW);
         request.claim(NOW, Duration.ofMinutes(2));
 
         assertThat(request.claim(NOW.plusSeconds(119), Duration.ofMinutes(2))).isNull();
@@ -49,7 +49,7 @@ class LoanRescheduleRequestTest {
     void retryMovesToManualReviewAtConfiguredLimit() {
         LoanRescheduleRequest request = extension();
         request.approveForInvestorConsent("admin", null, "decision-1", NOW);
-        request.investorsApproved(NOW);
+        request.investorsApproved(com.finora.loan.domain.servicing.enums.FinoraLoanStatus.ACTIVE, NOW);
         request.claim(NOW, Duration.ofMinutes(2));
 
         request.fail("FINERACT_TIMEOUT", true, 1, NOW.plusSeconds(30), NOW);
@@ -65,6 +65,24 @@ class LoanRescheduleRequestTest {
                 LocalDate.of(2026, 11, 10), 2, "Khó khăn", "V1", HASH,
                 "idem", HASH, LocalDate.of(2027, 1, 1), NOW))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void manualReviewCanBeRetriedOrClosedByOperations() {
+        LoanRescheduleRequest retry = extension();
+        retry.approveForInvestorConsent("admin", null, "decision-1", NOW);
+        retry.investorsApproved(com.finora.loan.domain.servicing.enums.FinoraLoanStatus.ACTIVE, NOW);
+        retry.claim(NOW, Duration.ofMinutes(2));
+        retry.fail("FINERACT_TIMEOUT", false, 1, NOW, NOW);
+
+        retry.retryManual(NOW.plusSeconds(1));
+        assertThat(retry.getStatus()).isEqualTo(LoanRescheduleStatus.CREATE_PENDING);
+        assertThat(retry.getAttemptCount()).isZero();
+
+        retry.claim(NOW.plusSeconds(2), Duration.ofMinutes(2));
+        retry.fail("FINERACT_REJECTED", false, 1, NOW, NOW.plusSeconds(3));
+        retry.cancelManual("admin", "Giữ lịch cũ", "cancel-1", NOW.plusSeconds(4));
+        assertThat(retry.getStatus()).isEqualTo(LoanRescheduleStatus.CANCELLED);
     }
 
     private LoanRescheduleRequest extension() {

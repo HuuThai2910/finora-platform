@@ -5,7 +5,7 @@ owner: Both
 status: ACTIVE
 depends_on: [P5, P6]
 created_at: 2026-10-16
-updated_at: 2026-10-25
+updated_at: 2026-11-08
 ---
 
 # FINORA-REMAINING — Kế hoạch chi tiết phần việc còn lại
@@ -344,6 +344,7 @@ dõi trong bảng này; defect/quyết định giữ mã gốc. Hướng dẫn m
 | N14 | P3 | Claude | Launcher: tùy chọn chữ ký SmartCA; `-WithLocalCic` tự trỏ mapping của User về CIC local (cùng khóa nội bộ) và trả về Vercel khi `Stop` | Tiện cho test |
 | N15 | P3 | Claude | ~~Dọn worktree agent~~ (xong 2026-10-18 ở platform, web, mobile; nhánh giữ nguyên, B76 là `worktree-agent-a234c64210b1e0838` @ `77aae07`); còn: bỏ hoặc gộp `docker/docker-compose.app.yml` vì profile `apps` của `docker-compose.yml` thay thế (thiếu Notification, Blockchain; User đọc `finora-user/.env` không tồn tại) | — |
 | N16 | P1 | Thái + Hải review | Rút hồ sơ/phần vốn trước chữ ký đã triển khai đồng bộ Loan–Investment–Notification–Mobile; borrower hủy listing mở, investor hủy lệnh `OPEN` hoặc từ chối hợp đồng chưa ký; sau chữ ký không được rút đơn phương | [`W4A-pre-sign-withdrawal.md`](W4A-pre-sign-withdrawal.md) — `READY_FOR_REVIEW`, test đích đã đạt; Hải review phần Investment trước merge/push |
+| N17 | P1 | Thái | **READY_FOR_REVIEW 2026-11-08.** Chuẩn hóa cơ cấu/gia hạn: hạn mức gia hạn tính riêng từng khoản vay và tổng thời hạn không vượt 24 tháng (`LEGAL-TERM-01`); Loan tự chọn kỳ chưa hoàn thành gần nhất, bỏ qua kỳ đã thu sớm đang chờ ghi core; Fineract bắt buộc tính lại lãi trên lịch chưa trả; Loan lưu phiên bản lịch có hiệu lực; lỗi cuối retry khôi phục `ACTIVE/DEFAULTED` và web vận hành cho retry/cancel thay vì khóa vô hạn | Loan V35–V38; endpoint policy theo khoản vay; mobile ẩn gia hạn khi đã đủ 24 tháng; event `RepaymentCollected/Cancelled.v1` không đổi schema. Toàn bộ 496 test Loan/Common và mobile TypeScript đạt; còn chạy Flyway + RSC-01–RSC-N09 trên stack Docker/Neon và Fineract thật trước `ACCEPTED` |
 
 ## 4. R0 — Đồng bộ source, roadmap và tài liệu
 

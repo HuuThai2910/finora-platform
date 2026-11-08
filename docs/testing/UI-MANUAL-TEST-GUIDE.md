@@ -1135,7 +1135,8 @@ trước hạn", "Đề nghị điều chỉnh kỳ hạn hoặc gia hạn".
 
 Bất biến tiền: người vay khả dụng 10.000.000 → 8.274.000 (đúng một lần), đang giữ không đổi; nhà đầu tư không đổi. Backend:
 khoản trả `COLLECTED`, `postOn` = ngày đến hạn; Fineract chưa có giao dịch `FINORA-REPAY-<repaymentId>` (T6); Kafka có một
-`RepaymentCollected`. Thẻ "Thanh toán và điều chỉnh" vẫn hiện kỳ tới chưa trả cho tới ngày ghi nhận (giới hạn đã biết, W2C).
+`RepaymentCollected`. Màn cơ cấu ghi kỳ này là "đã thanh toán trước, chờ ghi nhận", không cho chọn kỳ đó để đổi ngày; gia hạn
+toàn khoản tự bắt đầu từ kỳ tiếp theo.
 
 **REP-03 [UI] Đang giữ thì không lập được báo giá.** Ở "Chi tiết khoản vay" bấm "Tất toán toàn bộ trước hạn": thẻ "Còn khoản
 chờ ghi nhận" với câu backend "Kỳ đến hạn {ngày} đã thanh toán và đang chờ ghi nhận đúng ngày đến hạn. Hủy khoản chờ ghi nhận
@@ -1307,10 +1308,13 @@ sau đáo hạn). Trả "Toàn bộ quá hạn" (có thể cần 2–3 lần n�
 vay":
 
 1. "Hình thức đề nghị" = "Gia hạn thời hạn vay" ("Thêm kỳ trả và lùi ngày đáo hạn cuối cùng của khoản vay.").
-2. "Kỳ trả nợ muốn điều chỉnh *": chọn chip "Kỳ tới".
-3. "Số kỳ muốn gia hạn *" = 2 (trợ giúp "Từ 1 đến 120 kỳ. Lịch mới chỉ áp dụng sau khi đề nghị được duyệt.").
-4. "Lý do đề nghị *" (bộ đếm "{n}/500"), tick ô điều khoản (chữ do backend trả).
-5. "Gửi đề nghị" (không hỏi PIN) → thẻ "Đã gửi đề nghị" với câu "FINORA sẽ thẩm định trước. Nếu đạt, toàn bộ nhà đầu tư đang
+2. Không có ô chọn "Áp dụng từ kỳ". Màn ghi kỳ chưa hoàn thành gần nhất; backend tự xác định lại mốc này khi nhận request.
+3. Dùng khoản vay 12 tháng chưa từng gia hạn: "Số kỳ muốn gia hạn *" = 2. Trợ giúp phải ghi đúng hạn mức động:
+   "Khoản vay này có thể gia hạn tối đa 12 kỳ. Tổng thời hạn hợp đồng không được vượt quá 24 tháng." Khoản 18 tháng
+   phải hiện tối đa 6 kỳ; khoản 24 tháng phải ẩn lựa chọn "Gia hạn thời hạn vay" và giải thích đã đạt thời hạn tối đa.
+4. Kiểm tra "Đáo hạn hiện tại" và "Dự kiến sau gia hạn"; đây là dự kiến UI, lịch chính thức do Fineract tính.
+5. "Lý do đề nghị *" (bộ đếm "{n}/500"), tick ô điều khoản (chữ do backend trả).
+6. "Gửi đề nghị" (không hỏi PIN) → thẻ "Đã gửi đề nghị" với câu "FINORA sẽ thẩm định trước. Nếu đạt, toàn bộ nhà đầu tư đang
    nắm Note phải đồng ý rồi Fineract mới áp dụng lịch mới. Trong thời gian chờ, lịch trả hiện tại vẫn có hiệu lực."; lịch sử
    ghi "Chờ thẩm định".
 
@@ -1331,7 +1335,9 @@ Không hỏi PIN, không có ô ghi chú (app gửi `comment = null`).
 
 **RSC-04 [UI] Kết quả.** Trong vài phút: đề nghị của người vay qua "Đang áp dụng lịch mới" tới "Đã áp dụng"; khoản vay có thể
 hiện "Đang cơ cấu" ("…Thanh toán tạm khoá cho tới khi lịch mới có hiệu lực.") rồi về "Đang trả nợ"; "Xem lịch trả nợ 8 kỳ"
-(6 → 8 kỳ); ngày đáo hạn lùi 2 tháng (evidence: 2027-04-17 → 2027-06-17). Không thu phí (ví không đổi). Ngày đáo hạn mới của
+(6 → 8 kỳ); ngày đáo hạn lùi 2 tháng (evidence: 2027-04-17 → 2027-06-17). Lịch hiển thị phải là phiên bản mới lấy từ
+`loan_servicing_schedule_versions`, không phải lịch hợp đồng cũ. Lãi các kỳ chưa trả được Fineract tính lại; tổng gốc chưa
+trả không tăng và không thu phí cơ cấu (ví không đổi). Ngày đáo hạn mới của
 vị thế nhà đầu tư không hiện trên app: kiểm bằng API `GET :8084/api/v1/investments/portfolio` (`maturityDate`). Thông báo:
 người vay có tin chờ biểu quyết (`RESCHEDULE_UNDER_INVESTOR_VOTE`) và tin lịch mới, nhà đầu tư có lời mời
 (`RESCHEDULE_CONSENT_REQUESTED`) và tin `RESCHEDULED`. Kafka: mỗi topic `reschedule-consent-requested`,
@@ -1342,14 +1348,14 @@ người vay có tin chờ biểu quyết (`RESCHEDULE_UNDER_INVESTOR_VOTE`) và
 | Mã | Kích hoạt | Cách gây ra | Kết quả trên UI | Backend |
 |---|---|---|---|---|
 | RSC-N01 | [UI] | Gửi thêm đề nghị khi đề nghị trước chưa kết thúc | Form bị thay bằng thẻ "Đề nghị đang xử lý"; nếu gửi được (thiết bị thứ hai) thì câu "Khoản vay đã có một yêu cầu cơ cấu chưa kết thúc" và màn tự tải lại | `409 ACTIVE_RESTRUCTURE_REQUEST_EXISTS` |
-| RSC-N02 | [UI] | Bỏ trống/nhập sai form | "Chọn kỳ bắt đầu áp dụng.", "Ngày bắt đầu không được trước hôm nay.", "Số kỳ gia hạn từ 1 đến 120.", "Cho FINORA biết lý do bạn cần cơ cấu.", "Lý do tối đa 500 ký tự.", "Hãy xác nhận điều khoản cơ cấu trước khi gửi." | Không gọi API |
+| RSC-N02 | [UI] | Bỏ trống/nhập vượt hạn mức động (ví dụ nhập 13 cho khoản 12 tháng) | Gia hạn: "Khoản vay này chỉ được gia hạn từ 1 đến 12 kỳ để tổng thời hạn không vượt quá 24 tháng."; đổi ngày một kỳ: "Chọn kỳ muốn đổi ngày trả."; cùng các lỗi lý do tối đa 500 ký tự và chưa xác nhận điều khoản | Không gọi API |
 | RSC-N03 | [UI] | Admin từ chối (RSC-02 nhánh từ chối) | Đề nghị "Đã từ chối", có mục "Phản hồi của FINORA"; lịch cũ giữ nguyên. Người vay **không** nhận thông báo (P8 chưa làm) | Fineract không bị gọi |
 | RSC-N04 | [UI] | Nhà đầu tư bấm "Từ chối" → "Từ chối đề nghị cơ cấu?" / "Một nhà đầu tư từ chối sẽ kết thúc đề nghị; lịch trả hiện tại tiếp tục có hiệu lực." → "Từ chối" | Nhà đầu tư: "Đã từ chối"; người vay: "Nhà đầu tư không đồng ý"; lịch, ngày đáo hạn không đổi | `INVESTOR_REJECTED`, completion `approved=false`; không request Fineract. Với hai nhà đầu tư: một người từ chối là kết thúc |
 | RSC-N05 | [API] | Gửi `confirmedTermsVersion` cũ | App tự tải lại điều khoản | `409 RESTRUCTURE_TERMS_CHANGED` "Điều khoản cơ cấu đã thay đổi, vui lòng đọc và xác nhận lại" |
 | RSC-N06 | [UI] | Khoản vay đã tất toán | "Khoản vay đang ở trạng thái “Đã tất toán” nên chưa nhận đề nghị cơ cấu mới." | Qua API: `LOAN_NOT_ACTIVE` "Chỉ khoản vay đang hoạt động hoặc default mới được cơ cấu" |
-| RSC-N07 | [API] | `rescheduleFromDate` ở quá khứ | — | `RESCHEDULE_DATE_IN_PAST` "Ngày bắt đầu cơ cấu không được ở quá khứ" |
+| RSC-N07 | [UI + API] | Khoản 12 tháng gửi `extraTerms=13`; khoản 24 tháng gọi thẳng API gia hạn; hoặc cấu hình/gửi vượt phần hạn mức cộng dồn còn lại | UI chặn theo hạn mức khoản vay và ẩn gia hạn ở khoản 24 tháng; API vẫn kiểm tra độc lập | `EXTRA_TERMS_LIMIT_EXCEEDED`, `CUMULATIVE_EXTRA_TERMS_LIMIT_EXCEEDED` hoặc `TOTAL_TERMS_LIMIT_EXCEEDED`; không tạo request/lịch mới |
 | RSC-N08 | [API] | Gửi lại đúng đề nghị cùng `Idempotency-Key` | — | Cùng `requestId` (`reschedule.idempotent-submit`) |
-| RSC-N09 | [UI + công cụ] | Fineract local thiếu reason code `LoanRescheduleReason` (launcher cảnh báo, không bật worker cơ cấu) rồi đi hết RSC-01…03 | Đề nghị dừng ở "Đã duyệt, chờ áp dụng"; khoản vay "Đang cơ cấu", thanh toán tạm khóa. Nếu worker bật mà thiếu `FINERACT_RESCHEDULE_REASON_ID`: "Đang kiểm tra thêm" | `CREATE_PENDING` (worker tắt) hoặc `MANUAL_REVIEW`; chưa có API gỡ `MANUAL_REVIEW`, khoản vay bị chặn đề nghị mới: bỏ khoản vay này |
+| RSC-N09 | [UI + công cụ] | Fineract local thiếu reason code `LoanRescheduleReason` (launcher cảnh báo, không bật worker cơ cấu) rồi đi hết RSC-01…03 | Đề nghị dừng ở "Đã duyệt, chờ áp dụng". Nếu worker chạy và hết retry: yêu cầu chuyển sang tab "Cần xử lý lỗi", khoản vay trở lại trạng thái trước cơ cấu để tiếp tục thanh toán lịch cũ. Sau khi sửa Fineract, admin chọn "Thử áp dụng lại"; nếu không tiếp tục đề nghị thì chọn "Hủy yêu cầu" và nhập lý do | `CREATE_PENDING` khi worker tắt; `MANUAL_REVIEW` sau lỗi vĩnh viễn, Loan khôi phục `ACTIVE/DEFAULTED`; retry quay lại hàng đợi, cancel thành `CANCELLED` |
 | RSC-N10 | [API] | Admin gửi quyết định (khóa mới) cho đề nghị không còn `PENDING_REVIEW` | Web chỉ hiện đề nghị chờ thẩm định | `500 INTERNAL_ERROR` thay vì `409` (code ném `IllegalStateException`): ghi defect đề xuất (mục 7.1) |
 | RSC-N11 | [API] | Admin từ chối không có `comment` | Web bắt buộc "Lý do từ chối" | `400 REJECTION_REASON_REQUIRED` |
 | RSC-N12 | — | Nhà đầu tư không biểu quyết | Đề nghị chờ mãi "Chờ nhà đầu tư đồng ý" | Không có hạn hay timeout biểu quyết (không hỗ trợ) |

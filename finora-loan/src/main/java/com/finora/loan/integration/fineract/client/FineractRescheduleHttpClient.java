@@ -50,6 +50,8 @@ public class FineractRescheduleHttpClient implements FineractRescheduleGateway {
         payload.put("rescheduleReasonId", command.reasonId());
         payload.put("rescheduleReasonComment", command.marker());
         payload.put("submittedOnDate", command.submittedOnDate().toString());
+        // Gia hạn phải tính lại lãi trên dư nợ thực tế của các kỳ chưa trả; không giữ nguyên tổng lãi cũ.
+        payload.put("recalculateInterest", true);
         payload.put("dateFormat", fineractBookingProperties.dateFormat());
         payload.put("locale", fineractBookingProperties.locale());
         if (command.adjustedDueDate() != null) {

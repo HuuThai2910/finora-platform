@@ -5,6 +5,7 @@ import com.finora.loan.dto.response.PageResponse;
 import com.finora.loan.dto.restructure.request.AdminLoanRescheduleDecisionRequest;
 import com.finora.loan.dto.restructure.request.CreateLoanRescheduleRequest;
 import com.finora.loan.dto.restructure.response.LoanReschedulePolicyResponse;
+import com.finora.loan.dto.restructure.response.LoanRescheduleEligibilityResponse;
 import com.finora.loan.dto.restructure.response.LoanRescheduleResponse;
 
 import java.util.UUID;
@@ -17,6 +18,9 @@ public interface LoanRescheduleService {
 
     /** Điều khoản cơ cấu hiện hành (phiên bản, nội dung, hash) để người vay đọc và xác nhận. */
     LoanReschedulePolicyResponse policy();
+
+    /** Điều khoản và số kỳ còn được gia hạn của đúng khoản vay thuộc người dùng hiện tại. */
+    LoanRescheduleEligibilityResponse eligibility(String loanNumber);
 
     /** Người vay gửi yêu cầu cơ cấu cho khoản vay của mình; gửi lại cùng {@code Idempotency-Key} trả yêu cầu cũ. */
     LoanRescheduleResponse submit(String loanNumber, String idempotencyKey,
@@ -34,5 +38,12 @@ public interface LoanRescheduleService {
 
     /** Quản trị từ chối, bắt buộc có lý do; gửi lại cùng {@code decisionKey} trả kết quả cũ. */
     LoanRescheduleResponse reject(UUID requestId, String decisionKey,
+            AdminLoanRescheduleDecisionRequest input);
+
+    /** Quản trị chạy lại yêu cầu đã hết retry; marker Fineract đảm bảo không tạo trùng. */
+    LoanRescheduleResponse retryManual(UUID requestId);
+
+    /** Quản trị đóng yêu cầu lỗi và trả khoản vay về trạng thái trước cơ cấu. */
+    LoanRescheduleResponse cancelManual(UUID requestId, String decisionKey,
             AdminLoanRescheduleDecisionRequest input);
 }

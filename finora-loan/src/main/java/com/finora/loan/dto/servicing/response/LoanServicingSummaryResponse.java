@@ -8,6 +8,7 @@ import java.time.LocalDate;
 
 public record LoanServicingSummaryResponse(
         String loanNumber,
+        Long loanApplicationId,
         String applicationNumber,
         String contractNumber,
         FinoraLoanStatus status,

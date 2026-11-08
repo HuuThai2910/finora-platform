@@ -324,10 +324,15 @@ Investment lấy đồng thuận chủ Note
    #approve POST /rescheduleloans/{id}?command=approve
    FineractServicingHttpClient#read
    complete                                                  [TX]
+   → lưu `loan_servicing_schedule_versions`
 → LoanRescheduled.v1 outbox
 ```
 
-Lịch cũ còn hiệu lực cho tới khi core approve lịch mới. Một chủ Note từ chối thì Loan không gọi Fineract.
+Lịch cũ còn hiệu lực cho tới khi core approve lịch mới. Một chủ Note từ chối thì Loan không gọi Fineract. Gia hạn nhận
+1 đến số kỳ còn được phép của đúng khoản vay, với trần cứng tổng thời hạn 24 tháng; khoản 24 tháng ẩn lựa chọn gia hạn,
+còn khoản 12 tháng chưa gia hạn có thể xin tối đa 12 kỳ. Loan tự chọn kỳ chưa hoàn thành gần nhất. `RepaymentCollected.v1`
+và `RepaymentCancelled.v1` duy trì `pending_scheduled_repayments` để kỳ đã thu sớm không bị chọn lại. Fineract nhận
+`recalculateInterest=true`; lịch sau duyệt được đóng băng theo version và trở thành lịch hiệu lực mà UI đọc.
 
 ## 12. API Loan tra nhanh
 

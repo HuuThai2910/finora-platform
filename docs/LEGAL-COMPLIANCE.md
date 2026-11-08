@@ -2,7 +2,7 @@
 
 > Tài liệu dùng chung cho thiết kế, code review và viết báo cáo khóa luận. Đây là bản đối chiếu kỹ thuật, không thay thế ý kiến pháp lý của luật sư/cơ quan có thẩm quyền.
 
-- Ngày kiểm tra nguồn gần nhất: **2026-10-03**.
+- Ngày kiểm tra nguồn gần nhất: **2026-11-08**.
 - Chỉ coi một yêu cầu là “đã xác minh” khi có đường dẫn tới văn bản chính thức và chỉ rõ điều/khoản liên quan.
 - Mỗi service chỉ dẫn chiếu mã kiểm soát trong file này; không sao chép luật sang nhiều plan vì dễ lệch phiên bản.
 - Trước khi triển khai thật hoặc khi văn bản thay đổi, owner nghiệp vụ phải rà soát lại trạng thái hiệu lực.
@@ -14,6 +14,7 @@
 | `LAW-CIVIL-2015` | Bộ luật Dân sự 91/2015/QH13, **Điều 468** | 01-01-2017 | [Cổng TTĐT Chính phủ](https://vanban.chinhphu.vn/default.aspx?docid=183188&pageid=27160) | Trần lãi suất theo thỏa thuận dân sự; phải xét ngoại lệ khi luật khác điều chỉnh. |
 | `LAW-CREDIT-2024` | Luật Các tổ chức tín dụng 32/2024/QH15, **Điều 100** | 01-07-2024; đã được sửa đổi một phần | [Cổng TTĐT Chính phủ](https://vanban.chinhphu.vn/?classid=1&docid=211190&pageid=27160&typegroupid=3) | Phân biệt cơ chế lãi suất của tổ chức tín dụng với mô hình P2P của FINORA. |
 | `LAW-P2P-2025` | Nghị định 94/2025/NĐ-CP, **Điều 1, Điều 3, Điều 11 và Điều 22** | 01-07-2025 | [Trang văn bản](https://vanban.chinhphu.vn/?classid=1&docid=213519&pageid=27160), [PDF chính thức](https://datafiles.chinhphu.vn/cpp/files/vbpq/2025/5/94-ndcp.signed.pdf) | Phạm vi sandbox, định nghĩa P2P, kiểm soát dư nợ, CIC, kênh thanh toán và thời hạn hợp đồng không quá 02 năm; chia sẻ dữ liệu giữa các bên tham gia và cung cấp thông tin khoản vay cho khách hàng (Điều 11 khoản 2 điểm d, Điều 22 khoản 3 và khoản 8 điểm c, đọc trên PDF ngày 2026-10-10). |
+| `LAW-P2P-AMENDMENT-2026` | Nghị định 382/2026/NĐ-CP sửa đổi Nghị định 94/2025/NĐ-CP | 06-10-2026 | [Cổng TTĐT Chính phủ](https://vanban.chinhphu.vn/?classid=1&docid=219812&pageid=27160) | Đã rà soát ngày 08-11-2026; không loại bỏ giới hạn thời hạn hợp đồng P2P tại điểm c khoản 1 Điều 11 Nghị định 94. |
 | `CIRCULAR-P2P-2026` | Thông tư 19/2026/TT-NHNN | 30-06-2026 | [Cổng TTĐT Chính phủ](https://vanban.chinhphu.vn/?classid=1&docid=218234&pageid=27160) | Phân cấp thực hiện thủ tục hành chính của Nghị định 94; đã kiểm tra là văn bản mới liên quan nhưng hiện không tạo thêm công thức lãi, field hay state cho Loan Service. |
 | `LAW-CONSUMER-2023` | Luật Bảo vệ quyền lợi người tiêu dùng 19/2023/QH15, **Điều 4, 10, 23, 25, 37, 38** | 01-07-2024 | [Trang văn bản](https://vanban.chinhphu.vn/?docid=208363&pageid=27160), [PDF chính thức](https://datafiles.chinhphu.vn/cpp/files/vbpq/2023/7/luat19_2023.pdf) | Minh bạch thông tin, không gây nhầm lẫn, hợp đồng rõ ràng bằng tiếng Việt, giao kết từ xa và quyền xem/tải hợp đồng. |
 | `LAW-ELECTRONIC-2023` | Luật Giao dịch điện tử 20/2023/QH15, **Điều 8–11, 13, 22–23, 38** | 01-07-2024 | [Trang văn bản](https://vanban.chinhphu.vn/?classid=1&docid=208421&pageid=27160&typegroupid=3), [PDF chính thức](https://datafiles.chinhphu.vn/cpp/files/vbpq/2023/8/luat20-2023-qh15..pdf) | Giá trị thông điệp dữ liệu, tính toàn vẹn/lưu trữ, chữ ký điện tử và thông báo điện tử. |
@@ -36,6 +37,11 @@
 
 - Theo điểm c khoản 1 Điều 11 Nghị định 94/2025/NĐ-CP, hợp đồng giữa bên vay và bên cho vay trong giải pháp P2P sandbox không vượt quá 02 năm.
 - FINORA chặn `maxTermMonths <= 24` tại domain và database. Mốc tối thiểu 3 tháng hiện là chính sách Product, không được mô tả là mức tối thiểu theo luật.
+- Cơ cấu/gia hạn cũng không được làm tổng thời hạn hợp đồng vượt 24 tháng. Loan áp giới hạn cứng ở cấu hình/domain và
+  tính hạn mức riêng cho từng khoản vay: `số kỳ còn được gia hạn = min(giới hạn mỗi lần, giới hạn cộng dồn còn lại,
+  24 - tổng số kỳ hiện tại)`. Ví dụ khoản 12 tháng chưa từng gia hạn còn tối đa 12 kỳ; khoản 18 tháng còn 6 kỳ;
+  khoản 24 tháng không còn quyền chọn gia hạn thêm kỳ. Đây là kiểm soát pháp lý; UI chỉ phản ánh sớm và không thay
+  thế kiểm tra backend.
 
 ### `LEGAL-LIMIT-01` — Dư nợ người vay
 
@@ -187,6 +193,8 @@ Nguồn đối chiếu: đề xuất eKYC ngày 2026-10-16 (mục 5) đọc trê
 - Theo Điều 13, lãi trên dư nợ gốc quá hạn không vượt 150% lãi suất trong hạn tương ứng; lãi chậm trả trên tiền lãi chưa trả không vượt 10%/năm. Cách tính phải dùng đúng căn cứ tiền, số ngày và day-count đã công bố; không cộng trùng trên cùng căn cứ.
 - Điều 18 là căn cứ tham chiếu thứ tự thu nợ: gốc quá hạn, lãi trên gốc quá hạn, gốc đến hạn, lãi trên gốc đến hạn. Phí/lãi chậm trả bổ sung chỉ được thu theo contract/Fineract policy đã công bố và phải giữ breakdown.
 - Cơ cấu lại thời hạn trả nợ phải có yêu cầu, đánh giá và quyết định; trạng thái chờ duyệt không tự dừng nghĩa vụ theo lịch cũ. FINORA V2 thêm cổng toàn bộ nhà đầu tư đang nắm Note đồng ý sau thẩm định nội bộ; đây là kiểm soát hợp đồng/sản phẩm nhiều bên của FINORA, không được diễn giải thành một thủ tục pháp luật mặc định cho mọi khoản vay. Mọi lịch mới lấy từ Fineract và lưu audit/version.
+- Gia hạn nợ không được làm tổng thời hạn hợp đồng vượt 24 tháng theo `LEGAL-TERM-01`. Giới hạn theo từng khoản vay
+  được trả từ `GET /api/v1/loans/{loanNumber}/reschedule-policy`; gọi thẳng command vẫn bị Loan từ chối nếu vượt hạn mức.
 - Các mốc nhóm nợ/DPD trong [LOAN-SERVICING-POLICY.md](LOAN-SERVICING-POLICY.md) là benchmark nội bộ/CIC mock. Chưa được mô tả là phân loại CIC thật hoặc quy định áp dụng trực tiếp cho pháp nhân P2P cho tới khi `LEGAL-OPEN-05` được duyệt.
 - CIC/AI tách `nhomNoHienTai` khỏi `nhomNoCaoNhat` lịch sử. Mốc từ chối 12 tháng và bắt buộc
   thẩm định đến 24 tháng sau khi khắc phục là policy demo cấu hình của FINORA, không phải thời hạn

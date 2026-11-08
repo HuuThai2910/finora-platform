@@ -153,6 +153,7 @@ ngày cũ/mới, tham số lịch và `occurredAt`; không chứa lý do tự do
 | API/worker | Luồng code thực tế | Dữ liệu thay đổi |
 |---|---|---|
 | `GET /api/v1/loans/reschedule-policy` | `LoanRescheduleController.policy` → `LoanRescheduleService.policy` | Read-only version/text/hash |
+| `GET /api/v1/loans/{loanNumber}/reschedule-policy` | controller → `eligibility` → `LoanTermExtensionLimitPolicy` | Read-only điều khoản và số kỳ còn được gia hạn của đúng khoản vay; kiểm tra owner |
 | `POST /api/v1/loans/{loanNumber}/reschedule-requests` | controller → `submit` → `LoanRescheduleRequest.submit` → repository | Tạo `PENDING_REVIEW`; không đổi loan |
 | `GET .../reschedule-requests` | controller → `listMine` → paged repository | Read-only, kiểm tra owner |
 | `POST /api/v1/admin/loan-reschedule-requests/{id}/approve` | admin controller → `approve` → outbox consent request | Request `PENDING_INVESTOR_CONSENT`; loan/lịch giữ nguyên |

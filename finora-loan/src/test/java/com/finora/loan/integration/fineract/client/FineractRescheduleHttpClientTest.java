@@ -49,6 +49,7 @@ class FineractRescheduleHttpClientTest {
         server.expect(requestTo("http://fineract.test/rescheduleloans"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("\"extraTerms\":2")))
+                .andExpect(content().string(org.hamcrest.Matchers.containsString("\"recalculateInterest\":true")))
                 .andRespond(withSuccess("{\"resourceId\":91}", MediaType.APPLICATION_JSON));
         server.expect(requestTo("http://fineract.test/rescheduleloans/91?command=approve"))
                 .andExpect(method(HttpMethod.POST))

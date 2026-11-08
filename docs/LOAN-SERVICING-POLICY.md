@@ -417,6 +417,18 @@ Ba kết quả nghiệp vụ được phân biệt:
 - gia hạn nợ: kéo dài ngày đáo hạn;
 - từ chối cơ cấu: giữ nguyên lịch và tiếp tục tính quá hạn nếu người vay không trả.
 
+Giới hạn policy hiện hành:
+
+- tổng thời hạn hợp đồng sau mọi lần gia hạn không vượt **24 tháng/kỳ tháng** (`LEGAL-TERM-01`);
+- cận trên được tính riêng cho từng khoản vay bằng số nhỏ nhất giữa: giới hạn mỗi yêu cầu, phần hạn mức cộng dồn
+  còn lại và `24 - tổng số kỳ hiện tại`;
+- cấu hình mặc định cho phép tối đa 24 kỳ mỗi lần/cộng dồn nhưng không thể nới trần tổng 24; cấu hình môi trường chỉ
+  có thể siết chặt hơn;
+- ví dụ: khoản 12 tháng chưa gia hạn còn tối đa 12 kỳ, khoản 18 tháng còn 6 kỳ, khoản 24 tháng không được gia hạn thêm;
+- gia hạn toàn khoản bắt đầu từ kỳ chưa hoàn thành gần nhất; người vay không tự nhập mốc này;
+- kỳ đã thu tiền trước và đang chờ Payment ghi Fineract được xem là đã xử lý cho mục đích chọn kỳ: điều chỉnh kỳ không được
+  chọn kỳ đó, còn gia hạn bắt đầu từ kỳ chưa trả tiếp theo.
+
 **Cách hiểu nghiệp vụ — công thức bằng lời:**
 
 ```text
@@ -424,6 +436,12 @@ Phí gửi yêu cầu cơ cấu hoặc gia hạn = 0 đồng
 
 Lịch trả nợ mới
 = Lịch do hệ thống lõi tính sau khi FINORA thẩm định đạt và toàn bộ nhà đầu tư đồng ý
+
+Gốc còn lại sau cơ cấu
+= Tổng gốc chưa trả trước cơ cấu (không cộng thêm gốc, không nhập lãi vào gốc)
+
+Lãi của lịch mới
+= Lãi Fineract tính lại trên dư nợ gốc thực tế của các kỳ chưa trả và số ngày sử dụng vốn mới
 ```
 
 Gửi yêu cầu hoặc được FINORA thẩm định đạt chưa có nghĩa là đã được gia hạn. Trước khi toàn bộ nhà đầu
@@ -446,9 +464,16 @@ Giải thích bằng tiếng Việt:
 - `rescheduleFee` — **phí riêng của FINORA cho việc gửi hoặc duyệt yêu cầu cơ cấu/gia hạn**. Phiên bản
   hiện tại đặt bằng 0, vì vậy thao tác này không tự tạo lệnh trừ ví.
 - Số tiền gốc, lãi, ngày đến hạn và ngày đáo hạn trong lịch mới **không nằm trong công thức trên**;
-  chúng được Fineract tính lại sau khi yêu cầu qua đủ hai cổng thẩm định và đồng thuận.
+  chúng được Fineract tính lại với `recalculateInterest=true` sau khi yêu cầu qua đủ hai cổng thẩm định và đồng thuận.
+- Các kỳ đã thanh toán không bị tính lại. Các kỳ chưa trả và kỳ được thêm mới được tính lãi theo dư nợ thực tế; không
+  cộng lãi vào gốc và không tính lãi chồng lãi.
 - Trong thời gian yêu cầu còn `PENDING_REVIEW`, `PENDING_INVESTOR_CONSENT` hoặc bị từ chối, hệ thống vẫn dùng lịch cũ. Nếu người vay
   không trả theo lịch cũ thì khoản vay vẫn phát sinh quá hạn bình thường.
+
+Sau khi Fineract duyệt, Loan lưu một phiên bản bất biến của lịch mới trong
+`loan_servicing_schedule_versions`; API lịch trả đọc phiên bản mới nhất, không quay lại snapshot hợp đồng ban đầu. Nếu worker
+hết số lần thử hoặc gặp lỗi vĩnh viễn, yêu cầu chuyển `MANUAL_REVIEW` nhưng khoản vay được trả về trạng thái `ACTIVE` hoặc
+`DEFAULTED` trước cơ cấu để không khóa thanh toán vô thời hạn.
 
 Ví dụ đối chiếu field: FINORA thẩm định đạt đưa request sang `PENDING_INVESTOR_CONSENT`; chưa gọi
 Fineract. Chỉ khi Investment phát kết quả đồng thuận đầy đủ, Loan mới sang `CREATE_PENDING`, áp dụng

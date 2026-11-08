@@ -2,6 +2,7 @@ package com.finora.loan.integration.fineract.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.finora.loan.domain.servicing.model.LoanServicingHistory;
+import com.finora.loan.domain.servicing.model.LoanServicingPeriod;
 import com.finora.loan.domain.servicing.model.LoanServicingSnapshot;
 import com.finora.loan.integration.fineract.FineractIntegrationException;
 import org.springframework.stereotype.Component;
@@ -33,7 +34,8 @@ public class FineractServicingHttpClient implements FineractServicingGateway {
                     "Fineract không trả dữ liệu servicing", false, null);
         }
         JsonNode summary = loan.path("summary");
-        ScheduleDates dates = scheduleDates(loan.path("repaymentSchedule").path("periods"), businessDate);
+        JsonNode periods = loan.path("repaymentSchedule").path("periods");
+        ScheduleDates dates = scheduleDates(periods, businessDate);
         BigDecimal overdue = money(summary, "totalOverdue");
         LocalDate overdueSince = overdue.signum() == 0 ? null : dates.overdueSince();
         int dpd = overdueSince == null ? 0 : Math.toIntExact(ChronoUnit.DAYS.between(overdueSince, businessDate));
@@ -44,7 +46,7 @@ public class FineractServicingHttpClient implements FineractServicingGateway {
                 money(summary, "interestOutstanding"), money(summary, "feeChargesOutstanding"),
                 money(summary, "penaltyChargesOutstanding"), money(summary, "totalOutstanding"), overdue,
                 overdueSince, Math.max(0, dpd), dates.nextDueDate(), dates.nextDueAmount(),
-                optionalDate(loan.path("timeline").path("expectedMaturityDate")));
+                optionalDate(loan.path("timeline").path("expectedMaturityDate")), schedulePeriods(periods));
     }
 
     @Override
@@ -95,6 +97,22 @@ public class FineractServicingHttpClient implements FineractServicingGateway {
                     optionalDate(period.path("obligationsMetOnDate"))));
         }
         return installments;
+    }
+
+    private List<LoanServicingPeriod> schedulePeriods(JsonNode periods) {
+        List<LoanServicingPeriod> values = new ArrayList<>();
+        if (!periods.isArray()) return values;
+        for (JsonNode period : periods) {
+            LocalDate dueDate = optionalDate(period.path("dueDate"));
+            if (!period.hasNonNull("period") || dueDate == null) continue;
+            values.add(new LoanServicingPeriod(
+                    period.path("period").asInt(), optionalDate(period.path("fromDate")), dueDate,
+                    period.path("daysInPeriod").isNumber() ? period.path("daysInPeriod").asInt() : null,
+                    money(period, "principalDue"), money(period, "interestOriginalDue"),
+                    money(period, "feeChargesDue"), money(period, "penaltyChargesDue"),
+                    money(period, "totalDueForPeriod"), money(period, "principalLoanBalanceOutstanding")));
+        }
+        return values;
     }
 
     private Long positiveId(JsonNode node, String field) {

@@ -141,6 +141,16 @@ public class FinoraLoan {
         updatedAt = Objects.requireNonNull(now, "now");
     }
 
+    /** Khôi phục trạng thái trước cơ cấu khi Fineract từ chối hoặc worker hết số lần thử. */
+    public void restoreAfterFailedRestructuring(FinoraLoanStatus previousStatus, Instant now) {
+        if (status != FinoraLoanStatus.RESTRUCTURING) return;
+        if (previousStatus != FinoraLoanStatus.ACTIVE && previousStatus != FinoraLoanStatus.DEFAULTED) {
+            throw new IllegalArgumentException("Trạng thái trước cơ cấu không hợp lệ");
+        }
+        status = previousStatus;
+        updatedAt = Objects.requireNonNull(now, "now");
+    }
+
     public void markDefaulted(Instant now) {
         if (status == FinoraLoanStatus.DEFAULTED) return;
         if (status != FinoraLoanStatus.ACTIVE && status != FinoraLoanStatus.RESTRUCTURING) {

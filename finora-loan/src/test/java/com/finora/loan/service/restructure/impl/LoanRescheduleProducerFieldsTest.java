@@ -72,7 +72,7 @@ class LoanRescheduleProducerFieldsTest {
     private final CollectionCaseService collectionCases = mock(CollectionCaseService.class);
     private final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
     private final LoanRescheduleProperties properties = new LoanRescheduleProperties(
-            true, 5_000, 20, 10, null, null, null, 7L, null, null);
+            true, 5_000, 20, 10, null, null, null, 7L, 6, 6, 24, null, null);
     private FinoraLoan loan;
     private LoanRescheduleRequest request;
 
@@ -99,8 +99,13 @@ class LoanRescheduleProducerFieldsTest {
     @Test
     void consentRequestCarriesTheBorrowerOfTheLoan() {
         actAsAdmin();
-        LoanRescheduleService service = new LoanRescheduleServiceImpl(requests, loans, projections, properties,
-                mock(HashingService.class), outbox, clock);
+        LoanRescheduleService service = new LoanRescheduleServiceImpl(requests, loans, projections,
+                mock(com.finora.loan.repository.contract.LoanContractRepository.class),
+                mock(com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository.class),
+                mock(com.finora.loan.mapper.core.ScheduleCalculationSnapshotMapper.class),
+                mock(com.finora.loan.repository.servicing.LoanServicingScheduleVersionRepository.class),
+                mock(com.finora.loan.repository.servicing.PendingScheduledRepaymentRepository.class),
+                properties, mock(HashingService.class), outbox, clock);
 
         service.approve(REQUEST_ID, "approve-key", new AdminLoanRescheduleDecisionRequest("Đủ điều kiện"));
 
@@ -134,7 +139,8 @@ class LoanRescheduleProducerFieldsTest {
 
     private LoanRescheduledEventData executeApproval(LocalDate nextDueDate, BigDecimal nextDueAmount) {
         request.approveForInvestorConsent("admin-1", "Đủ điều kiện", "approve-key", NOW.minusSeconds(500));
-        request.investorsApproved(NOW.minusSeconds(400));
+        request.investorsApproved(com.finora.loan.domain.servicing.enums.FinoraLoanStatus.ACTIVE,
+                NOW.minusSeconds(400));
         request.claim(NOW.minusSeconds(300), Duration.ofMinutes(2));
         request.coreCreated(CORE_RESCHEDULE_ID, NOW.minusSeconds(200));
         loan.beginRestructuring(NOW.minusSeconds(400));
@@ -149,10 +155,19 @@ class LoanRescheduleProducerFieldsTest {
                 FINERACT_LOAN_ID, "LC-10", "loanStatusType.active", new BigDecimal("10000000.00"),
                 BigDecimal.ZERO, new BigDecimal("10000000.00"), new BigDecimal("1100000.00"), BigDecimal.ZERO,
                 new BigDecimal("1100000.00"), BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("11100000.00"),
-                BigDecimal.ZERO, null, 0, nextDueDate, nextDueAmount, LocalDate.of(2027, 10, 1)));
+                BigDecimal.ZERO, null, 0, nextDueDate, nextDueAmount, LocalDate.of(2027, 10, 1),
+                List.of(new com.finora.loan.domain.servicing.model.LoanServicingPeriod(
+                        1, LocalDate.of(2026, 11, 1), LocalDate.of(2026, 12, 1), 30,
+                        new BigDecimal("1000000.00"), new BigDecimal("100000.00"), BigDecimal.ZERO,
+                        BigDecimal.ZERO, new BigDecimal("1100000.00"), new BigDecimal("9000000.00")))));
         when(collectionCases.apply(any(), any(), anyInt(), any()))
                 .thenReturn(new CollectionCaseService.DebtGroupChange(1, 1));
+        var scheduleVersions = mock(com.finora.loan.repository.servicing.LoanServicingScheduleVersionRepository.class);
+        var scheduleMapper = mock(com.finora.loan.mapper.core.ScheduleCalculationSnapshotMapper.class);
+        when(scheduleVersions.maximumVersion(FINORA_LOAN_ID)).thenReturn(0);
+        when(scheduleMapper.periodsJson(any())).thenReturn("[]");
         LoanRescheduleExecutionService service = new LoanRescheduleExecutionServiceImpl(requests, loans, projections,
+                scheduleVersions, scheduleMapper,
                 rescheduleGateway, servicingGateway, properties, outbox, collectionCases, clock, inlineTransactions());
 
         service.execute(1L);
