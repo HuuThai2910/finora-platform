@@ -9,7 +9,7 @@
 
 - Người vay được rút hồ sơ khi hồ sơ chưa có quyết định; nếu hồ sơ đã duyệt và đang gọi vốn thì được hủy đợt gọi vốn trước khi hợp đồng có hiệu lực.
 - Nhà đầu tư được hủy riêng lệnh góp vốn khi listing còn `OPEN`.
-- Khi allocation đã khóa để lập hợp đồng, không sửa riêng allocation. Nhà đầu tư chưa ký có thể từ chối ký; toàn bộ hợp đồng/đợt gọi vốn bị hủy và các khoản giữ được nhả theo worker hiện có.
+- Khi allocation đã khóa để lập hợp đồng, không sửa riêng allocation. Nhà đầu tư chưa ký có thể từ chối ký; toàn bộ hợp đồng/đợt gọi vốn bị hủy và các khoản giữ được nhả theo worker hiện có. **SUPERSEDED 2026-11-08 bởi FUNDING-REOPEN-001:** nhà đầu tư chưa ký từ chối chỉ nhả phần của họ, khoản vay quay lại sàn gọi vốn bổ sung, bên đã ký giữ nguyên.
 - Bên đã có chữ ký `SIGNED` không được rút đơn phương bằng các API trên.
 - Hủy/từ chối phải idempotent, có history/outbox và không gọi Payment trong transaction Investment.
 

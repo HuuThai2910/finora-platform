@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface ContractPartyRepository extends JpaRepository<ContractParty, Long> {
@@ -31,9 +32,9 @@ public interface ContractPartyRepository extends JpaRepository<ContractParty, Lo
             @Param("partyId") String partyId
     );
 
-    long countByContractIdAndPartyTypeAndStatusNot(
+    long countByContractIdAndPartyTypeAndStatusIn(
             Long contractId,
             ContractPartyType partyType,
-            ContractPartyStatus status
+            Collection<ContractPartyStatus> statuses
     );
 }

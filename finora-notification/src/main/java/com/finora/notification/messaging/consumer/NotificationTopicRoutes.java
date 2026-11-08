@@ -21,6 +21,7 @@ public class NotificationTopicRoutes {
         route(topics.loanFullyFunded(), "LoanFullyFunded");
         route(topics.loanFundingExpired(), "LoanFundingExpired");
         route(topics.loanFundingCancelled(), "LoanFundingCancelled");
+        route(topics.loanFundingReopened(), "LoanFundingReopened");
         route(topics.investorSignatureRequested(), "InvestorSignatureRequested");
         route(topics.borrowerSignatureRequested(), "BorrowerSignatureRequested");
         route(topics.loanContractActivated(), "LoanContractActivated");

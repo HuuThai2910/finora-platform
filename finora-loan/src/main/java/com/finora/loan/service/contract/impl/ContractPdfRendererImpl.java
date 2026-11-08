@@ -236,8 +236,11 @@ public class ContractPdfRendererImpl implements ContractPdfRenderer {
             String signedDocumentHash,
             List<ContractParty> parties
     ) {
+        // Phần vốn đã rời hợp đồng (từ chối/hết hạn ký trước khi gọi vốn bổ sung) không thuộc bản ký đủ.
         List<ContractParty> lenders = parties.stream()
-                .filter(party -> party.getPartyType() == ContractPartyType.LENDER)
+                .filter(party -> party.getPartyType() == ContractPartyType.LENDER
+                        && party.getStatus() != ContractPartyStatus.DECLINED
+                        && party.getStatus() != ContractPartyStatus.EXPIRED)
                 .toList();
         String base = html(
                 contract.getContractNumber(), application, schedule, contract.getTermsVersion(),

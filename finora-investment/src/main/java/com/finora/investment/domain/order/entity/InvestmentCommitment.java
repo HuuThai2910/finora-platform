@@ -72,6 +72,13 @@ public class InvestmentCommitment {
     @Column(name = "cancelled_at")
     private Instant cancelledAt;
 
+    /**
+     * Phần vốn đã nằm trong allocation khóa để lập hợp đồng (FUNDING-REOPEN-001). Khác {@code null} thì không hủy được
+     * qua lệnh dù listing đã mở lại để gọi vốn bổ sung; nhà đầu tư chưa ký rút bằng cách từ chối hợp đồng ở Loan.
+     */
+    @Column(name = "contract_bound_at")
+    private Instant contractBoundAt;
+
     @Version
     @Column(nullable = false)
     private Long version;

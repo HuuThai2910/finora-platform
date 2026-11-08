@@ -273,6 +273,20 @@ public class ContractPdfSignature {
         updatedAt = now;
     }
 
+    /**
+     * Văn bản được phát hành lại (allocation mới sau gọi vốn bổ sung): chữ ký đã nhúng giữ nguyên bytes/hash làm bằng
+     * chứng bên ký từng chấp thuận, nhưng rời chuỗi hiện hành để bản mới bắt đầu lại từ sequence 1.
+     */
+    public void supersede(Instant now) {
+        if (status != ContractPdfSignatureStatus.SIGNED) {
+            throw new IllegalStateException("Chỉ chữ ký đã nhúng mới được chuyển sang bản đã thay thế");
+        }
+        status = ContractPdfSignatureStatus.SUPERSEDED;
+        abandonReason = ContractPdfSignatureAbandonReason.DOCUMENT_REISSUED;
+        abandonedAt = Objects.requireNonNull(now, "now");
+        updatedAt = now;
+    }
+
     public boolean isPrepared() {
         return status == ContractPdfSignatureStatus.PREPARED;
     }

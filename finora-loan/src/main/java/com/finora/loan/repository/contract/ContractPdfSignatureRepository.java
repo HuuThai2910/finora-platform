@@ -47,6 +47,12 @@ public interface ContractPdfSignatureRepository extends JpaRepository<ContractPd
 
     long countByContractIdAndStatus(Long contractId, ContractPdfSignatureStatus status);
 
+    /** Toàn bộ chữ ký đang thuộc chuỗi PDF, dùng khi phát hành lại văn bản để chuyển sang SUPERSEDED. */
+    List<ContractPdfSignature> findByContractIdAndStatusOrderBySequenceNumberAsc(
+            Long contractId,
+            ContractPdfSignatureStatus status
+    );
+
     @Query("""
             select new com.finora.loan.domain.contract.model.ContractPdfSignatureSummary(
                 signature.id, signature.signerType, signature.signerId, signature.sequenceNumber,

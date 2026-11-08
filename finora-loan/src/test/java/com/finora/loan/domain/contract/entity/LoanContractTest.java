@@ -167,16 +167,58 @@ class LoanContractTest {
     }
 
     @Test
-    void investorMayCloseContractOnlyDuringLenderSignatureWindow() {
+    void investorWithdrawalReopensFundingInsteadOfClosingContract() {
         LoanContract contract = contract(NOW.plusSeconds(3600));
         contract.initializeMultiParty();
 
-        contract.declineByInvestor(
-                0, ContractDeclineReasonCode.INVESTOR_CHANGED_MIND, "Đổi kế hoạch",
-                "investor-decline-key", "e".repeat(64), "INVESTOR-001", NOW.plusSeconds(10));
+        contract.reopenForRefunding("INVESTOR-001", NOW.plusSeconds(10));
+
+        // FUNDING-REOPEN-001: hợp đồng chờ gọi vốn bổ sung, không mang consent cấp hợp đồng của nhà đầu tư.
+        assertThat(contract.getStatus()).isEqualTo(LoanContractStatus.PENDING_REFUNDING);
+        assertThat(contract.getConsentAction()).isNull();
+        assertThat(contract.getDeclinedBy()).isNull();
+        assertThat(contract.isDueAt(NOW.plusSeconds(7200))).isFalse();
+        assertThatThrownBy(() -> contract.reopenForRefunding("INVESTOR-002", NOW.plusSeconds(20)))
+                .isInstanceOf(LoanDomainException.class)
+                .extracting("code").isEqualTo("LENDER_SIGNATURE_WINDOW_CLOSED");
+    }
+
+    @Test
+    void refundedContractIsReissuedWithNewDocumentAndSignatureWindow() {
+        LoanContract contract = contract(NOW.plusSeconds(3600));
+        contract.initializeMultiParty();
+        contract.reopenForRefunding("SYSTEM", NOW.plusSeconds(10));
+        Instant reissuedExpiry = NOW.plusSeconds(86_400);
+
+        contract.reissueAfterRefunding("Văn bản phát hành lại", "f".repeat(64), reissuedExpiry, "SYSTEM",
+                NOW.plusSeconds(60));
+
+        assertThat(contract.getStatus()).isEqualTo(LoanContractStatus.PENDING_LENDER_SIGNATURES);
+        assertThat(contract.getDocumentHash()).isEqualTo("f".repeat(64));
+        assertThat(contract.getExpiresAt()).isEqualTo(reissuedExpiry);
+    }
+
+    @Test
+    void borrowerMayStopRefundingContractEvenAfterOldSignatureWindowPassed() {
+        LoanContract contract = contract(NOW.plusSeconds(3600));
+        contract.initializeMultiParty();
+        contract.reopenForRefunding("SYSTEM", NOW.plusSeconds(10));
+
+        contract.decline(0, ContractDeclineReasonCode.BORROWER_CHANGED_MIND, null,
+                "withdraw-key", "d".repeat(64), "BORROWER-001", NOW.plusSeconds(7200));
 
         assertThat(contract.getStatus()).isEqualTo(LoanContractStatus.DECLINED);
-        assertThat(contract.getDeclinedBy()).isEqualTo("INVESTOR-001");
+    }
+
+    @Test
+    void refundingContractExpiresOnlyWhenFundingRoundExpires() {
+        LoanContract contract = contract(NOW.plusSeconds(3600));
+        contract.initializeMultiParty();
+        assertThat(contract.expireWhileRefunding(NOW.plusSeconds(10))).isFalse();
+        contract.reopenForRefunding("SYSTEM", NOW.plusSeconds(10));
+
+        assertThat(contract.expireWhileRefunding(NOW.plusSeconds(20))).isTrue();
+        assertThat(contract.getStatus()).isEqualTo(LoanContractStatus.EXPIRED);
     }
 
     @Test

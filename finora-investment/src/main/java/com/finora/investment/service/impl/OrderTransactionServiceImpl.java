@@ -28,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Cài đặt các transaction ngắn của luồng đặt lệnh.
@@ -157,10 +158,15 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
                 .build());
 
         if (fullyFunded) {
-            var snapshot = allocationSnapshotService.snapshot(
-                    investmentCommitmentRepository.findByListingIdAndStatusOrderByIdAsc(
-                            listing.getId(), CommitmentStatus.ACTIVE));
-            long allocationVersion = 1L;
+            List<InvestmentCommitment> allocated = investmentCommitmentRepository.findByListingIdAndStatusOrderByIdAsc(
+                    listing.getId(), CommitmentStatus.ACTIVE);
+            var snapshot = allocationSnapshotService.snapshot(allocated);
+            // Gọi vốn bổ sung sau khi nhà đầu tư rút: allocation mới mang version kế tiếp để Loan nhận ra bản mới.
+            long allocationVersion = listing.getAllocationVersion() == null ? 1L : listing.getAllocationVersion() + 1;
+            allocated.stream().filter(commitment -> commitment.getContractBoundAt() == null).forEach(commitment -> {
+                commitment.setContractBoundAt(now);
+                commitment.setUpdatedAt(now);
+            });
             listing.setStatus(ListingStatus.FULLY_FUNDED);
             listing.setFullyFundedAt(now);
             listing.setAllocationVersion(allocationVersion);
@@ -233,6 +239,14 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
             throw InvestmentDomainException.conflict(
                     "FUNDED_ALLOCATION_LOCKED",
                     "Danh sách phân bổ đã khóa để lập hợp đồng, không thể hủy trực tiếp"
+            );
+        }
+        if (commitment.getContractBoundAt() != null) {
+            // Listing đang gọi vốn bổ sung nhưng phần vốn này đã nằm trong hợp đồng: giữ nguyên cho bên đã ký;
+            // bên chưa ký rút bằng cách từ chối hợp đồng để Loan và Investment cùng đổi một lần.
+            throw InvestmentDomainException.conflict(
+                    "COMMITMENT_BOUND_TO_CONTRACT",
+                    "Phần vốn đã nằm trong hợp đồng; hãy từ chối ký hợp đồng nếu muốn rút"
             );
         }
 

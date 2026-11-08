@@ -17,6 +17,9 @@ import java.util.UUID;
 
 public interface LoanRescheduleRequestRepository extends JpaRepository<LoanRescheduleRequest, Long> {
     Optional<LoanRescheduleRequest> findByRequestId(UUID requestId);
+
+    /** Lịch sử xử lý hồ sơ: mọi yêu cầu cơ cấu/gia hạn của một khoản vay, cũ trước. */
+    List<LoanRescheduleRequest> findByFinoraLoanIdOrderByCreatedAtAsc(Long finoraLoanId);
     Optional<LoanRescheduleRequest> findByBorrowerIdAndIdempotencyKey(String borrowerId, String idempotencyKey);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

@@ -46,7 +46,11 @@ public enum ProofMilestone {
             return new Aggregate(ProofReferenceType.REPAYMENT.aggregateType(), requireText(data, "repaymentId"));
         }
     },
-    /** Phát hành Note sau giải ngân ({@code ISSUED}, một lần mỗi listing) hoặc chuyển nhượng trên chợ thứ cấp. */
+    /**
+     * Hai nghiệp vụ riêng dùng chung event: phát hành Note sau giải ngân hồ sơ mới ({@code ISSUED}, một proof mỗi
+     * listing, aggregate {@code NoteIssuance}) và chuyển nhượng Note giữa nhà đầu tư trên sổ lệnh ({@code TRANSFERRED},
+     * một proof mỗi giao dịch, aggregate {@code NoteTransfer}).
+     */
     NOTE_OWNERSHIP_CHANGED("NoteOwnershipChanged", 1, "finora-investment", ProofType.NOTE_OWNERSHIP) {
         @Override
         public Aggregate aggregate(JsonNode data) {

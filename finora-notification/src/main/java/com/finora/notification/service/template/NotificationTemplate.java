@@ -44,6 +44,10 @@ public enum NotificationTemplate {
             "{reason} Khoản vay {loan} sẽ không được giải ngân.",
             "Cập nhật hồ sơ vay", "Có cập nhật mới về hồ sơ vay của bạn."),
 
+    LOAN_FUNDING_REOPENED(FUNDING, "Hồ sơ vay đang gọi vốn bổ sung",
+            "{reason} Hồ sơ {application} được đưa lại lên sàn để gọi thêm {amount} VND; các nhà đầu tư đã ký vẫn giữ nguyên.",
+            "Cập nhật hồ sơ vay", "Hồ sơ vay của bạn đang được gọi vốn bổ sung."),
+
     // ---- Nhà đầu tư: gọi vốn ----
     INVESTMENT_FUNDING_EXPIRED(FUNDING, "Khoản đầu tư đã được hủy",
             "Hồ sơ {application} không gọi đủ vốn trước hạn. Tiền đang giữ cho khoản này sẽ được trả về ví của bạn.",
@@ -51,6 +55,13 @@ public enum NotificationTemplate {
     INVESTMENT_FUNDING_CANCELLED(FUNDING, "Khoản đầu tư đã được hủy",
             "{reason} Tiền đang giữ cho khoản vay {loan} sẽ được trả về ví của bạn.",
             "Cập nhật khoản đầu tư", "Một khoản đầu tư của bạn đã được hủy, tiền giữ sẽ về ví."),
+
+    INVESTMENT_LEFT_CONTRACT(FUNDING, "Bạn đã rời hợp đồng cho vay",
+            "{reason} Tiền đang giữ cho hồ sơ {application} sẽ được trả về ví của bạn.",
+            "Cập nhật khoản đầu tư", "Phần vốn của bạn đã rời hợp đồng, tiền giữ sẽ về ví."),
+    INVESTMENT_FUNDING_REOPENED(FUNDING, "Phần vốn của bạn được giữ nguyên",
+            "Một nhà đầu tư khác đã rút khỏi hồ sơ {application}. Phần vốn của bạn vẫn được giữ; hợp đồng sẽ được phát hành lại để ký khi gọi đủ vốn bổ sung.",
+            "Cập nhật khoản đầu tư", "Khoản vay bạn đầu tư đang gọi vốn bổ sung."),
 
     // ---- Hợp đồng ----
     INVESTOR_SIGNATURE_REQUESTED(CONTRACT, "Mời bạn ký hợp đồng cho vay",

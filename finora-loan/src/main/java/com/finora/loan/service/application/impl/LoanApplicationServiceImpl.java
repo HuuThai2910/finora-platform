@@ -37,6 +37,7 @@ import com.finora.loan.service.application.BorrowerKycSnapshots;
 import com.finora.loan.service.application.LoanApplicationService;
 import com.finora.loan.service.application.LoanApplicationSubmissionStateService;
 import com.finora.loan.service.application.LoanTermsConfirmationService;
+import com.finora.loan.service.contract.LoanContractStateService;
 import com.finora.loan.service.funding.LoanFundingCancellationService;
 import com.finora.loan.util.HashingService;
 import lombok.RequiredArgsConstructor;
@@ -76,6 +77,7 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
     private final LoanPricingDisclosureProperties loanPricingDisclosureProperties;
     private final BorrowerProfileProvider borrowerProfileProvider;
     private final LoanFundingCancellationService loanFundingCancellationService;
+    private final LoanContractStateService loanContractStateService;
     private final Clock clock;
 
     @Override
@@ -180,6 +182,8 @@ public class LoanApplicationServiceImpl implements LoanApplicationService {
                 && application.getFundingStatus() == com.finora.loan.domain.application.enums.LoanFundingStatus.REQUESTED;
         if (openFunding) {
             application.validateRequestedFundingWithdrawal(request.version(), userId);
+            // Đang gọi vốn bổ sung thì hồ sơ đã có hợp đồng chờ phát hành lại: đóng cùng transaction.
+            loanContractStateService.closeRefundingOnBorrowerWithdrawal(application.getId(), userId, now);
             loanFundingCancellationService.cancel(
                     application.getId(), null, LoanFundingCancellationService.BORROWER_WITHDREW, now);
         } else {

@@ -5,6 +5,7 @@ import com.finora.loan.domain.messaging.entity.ProcessedEvent;
 import com.finora.loan.exception.LoanBusinessException;
 import com.finora.loan.messaging.event.LoanFundingExpiredEventData;
 import com.finora.loan.repository.application.LoanApplicationRepository;
+import com.finora.loan.service.contract.LoanContractStateService;
 import com.finora.loan.repository.messaging.ProcessedEventRepository;
 import com.finora.loan.service.funding.LoanFundingExpiredHandler;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,7 @@ public class LoanFundingExpiredHandlerImpl implements LoanFundingExpiredHandler 
 
     private final ProcessedEventRepository processedEventRepository;
     private final LoanApplicationRepository loanApplicationRepository;
+    private final LoanContractStateService loanContractStateService;
     private final Clock clock;
 
     @Override
@@ -54,6 +56,8 @@ public class LoanFundingExpiredHandlerImpl implements LoanFundingExpiredHandler 
         if (application.markFundingExpired(
                 eventData.listingId(), eventData.fundingRound(), eventData.fundingClosedAt(), SYSTEM_ACTOR, now)) {
             loanApplicationRepository.saveAndFlush(application);
+            // Hết hạn khi đang gọi vốn bổ sung: hợp đồng chờ phát hành lại cũng đóng theo.
+            loanContractStateService.closeRefundingOnFundingExpired(application.getId(), now);
             log.info("Hồ sơ hết hạn gọi vốn: applicationNumber={}, listingId={}, fundingRound={}",
                     eventData.applicationNumber(), eventData.listingId(), eventData.fundingRound());
         }

@@ -679,6 +679,12 @@ public class LoanApplication {
                     "Số vốn Investment xác nhận không khớp số tiền vay"
             );
         }
+        // Gọi vốn bổ sung: allocation mới phải mới hơn bản đã khóa trước khi nhà đầu tư rút.
+        if (allocationVersion != null && confirmedAllocationVersion <= allocationVersion) {
+            throw LoanDomainException.conflict(
+                    "STALE_FUNDING_ALLOCATION",
+                    "Kết quả gọi vốn mang allocation cũ hơn bản hồ sơ đã ghi nhận");
+        }
         fundingStatus = LoanFundingStatus.FULLY_FUNDED;
         investmentListingId = listingId;
         fundedAmount = normalizedAmount;
@@ -689,6 +695,22 @@ public class LoanApplication {
         updatedBy = requireText(actorId, "actorId");
         updatedAt = now;
         return true;
+    }
+
+    /**
+     * Một nhà đầu tư chưa ký rút khỏi hợp đồng: đợt gọi vốn quay lại {@code REQUESTED} trên cùng listing để gọi phần
+     * còn thiếu. Giữ {@code allocationVersion/Hash} của bản đã khóa để event gửi Investment đối chiếu đúng bản bị mở
+     * lại và để allocation kế tiếp phải mang version lớn hơn.
+     */
+    public void reopenFunding(String actorId, Instant now) {
+        if (fundingStatus != LoanFundingStatus.FULLY_FUNDED) {
+            throw LoanDomainException.conflict(
+                    "LOAN_FUNDING_NOT_FULLY_FUNDED",
+                    "Chỉ đợt gọi vốn đã đủ vốn mới được mở lại để gọi vốn bổ sung");
+        }
+        fundingStatus = LoanFundingStatus.REQUESTED;
+        updatedBy = requireText(actorId, "actorId");
+        updatedAt = now;
     }
 
     /**

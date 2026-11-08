@@ -102,6 +102,56 @@ class ContractPartyTest {
                 .extracting("code").isEqualTo("CONTRACT_PARTY_ALREADY_SIGNED");
     }
 
+    @Test
+    void unsignedLenderLeavesContractOnExpiryButSignedLenderStays() {
+        ContractParty unsigned = lender();
+        ContractParty signed = lender();
+        signed.signMock(TRANSACTION, EVIDENCE_HASH, "INV-KEY-001", REQUEST_HASH, ACTOR, NOW);
+
+        assertThat(unsigned.expireUnsigned(NOW.plusSeconds(10))).isTrue();
+        assertThat(signed.expireUnsigned(NOW.plusSeconds(10))).isFalse();
+
+        assertThat(unsigned.getStatus()).isEqualTo(ContractPartyStatus.EXPIRED);
+        assertThat(unsigned.getClosedAt()).isEqualTo(NOW.plusSeconds(10));
+        assertThat(unsigned.isActiveLender()).isFalse();
+        assertThat(signed.isActiveLender()).isTrue();
+    }
+
+    @Test
+    void declineRecordsWhenLenderLeftTheContract() {
+        ContractParty party = lender();
+
+        party.decline("DECLINE-KEY", REQUEST_HASH, ACTOR, NOW.plusSeconds(5));
+
+        assertThat(party.getStatus()).isEqualTo(ContractPartyStatus.DECLINED);
+        assertThat(party.getClosedAt()).isEqualTo(NOW.plusSeconds(5));
+        assertThat(party.isActiveLender()).isFalse();
+    }
+
+    @Test
+    void reissueKeepsOriginalConsentTimeOrRequiresSigningAgain() {
+        ContractParty carried = lender();
+        carried.signMock(TRANSACTION, EVIDENCE_HASH, "INV-KEY-001", REQUEST_HASH, ACTOR, NOW);
+        carried.carryOverSignature("FINORA-INV-TX-002", "c".repeat(64), NOW.plusSeconds(60));
+
+        assertThat(carried.getStatus()).isEqualTo(ContractPartyStatus.SIGNED);
+        assertThat(carried.getSignedAt()).isEqualTo(NOW);
+        assertThat(carried.getSignatureTransactionId()).isEqualTo("FINORA-INV-TX-002");
+        assertThat(carried.getSignatureEvidenceHash()).isEqualTo("c".repeat(64));
+
+        ContractParty reset = lender();
+        reset.signMock(TRANSACTION, EVIDENCE_HASH, "INV-KEY-001", REQUEST_HASH, ACTOR, NOW);
+        reset.resetForReissue(NOW.plusSeconds(60));
+        assertThat(reset.getStatus()).isEqualTo(ContractPartyStatus.PENDING_SIGNATURE);
+        assertThat(reset.getSignedAt()).isNull();
+        assertThat(reset.getIdempotencyKey()).isNull();
+
+        ContractParty pending = lender();
+        assertThatThrownBy(() -> pending.carryOverSignature("TX", "c".repeat(64), NOW))
+                .isInstanceOf(LoanDomainException.class)
+                .extracting("code").isEqualTo("CONTRACT_PARTY_NOT_SIGNED");
+    }
+
     private ContractParty lender() {
         return ContractParty.lender(
                 10L, 101L, ACTOR, new BigDecimal("1000000.00"),

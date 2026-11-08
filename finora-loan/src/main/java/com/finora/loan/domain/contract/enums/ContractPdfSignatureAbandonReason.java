@@ -9,5 +9,7 @@ public enum ContractPdfSignatureAbandonReason {
     /** Quá thời hạn phiên ký (SmartCA hết hạn khoảng 5 phút); giải phóng lượt ký cho bên khác. */
     SIGNING_SESSION_EXPIRED,
     /** Hợp đồng đã hết hạn hoặc bị từ chối trong lúc phiên ký còn mở. */
-    CONTRACT_CLOSED
+    CONTRACT_CLOSED,
+    /** Văn bản được phát hành lại sau khi gọi vốn bổ sung; chữ ký cũ chuyển SUPERSEDED. */
+    DOCUMENT_REISSUED
 }

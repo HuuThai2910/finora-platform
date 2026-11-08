@@ -50,7 +50,8 @@ phần Investment trước merge:
 | `finora.loan.funding-requested` | Loan | `investment-loan-funding` | Tạo market listing từ exact terms đã được borrower cho phép |
 | `finora.investment.loan-fully-funded` | Investment | `loan-investment-funding` | Trả allocation bất biến để Loan lập hợp đồng nhiều bên |
 | `finora.investment.loan-funding-expired` | Investment | `loan-investment-funding` | Đợt gọi vốn hết hạn chưa đủ vốn; Loan đặt `fundingStatus = EXPIRED`, không lập Contract |
-| `finora.loan.funding-cancelled` | Loan | `investment-loan-funding` | Đã đủ vốn nhưng không giải ngân (Contract `DECLINED`/`EXPIRED` hoặc `DisbursementFailed` khi saga còn `WAITING_PAYMENT`); Investment hủy commitment, listing `CANCELLED` và nhả hold |
+| `finora.loan.funding-cancelled` | Loan | `investment-loan-funding` | Đã đủ vốn nhưng không giải ngân (người vay từ chối/hết hạn ký Contract hoặc `DisbursementFailed` khi saga còn `WAITING_PAYMENT`); Investment hủy commitment, listing `CANCELLED` và nhả hold |
+| `finora.loan.funding-reopened` | Loan | `investment-loan-funding`, `notification-domain-events` | FUNDING-REOPEN-001: nhà đầu tư chưa ký từ chối hoặc hết hạn ký; Investment chỉ hủy commitment được liệt kê, mở lại listing `OPEN` (Contract `PENDING_REFUNDING`), commitment còn lại giữ hold; Notification báo người vay, người rời đi và người ở lại |
 | `finora.loan.investor-signature-requested` | Loan | `investment-loan-funding`, `notification-domain-events` | Gắn Contract/PDF chung vào listing; Notification báo từng nhà đầu tư ký |
 | `finora.loan.borrower-signature-requested` | Loan | `notification-domain-events` | Báo người vay khi tất cả lender đã ký (B24 đã sửa ở W3F) |
 | `finora.loan.contract-activated` | Loan | `investment-loan-funding`, `blockchain-group` | Investment cập nhật Contract có hiệu lực; Blockchain neo SHA-256 data (proof `CONTRACT_DOCUMENT`, W3D) |
@@ -71,7 +72,7 @@ chiếu `application.yml` của Loan/Payment/Investment):
 | `finora.payment.disbursement-completed` | Payment | `loan-investment-funding` | Loan ghi disbursement vào Fineract bằng external ID |
 | `finora.payment.disbursement-failed` | Payment | `loan-investment-funding` | Saga `PAYMENT_FAILED`; còn `WAITING_PAYMENT` thì Loan phát `finora.loan.funding-cancelled` |
 | `finora.loan.disbursed` | Loan | `investment-loan-funding`, `payment-servicing`, `blockchain-group` | Investment phát hành Note; Payment mở tài khoản thu nợ; Blockchain neo proof `DISBURSEMENT` (W3D) |
-| `finora.investment.note-ownership-changed` | Investment | `payment-servicing`, `blockchain-group` | Payment cập nhật projection chủ Note để chia tiền trả nợ; Blockchain neo proof `NOTE_OWNERSHIP` (W3D) |
+| `finora.investment.note-ownership-changed` | Investment | `payment-servicing`, `blockchain-group` | Payment cập nhật projection chủ Note để chia tiền trả nợ; Blockchain neo proof `NOTE_OWNERSHIP` (W3D) — hai nghiệp vụ riêng: phát hành Note (`NoteIssuance/<listingId>`) và chuyển nhượng Note (`NoteTransfer/<reference>`) |
 
 Khoản trả kỳ trước hạn đang giữ (W3F P5, D77; Payment phát từ 2026-10-17, cùng transaction với bút toán ví, key
 `loanApplicationId`):
@@ -101,7 +102,7 @@ Payload và consumer hiện có được mô tả tại
 [`docs/integrations/LOAN-INVESTMENT-EVENTS.md`](../../docs/integrations/LOAN-INVESTMENT-EVENTS.md).
 Notification (W3F, D60) đọc bằng group `notification-domain-events` các topic: `finora.loan.funding-requested`,
 `finora.investment.loan-fully-funded`, `finora.investment.loan-funding-expired`, `finora.loan.funding-cancelled`,
-`finora.loan.investor-signature-requested`, `finora.loan.borrower-signature-requested`, `finora.loan.contract-activated`,
+`finora.loan.funding-reopened`, `finora.loan.investor-signature-requested`, `finora.loan.borrower-signature-requested`, `finora.loan.contract-activated`,
 `finora.loan.disbursed`, `finora.payment.repayment-distributed`, `finora.loan.delinquency-changed`, `finora.loan.settled`,
 `finora.loan.reschedule-consent-requested`, `finora.investment.reschedule-consent-completed`, `finora.loan.rescheduled`,
 `finora.payment.withdrawal-completed`, `finora.payment.withdrawal-failed`, `finora.payment.bank-link-otp-requested` (BL-001,

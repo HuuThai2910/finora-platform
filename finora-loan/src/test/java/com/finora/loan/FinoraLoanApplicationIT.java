@@ -620,8 +620,12 @@ class FinoraLoanApplicationIT {
         }
     }
 
+    /**
+     * FUNDING-REOPEN-001: hết hạn ký mà nhà đầu tư chưa ký thì hợp đồng không bị hủy; phần vốn chưa ký rời hợp đồng và
+     * khoản vay quay lại sàn. Worker chạy lại không phát event lần hai.
+     */
     @Test
-    void expiredFundedContractCancelsFundingAndPublishesCompensationOnce() throws Exception {
+    void expiredLenderWindowReleasesUnsignedLendersAndReopensFundingOnce() throws Exception {
         JsonNode submitted = submitAndScoreApplication();
         String applicationNumber = submitted.path("applicationNumber").asText();
         JsonNode review = objectMapper.readTree(mockMvc.perform(
@@ -654,33 +658,150 @@ class FinoraLoanApplicationIT {
         assertThat(contractStateService.expireOne(contractId)).isFalse();
 
         assertThat(jdbcTemplate.queryForObject(
-                "SELECT status FROM loan_contracts WHERE id = ?", String.class, contractId)).isEqualTo("EXPIRED");
+                "SELECT status FROM loan_contracts WHERE id = ?", String.class, contractId))
+                .isEqualTo("PENDING_REFUNDING");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM loan_contract_parties WHERE contract_id = ? AND commitment_id = 101",
+                String.class, contractId)).isEqualTo("EXPIRED");
         assertThat(jdbcTemplate.queryForMap(
-                "SELECT funding_status, funding_cancel_reason FROM loan_applications WHERE application_number = ?",
+                "SELECT funding_status, allocation_version FROM loan_applications WHERE application_number = ?",
                 applicationNumber))
-                .containsEntry("funding_status", "CANCELLED")
-                .containsEntry("funding_cancel_reason", "CONTRACT_EXPIRED");
-        // queryForObject chỉ nhận đúng một dòng: event bồi hoàn không được ghi lặp khi worker chạy lại.
-        JsonNode cancelled = objectMapper.readTree(jdbcTemplate.queryForObject("""
+                .containsEntry("funding_status", "REQUESTED")
+                .containsEntry("allocation_version", 1L);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM loan_outbox_events WHERE event_type = 'LoanFundingCancelled'", Long.class))
+                .isZero();
+        // queryForObject chỉ nhận đúng một dòng: event mở lại không được ghi lặp khi worker chạy lại.
+        JsonNode reopened = objectMapper.readTree(jdbcTemplate.queryForObject("""
                 SELECT payload_json::text FROM loan_outbox_events
-                WHERE event_type = 'LoanFundingCancelled' AND event_version = 1 AND publishable = true
+                WHERE event_type = 'LoanFundingReopened' AND event_version = 1 AND publishable = true
                 """, String.class));
-        assertThat(cancelled.path("applicationNumber").asText()).isEqualTo(applicationNumber);
-        assertThat(cancelled.path("listingId").asLong()).isEqualTo(9002L);
-        assertThat(cancelled.path("allocationVersion").asLong()).isEqualTo(1L);
-        assertThat(cancelled.path("allocationHash").asText()).isEqualTo(allocationHash);
-        assertThat(cancelled.path("reasonCode").asText()).isEqualTo("CONTRACT_EXPIRED");
-        // P2 (W3F): Notification báo người vay mà không cần bảng tra. ObjectMapper thật của Loan ghi java.time dạng chuỗi
-        // ISO (điều Blockchain hash v2 và record LocalDate/Instant của consumer cần).
-        assertThat(cancelled.path("borrowerId").asText()).isEqualTo("BORROWER-001");
-        assertThat(cancelled.path("cancelledAt").isTextual()).isTrue();
-        // Consumer Loan đọc bằng chính ObjectMapper này: field producer bổ sung (P4 borrowerId, P6 investorIds) bị bỏ qua.
-        assertThat(objectMapper.isEnabled(
-                com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)).isFalse();
+        assertThat(reopened.path("applicationNumber").asText()).isEqualTo(applicationNumber);
+        assertThat(reopened.path("listingId").asLong()).isEqualTo(9002L);
+        assertThat(reopened.path("allocationVersion").asLong()).isEqualTo(1L);
+        assertThat(reopened.path("allocationHash").asText()).isEqualTo(allocationHash);
+        assertThat(reopened.path("reasonCode").asText()).isEqualTo("LENDER_SIGNATURE_EXPIRED");
+        assertThat(reopened.path("releasedCommitmentIds").get(0).asLong()).isEqualTo(101L);
+        assertThat(reopened.path("releasedAmount").asText()).isEqualTo("50000000.00");
+        assertThat(reopened.path("retainedInvestorIds").isEmpty()).isTrue();
+        assertThat(reopened.path("borrowerId").asText()).isEqualTo("BORROWER-001");
         mockMvc.perform(get("/api/v1/loan-applications/{number}", applicationNumber))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.funding.status").value("CANCELLED"))
-                .andExpect(jsonPath("$.funding.cancelReason").value("CONTRACT_EXPIRED"));
+                .andExpect(jsonPath("$.funding.status").value("REQUESTED"));
+    }
+
+    /**
+     * FUNDING-REOPEN-001 với PAdES MOCK: nhà đầu tư chưa ký từ chối thì bên đã ký giữ nguyên, khoản vay gọi vốn bổ
+     * sung; đủ vốn lại thì văn bản được phát hành lại, chữ ký cũ chuyển SUPERSEDED và được nhúng lại trên bản mới;
+     * người mới ký xong thì hợp đồng đi tiếp tới người vay và giải ngân chỉ dùng tiền giữ của phần vốn còn hiệu lực.
+     */
+    @Test
+    void investorDeclineKeepsSignedLenderAndRefundingReissuesContract() throws Exception {
+        String contractNumber = fundedContract(9201L, List.of(
+                new FundingAllocationEventData(101L, "INVESTOR-001", "30000000.00", "60.000000", "HOLD-REOPEN-101"),
+                new FundingAllocationEventData(102L, "INVESTOR-002", "20000000.00", "40.000000", "HOLD-REOPEN-102")));
+        String firstSignableHash = signableHash(contractNumber);
+
+        actAs("INVESTOR-001", "ROLE_INVESTOR");
+        signAsInvestor("INVESTOR-001", contractNumber, "reopen-lender-1-" + UUID.randomUUID(),
+                investorContract(contractNumber), firstSignableHash, "CLICK_WRAP_MVP")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.partyStatus").value("SIGNED"));
+
+        actAs("INVESTOR-002", "ROLE_INVESTOR");
+        JsonNode lenderTwo = investorContract(contractNumber);
+        String declineKey = "reopen-decline-" + UUID.randomUUID();
+        String declineBody = """
+                {"version":%d,"reasonCode":"INVESTOR_CHANGED_MIND","reasonDetail":"Đổi kế hoạch"}
+                """.formatted(lenderTwo.path("contractVersion").asLong());
+        for (int attempt = 0; attempt < 2; attempt++) {
+            // Gửi lại cùng Idempotency-Key trả kết quả cũ, không mở lại gọi vốn lần hai.
+            mockMvc.perform(post("/api/v1/investor/loan-contracts/{number}/decline", contractNumber)
+                            .header("Idempotency-Key", declineKey)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(declineBody))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.partyStatus").value("DECLINED"))
+                    .andExpect(jsonPath("$.contractStatus").value("PENDING_REFUNDING"));
+        }
+        Long applicationId = jdbcTemplate.queryForObject(
+                "SELECT application_id FROM loan_contracts WHERE contract_number = ?", Long.class, contractNumber);
+        String applicationNumber = jdbcTemplate.queryForObject(
+                "SELECT application_number FROM loan_applications WHERE id = ?", String.class, applicationId);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT funding_status FROM loan_applications WHERE id = ?", String.class, applicationId))
+                .isEqualTo("REQUESTED");
+        JsonNode reopened = objectMapper.readTree(jdbcTemplate.queryForObject(
+                "SELECT payload_json::text FROM loan_outbox_events WHERE event_type = 'LoanFundingReopened'",
+                String.class));
+        assertThat(reopened.path("reasonCode").asText()).isEqualTo("INVESTOR_DECLINED");
+        assertThat(reopened.path("releasedCommitmentIds").get(0).asLong()).isEqualTo(102L);
+        assertThat(reopened.path("releasedInvestorIds").get(0).asText()).isEqualTo("INVESTOR-002");
+        assertThat(reopened.path("retainedInvestorIds").get(0).asText()).isEqualTo("INVESTOR-001");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM loan_contract_parties WHERE commitment_id = 101", String.class))
+                .isEqualTo("SIGNED");
+
+        // Nhà đầu tư mới góp phần còn thiếu: Investment phát allocation version 2 gồm phần vốn đã ký và phần mới.
+        List<FundingAllocationEventData> refunded = List.of(
+                new FundingAllocationEventData(101L, "INVESTOR-001", "30000000.00", "60.000000", "HOLD-REOPEN-101"),
+                new FundingAllocationEventData(104L, "INVESTOR-003", "20000000.00", "40.000000", "HOLD-REOPEN-104"));
+        fullyFundedHandler.handle(UUID.randomUUID(), Instant.now(), new LoanFullyFundedEventData(
+                applicationId, applicationNumber, 9201L, 1, "50000000.00", "VND", 2L,
+                hashingService.sha256Text(hashingService.toJson(refunded)), Instant.now(), refunded));
+        String reissuedHash = signableHash(contractNumber);
+        assertThat(reissuedHash).isNotEqualTo(firstSignableHash);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM loan_contracts WHERE contract_number = ?", String.class, contractNumber))
+                .isEqualTo("PENDING_LENDER_SIGNATURES");
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT status FROM loan_contract_signatures ORDER BY id", String.class))
+                .containsExactly("SUPERSEDED", "SIGNED");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT base_content_hash FROM loan_contract_signatures WHERE status = 'SIGNED'", String.class))
+                .isEqualTo(reissuedHash);
+        assertThat(jdbcTemplate.queryForList(
+                "SELECT commitment_id || ':' || status FROM loan_contract_parties "
+                        + "WHERE commitment_id IS NOT NULL ORDER BY commitment_id", String.class))
+                .containsExactly("101:SIGNED", "102:DECLINED", "104:PENDING_SIGNATURE");
+
+        actAs("INVESTOR-003", "ROLE_INVESTOR");
+        JsonNode lenderThree = investorContract(contractNumber);
+        assertThat(lenderThree.path("allocationCount").asInt()).isEqualTo(2);
+        assertThat(lenderThree.path("remainingLenderSignatures").asInt()).isEqualTo(1);
+        signAsInvestor("INVESTOR-003", contractNumber, "reopen-lender-3-" + UUID.randomUUID(), lenderThree,
+                reissuedHash, "CLICK_WRAP_MVP")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contractStatus").value("PENDING_BORROWER_SIGNATURE"))
+                .andExpect(jsonPath("$.pdfSignatureCount").value(2));
+
+        actAs("BORROWER-001", "ROLE_BORROWER");
+        signAsBorrower(contractNumber, "reopen-borrower-" + UUID.randomUUID(), borrowerContract(contractNumber),
+                reissuedHash, "CLICK_WRAP_MVP")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("EFFECTIVE"));
+        String disbursement = jdbcTemplate.queryForObject(
+                "SELECT payload_json::text FROM loan_outbox_events WHERE event_type = 'DisbursementRequested'",
+                String.class);
+        assertThat(disbursement).contains("HOLD-REOPEN-101", "HOLD-REOPEN-104").doesNotContain("HOLD-REOPEN-102");
+
+        actAs("ADMIN-001", "ROLE_ADMIN");
+        JsonNode timeline = objectMapper.readTree(mockMvc.perform(
+                        get("/api/v1/admin/loan-applications/{number}/review", applicationNumber))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString()).path("timeline");
+        List<String> events = new java.util.ArrayList<>();
+        // Trường null trong JSON đọc ra "" để chuỗi so sánh không phụ thuộc cách Jackson ghi null.
+        java.util.function.BiFunction<JsonNode, String, String> text =
+                (item, field) -> item.path(field).isNull() ? "" : item.path(field).asText();
+        timeline.forEach(item -> events.add(text.apply(item, "eventCode") + ":" + text.apply(item, "toStatus")
+                + ":" + text.apply(item, "reasonCode")));
+        assertThat(events).contains(
+                "LENDER_DECLINED:DECLINED:",
+                "CONTRACT_STATUS:PENDING_REFUNDING:INVESTOR_CHANGED_MIND",
+                "CONTRACT_STATUS:PENDING_LENDER_SIGNATURES:REFUNDED_CONTRACT_REISSUED",
+                "CONTRACT_STATUS:EFFECTIVE:ALL_PARTIES_SIGNED",
+                "DISBURSEMENT_REQUESTED::");
     }
 
     /**

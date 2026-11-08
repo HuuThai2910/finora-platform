@@ -20,6 +20,7 @@ import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
 import com.finora.loan.repository.scoring.BorrowerCreditProfileRepository;
 import com.finora.loan.repository.scoring.BorrowerEligibilityCheckRepository;
 import com.finora.loan.repository.scoring.CreditScoringAssessmentRepository;
+import com.finora.loan.service.application.LoanApplicationTimelineService;
 import com.finora.loan.service.decision.AdminLoanDecisionStateService;
 import com.finora.loan.util.HashingService;
 import org.junit.jupiter.api.Test;
@@ -62,7 +63,7 @@ class AdminLoanDecisionServiceImplTest {
             applications, schedules, eligibilities, creditProfiles, assessments, histories, contracts,
             mock(AdminLoanDecisionStateService.class), new AdminLoanDecisionMapper(scheduleMapper),
             new LoanApplicationMapper(scheduleMapper), mock(HashingService.class),
-            new StoredAiCreditResponseReader(objectMapper));
+            new StoredAiCreditResponseReader(objectMapper), mock(LoanApplicationTimelineService.class));
 
     @Test
     void reviewDetailReturnsApplicationIdAndContractNumberFromOneKeyedLookup() {
