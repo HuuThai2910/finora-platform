@@ -14,10 +14,12 @@ import com.finora.payment.dto.response.WithdrawalResponse;
 import com.finora.payment.integration.payout.client.PayoutProvider;
 import com.finora.payment.repository.wallet.PaymentWalletRepository;
 import com.finora.payment.repository.withdrawal.PaymentWithdrawalRepository;
+import com.finora.payment.service.bank.BankDirectory;
+import com.finora.payment.service.bank.BankInfo;
+import com.finora.payment.service.bankaccount.BankAccountService;
 import com.finora.payment.service.wallet.WalletAccountService;
 import com.finora.payment.service.wallet.WalletOwnerResolver;
 import com.finora.payment.service.wallet.WalletView;
-import com.finora.payment.service.withdrawal.WithdrawalBank;
 import com.finora.payment.service.withdrawal.WithdrawalLedger;
 import com.finora.payment.service.withdrawal.WithdrawalService;
 import com.finora.payment.util.AccountNumberCipher;
@@ -35,7 +37,6 @@ import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -63,6 +64,8 @@ public class WithdrawalServiceImpl implements WithdrawalService {
     private final PayoutProperties payoutProperties;
     private final PayoutProvider payoutProvider;
     private final TransactionTemplate transactionTemplate;
+    private final BankDirectory bankDirectory;
+    private final BankAccountService bankAccountService;
     private final Clock clock;
 
     @Override
@@ -72,8 +75,9 @@ public class WithdrawalServiceImpl implements WithdrawalService {
         LocalDate today = LocalDate.now(clock);
         BigDecimal used = paymentWithdrawalRepository.sumNotFailedOn(wallet.walletId(), today).setScale(2);
         BigDecimal remaining = withdrawalProperties.dailyLimit().subtract(used).max(BigDecimal.ZERO);
-        List<WithdrawalPolicyResponse.Bank> banks = Arrays.stream(WithdrawalBank.values())
-                .map(bank -> new WithdrawalPolicyResponse.Bank(bank.name(), bank.displayName())).toList();
+        List<WithdrawalPolicyResponse.Bank> banks = bankDirectory.all().stream()
+                .map(bank -> new WithdrawalPolicyResponse.Bank(bank.code(), bank.shortName(), bank.name(),
+                        bank.logo())).toList();
         return new WithdrawalPolicyResponse(withdrawalProperties.minimumAmount(), withdrawalProperties.dailyLimit(),
                 withdrawalProperties.feeAmount(), today, used, remaining, wallet.availableBalance(),
                 "mock".equals(payoutProperties.provider()), banks);
@@ -85,12 +89,12 @@ public class WithdrawalServiceImpl implements WithdrawalService {
         WalletOwnerType ownerType = walletOwnerResolver.currentOwnerType();
         String key = requireKey(idempotencyKey);
         BigDecimal amount = validateAmount(request.amount());
-        WithdrawalBank bank = WithdrawalBank.find(request.bankCode()).orElseThrow(() -> new BusinessException(
-                HttpStatus.UNPROCESSABLE_ENTITY, "WITHDRAWAL_BANK_UNSUPPORTED", "Ngân hàng nhận chưa được hỗ trợ"));
-        String accountNumber = request.accountNumber().trim();
-        String holder = normalizeHolder(request.accountHolderName());
+        Recipient recipient = recipient(ownerId, request);
+        BankInfo bank = recipient.bank();
+        String accountNumber = recipient.accountNumber();
+        String holder = recipient.holder();
         // Hash idempotency dùng dấu vân tay HMAC của số tài khoản, không lưu dạng dò ngược được (D44).
-        String hash = sha256(String.join("|", ownerId, amount.toPlainString(), bank.name(),
+        String hash = sha256(String.join("|", ownerId, amount.toPlainString(), bank.code(),
                 accountNumberCipher.fingerprint(accountNumber), holder));
 
         Optional<WithdrawalResponse> replay = replay(ownerId, key, hash);
@@ -124,10 +128,10 @@ public class WithdrawalServiceImpl implements WithdrawalService {
                 PaymentWithdrawal created = paymentWithdrawalRepository.saveAndFlush(PaymentWithdrawal.request(
                         withdrawalId, locked.getWalletId(), ownerType, ownerId, amount,
                         withdrawalProperties.feeAmount(), CURRENCY, today,
-                        new PaymentWithdrawal.Destination(bank.name(), accountNumberCipher.encrypt(accountNumber),
+                        new PaymentWithdrawal.Destination(bank.code(), accountNumberCipher.encrypt(accountNumber),
                                 AccountNumberCipher.mask(accountNumber), holder),
                         key, hash, payoutProvider.name(), reserve, now));
-                return WithdrawalResponse.from(created);
+                return toResponse(created);
             });
         } catch (DataIntegrityViolationException exception) {
             // Hai request cùng Idempotency-Key chạy song song: bản thua đọc lại lệnh của bản thắng.
@@ -140,7 +144,7 @@ public class WithdrawalServiceImpl implements WithdrawalService {
         String ownerId = SecurityUtils.getCurrentUserId();
         Page<WithdrawalResponse> result = paymentWithdrawalRepository
                 .findByOwnerIdOrderByCreatedAtDescIdDesc(ownerId, PageRequest.of(page, size))
-                .map(WithdrawalResponse::from);
+                .map(this::toResponse);
         return PageResponse.<WithdrawalResponse>builder().content(result.getContent()).page(result.getNumber())
                 .size(result.getSize()).totalElements(result.getTotalElements()).totalPages(result.getTotalPages())
                 .last(result.isLast()).build();
@@ -152,7 +156,7 @@ public class WithdrawalServiceImpl implements WithdrawalService {
         // Lệnh của người khác trả 404 như không tồn tại, không để lộ mã lệnh hợp lệ.
         return paymentWithdrawalRepository.findByWithdrawalId(withdrawalId)
                 .filter(value -> value.getOwnerId().equals(ownerId))
-                .map(WithdrawalResponse::from)
+                .map(this::toResponse)
                 .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "WITHDRAWAL_NOT_FOUND",
                         "Không tìm thấy lệnh rút tiền"));
     }
@@ -163,8 +167,40 @@ public class WithdrawalServiceImpl implements WithdrawalService {
                 throw new BusinessException(HttpStatus.CONFLICT, "WITHDRAWAL_IDEMPOTENCY_CONFLICT",
                         "Idempotency-Key đã được dùng cho một lệnh rút khác");
             }
-            return WithdrawalResponse.from(existing);
+            return toResponse(existing);
         });
+    }
+
+    private WithdrawalResponse toResponse(PaymentWithdrawal value) {
+        return WithdrawalResponse.from(value, bankDirectory.displayName(value.getBankCode()));
+    }
+
+    /** Nơi nhận đã chuẩn hóa; {@code accountNumber} ở dạng rõ chỉ sống trong request này. */
+    private record Recipient(BankInfo bank, String accountNumber, String holder) {
+    }
+
+    /**
+     * Tài khoản đã liên kết (app) hoặc tài khoản gõ tay (client cũ). Tài khoản liên kết đã được ngân hàng xác nhận chủ và
+     * qua OTP nên không kiểm lại tên; tài khoản gõ tay phải đủ ba trường.
+     */
+    private Recipient recipient(String ownerId, CreateWithdrawalRequest request) {
+        if (request.bankAccountId() != null) {
+            BankAccountService.LinkedDestination linked = bankAccountService.destinationFor(ownerId,
+                    request.bankAccountId());
+            return new Recipient(requireBank(linked.bankCode()), linked.accountNumber(),
+                    normalizeHolder(linked.accountHolderName()));
+        }
+        if (request.bankCode() == null || request.accountNumber() == null || request.accountHolderName() == null) {
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, "WITHDRAWAL_DESTINATION_REQUIRED",
+                    "Chọn tài khoản ngân hàng đã liên kết để rút tiền");
+        }
+        return new Recipient(requireBank(request.bankCode()), request.accountNumber().trim(),
+                normalizeHolder(request.accountHolderName()));
+    }
+
+    private BankInfo requireBank(String code) {
+        return bankDirectory.find(code).orElseThrow(() -> new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY,
+                "WITHDRAWAL_BANK_UNSUPPORTED", "Ngân hàng nhận chưa được hỗ trợ"));
     }
 
     private BigDecimal validateAmount(BigDecimal amount) {

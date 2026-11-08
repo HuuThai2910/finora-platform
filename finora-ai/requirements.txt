@@ -36,6 +36,9 @@ python-multipart==0.0.32
 
 # Gemini chỉ điền chỗ trống khi đọc CCCD (EKYC_GEMINI_MODE=fallback); không có key thì tắt.
 google-genai==2.19.0
+# Claude (claude-haiku-5-5) là dự phòng khi Gemini lỗi/hết quota; không có ANTHROPIC_API_KEY thì tắt.
+# Bản 1.x dùng httpx2 (gói riêng) nên không đụng httpx==0.28.1 bên dưới.
+anthropic==1.17.0
 
 # HTTP client (gọi cic-service)
 httpx==0.28.1

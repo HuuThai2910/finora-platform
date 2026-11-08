@@ -17,7 +17,7 @@ class PaymentSimulatedSettingsTest {
 
         assertThat(check.simulatedSettings(environment)).containsExactly(
                 "finora.payment.disbursement.provider=mock", "finora.payment.top-up.provider=mock",
-                "finora.payment.payout.provider=mock",
+                "finora.payment.payout.provider=mock", "finora.payment.bank-link.provider=mock",
                 "finora.payment.withdrawal.account-encryption-key (khóa dev mặc định)");
     }
 
@@ -27,6 +27,7 @@ class PaymentSimulatedSettingsTest {
                 .withProperty("finora.payment.disbursement.provider", "bank")
                 .withProperty("finora.payment.top-up.provider", "zalopay")
                 .withProperty("finora.payment.payout.provider", "bank")
+                .withProperty("finora.payment.bank-link.provider", "napas")
                 .withProperty("finora.payment.withdrawal.account-encryption-key", "a-key-from-the-secret-store");
 
         assertThat(check.simulatedSettings(environment)).isEmpty();

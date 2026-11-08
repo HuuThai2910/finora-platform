@@ -175,6 +175,11 @@ Rollback chỉ đổi image, **không gỡ migration Flyway đã chạy trên Ne
      "issuer":"https://token.actions.githubusercontent.com",
      "subject":"repo:HuuThai2910/finora-platform:ref:refs/heads/main",
      "audiences":["api://AzureADTokenExchange"]}'
+   # GitHub (06/11) gửi subject kèm ID tài khoản và repo, nên thêm cả dạng này (ID lấy từ lỗi AADSTS700213 nếu đổi repo):
+   az ad app federated-credential create --id "$APP" --parameters '{"name":"github-main-id",
+     "issuer":"https://token.actions.githubusercontent.com",
+     "subject":"repo:HuuThai2910@141815687/finora-platform@1315018335:ref:refs/heads/main",
+     "audiences":["api://AzureADTokenExchange"]}'
    sed "s/<SUBSCRIPTION_ID>/$SUB/" vm-deploy-role.json > /tmp/vm-deploy-role.json
    az role definition create --role-definition @/tmp/vm-deploy-role.json
    az role assignment create --assignee "$APP" --role "FINORA VM Deploy"      --scope "/subscriptions/$SUB/resourceGroups/finora-rg/providers/Microsoft.Compute/virtualMachines/finora-vm"

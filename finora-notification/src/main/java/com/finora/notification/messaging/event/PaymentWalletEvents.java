@@ -19,6 +19,13 @@ public final class PaymentWalletEvents {
             Instant occurredAt) {}
 
     /**
+     * {@code BankLinkOtpRequested.v1} (BL-001): ngân hàng giả lập của Payment "gửi SMS" mã OTP liên kết tài khoản.
+     * {@code accountNumberMasked} đã che phía Payment; mã OTP chỉ được ghi vào câu trong app, không vào push.
+     */
+    public record BankLinkOtpRequested(String linkRequestId, String ownerId, String bankCode, String bankName,
+            String accountNumberMasked, String otp, Instant expiresAt, Instant occurredAt) {}
+
+    /**
      * {@code RepaymentCollected.v1} (đề xuất P5, chưa có producer): Payment đã thu tiền một kỳ trước hạn và giữ tới
      * {@code dueDate} (D16).
      */

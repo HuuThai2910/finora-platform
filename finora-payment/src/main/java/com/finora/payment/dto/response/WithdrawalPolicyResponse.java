@@ -19,6 +19,14 @@ public record WithdrawalPolicyResponse(
         boolean simulatedProvider,
         List<Bank> banks
 ) {
-    public record Bank(String code, String name) {
+    /**
+     * Ngân hàng nhận được hỗ trợ.
+     *
+     * @param code     mã gửi lại trong lệnh rút và yêu cầu liên kết
+     * @param name     tên ngắn hiển thị (ví dụ {@code Vietcombank})
+     * @param fullName tên pháp lý đầy đủ
+     * @param logoUrl  logo trên CDN VietQR
+     */
+    public record Bank(String code, String name, String fullName, String logoUrl) {
     }
 }

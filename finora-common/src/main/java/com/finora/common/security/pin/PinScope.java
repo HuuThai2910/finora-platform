@@ -18,5 +18,7 @@ public enum PinScope {
     /** Ký hợp đồng vay hoặc hợp đồng đầu tư. */
     SIGN_CONTRACT,
     /** Rút tiền về tài khoản ngân hàng. */
-    WITHDRAW
+    WITHDRAW,
+    /** Liên kết hoặc huỷ liên kết tài khoản ngân hàng nhận tiền rút. */
+    BANK_ACCOUNT
 }

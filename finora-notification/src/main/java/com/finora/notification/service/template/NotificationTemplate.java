@@ -129,6 +129,11 @@ public enum NotificationTemplate {
     WITHDRAWAL_FAILED(WALLET, "Rút tiền không thành công",
             "Yêu cầu rút {amount} VND tới tài khoản {bank} {account} không thực hiện được. Vui lòng kiểm tra lịch sử ví và thử lại.",
             "Rút tiền", "Yêu cầu rút tiền của bạn chưa thực hiện được."),
+    /** Thay cho SMS của ngân hàng giả lập (BL-001); push trên màn hình khóa không có mã. */
+    BANK_LINK_OTP(WALLET, "Mã xác thực liên kết ngân hàng",
+            "Mã xác thực liên kết tài khoản {bank} {account} là {otp}, có hiệu lực trong {minutes} phút. Không chia sẻ "
+                    + "mã này cho bất kỳ ai, kể cả nhân viên FINORA.",
+            "Liên kết ngân hàng", "Mở FINORA để xem mã xác thực liên kết ngân hàng."),
 
     // ---- Nhà đầu tư: servicing từ Investment (giữ đúng changeType) ----
     REPAYMENT_CREDITED(REPAYMENT, "Đã nhận khoản trả nợ",

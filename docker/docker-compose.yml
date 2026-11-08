@@ -327,6 +327,7 @@ services:
       KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/${KEYCLOAK_REALM:-finora}/protocol/openid-connect/certs
       FINORA_ENVIRONMENT: ${FINORA_ENVIRONMENT:-local}
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
     ports:
       - "127.0.0.1:${AI_HOST_PORT:-8000}:8000"
     healthcheck:

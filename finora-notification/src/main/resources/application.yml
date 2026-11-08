@@ -118,6 +118,8 @@ finora:
         loan-rescheduled: ${LOAN_RESCHEDULED_TOPIC:finora.loan.rescheduled}
         withdrawal-completed: ${PAYMENT_WITHDRAWAL_COMPLETED_TOPIC:finora.payment.withdrawal-completed}
         withdrawal-failed: ${PAYMENT_WITHDRAWAL_FAILED_TOPIC:finora.payment.withdrawal-failed}
+        # BL-001: OTP liên kết ngân hàng của ngân hàng giả lập (Payment).
+        bank-link-otp-requested: ${PAYMENT_BANK_LINK_OTP_REQUESTED_TOPIC:finora.payment.bank-link-otp-requested}
         # Đề xuất P5 (chưa có producer): chỉ được đọc khi bật nhắc lịch.
         repayment-collected: ${PAYMENT_REPAYMENT_COLLECTED_TOPIC:finora.payment.repayment-collected}
         repayment-cancelled: ${PAYMENT_REPAYMENT_CANCELLED_TOPIC:finora.payment.repayment-cancelled}

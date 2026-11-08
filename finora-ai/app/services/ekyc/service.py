@@ -32,7 +32,7 @@ from app.ml.ekyc import (
     qr_reader,
     quality,
 )
-from app.ml.ekyc.gemini_extractor import FrontRead, GeminiCardReader
+from app.ml.ekyc.gemini_extractor import CardReader, FrontRead
 from app.ml.ekyc.thresholds import (
     DocThresholds,
     EkycSettings,
@@ -125,7 +125,7 @@ class EkycService:
 
     def __init__(
         self,
-        gemini: GeminiCardReader | None | object = _UNSET,
+        gemini: CardReader | None | object = _UNSET,
         cfg: EkycSettings | None = None,
         doc_th: DocThresholds | None = None,
         live_th: LivenessThresholds | None = None,
