@@ -34,7 +34,8 @@ public class DomainEventConsumer {
                     "${finora.notification.kafka.topics.loan-reschedule-consent-completed:finora.investment.reschedule-consent-completed}",
                     "${finora.notification.kafka.topics.loan-rescheduled:finora.loan.rescheduled}",
                     "${finora.notification.kafka.topics.withdrawal-completed:finora.payment.withdrawal-completed}",
-                    "${finora.notification.kafka.topics.withdrawal-failed:finora.payment.withdrawal-failed}"
+                    "${finora.notification.kafka.topics.withdrawal-failed:finora.payment.withdrawal-failed}",
+                    "${finora.notification.kafka.topics.bank-link-otp-requested:finora.payment.bank-link-otp-requested}"
             })
     public void consume(ConsumerRecord<String, String> record) {
         kafkaEventProcessor.process("notification-domain-events", record);

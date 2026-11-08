@@ -112,7 +112,7 @@ Response `200`:
    - `place_of_origin`/`birth_registration_place` chỉ khi `EKYC_OPTIONAL_FIELDS=true` (mặc định **false**);
    - thẻ mã vạch/không QR không MRZ: đọc toàn bộ → tối đa `NEEDS_REVIEW`;
    - nhận diện CMND (tiêu đề "CHỨNG MINH NHÂN DÂN" hoặc số 9 chữ số) → `card_type=CMND`.
-   `EKYC_GEMINI_MODE=off|fallback` (mặc định `fallback` nếu có key). Gemini lỗi/hết quota → bỏ qua, không làm hỏng cả request.
+   `EKYC_GEMINI_MODE=off|fallback` (mặc định `fallback` nếu có key). Gemini lỗi/hết quota/bị chặn/quá giờ → hỏi lại đúng câu đó bằng Claude (`claude-haiku-5-5`, effort `low`, cùng ảnh đã che; bật khi có `ANTHROPIC_API_KEY`, đổi model qua `CLAUDE_OCR_MODEL`). Gemini trả lời "không đọc được" không chuyển sang Claude. Cả hai lỗi → bỏ qua, không làm hỏng cả request; `off` tắt cả hai. Cập nhật 06/11/2026.
 9. Chân dung: YuNet trên vùng trái ~45% mặt trước (thẻ nắn rộng 1400 px). Đúng **1** mặt (score ≥ `EKYC_PORTRAIT_MIN_SCORE`, mặc định 0.6), IED ≥ `EKYC_PORTRAIT_MIN_IED` (40 px), độ nét vùng mặt ≥ ngưỡng → SFace embedding 128 chiều.
 10. Quyết định (`fusion.py`):
    - **RETAKE** (khi `retake_count < EKYC_MAX_RETAKES`, mặc định 2): chân dung không dùng được (`PORTRAIT_UNUSABLE` — luôn RETAKE bất kể số lần, vì không so mặt được); mặt trước mờ/loá/tối mà QR mặt trước không đọc được; mặt sau mờ/loá và MRZ không hợp lệ; MRZ tìm thấy nhưng sai check digit (`MRZ_UNREADABLE`); QR và MRZ mâu thuẫn về số/ngày sinh/giới tính (`SOURCES_DISAGREE`); không có số định danh từ nguồn nào (`NO_DATA`).

@@ -322,6 +322,8 @@ Sai khác so với dự kiến:
   lại cụm cũ.
 - Biến Azure để ở Variables của repo (Hải tự thêm) thay vì nhờ Thái.
 - Smoke chỉ kiểm `/_status.json` (`ready` và `updatedAt` mới), chưa gọi API qua gateway.
+- GitHub gửi subject OIDC dạng kèm ID (`repo:HuuThai2910@141815687/finora-platform@1315018335:ref:refs/heads/main`), không
+  khớp subject dạng tên ở mục 8 (lỗi AADSTS700213 lần chạy đầu); app `finora-github-cd` giữ cả hai federated credential.
 
 ## 15. Bằng chứng kiểm thử (06/11, Git Bash trên Windows)
 

@@ -5,14 +5,19 @@ from dataclasses import replace
 from datetime import date
 from unittest.mock import MagicMock
 
+import anthropic
+import httpx2
 import pytest
 from google.genai import errors as genai_errors
 
 from app.ml.ekyc import gemini_extractor
 from app.ml.ekyc.gemini_extractor import (
+    ClaudeCardReader,
+    FallbackCardReader,
     FrontFieldsOptionalSchema,
     FrontFieldsSchema,
     GeminiCardReader,
+    MrzSchema,
     build_from_env,
 )
 from app.ml.ekyc.thresholds import EkycSettings
@@ -25,6 +30,23 @@ def client_returning(payload) -> MagicMock:
     )
     client.models.generate_content.return_value = MagicMock(text=text)
     return client
+
+
+def claude_returning(parsed, stop_reason: str = "end_turn") -> MagicMock:
+    client = MagicMock()
+    client.messages.parse.return_value = MagicMock(
+        parsed_output=parsed, stop_reason=stop_reason, stop_details=None
+    )
+    return client
+
+
+def gemini_failing() -> MagicMock:
+    client = MagicMock()
+    client.models.generate_content.side_effect = RuntimeError("mang")
+    return client
+
+
+_REQUEST = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
 
 
 def _config_of(client: MagicMock):
@@ -190,3 +212,111 @@ class TestBuildFromEnv:
         monkeypatch.setattr(gemini_extractor, "genai", None)
         monkeypatch.setenv("GEMINI_API_KEY", "khoa-gia")
         assert build_from_env(EkycSettings()) is None
+
+
+@pytest.fixture
+def real_anthropic(monkeypatch):
+    """conftest gỡ SDK để chặn gọi thật; ở đây cần lại lớp lỗi thật (client vẫn là mock)."""
+    monkeypatch.setattr(gemini_extractor, "anthropic", anthropic)
+
+
+@pytest.mark.usefixtures("real_anthropic")
+class TestClaude:
+    def test_goi_haiku_effort_low_kem_anh_va_schema(self):
+        client = claude_returning(FrontFieldsSchema(full_name="Nguyễn Văn A"))
+        result = ClaudeCardReader(client).read_front_fields(b"anh-da-che", False)
+        assert result.full_name == "NGUYỄN VĂN A"
+        kwargs = client.messages.parse.call_args.kwargs
+        assert kwargs["model"] == "claude-haiku-5-5"
+        assert kwargs["output_config"] == {"effort": "low"}
+        assert kwargs["output_format"] is FrontFieldsSchema
+        image, text = kwargs["messages"][0]["content"]
+        assert image["source"]["media_type"] == "image/jpeg"
+        assert image["source"]["data"] == "YW5oLWRhLWNoZQ=="  # base64 của b"anh-da-che"
+        assert "che đen" in text["text"]
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            anthropic.RateLimitError(
+                "quota", response=httpx2.Response(429, request=_REQUEST), body=None
+            ),
+            anthropic.APIConnectionError(request=_REQUEST),
+            anthropic.APITimeoutError(request=_REQUEST),
+            ValueError("json sai khuon"),
+        ],
+    )
+    def test_loi_tra_none(self, error):
+        client = MagicMock()
+        client.messages.parse.side_effect = error
+        assert ClaudeCardReader(client).read_mrz_lines(b"x") is None
+
+    @pytest.mark.parametrize("stop_reason", ["refusal", "max_tokens"])
+    def test_tu_choi_hoac_cat_ngang_tra_none(self, stop_reason):
+        client = claude_returning(MrzSchema(line1="A", line2="B"), stop_reason)
+        assert ClaudeCardReader(client).read_mrz_lines(b"x") is None
+
+
+@pytest.mark.usefixtures("real_anthropic")
+class TestFallback:
+    def test_gemini_loi_thi_hoi_claude_dung_cau_do(self):
+        claude = claude_returning(MrzSchema(line1="IDVNM", line2="9503", line3=None))
+        reader = FallbackCardReader(
+            GeminiCardReader(gemini_failing()), ClaudeCardReader(claude)
+        )
+        assert reader.read_mrz_lines(b"dai-mrz") == ["IDVNM", "9503", ""]
+        assert claude.messages.parse.call_args.kwargs["output_format"] is MrzSchema
+
+    def test_gemini_tra_loi_null_thi_khong_hoi_claude(self):
+        claude = claude_returning(MrzSchema())
+        reader = FallbackCardReader(
+            GeminiCardReader(client_returning({"line1": None})),
+            ClaudeCardReader(claude),
+        )
+        assert reader.read_mrz_lines(b"x") is None
+        claude.messages.parse.assert_not_called()
+
+    def test_ca_hai_loi_thi_none(self):
+        failing_claude = MagicMock()
+        failing_claude.messages.parse.side_effect = anthropic.APIConnectionError(
+            request=_REQUEST
+        )
+        reader = FallbackCardReader(
+            GeminiCardReader(gemini_failing()), ClaudeCardReader(failing_claude)
+        )
+        assert reader.read_front_id(b"x") is None
+
+
+class TestBuildWithClaude:
+    @pytest.fixture
+    def sdks(self, monkeypatch):
+        fake_genai, fake_anthropic = MagicMock(), MagicMock()
+        monkeypatch.setattr(gemini_extractor, "genai", fake_genai)
+        monkeypatch.setattr(gemini_extractor, "anthropic", fake_anthropic)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("CLAUDE_OCR_MODEL", raising=False)
+        return fake_genai, fake_anthropic
+
+    def test_hai_key_thi_gemini_truoc_claude_sau(self, sdks, monkeypatch):
+        _, fake_anthropic = sdks
+        monkeypatch.setenv("GEMINI_API_KEY", "khoa-gemini")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "khoa-claude")
+        reader = build_from_env(replace(EkycSettings(), gemini_timeout_ms=12000))
+        assert isinstance(reader, FallbackCardReader)
+        assert reader.name == "Gemini→Claude"
+        kwargs = fake_anthropic.Anthropic.call_args.kwargs
+        assert kwargs["api_key"] == "khoa-claude"
+        assert kwargs["timeout"] == 12.0
+
+    def test_chi_co_key_claude(self, sdks, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "khoa-claude")
+        monkeypatch.setenv("CLAUDE_OCR_MODEL", "claude-test")
+        reader = build_from_env(EkycSettings())
+        assert isinstance(reader, ClaudeCardReader)
+        assert reader.model == "claude-test"
+
+    def test_che_do_off_tat_ca_claude(self, sdks, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "khoa-claude")
+        assert build_from_env(EkycSettings(gemini_mode="off")) is None

@@ -113,6 +113,21 @@ finora:
         callback-secret: ${PAYMENT_MOCK_PAYOUT_CALLBACK_SECRET:dev-only-mock-payout-callback-secret}
         callback-delay: ${PAYMENT_MOCK_PAYOUT_CALLBACK_DELAY:PT2S}
         callback-enabled: ${PAYMENT_MOCK_PAYOUT_CALLBACK_ENABLED:true}
+    # Liên kết tài khoản ngân hàng nhận tiền rút (BL-001). `mock` = ngân hàng giả lập: tra cứu chủ tài khoản theo 4 số
+    # cuối (0000 không tồn tại, 9999 bị khóa, 5555 ngân hàng không phản hồi, 1111 tài khoản người khác), OTP gửi qua
+    # thông báo FINORA thay cho SMS ngân hàng.
+    bank-link:
+      provider: ${PAYMENT_BANK_LINK_PROVIDER:mock}
+      max-accounts: ${PAYMENT_BANK_LINK_MAX_ACCOUNTS:5}
+      otp-ttl: ${PAYMENT_BANK_LINK_OTP_TTL:PT5M}
+      otp-max-attempts: ${PAYMENT_BANK_LINK_OTP_MAX_ATTEMPTS:5}
+      otp-max-resends: ${PAYMENT_BANK_LINK_OTP_MAX_RESENDS:3}
+      otp-resend-cooldown: ${PAYMENT_BANK_LINK_OTP_RESEND_COOLDOWN:PT60S}
+    # Liên kết ngân hàng đọc họ tên + eKYC của chính người dùng ở finora-user bằng token của họ.
+    user-service:
+      base-url: ${USER_SERVICE_URL:http://localhost:8085}
+      connect-timeout: ${USER_CONNECT_TIMEOUT:2s}
+      read-timeout: ${USER_READ_TIMEOUT:3s}
     top-up:
       provider: ${PAYMENT_TOPUP_PROVIDER:mock}
       minimum-amount: ${PAYMENT_TOPUP_MINIMUM_AMOUNT:10000}

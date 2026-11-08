@@ -26,6 +26,9 @@ class PaymentSimulatedSettings implements SimulatedSettingsCheck {
         if ("mock".equalsIgnoreCase(environment.getProperty("finora.payment.payout.provider", "mock").trim())) {
             simulated.add("finora.payment.payout.provider=mock");
         }
+        if ("mock".equalsIgnoreCase(environment.getProperty("finora.payment.bank-link.provider", "mock").trim())) {
+            simulated.add("finora.payment.bank-link.provider=mock");
+        }
         if (DEV_ACCOUNT_KEY.equals(environment.getProperty("finora.payment.withdrawal.account-encryption-key"))) {
             simulated.add("finora.payment.withdrawal.account-encryption-key (khóa dev mặc định)");
         }

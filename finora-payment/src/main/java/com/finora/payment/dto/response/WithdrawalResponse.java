@@ -2,7 +2,6 @@ package com.finora.payment.dto.response;
 
 import com.finora.payment.domain.withdrawal.entity.PaymentWithdrawal;
 import com.finora.payment.domain.withdrawal.enums.WithdrawalStatus;
-import com.finora.payment.service.withdrawal.WithdrawalBank;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -24,11 +23,12 @@ public record WithdrawalResponse(
         Instant createdAt,
         Instant completedAt
 ) {
-    public static WithdrawalResponse from(PaymentWithdrawal value) {
+    /** {@code bankName} lấy từ danh bạ ngân hàng của Payment theo {@code bankCode} đã lưu. */
+    public static WithdrawalResponse from(PaymentWithdrawal value, String bankName) {
         boolean failed = value.getStatus() == WithdrawalStatus.FAILED;
         return new WithdrawalResponse(value.getWithdrawalId(), value.getAmount(), value.getFeeAmount(),
                 value.getCurrency(), value.getStatus(), value.getBankCode(),
-                WithdrawalBank.find(value.getBankCode()).map(WithdrawalBank::displayName).orElse(value.getBankCode()),
+                bankName,
                 value.getAccountNumberMasked(), value.getAccountHolderName(),
                 failed ? value.getErrorCode() : null, failed ? value.getErrorDetail() : null,
                 value.getCreatedAt(), value.getCompletedAt());

@@ -30,7 +30,7 @@ FINORA **không** dùng các dữ liệu này cho quảng cáo, **không** bán 
 - Máy chủ xử lý của FINORA đặt tại **{{SERVER_LOCATION}}**.
 - Ảnh thẻ, video khuôn mặt và kết quả xác minh được lưu, có mã hoá, trên **{{STORAGE_LOCATION}}**.
 <!-- IF:GEMINI -->
-- Nếu hệ thống không đọc được một số thông tin từ mã QR và dòng ký tự máy đọc, phần chữ trên thẻ (đã **che ảnh chân dung**) có thể được gửi tới dịch vụ AI của Google để đọc. Ảnh khuôn mặt và video **không bao giờ** được gửi tới dịch vụ này.
+- Nếu hệ thống không đọc được một số thông tin từ mã QR và dòng ký tự máy đọc, phần chữ trên thẻ (đã **che ảnh chân dung**) có thể được gửi tới dịch vụ AI của Google (Gemini), hoặc của Anthropic (Claude) khi dịch vụ của Google không phản hồi, để đọc. Ảnh khuôn mặt và video **không bao giờ** được gửi tới các dịch vụ này.
 <!-- ENDIF:GEMINI -->
 
 Vì các máy chủ trên đặt ngoài Việt Nam, việc này là **chuyển dữ liệu cá nhân ra nước ngoài**. FINORA chỉ làm vậy khi bạn đồng ý ở ô xác nhận bên dưới.

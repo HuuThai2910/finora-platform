@@ -1,7 +1,7 @@
 """Fixture chung cho test eKYC.
 
-- Luôn tắt Gemini: ``main.py`` nạp ``finora-ai/.env`` (máy dev có thể có
-  ``GEMINI_API_KEY`` thật) — test không bao giờ được gọi API thật.
+- Luôn tắt Gemini và Claude: ``main.py`` nạp ``finora-ai/.env`` (máy dev có thể có
+  ``GEMINI_API_KEY``/``ANTHROPIC_API_KEY`` thật) — test không bao giờ được gọi API thật.
 - Xoá cache cấu hình/service trước và sau mỗi test để ``monkeypatch.setenv`` có tác dụng.
 """
 
@@ -26,6 +26,7 @@ def _clear_caches() -> None:
 def _no_real_gemini(monkeypatch):
     monkeypatch.setenv("EKYC_GEMINI_MODE", "off")
     monkeypatch.setattr(gemini_extractor, "genai", None)
+    monkeypatch.setattr(gemini_extractor, "anthropic", None)
     _clear_caches()
     yield
     _clear_caches()

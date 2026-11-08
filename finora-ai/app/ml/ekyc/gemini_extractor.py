@@ -9,17 +9,21 @@ Thu hẹp so với bản cũ (gửi nguyên ảnh mặt trước, tin ``confiden
 - hoặc hỏi riêng **số định danh in ở mặt trước** để gắn hai mặt thẻ.
 
 Gemini lỗi, hết quota (429), bị chặn an toàn (``response.text is None``) hay quá thời
-gian đều trả ``None``: request vẫn chạy tiếp bằng nguồn tất định, thiếu trường thì hồ
-sơ đi duyệt tay — không bao giờ làm hỏng cả request.
+gian thì hỏi lại đúng câu đó bằng **Claude** (mặc định ``claude-haiku-5-5``, effort
+``low``) nếu có ``ANTHROPIC_API_KEY``. Cả hai đều không trả được thì ``None``: request
+vẫn chạy tiếp bằng nguồn tất định, thiếu trường thì hồ sơ đi duyệt tay — không bao giờ
+làm hỏng cả request. Claude chỉ được hỏi khi Gemini *không trả lời được*; Gemini trả lời
+"không đọc được" (trường ``null``) là kết quả hợp lệ, không chuyển sang Claude.
 
 Quyền riêng tư: điều khoản gói free của Gemini API cấm gửi dữ liệu cá nhân ("Do not
 submit sensitive, confidential, or personal information to the Unpaid Services"). Chỉ
-bật với gói trả phí, hoặc với thẻ mẫu/thẻ của người đã đồng ý khi demo. API key chỉ
-đọc từ biến môi trường.
+bật với gói trả phí, hoặc với thẻ mẫu/thẻ của người đã đồng ý khi demo. Claude nhận
+đúng ảnh đã che như Gemini. API key chỉ đọc từ biến môi trường.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -44,10 +48,23 @@ except ImportError:  # SDK chưa cài — build_from_env trả None, pipeline ch
     genai = None  # type: ignore[assignment]
     genai_types = None  # type: ignore[assignment]
 
+try:
+    import anthropic
+except ImportError:  # SDK chưa cài — không có Claude dự phòng
+    anthropic = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 
 #: Đổi qua ``GEMINI_OCR_MODEL``. Project mới nên chọn model trang deprecations khuyên dùng.
 DEFAULT_MODEL = "gemini-2.5-flash"
+#: Model Claude dự phòng, đổi qua ``CLAUDE_OCR_MODEL``.
+DEFAULT_CLAUDE_MODEL = "claude-haiku-5-5"
+#: Chép chữ in không cần suy luận dài; effort thấp giữ độ trễ và chi phí nhỏ.
+CLAUDE_EFFORT = "low"
+#: Haiku 5.5 luôn có thinking (tính vào max_tokens) — chừa đủ chỗ cho JSON phía sau.
+_CLAUDE_MAX_TOKENS = 4096
+#: Một lần thử lại cho 429/5xx/mạng; nhiều hơn sẽ giữ slot phân tích quá lâu.
+_CLAUDE_MAX_RETRIES = 1
 
 _MASK_NOTE = (
     "Ảnh là mặt trước thẻ căn cước Việt Nam; phần bên trái (ảnh chân dung) đã bị cố ý "
@@ -156,8 +173,61 @@ def _normalize_front(fields: FrontFieldsSchema) -> FrontRead:
     )
 
 
-class GeminiCardReader:
-    """Ba lời gọi Gemini hẹp; mọi lỗi đều quy về ``None`` (coi như AI không có)."""
+class CardReader:
+    """Ba lời gọi hẹp dùng chung; lớp con chỉ cài ``_generate``.
+
+    ``_generate`` trả ``None`` khi **không gọi được** (lỗi, quota, bị chặn, JSON sai
+    khuôn) — khác với trả về schema toàn ``null`` (gọi được nhưng không đọc được chữ).
+    """
+
+    name = "AI"
+
+    def _generate(
+        self, jpeg: bytes, prompt: str, schema: type[BaseModel], task: str
+    ) -> BaseModel | None:
+        raise NotImplementedError
+
+    def read_front_fields(
+        self, masked_front_jpeg: bytes, want_optional: bool
+    ) -> FrontRead | None:
+        """Đọc các trường in ở mặt trước đã che chân dung."""
+        schema = FrontFieldsOptionalSchema if want_optional else FrontFieldsSchema
+        prompt = PROMPT_FRONT + (PROMPT_FRONT_OPTIONAL if want_optional else "")
+        parsed = self._generate(masked_front_jpeg, prompt, schema, "front_fields")
+        if parsed is None:
+            return None
+        result = _normalize_front(parsed)
+        logger.info(
+            "%s front_fields: id=%s name=%s dob=%s gender=%s address=%s title=%s",
+            self.name,
+            result.id_number is not None,
+            result.full_name is not None,
+            result.date_of_birth is not None,
+            result.gender is not None,
+            result.address is not None,
+            result.card_title is not None,
+        )
+        return result
+
+    def read_mrz_lines(self, mrz_band_jpeg: bytes) -> list[str] | None:
+        """3 dòng MRZ thô; bên gọi tự kiểm check digit trước khi nhận."""
+        parsed = self._generate(mrz_band_jpeg, PROMPT_MRZ, MrzSchema, "mrz")
+        if parsed is None or not parsed.line1 or not parsed.line2:
+            return None
+        return [parsed.line1, parsed.line2, parsed.line3 or ""]
+
+    def read_front_id(self, masked_front_jpeg: bytes) -> str | None:
+        """Số định danh in ở mặt trước (để gắn với số đọc từ mặt sau)."""
+        parsed = self._generate(
+            masked_front_jpeg, PROMPT_FRONT_ID, PrintedIdSchema, "front_id"
+        )
+        return normalize_id(parsed.id_number) if parsed is not None else None
+
+
+class GeminiCardReader(CardReader):
+    """Gọi Gemini; mọi lỗi đều quy về ``None`` (coi như AI không có)."""
+
+    name = "Gemini"
 
     def __init__(self, client, model: str = DEFAULT_MODEL):
         self._client = client
@@ -192,7 +262,7 @@ class GeminiCardReader:
         except Exception as exc:  # noqa: BLE001 — 429/quota/timeout/mạng: coi như AI không có
             code = getattr(exc, "code", None)
             logger.warning(
-                "Gemini %s lỗi (%s%s) — bỏ qua AI.",
+                "Gemini %s lỗi (%s%s).",
                 task,
                 type(exc).__name__,
                 f" {code}" if code else "",
@@ -200,73 +270,158 @@ class GeminiCardReader:
             return None
         text = getattr(response, "text", None)
         if not text:
-            logger.warning(
-                "Gemini %s không trả nội dung (bị chặn hoặc rỗng) — bỏ qua AI.", task
-            )
+            logger.warning("Gemini %s không trả nội dung (bị chặn hoặc rỗng).", task)
             return None
         try:
             return schema.model_validate(json.loads(text))
         except (json.JSONDecodeError, ValidationError, TypeError):
-            logger.warning("Gemini %s trả JSON sai khuôn — bỏ qua AI.", task)
+            logger.warning("Gemini %s trả JSON sai khuôn.", task)
             return None
 
-    def read_front_fields(
-        self, masked_front_jpeg: bytes, want_optional: bool
-    ) -> FrontRead | None:
-        """Đọc các trường in ở mặt trước đã che chân dung."""
-        schema = FrontFieldsOptionalSchema if want_optional else FrontFieldsSchema
-        prompt = PROMPT_FRONT + (PROMPT_FRONT_OPTIONAL if want_optional else "")
-        parsed = self._generate(masked_front_jpeg, prompt, schema, "front_fields")
-        if parsed is None:
+
+class ClaudeCardReader(CardReader):
+    """Gọi Claude (structured output theo đúng schema); mọi lỗi đều quy về ``None``."""
+
+    name = "Claude"
+
+    def __init__(self, client, model: str = DEFAULT_CLAUDE_MODEL):
+        self._client = client
+        self._model = model
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    def _generate(self, jpeg: bytes, prompt: str, schema: type[BaseModel], task: str):
+        image = {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/jpeg",
+                "data": base64.standard_b64encode(jpeg).decode("ascii"),
+            },
+        }
+        try:
+            response = self._client.messages.parse(
+                model=self._model,
+                max_tokens=_CLAUDE_MAX_TOKENS,
+                output_config={"effort": CLAUDE_EFFORT},
+                output_format=schema,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [image, {"type": "text", "text": prompt}],
+                    }
+                ],
+            )
+        except anthropic.APIStatusError as exc:
+            logger.warning(
+                "Claude %s lỗi HTTP %d (request_id=%s).",
+                task,
+                exc.status_code,
+                exc.request_id,
+            )
             return None
-        result = _normalize_front(parsed)
+        except anthropic.APIConnectionError as exc:  # gồm cả APITimeoutError
+            logger.warning("Claude %s lỗi kết nối (%s).", task, type(exc).__name__)
+            return None
+        except ValueError:  # JSON không khớp schema (ValidationError là ValueError)
+            logger.warning("Claude %s trả JSON sai khuôn.", task)
+            return None
+        if response.stop_reason == "refusal":
+            category = response.stop_details.category if response.stop_details else None
+            logger.warning("Claude %s từ chối (category=%s).", task, category)
+            return None
+        if response.stop_reason == "max_tokens" or response.parsed_output is None:
+            logger.warning(
+                "Claude %s không trả JSON hoàn chỉnh (stop_reason=%s).",
+                task,
+                response.stop_reason,
+            )
+            return None
+        return response.parsed_output
+
+
+class FallbackCardReader(CardReader):
+    """Hỏi ``primary`` trước; chỉ khi không gọi được mới hỏi ``fallback`` cùng câu đó."""
+
+    def __init__(self, primary: CardReader, fallback: CardReader):
+        self._primary = primary
+        self._fallback = fallback
+        self.name = f"{primary.name}→{fallback.name}"
+
+    def _generate(self, jpeg: bytes, prompt: str, schema: type[BaseModel], task: str):
+        parsed = self._primary._generate(jpeg, prompt, schema, task)
+        if parsed is not None:
+            return parsed
         logger.info(
-            "Gemini front_fields: id=%s name=%s dob=%s gender=%s address=%s title=%s",
-            result.id_number is not None,
-            result.full_name is not None,
-            result.date_of_birth is not None,
-            result.gender is not None,
-            result.address is not None,
-            result.card_title is not None,
+            "%s %s không trả lời được — chuyển sang %s.",
+            self._primary.name,
+            task,
+            self._fallback.name,
         )
-        return result
-
-    def read_mrz_lines(self, mrz_band_jpeg: bytes) -> list[str] | None:
-        """3 dòng MRZ thô; bên gọi tự kiểm check digit trước khi nhận."""
-        parsed = self._generate(mrz_band_jpeg, PROMPT_MRZ, MrzSchema, "mrz")
-        if parsed is None or not parsed.line1 or not parsed.line2:
-            return None
-        return [parsed.line1, parsed.line2, parsed.line3 or ""]
-
-    def read_front_id(self, masked_front_jpeg: bytes) -> str | None:
-        """Số định danh in ở mặt trước (để gắn với số đọc từ mặt sau)."""
-        parsed = self._generate(
-            masked_front_jpeg, PROMPT_FRONT_ID, PrintedIdSchema, "front_id"
-        )
-        return normalize_id(parsed.id_number) if parsed is not None else None
+        return self._fallback._generate(jpeg, prompt, schema, task)
 
 
-def build_from_env(cfg: EkycSettings | None = None) -> GeminiCardReader | None:
-    """Tạo reader nếu ``EKYC_GEMINI_MODE`` khác ``off``, có key và có SDK; ngược lại ``None``."""
-    cfg = cfg or settings()
-    if cfg.gemini_mode == GEMINI_MODE_OFF:
-        logger.info("EKYC_GEMINI_MODE=off — đọc CCCD chỉ bằng nguồn tất định.")
-        return None
+def _build_gemini(cfg: EkycSettings) -> GeminiCardReader | None:
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        logger.info("Không có GEMINI_API_KEY — đọc CCCD chỉ bằng nguồn tất định.")
+        logger.info("Không có GEMINI_API_KEY — không dùng Gemini.")
         return None
     if genai is None:
-        logger.warning("Có GEMINI_API_KEY nhưng chưa cài google-genai — bỏ qua AI.")
+        logger.warning("Có GEMINI_API_KEY nhưng chưa cài google-genai — bỏ qua Gemini.")
         return None
     model = os.getenv("GEMINI_OCR_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
     client = genai.Client(
         api_key=api_key,
         http_options=genai_types.HttpOptions(timeout=cfg.gemini_timeout_ms),
     )
+    logger.info("Gemini (%s) bật, timeout %d ms.", model, cfg.gemini_timeout_ms)
+    return GeminiCardReader(client, model)
+
+
+def _build_claude(cfg: EkycSettings) -> ClaudeCardReader | None:
+    # Chỉ bật khi đặt key rõ ràng: không dựa vào profile `ant auth login` trên máy chủ.
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        logger.info("Không có ANTHROPIC_API_KEY — không có Claude dự phòng.")
+        return None
+    if anthropic is None:
+        logger.warning("Có ANTHROPIC_API_KEY nhưng chưa cài anthropic — bỏ qua Claude.")
+        return None
+    model = (
+        os.getenv("CLAUDE_OCR_MODEL", DEFAULT_CLAUDE_MODEL).strip()
+        or DEFAULT_CLAUDE_MODEL
+    )
+    client = anthropic.Anthropic(
+        api_key=api_key,
+        timeout=cfg.gemini_timeout_ms / 1000,
+        max_retries=_CLAUDE_MAX_RETRIES,
+    )
     logger.info(
-        "Gemini (%s) bật ở chế độ fallback, timeout %d ms.",
+        "Claude (%s, effort %s) bật làm dự phòng, timeout %d ms.",
         model,
+        CLAUDE_EFFORT,
         cfg.gemini_timeout_ms,
     )
-    return GeminiCardReader(client, model)
+    return ClaudeCardReader(client, model)
+
+
+def build_from_env(cfg: EkycSettings | None = None) -> CardReader | None:
+    """Reader AI theo env: Gemini, Claude dự phòng khi Gemini không trả lời được.
+
+    ``EKYC_GEMINI_MODE=off`` tắt **mọi** AI bên ngoài (cả Claude). Chỉ có một trong hai
+    key thì dùng riêng nhà cung cấp đó; không có key nào thì ``None``.
+    """
+    cfg = cfg or settings()
+    if cfg.gemini_mode == GEMINI_MODE_OFF:
+        logger.info("EKYC_GEMINI_MODE=off — đọc CCCD chỉ bằng nguồn tất định.")
+        return None
+    gemini = _build_gemini(cfg)
+    claude = _build_claude(cfg)
+    if gemini is not None and claude is not None:
+        return FallbackCardReader(gemini, claude)
+    reader = gemini or claude
+    if reader is None:
+        logger.info("Không có AI nào được cấu hình — đọc CCCD chỉ bằng nguồn tất định.")
+    return reader

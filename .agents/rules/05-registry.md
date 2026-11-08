@@ -104,7 +104,8 @@ Notification (W3F, D60) đọc bằng group `notification-domain-events` các to
 `finora.loan.investor-signature-requested`, `finora.loan.borrower-signature-requested`, `finora.loan.contract-activated`,
 `finora.loan.disbursed`, `finora.payment.repayment-distributed`, `finora.loan.delinquency-changed`, `finora.loan.settled`,
 `finora.loan.reschedule-consent-requested`, `finora.investment.reschedule-consent-completed`, `finora.loan.rescheduled`,
-`finora.payment.withdrawal-completed`, `finora.payment.withdrawal-failed`; group `notification-investor-servicing` giữ
+`finora.payment.withdrawal-completed`, `finora.payment.withdrawal-failed`, `finora.payment.bank-link-otp-requested` (BL-001,
+OTP liên kết ngân hàng của ngân hàng giả lập); group `notification-investor-servicing` giữ
 `finora.investment.note-servicing-changed`. Record lỗi vào `<topic>.notification.DLT` (không dùng chung `.DLT` của
 consumer khác). `finora.payment.repayment-collected`/`repayment-cancelled` (P5) có producer Payment từ 2026-10-17 (bảng trên);
 Notification chỉ đọc khi bật nhắc lịch (D64). Payment và Blockchain chỉ là consumer ở các topic đã đăng ký rõ trong

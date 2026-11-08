@@ -33,6 +33,7 @@ public class NotificationTopicRoutes {
         route(topics.loanRescheduled(), "LoanRescheduled");
         route(topics.withdrawalCompleted(), "WithdrawalCompleted");
         route(topics.withdrawalFailed(), "WithdrawalFailed");
+        route(topics.bankLinkOtpRequested(), "BankLinkOtpRequested");
         route(topics.repaymentCollected(), "RepaymentCollected");
         route(topics.repaymentCancelled(), "RepaymentCancelled");
         route(properties.kafka().noteServicingChangedTopic(), "InvestorNoteServicingChanged");

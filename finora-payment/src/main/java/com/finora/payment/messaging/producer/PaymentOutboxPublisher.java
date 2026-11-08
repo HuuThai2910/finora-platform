@@ -58,6 +58,8 @@ public class PaymentOutboxPublisher{
    case "RepaymentCancelled" -> environment.getProperty("finora.payment.repayment-cancelled-topic","finora.payment.repayment-cancelled");
    case "WithdrawalCompleted" -> environment.getProperty("finora.payment.withdrawal-completed-topic","finora.payment.withdrawal-completed");
    case "WithdrawalFailed" -> environment.getProperty("finora.payment.withdrawal-failed-topic","finora.payment.withdrawal-failed");
+   // BL-001: ngân hàng giả lập gửi OTP liên kết tài khoản qua Notification.
+   case "BankLinkOtpRequested" -> environment.getProperty("finora.payment.bank-link-otp-requested-topic","finora.payment.bank-link-otp-requested");
    default -> throw new IllegalArgumentException("Payment event chưa có Kafka route: "+eventType+" v"+eventVersion);
   };
  }
