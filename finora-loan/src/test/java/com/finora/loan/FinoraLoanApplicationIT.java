@@ -791,8 +791,11 @@ class FinoraLoanApplicationIT {
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString()).path("timeline");
         List<String> events = new java.util.ArrayList<>();
-        timeline.forEach(item -> events.add(item.path("eventCode").asText() + ":" + item.path("toStatus").asText()
-                + ":" + item.path("reasonCode").asText()));
+        // Trường null trong JSON đọc ra "" để chuỗi so sánh không phụ thuộc cách Jackson ghi null.
+        java.util.function.BiFunction<JsonNode, String, String> text =
+                (item, field) -> item.path(field).isNull() ? "" : item.path(field).asText();
+        timeline.forEach(item -> events.add(text.apply(item, "eventCode") + ":" + text.apply(item, "toStatus")
+                + ":" + text.apply(item, "reasonCode")));
         assertThat(events).contains(
                 "LENDER_DECLINED:DECLINED:",
                 "CONTRACT_STATUS:PENDING_REFUNDING:INVESTOR_CHANGED_MIND",
