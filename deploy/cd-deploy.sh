@@ -3,14 +3,18 @@
 #   az vm run-command invoke --command-id RunShellScript --scripts @deploy/cd-deploy.sh \
 #     --parameters <sha> <services> <repo>
 # - sha:      commit đầy đủ 40 ký tự; image GHCR có tag sha-<7 ký tự đầu>
-# - services: tên service cách nhau dấu phẩy (fineract,ai,user,...), `all`, hoặc `-` (chỉ cập nhật cấu hình deploy/)
-# - repo:     owner/name trên GitHub (repo public, tải thư mục deploy/ không cần token)
+# - services: tên service cách nhau dấu phẩy (fineract,ai,user,...,fabric-ccaas), `all`, hoặc `-` (chỉ cập nhật cấu hình)
+# - repo:     owner/name trên GitHub (repo public, tải thư mục deploy/ và cấu hình Fabric không cần token)
 # Run-command không trả mã thoát của script và chỉ giữ 4 KB output cuối, nên dòng cuối luôn là
 # FINORA_CD_RESULT=<ok|rolled-back|failed>; log đầy đủ ở /opt/finora/state/deploy-<sha>.log và Log Analytics
 # (Syslog, ProcessName finora-cd).
 #
 # Lần chạy đầu trên VM còn bố cục cũ (/opt/finora/src/finora-platform, image build tại chỗ): script tự chép .env sang
 # /opt/finora/env và cần services=all; hỏng thì chạy lại cụm cũ.
+#
+# Mạng Fabric (FAB-AZ-001): bản deploy có service fabric-tools thì script sinh crypto/genesis/package vào
+# /opt/finora/fabric (một lần, không bao giờ thay), chép danh tính User1@org1 cho finora-blockchain, rồi sau khi cụm
+# healthy thì join channel + cài chaincode (một lần, đánh dấu bằng build/.network-ready).
 if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
 set -euo pipefail
 
@@ -23,7 +27,8 @@ export FINORA_ROOT=$ROOT
 STATE=$ROOT/state
 IMAGES=$STATE/images.env
 OLD_SRC=$ROOT/src/finora-platform
-ALL_SERVICES=(fineract ai user notification payment investment loan blockchain gateway)
+FABRIC=$ROOT/fabric
+ALL_SERVICES=(fineract ai user notification payment investment loan blockchain gateway fabric-ccaas)
 ENV_SERVICES=(ai user notification payment investment loan)
 
 if [[ ! $SHA =~ ^[0-9a-f]{40}$ ]]; then
@@ -65,6 +70,50 @@ finish() {
 trap finish EXIT
 
 compose() { "$ROOT/bin/finora-compose" "$@"; }
+
+# Tên biến tag trong images.env: fabric-ccaas → FABRIC_CCAAS_TAG.
+tag_var() {
+  local name=${1^^}
+  echo "${name//-/_}_TAG"
+}
+
+# Một image CD có thể chạy thành nhiều service compose (chaincode của từng tổ chức).
+compose_services_of() {
+  case $1 in
+    fabric-ccaas) echo fabric-ccaas-org1 fabric-ccaas-org2 ;;
+    *) echo "$1" ;;
+  esac
+}
+
+fabric_enabled() {
+  compose --profile fabric-tools config --services 2>/dev/null | grep -qx fabric-tools
+}
+
+# Crypto, genesis block, package CCaaS và core.yaml của peer: sinh một lần (cryptogen là khóa demo, không phải CA).
+# finora-blockchain chạy bằng uid 10001 nên được một bản riêng danh tính User1@org1, chỉ uid đó đọc được.
+prepare_fabric() {
+  local org1=$FABRIC/crypto-config/peerOrganizations/org1.finora.local
+  local user=$org1/users/User1@org1.finora.local/msp
+  install -d -m 700 "$FABRIC" "$FABRIC/crypto-config" "$FABRIC/build" || return 1
+  if [[ ! -f $FABRIC/build/peercfg/core.yaml || ! -f $FABRIC/build/chaincode/package-id ||
+        ! -f $FABRIC/build/channel/finora-channel.block || ! -f $user/keystore/priv_sk ]]; then
+    log "Fabric: sinh crypto, genesis block, package chaincode"
+    compose --profile fabric-tools run --rm -T fabric-tools generate || return 1
+  fi
+  install -d -m 500 -o 10001 -g 10001 "$FABRIC/client" || return 1
+  install -m 444 -o 10001 -g 10001 "$user/signcerts/User1@org1.finora.local-cert.pem" "$FABRIC/client/cert.pem" || return 1
+  install -m 400 -o 10001 -g 10001 "$user/keystore/priv_sk" "$FABRIC/client/key.pem" || return 1
+  install -m 444 -o 10001 -g 10001 "$org1/peers/peer0.org1.finora.local/tls/ca.crt" "$FABRIC/client/tls-ca.crt" || return 1
+}
+
+# Orderer + hai peer join finora-channel, cài/approve/commit chaincode, smoke đọc qua từng peer. Chỉ chạy lần đầu:
+# ledger nằm trong volume nên các lần sau không cần (xóa build/.network-ready để chạy lại, network.sh idempotent).
+setup_fabric_network() {
+  if [[ -f $FABRIC/build/.network-ready ]]; then return 0; fi
+  log "Fabric: channel, chaincode, smoke"
+  compose --profile fabric-tools run --rm -T fabric-tools all || return 1
+  touch "$FABRIC/build/.network-ready"
+}
 
 # Các service truyền vào (service của project `finora`) phải running và, nếu có healthcheck, healthy.
 # Dùng: wait_healthy <giây> <service...>
@@ -147,7 +196,8 @@ if [[ ! -f $REL/deploy/docker-compose.azure.yml ]]; then
   for attempt in 1 2 3; do
     rm -rf "${tmp:?}"/*
     if curl -fsSL --max-time 120 "https://codeload.github.com/$REPO/tar.gz/$SHA" |
-      tar -xz -C "$tmp" --strip-components=1 --wildcards '*/deploy/*'; then
+      tar -xz -C "$tmp" --strip-components=1 --wildcards '*/deploy/*' \
+        '*/docker/fabric-network/config/*' '*/docker/fabric-network/scripts/*'; then
       ok=true
       break
     fi
@@ -161,6 +211,7 @@ if [[ ! -f $REL/deploy/docker-compose.azure.yml ]]; then
   rm -rf "$REL"
   mkdir -p "$REL"
   mv "$tmp/deploy" "$REL/deploy"
+  mv "$tmp/docker" "$REL/docker"
   rm -rf "$tmp"
 fi
 
@@ -185,13 +236,14 @@ if [[ -f $IMAGES ]]; then
   done <"$IMAGES"
 fi
 for svc in "${SERVICES[@]}"; do
-  TAGS[${svc^^}_TAG]=$TAG
+  TAGS[$(tag_var "$svc")]=$TAG
 done
 {
   echo "# Tag image đang chạy, do cd-deploy.sh ghi (commit $SHA, $(date -u +%FT%TZ))."
   echo "FINORA_REGISTRY=$REGISTRY"
   for svc in "${ALL_SERVICES[@]}"; do
-    echo "${svc^^}_TAG=${TAGS[${svc^^}_TAG]:-}"
+    var=$(tag_var "$svc")
+    echo "$var=${TAGS[$var]:-}"
   done
 } >"$IMAGES.new"
 mv "$IMAGES.new" "$IMAGES"
@@ -238,9 +290,19 @@ if [[ $FIRST_RUN == true || " ${SERVICES[*]} " == *" fineract "* ]]; then HEALTH
 HEALTH_TIMEOUT=${FINORA_HEALTH_TIMEOUT:-$HEALTH_TIMEOUT}
 
 deploy_ok=true
-if (( ${#SERVICES[@]} )); then
+FABRIC_ON=false
+if fabric_enabled; then
+  FABRIC_ON=true
+  prepare_fabric || deploy_ok=false
+fi
+if [[ $deploy_ok == true ]] && (( ${#SERVICES[@]} )); then
   log "Kéo image: ${SERVICES[*]} ($TAG)"
-  compose pull --quiet "${SERVICES[@]}" || deploy_ok=false
+  pull=()
+  for svc in "${SERVICES[@]}"; do
+    read -ra targets <<<"$(compose_services_of "$svc")"
+    pull+=("${targets[@]}")
+  done
+  compose pull --quiet "${pull[@]}" || deploy_ok=false
 fi
 if [[ $deploy_ok == true ]]; then
   log "docker compose up -d"
@@ -253,6 +315,9 @@ fi
 if [[ $deploy_ok == true ]]; then
   # shellcheck disable=SC2046
   wait_healthy "$HEALTH_TIMEOUT" $(compose config --services) || deploy_ok=false
+fi
+if [[ $deploy_ok == true && $FABRIC_ON == true ]]; then
+  setup_fabric_network || deploy_ok=false
 fi
 
 if [[ $deploy_ok != true ]]; then
