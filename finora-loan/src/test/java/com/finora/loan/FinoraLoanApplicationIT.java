@@ -190,8 +190,8 @@ class FinoraLoanApplicationIT {
                 """, Long.class);
 
         assertThat(databaseVersion).startsWith("17.");
-        // V32 thêm loan_contract_signatures (chuỗi chữ ký PAdES).
-        assertThat(businessTables).isEqualTo(25L);
+        // V32 thêm chuỗi chữ ký PAdES; V36–V37 thêm lịch servicing có version và khoản trả kỳ đang chờ ghi core.
+        assertThat(businessTables).isEqualTo(27L);
         assertThat(flyway.info().pending()).isEmpty();
     }
 

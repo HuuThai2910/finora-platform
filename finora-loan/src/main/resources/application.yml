@@ -188,6 +188,8 @@ finora:
       disbursement-completed-topic: ${PAYMENT_DISBURSEMENT_COMPLETED_TOPIC:finora.payment.disbursement-completed}
       disbursement-failed-topic: ${PAYMENT_DISBURSEMENT_FAILED_TOPIC:finora.payment.disbursement-failed}
       repayment-distributed-topic: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:finora.payment.repayment-distributed}
+      repayment-collected-topic: ${PAYMENT_REPAYMENT_COLLECTED_TOPIC:finora.payment.repayment-collected}
+      repayment-cancelled-topic: ${PAYMENT_REPAYMENT_CANCELLED_TOPIC:finora.payment.repayment-cancelled}
       reschedule-consent-completed-topic: ${INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC:finora.investment.reschedule-consent-completed}
       publish-timeout: ${LOAN_KAFKA_PUBLISH_TIMEOUT:10s}
       # Chỉ event có publishable=true và route đúng type/version mới được relay.
@@ -259,6 +261,11 @@ finora:
       retry-delay: ${LOAN_RESCHEDULE_RETRY_DELAY:30s}
       maximum-retry-delay: ${LOAN_RESCHEDULE_MAXIMUM_RETRY_DELAY:15m}
       fineract-reason-id: ${FINERACT_RESCHEDULE_REASON_ID:}
+      # Nghị định 94/2025/NĐ-CP: thời hạn hợp đồng P2P không vượt quá 2 năm.
+      # Hạn mức thực tế của từng khoản vay còn được thu hẹp động theo số kỳ đã có/đã gia hạn.
+      maximum-extra-terms-per-request: ${LOAN_RESCHEDULE_MAX_EXTRA_TERMS_PER_REQUEST:24}
+      maximum-cumulative-extra-terms: ${LOAN_RESCHEDULE_MAX_CUMULATIVE_EXTRA_TERMS:24}
+      maximum-total-terms: ${LOAN_RESCHEDULE_MAX_TOTAL_TERMS:24}
       terms-version: ${LOAN_RESTRUCTURE_TERMS_VERSION:LOAN_RESTRUCTURE_TERMS_V1}
       terms-text: "Tôi đồng ý lịch trả nợ mới chỉ có hiệu lực khi đề nghị được duyệt, tất cả nhà đầu tư chấp thuận và lịch mới được cập nhật thành công. Trong thời gian chờ, tôi vẫn thanh toán theo lịch hiện tại."
   # Nguồn eKYC/tuổi người vay đọc lúc nộp hồ sơ (W2-KYC, D4): `user` chuyển tiếp token người vay sang finora-user;

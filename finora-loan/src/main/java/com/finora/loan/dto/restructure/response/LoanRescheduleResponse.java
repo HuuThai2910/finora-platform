@@ -20,6 +20,7 @@ public record LoanRescheduleResponse(
         LocalDate originalMaturityDate,
         LocalDate newMaturityDate,
         String decisionComment,
+        String lastErrorCode,
         Instant decidedAt,
         Instant createdAt,
         Instant updatedAt

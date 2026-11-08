@@ -50,8 +50,8 @@ public class LoanRescheduleConsentResultHandlerImpl implements LoanRescheduleCon
         }
         Instant now = clock.instant();
         if (data.approved()) {
+            request.investorsApproved(loan.getStatus(), now);
             loan.beginRestructuring(now);
-            request.investorsApproved(now);
         } else {
             request.investorsRejected(now);
         }

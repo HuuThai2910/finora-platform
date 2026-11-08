@@ -11,9 +11,9 @@ import java.time.LocalDate;
 
 public record CreateLoanRescheduleRequest(
         @NotNull LoanRescheduleType requestType,
-        @NotNull LocalDate rescheduleFromDate,
+        LocalDate rescheduleFromDate,
         LocalDate adjustedDueDate,
-        @Positive @Max(120) Integer extraTerms,
+        @Positive @Max(24) Integer extraTerms,
         @NotBlank @Size(max = 500) String reasonComment,
         @NotBlank @Size(max = 50) String confirmedTermsVersion
 ) {}

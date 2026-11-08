@@ -47,4 +47,17 @@ public class AdminLoanRescheduleController {
             @Valid @RequestBody AdminLoanRescheduleDecisionRequest request) {
         return ResponseEntity.ok(loanRescheduleService.reject(requestId, idempotencyKey, request));
     }
+
+    @PostMapping("/{requestId}/retry")
+    public ResponseEntity<LoanRescheduleResponse> retry(@PathVariable UUID requestId) {
+        return ResponseEntity.ok(loanRescheduleService.retryManual(requestId));
+    }
+
+    @PostMapping("/{requestId}/cancel")
+    public ResponseEntity<LoanRescheduleResponse> cancel(
+            @PathVariable UUID requestId,
+            @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 150) String idempotencyKey,
+            @Valid @RequestBody AdminLoanRescheduleDecisionRequest request) {
+        return ResponseEntity.ok(loanRescheduleService.cancelManual(requestId, idempotencyKey, request));
+    }
 }

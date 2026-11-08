@@ -3,6 +3,7 @@ package com.finora.loan.controller;
 import com.finora.loan.dto.response.PageResponse;
 import com.finora.loan.dto.restructure.request.CreateLoanRescheduleRequest;
 import com.finora.loan.dto.restructure.response.LoanReschedulePolicyResponse;
+import com.finora.loan.dto.restructure.response.LoanRescheduleEligibilityResponse;
 import com.finora.loan.dto.restructure.response.LoanRescheduleResponse;
 import com.finora.loan.service.restructure.LoanRescheduleService;
 import jakarta.validation.Valid;
@@ -25,6 +26,12 @@ public class LoanRescheduleController {
     @GetMapping("/reschedule-policy")
     public ResponseEntity<LoanReschedulePolicyResponse> policy() {
         return ResponseEntity.ok(loanRescheduleService.policy());
+    }
+
+    @GetMapping("/{loanNumber}/reschedule-policy")
+    public ResponseEntity<LoanRescheduleEligibilityResponse> eligibility(
+            @PathVariable @NotBlank @Size(max = 50) String loanNumber) {
+        return ResponseEntity.ok(loanRescheduleService.eligibility(loanNumber));
     }
 
     @PostMapping("/{loanNumber}/reschedule-requests")

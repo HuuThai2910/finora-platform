@@ -18,6 +18,7 @@ import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
 import com.finora.loan.repository.disbursement.DisbursementSagaRepository;
 import com.finora.loan.repository.servicing.FinoraLoanRepository;
 import com.finora.loan.repository.servicing.LoanServicingProjectionRepository;
+import com.finora.loan.repository.servicing.LoanServicingScheduleVersionRepository;
 import com.finora.loan.service.servicing.LoanServicingQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -43,6 +44,7 @@ public class LoanServicingQueryServiceImpl implements LoanServicingQueryService 
 
     private final FinoraLoanRepository finoraLoanRepository;
     private final LoanServicingProjectionRepository loanServicingProjectionRepository;
+    private final LoanServicingScheduleVersionRepository loanServicingScheduleVersionRepository;
     private final LoanContractRepository loanContractRepository;
     private final ScheduleCalculationSnapshotRepository scheduleCalculationSnapshotRepository;
     private final ScheduleCalculationSnapshotMapper scheduleCalculationSnapshotMapper;
@@ -105,9 +107,13 @@ public class LoanServicingQueryServiceImpl implements LoanServicingQueryService 
         ScheduleCalculationSnapshot snapshot = scheduleCalculationSnapshotRepository
                 .findById(contract.getCalculationSnapshotId())
                 .orElseThrow(() -> new IllegalStateException("Khoản vay thiếu snapshot lịch trả"));
+        var effectiveSchedule = loanServicingScheduleVersionRepository
+                .findFirstByFinoraLoanIdOrderByScheduleVersionDesc(loan.getId());
         return new LoanRepaymentScheduleResponse(
                 summary(loan, projection),
-                scheduleCalculationSnapshotMapper.periods(snapshot),
+                effectiveSchedule
+                        .map(value -> scheduleCalculationSnapshotMapper.periods(value.getPeriodsSnapshotJson()))
+                        .orElseGet(() -> scheduleCalculationSnapshotMapper.periods(snapshot)),
                 projection.getSource(),
                 projection.getDataAsOf(),
                 projection.isStale());
@@ -135,7 +141,8 @@ public class LoanServicingQueryServiceImpl implements LoanServicingQueryService 
 
     private static LoanServicingSummaryResponse summary(FinoraLoan loan, LoanServicingProjection projection) {
         return new LoanServicingSummaryResponse(
-                loan.getLoanNumber(), loan.getApplicationNumber(), loan.getContractNumber(), loan.getStatus(),
+                loan.getLoanNumber(), loan.getLoanApplicationId(), loan.getApplicationNumber(),
+                loan.getContractNumber(), loan.getStatus(),
                 loan.getPrincipalAmount(), projection.getPrincipalOutstanding(), projection.getTotalOutstanding(),
                 projection.getOverdueAmount(), projection.getDaysPastDue(), projection.getNextDueDate(),
                 projection.getNextDueAmount(), projection.getMaturityDate(), loan.getCurrency(),

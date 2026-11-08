@@ -24,7 +24,7 @@ class LoanMigrationUpgradeIT {
             .withPassword("finora_test");
 
     @Test
-    void existingV4DatabaseUpgradesThroughV34WithoutRecreatingOldTables() throws Exception {
+    void existingV4DatabaseUpgradesThroughV38WithoutRecreatingOldTables() throws Exception {
         Flyway.configure()
                 .dataSource(POSTGRESQL.getJdbcUrl(), POSTGRESQL.getUsername(), POSTGRESQL.getPassword())
                 .locations("classpath:db/migration")
@@ -38,7 +38,7 @@ class LoanMigrationUpgradeIT {
                 .load();
         upgraded.migrate();
 
-        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("34");
+        assertThat(upgraded.info().current().getVersion().getVersion()).isEqualTo("38");
         assertThat(upgraded.info().pending()).isEmpty();
         try (Connection connection = POSTGRESQL.createConnection("");
              Statement statement = connection.createStatement();
@@ -321,6 +321,34 @@ class LoanMigrationUpgradeIT {
             assertThat(indexes).contains(
                     "uq_loan_contract_signatures_in_flight", "uq_loan_contract_signatures_sequence",
                     "uq_loan_contract_signatures_signer", "idx_loan_contract_signatures_in_flight_due");
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT COUNT(*)
+                     FROM information_schema.tables
+                     WHERE table_schema = 'public'
+                       AND table_name IN (
+                           'loan_servicing_schedule_versions',
+                           'pending_scheduled_repayments'
+                       )
+                     """)) {
+            // V36–V37: lịch sau cơ cấu và khoản trả sớm đang chờ ghi core phải nâng cấp được từ DB V4.
+            assertThat(result.next()).isTrue();
+            assertThat(result.getInt(1)).isEqualTo(2);
+        }
+        try (Connection connection = POSTGRESQL.createConnection("");
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("""
+                     SELECT COUNT(*)
+                     FROM information_schema.columns
+                     WHERE table_schema = 'public'
+                       AND table_name = 'loan_reschedule_requests'
+                       AND column_name = 'previous_loan_status'
+                     """)) {
+            // V35/V38: lưu trạng thái trước cơ cấu để retry/cancel không làm khoản vay mắc ở RESTRUCTURING.
+            assertThat(result.next()).isTrue();
+            assertThat(result.getInt(1)).isEqualTo(1);
         }
     }
 }

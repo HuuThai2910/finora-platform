@@ -11,6 +11,7 @@ public enum LoanRescheduleStatus {
     APPROVING,
     COMPLETED,
     RECONCILIATION_REQUIRED,
-    MANUAL_REVIEW
+    MANUAL_REVIEW,
+    CANCELLED
 }
 

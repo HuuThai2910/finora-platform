@@ -3,6 +3,7 @@ package com.finora.loan.domain.restructure.entity;
 import com.finora.loan.domain.restructure.enums.LoanRescheduleStatus;
 import com.finora.loan.domain.restructure.enums.LoanRescheduleStep;
 import com.finora.loan.domain.restructure.enums.LoanRescheduleType;
+import com.finora.loan.domain.servicing.enums.FinoraLoanStatus;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -74,6 +75,9 @@ public class LoanRescheduleRequest {
     private Instant processingStartedAt;
     @Column(name = "last_error_code", length = 100)
     private String lastErrorCode;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "previous_loan_status", length = 30)
+    private FinoraLoanStatus previousLoanStatus;
     @Version @Column(nullable = false)
     private Long version;
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -126,10 +130,14 @@ public class LoanRescheduleRequest {
         updatedAt = now;
     }
 
-    public void investorsApproved(Instant now) {
+    public void investorsApproved(FinoraLoanStatus loanStatus, Instant now) {
         if (status != LoanRescheduleStatus.PENDING_INVESTOR_CONSENT) {
             throw new IllegalStateException("Yêu cầu không còn chờ nhà đầu tư đồng ý");
         }
+        if (loanStatus != FinoraLoanStatus.ACTIVE && loanStatus != FinoraLoanStatus.DEFAULTED) {
+            throw new IllegalArgumentException("Trạng thái khoản vay trước cơ cấu không hợp lệ");
+        }
+        previousLoanStatus = loanStatus;
         status = LoanRescheduleStatus.CREATE_PENDING;
         nextAttemptAt = now;
         updatedAt = now;
@@ -214,6 +222,33 @@ public class LoanRescheduleRequest {
             status = LoanRescheduleStatus.MANUAL_REVIEW;
             nextAttemptAt = null;
         }
+        updatedAt = now;
+    }
+
+    public void retryManual(Instant now) {
+        if (status != LoanRescheduleStatus.MANUAL_REVIEW) {
+            throw new IllegalStateException("Yêu cầu không ở bước cần xử lý thủ công");
+        }
+        status = fineractRescheduleId == null
+                ? LoanRescheduleStatus.CREATE_PENDING : LoanRescheduleStatus.APPROVAL_PENDING;
+        attemptCount = 0;
+        nextAttemptAt = now;
+        processingStartedAt = null;
+        lastErrorCode = null;
+        updatedAt = now;
+    }
+
+    public void cancelManual(String actorId, String comment, String decisionKey, Instant now) {
+        if (status != LoanRescheduleStatus.MANUAL_REVIEW) {
+            throw new IllegalStateException("Yêu cầu không ở bước cần xử lý thủ công");
+        }
+        adminId = requireText(actorId, "actorId", 100);
+        decisionComment = requireText(comment, "comment", 500);
+        decisionIdempotencyKey = requireText(decisionKey, "decisionKey", 150);
+        decidedAt = now;
+        status = LoanRescheduleStatus.CANCELLED;
+        nextAttemptAt = null;
+        processingStartedAt = null;
         updatedAt = now;
     }
 
