@@ -72,9 +72,9 @@ eKYC và bảng luật không đi qua Kafka và Investment không chép các s�
 | `DisbursementRequested` v2 / `finora.loan.disbursement-requested` | Loan → Payment | Contract đã `EFFECTIVE`, Loan đã tạo durable Saga | Payment lưu yêu cầu duy nhất theo `sagaId`, capture/đối chiếu từng `paymentHoldReference` và gọi provider ngoài transaction | unique `sagaId`; provider reference/idempotency dùng cùng `sagaId` |
 | `DisbursementCompleted` v1 / `finora.payment.disbursement-completed` | Payment → Loan | Provider xác nhận tiền đã chuyển và Payment đã lưu reference | Loan ghi nhận Fineract bằng external ID, không yêu cầu Payment chuyển lại | `eventId` + `sagaId`; `paymentReference` unique |
 | `DisbursementFailed` v1 / `finora.payment.disbursement-failed` | Payment → Loan | Lỗi cuối cùng, không còn retry tự động trong Payment | Loan giữ Contract `EFFECTIVE`, saga thành `PAYMENT_FAILED` để vận hành xử lý; nếu saga còn `WAITING_PAYMENT` thì cùng transaction ghi `LoanFundingCancelled` để nhà đầu tư được nhả tiền giữ | `eventId` + `sagaId` |
-| `LoanFundingCancelled` v1 / `finora.loan.funding-cancelled` | Loan → Investment; Notification | Người vay rút listing còn mở; Contract nhiều bên bị một bên chưa ký từ chối/hết hạn; hoặc `DisbursementFailed` khi saga còn `WAITING_PAYMENT` | Nhánh listing `OPEN` đối chiếu application + round; nhánh đã đủ vốn đối chiếu exact allocation. Investment hủy commitment/lệnh, chuyển listing `CANCELLED`; worker nhả từng hold. Notification chỉ báo borrower nếu chưa có allocation, hoặc báo cả allocation đã khóa | `eventId` trong `processed_events`; Loan chỉ chuyển funding sang `CANCELLED` một lần; replay với `eventId` mới là no-op khi listing đã `CANCELLED` |
+| `LoanFundingCancelled` v1 / `finora.loan.funding-cancelled` | Loan → Investment; Notification | Người vay rút listing còn mở (kể cả khi đang gọi vốn bổ sung); người vay từ chối/hết hạn ký Contract nhiều bên; hoặc `DisbursementFailed` khi saga còn `WAITING_PAYMENT` | Nhánh listing `OPEN` đối chiếu application + round; nhánh đã đủ vốn đối chiếu exact allocation. Investment hủy commitment/lệnh, chuyển listing `CANCELLED`; worker nhả từng hold. Notification chỉ báo borrower nếu chưa có allocation, hoặc báo cả allocation đã khóa | `eventId` trong `processed_events`; Loan chỉ chuyển funding sang `CANCELLED` một lần; replay với `eventId` mới là no-op khi listing đã `CANCELLED` |
 | `LoanDisbursed` v1 / `finora.loan.disbursed` | Loan → Investment, Payment, Blockchain (proof `DISBURSEMENT`, W3D); Notification (W3F) | Payment success và Fineract đã ghi disbursement | Investment `ACTIVE → FINALIZED` commitments và phát hành Note; các consumer khác chỉ tạo projection/proof/thông báo. Mang `borrowerId` (P2) và kỳ đầu `nextDueDate`/`nextDueAmount` từ Fineract (P3) để Notification báo và nhắc từ kỳ 1 | `eventId`; Note unique theo commitment/sequence |
-| `NoteOwnershipChanged` v1 / `finora.investment.note-ownership-changed` | Investment → Payment, Blockchain (proof `NOTE_OWNERSHIP`, W3D) | Note vừa phát hành hoặc đổi chủ trên chợ thứ cấp | Payment cập nhật read model chủ Note để kỳ trả tiếp theo chuyển tiền đúng người đang sở hữu | `eventId`; `noteId` unique; event cũ hơn `changedAt` không ghi đè event mới |
+| `NoteOwnershipChanged` v1 / `finora.investment.note-ownership-changed` | Investment → Payment, Blockchain (proof `NOTE_OWNERSHIP`, W3D) | Hai nghiệp vụ riêng: phát hành Note (`reason=ISSUED`, sau giải ngân hồ sơ mới) và chuyển nhượng Note (`reason=TRANSFERRED`, nhà đầu tư giao dịch với nhau); Blockchain neo proof riêng cho từng lần | Payment cập nhật read model chủ Note để kỳ trả tiếp theo chuyển tiền đúng người đang sở hữu | `eventId`; `noteId` unique; event cũ hơn `changedAt` không ghi đè event mới |
 | `RepaymentDistributed` v1 / `finora.payment.repayment-distributed` | Payment → Loan, Investment, Blockchain; Notification (W3F) | Ví người vay đã bị trừ, Fineract đã phân bổ và ledger phân phối đã cân bằng | Loan cập nhật projection; Investment cộng gốc/lãi/phần phí trả trước của Note và đóng Note khi hết gốc; Blockchain chỉ neo SHA-256 của `data`; Notification báo người vay theo `borrowerId` (P4) và cập nhật lịch nhắc | `eventId`; unique `repaymentId`/`fineractTransactionId`; `processed_events` |
 | `RepaymentCollected` v1 / `finora.payment.repayment-collected` | Payment → Notification (W3F, P5) | Payment vừa trừ ví cho một kỳ trả trước ngày đến hạn và giữ ở clearing tới `dueDate` (D16); chỉ khi khoản trả được hẹn ghi core (`postOn`) | Notification báo "đã nhận tiền trả kỳ" và không nhắc kỳ đó; Fineract chưa biết khoản này nên không có `RepaymentDistributed` tới ngày đến hạn | Outbox cùng transaction với bút toán trừ ví; gửi lại cùng `Idempotency-Key` không phát lần hai; key = `loanApplicationId` |
 | `RepaymentCancelled` v1 / `finora.payment.repayment-cancelled` | Payment → Notification (W3F, P5) | Người vay hủy khoản trả kỳ đang giữ trước ngày ghi nhận; tiền đã hoàn về ví cùng transaction | Notification báo đã hủy và nhắc lại kỳ đó | Outbox cùng transaction với hoàn tiền; hủy lặp lại không phát lần hai; key = `loanApplicationId` |
@@ -263,6 +263,43 @@ Payment. `LoanDisbursed` mới xác nhận toàn bộ happy path bắt buộc (P
   funding để không hiển thị “hợp đồng đang hiệu lực” cho khoản vay sẽ không được giải ngân.
 - Ngoài phạm vi v1: giải ngân thất bại sau khi Payment đã capture (saga đã qua `WAITING_PAYMENT`) cần
   hoàn tiền/đối soát thủ công thuộc R2; event này không được dùng để đảo bút toán đã capture.
+
+### 5.3b `LoanFundingReopened` v1 — nhà đầu tư chưa ký rời hợp đồng (FUNDING-REOPEN-001)
+
+```json
+{
+  "loanApplicationId": 123,
+  "applicationNumber": "LA-2026-000123",
+  "listingId": 456,
+  "fundingRound": 1,
+  "contractNumber": "LC-2026-000123",
+  "allocationVersion": 1,
+  "allocationHash": "<sha256 hex của allocation đã khóa>",
+  "reasonCode": "INVESTOR_DECLINED",
+  "releasedCommitmentIds": [102],
+  "releasedAmount": "20000000.00",
+  "releasedInvestorIds": ["7"],
+  "retainedInvestorIds": ["5"],
+  "reopenedAt": "2026-11-08T03:00:00Z",
+  "borrowerId": "42"
+}
+```
+
+- Topic `finora.loan.funding-reopened`, key theo `applicationNumber`; Loan ghi outbox cùng transaction đổi party
+  (`DECLINED`/`EXPIRED`), Contract `PENDING_REFUNDING` và funding `FULLY_FUNDED → REQUESTED`.
+- `reasonCode`: `INVESTOR_DECLINED` (nhà đầu tư chưa ký bấm từ chối) hoặc `LENDER_SIGNATURE_EXPIRED` (hết hạn ký khi
+  hợp đồng còn ở bước nhà đầu tư; mọi phần vốn chưa ký rời đi). Người vay từ chối/hết hạn ký vẫn dùng
+  `LoanFundingCancelled`.
+- Investment chỉ áp dụng khi `loanApplicationId`, `applicationNumber`, `fundingRound`, `allocationVersion`,
+  `allocationHash`, `contractNumber` (nếu đã gắn) khớp listing `FULLY_FUNDED` chưa giải ngân và mọi
+  `releasedCommitmentIds` là commitment `ACTIVE` của listing; sai lệch → fail closed (retry/DLT).
+- Investment hủy đúng các commitment đó (order `CANCELLED`, `rejectedReasonCode` = `reasonCode`), trừ
+  `committedAmount`, mở listing `OPEN` (`contractStatus = PENDING_REFUNDING`, xóa `contractDocumentHash`), dời
+  `fundingClosesAt` tối thiểu một chu kỳ `funding_days`; worker nhả hold. Commitment còn lại giữ `contract_bound_at`.
+- Đủ vốn lại: Investment phát `LoanFullyFunded.v2` với `allocationVersion` kế tiếp; Loan từ chối allocation không mới
+  hơn (`STALE_FUNDING_ALLOCATION`), phát hành lại Contract và phát `InvestorSignatureRequested.v1` với hash mới.
+- Notification báo người vay (`LOAN_FUNDING_REOPENED`), người rời đi (`INVESTMENT_LEFT_CONTRACT`) và người ở lại
+  (`INVESTMENT_FUNDING_REOPENED`) theo danh sách trong event.
 
 ### 5.4 Quyền sở hữu Note và repayment v1
 

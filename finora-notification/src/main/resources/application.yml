@@ -106,6 +106,8 @@ finora:
         loan-fully-funded: ${INVESTMENT_FULLY_FUNDED_TOPIC:finora.investment.loan-fully-funded}
         loan-funding-expired: ${INVESTMENT_FUNDING_EXPIRED_TOPIC:finora.investment.loan-funding-expired}
         loan-funding-cancelled: ${LOAN_FUNDING_CANCELLED_TOPIC:finora.loan.funding-cancelled}
+        # FUNDING-REOPEN-001: nhà đầu tư chưa ký rời hợp đồng, khoản vay quay lại sàn gọi vốn bổ sung.
+        loan-funding-reopened: ${LOAN_FUNDING_REOPENED_TOPIC:finora.loan.funding-reopened}
         investor-signature-requested: ${LOAN_INVESTOR_SIGNATURE_REQUESTED_TOPIC:finora.loan.investor-signature-requested}
         borrower-signature-requested: ${LOAN_BORROWER_SIGNATURE_REQUESTED_TOPIC:finora.loan.borrower-signature-requested}
         loan-contract-activated: ${LOAN_CONTRACT_ACTIVATED_TOPIC:finora.loan.contract-activated}

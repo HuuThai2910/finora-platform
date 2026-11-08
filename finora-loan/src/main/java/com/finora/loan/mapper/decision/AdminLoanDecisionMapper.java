@@ -9,6 +9,7 @@ import com.finora.loan.domain.scoring.entity.BorrowerEligibilityCheck;
 import com.finora.loan.domain.scoring.entity.CreditScoringAssessment;
 import com.finora.loan.dto.application.response.ApplicantFinancialResponse;
 import com.finora.loan.dto.application.response.LoanApplicationHistoryResponse;
+import com.finora.loan.dto.application.response.LoanApplicationTimelineItemResponse;
 import com.finora.loan.dto.decision.response.AdminAssessmentEvidenceResponse;
 import com.finora.loan.dto.decision.response.AdminLoanDecisionResponse;
 import com.finora.loan.dto.decision.response.AdminLoanReviewDetailResponse;
@@ -77,6 +78,22 @@ public class AdminLoanDecisionMapper {
             String contractNumber,
             List<String> aiReviewReasons
     ) {
+        return toDetail(application, initialSchedule, finalSchedule, eligibility, creditProfile, assessment,
+                recentHistory, contractNumber, aiReviewReasons, List.of());
+    }
+
+    public AdminLoanReviewDetailResponse toDetail(
+            LoanApplication application,
+            ScheduleCalculationSnapshot initialSchedule,
+            ScheduleCalculationSnapshot finalSchedule,
+            BorrowerEligibilityCheck eligibility,
+            BorrowerCreditProfile creditProfile,
+            CreditScoringAssessment assessment,
+            List<LoanApplicationHistoryResponse> recentHistory,
+            String contractNumber,
+            List<String> aiReviewReasons,
+            List<LoanApplicationTimelineItemResponse> timeline
+    ) {
         return new AdminLoanReviewDetailResponse(
                 application.getId(),
                 application.getApplicationNumber(),
@@ -109,7 +126,8 @@ public class AdminLoanDecisionMapper {
                 application.getAdminDecidedBy(),
                 application.getAdminDecidedAt(),
                 contractNumber,
-                aiReviewReasons == null ? List.of() : List.copyOf(aiReviewReasons)
+                aiReviewReasons == null ? List.of() : List.copyOf(aiReviewReasons),
+                timeline == null ? List.of() : List.copyOf(timeline)
         );
     }
 

@@ -23,6 +23,7 @@ public class DomainEventConsumer {
                     "${finora.notification.kafka.topics.loan-fully-funded:finora.investment.loan-fully-funded}",
                     "${finora.notification.kafka.topics.loan-funding-expired:finora.investment.loan-funding-expired}",
                     "${finora.notification.kafka.topics.loan-funding-cancelled:finora.loan.funding-cancelled}",
+                    "${finora.notification.kafka.topics.loan-funding-reopened:finora.loan.funding-reopened}",
                     "${finora.notification.kafka.topics.investor-signature-requested:finora.loan.investor-signature-requested}",
                     "${finora.notification.kafka.topics.borrower-signature-requested:finora.loan.borrower-signature-requested}",
                     "${finora.notification.kafka.topics.loan-contract-activated:finora.loan.contract-activated}",

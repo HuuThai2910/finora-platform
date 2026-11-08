@@ -115,13 +115,13 @@ public class LoanContract {
     @Column(name = "early_settlement_policy_version", length = 50, updatable = false)
     private String earlySettlementPolicyVersion;
 
-    @Column(name = "document_content", nullable = false, columnDefinition = "text", updatable = false)
+    @Column(name = "document_content", nullable = false, columnDefinition = "text")
     private String documentContent;
 
     @Column(name = "document_content_type", nullable = false, length = 50, updatable = false)
     private String documentContentType;
 
-    @Column(name = "document_hash", nullable = false, length = 64, updatable = false)
+    @Column(name = "document_hash", nullable = false, length = 64)
     private String documentHash;
 
     @Enumerated(EnumType.STRING)
@@ -182,7 +182,7 @@ public class LoanContract {
     @Column(name = "decline_reason_detail", length = 1000)
     private String declineReasonDetail;
 
-    @Column(name = "expires_at", nullable = false, updatable = false)
+    @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 
     @Column(name = "effective_at")
@@ -492,7 +492,10 @@ public class LoanContract {
         requireOwner(actorId);
         requireVersion(expectedVersion);
         requireDeclinableByBorrower();
-        requireNotExpired(now);
+        // Khi chờ gọi vốn bổ sung, cửa sổ ký cũ đã dừng: người vay vẫn được dừng hồ sơ dù hạn cũ đã qua.
+        if (status != LoanContractStatus.PENDING_REFUNDING) {
+            requireNotExpired(now);
+        }
         clearBorrowerSignatureAttemptForDecline();
         status = LoanContractStatus.DECLINED;
         consentIdempotencyKey = requireText(idempotencyKey, "idempotencyKey");
@@ -506,32 +509,64 @@ public class LoanContract {
         updatedAt = now;
     }
 
-    /** Service đã khóa và xác nhận actor sở hữu lender party chưa ký trước khi gọi transition này. */
-    public void declineByInvestor(
-            long expectedVersion,
-            ContractDeclineReasonCode reasonCode,
-            String reasonDetail,
-            String idempotencyKey,
-            String requestHash,
-            String actorId,
-            Instant now
-    ) {
-        requireVersion(expectedVersion);
-        if (status != LoanContractStatus.PENDING_LENDER_SIGNATURES) {
+    /**
+     * Nhà đầu tư chưa ký rút phần vốn (từ chối hoặc hết hạn ký): hợp đồng không đóng mà chờ gọi vốn bổ sung. Bên đã
+     * ký giữ nguyên party SIGNED; lời từ chối nằm ở party và history nên các cột consent cấp hợp đồng vẫn trống.
+     */
+    public void reopenForRefunding(String actorId, Instant now) {
+        if (!multiParty || status != LoanContractStatus.PENDING_LENDER_SIGNATURES) {
             throw LoanDomainException.conflict(
                     "LENDER_SIGNATURE_WINDOW_CLOSED", "Hợp đồng không còn chờ chữ ký nhà đầu tư");
         }
-        requireNotExpired(now);
-        status = LoanContractStatus.DECLINED;
-        consentIdempotencyKey = requireText(idempotencyKey, "idempotencyKey");
-        consentRequestHash = requireText(requestHash, "requestHash");
-        consentAction = ConsentAction.DECLINE;
-        declinedBy = requireText(actorId, "actorId");
-        declinedAt = now;
-        declineReasonCode = Objects.requireNonNull(reasonCode, "reasonCode");
-        declineReasonDetail = normalizeOptional(reasonDetail);
-        updatedBy = actorId;
+        status = LoanContractStatus.PENDING_REFUNDING;
+        updatedBy = requireText(actorId, "actorId");
         updatedAt = now;
+    }
+
+    /**
+     * Khoản vay đủ vốn lại: văn bản được phát hành lại theo allocation mới (Phụ lục 02 đổi danh sách bên cho vay) và
+     * mở cửa sổ ký mới. Thời hạn cũ không còn ý nghĩa vì nhà đầu tư mới chưa từng thấy văn bản.
+     */
+    public void reissueAfterRefunding(
+            String reissuedContent,
+            String reissuedHash,
+            Instant reissuedExpiresAt,
+            String actorId,
+            Instant now
+    ) {
+        if (!multiParty || status != LoanContractStatus.PENDING_REFUNDING) {
+            throw LoanDomainException.conflict(
+                    "CONTRACT_NOT_PENDING_REFUNDING", "Hợp đồng không ở bước chờ gọi vốn bổ sung");
+        }
+        if (reissuedExpiresAt == null || !reissuedExpiresAt.isAfter(now)) {
+            throw new IllegalArgumentException("Hạn ký của văn bản phát hành lại phải sau thời điểm hiện tại");
+        }
+        documentContent = requireText(reissuedContent, "documentContent");
+        documentHash = requireHash(reissuedHash, "documentHash");
+        expiresAt = reissuedExpiresAt;
+        status = LoanContractStatus.PENDING_LENDER_SIGNATURES;
+        updatedBy = requireText(actorId, "actorId");
+        updatedAt = now;
+    }
+
+    /** Đợt gọi vốn bổ sung hết hạn: hợp đồng đóng; Investment nhả tiền giữ theo nhánh hết hạn gọi vốn. */
+    public boolean expireWhileRefunding(Instant now) {
+        if (status != LoanContractStatus.PENDING_REFUNDING) {
+            return false;
+        }
+        status = LoanContractStatus.EXPIRED;
+        updatedBy = "SYSTEM";
+        updatedAt = now;
+        return true;
+    }
+
+    /** Client gửi version đã xem; lệch nghĩa là hợp đồng vừa đổi (ví dụ phát hành lại) và phải tải lại. */
+    public void requireVersionMatch(long expectedVersion) {
+        requireVersion(expectedVersion);
+    }
+
+    public boolean isPendingRefunding() {
+        return status == LoanContractStatus.PENDING_REFUNDING;
     }
 
     /** Expire là transition có điều kiện; worker chạy lại không tạo thêm history hoặc thay đổi terminal state. */
@@ -601,6 +636,7 @@ public class LoanContract {
     private void requireDeclinableByBorrower() {
         if (status != LoanContractStatus.PENDING_SIGNATURE
                 && status != LoanContractStatus.PENDING_LENDER_SIGNATURES
+                && status != LoanContractStatus.PENDING_REFUNDING
                 && status != LoanContractStatus.PENDING_BORROWER_SIGNATURE
                 && status != LoanContractStatus.SIGNING) {
             throw LoanDomainException.conflict(

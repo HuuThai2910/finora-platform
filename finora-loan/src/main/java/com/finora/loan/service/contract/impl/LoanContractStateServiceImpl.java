@@ -12,6 +12,7 @@ import com.finora.loan.domain.contract.entity.LoanContract;
 import com.finora.loan.domain.contract.entity.LoanContractDocument;
 import com.finora.loan.domain.contract.entity.LoanContractStatusHistory;
 import com.finora.loan.domain.contract.enums.ConsentAction;
+import com.finora.loan.domain.contract.enums.ContractDeclineReasonCode;
 import com.finora.loan.domain.contract.enums.ContractPartyStatus;
 import com.finora.loan.domain.contract.enums.ContractPartyType;
 import com.finora.loan.domain.contract.enums.ContractPdfArtifactType;
@@ -44,6 +45,7 @@ import com.finora.loan.service.contract.LoanContractStateService;
 import com.finora.loan.service.contract.SignaturePreparation;
 import com.finora.loan.service.disbursement.DisbursementSagaService;
 import com.finora.loan.service.funding.LoanFundingCancellationService;
+import com.finora.loan.service.funding.LoanFundingReopenService;
 import com.finora.loan.service.outbox.OutboxService;
 import com.finora.loan.util.HashingService;
 import lombok.RequiredArgsConstructor;
@@ -53,11 +55,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Các bước transaction của vòng đời hợp đồng phía người vay: ký (click-wrap, SmartCA, PAdES), từ chối, hết hạn và
- * đối soát idempotency; nhà đầu tư từ chối cũng đi qua đây vì đóng cả Contract.
+ * đối soát idempotency; nhà đầu tư từ chối cũng đi qua đây vì đưa Contract về chờ gọi vốn bổ sung.
  *
  * <p>Mỗi bước khóa dòng Contract, ghi history và outbox trong cùng transaction; lời gọi provider chữ ký nằm ở caller,
  * ngoài transaction.</p>
@@ -79,6 +82,7 @@ public class LoanContractStateServiceImpl implements LoanContractStateService {
     private final OutboxService outboxService;
     private final DisbursementSagaService disbursementSagaService;
     private final LoanFundingCancellationService loanFundingCancellationService;
+    private final LoanFundingReopenService loanFundingReopenService;
     private final ContractPdfSignatureService contractPdfSignatureService;
     private final SignatureProvider signatureProvider;
 
@@ -641,7 +645,8 @@ public class LoanContractStateServiceImpl implements LoanContractStateService {
         abandonPdfSignatureOnClose(contract, now);
         saveHistory(contract, previousStatus, LoanContractStatus.DECLINED,
                 request.reasonCode().name(), ActorType.BORROWER, actorId, now);
-        recordClosedWithoutSignature(contract, request.reasonCode().name(), now);
+        recordClosedWithoutSignature(contract, request.reasonCode().name(),
+                previousStatus == LoanContractStatus.PENDING_REFUNDING, now);
         return new ContractConsentResult(contract, false);
     }
 
@@ -654,18 +659,8 @@ public class LoanContractStateServiceImpl implements LoanContractStateService {
             DeclineLoanContractRequest request,
             String investorId
     ) {
-        LoanContract duplicate = loanContractRepository.findByConsentIdempotencyKey(idempotencyKey).orElse(null);
-        if (duplicate != null) {
-            if (!duplicate.getContractNumber().equals(contractNumber)
-                    || !investorId.equals(duplicate.getDeclinedBy())
-                    || !duplicate.isSameConsent(idempotencyKey, requestHash, ConsentAction.DECLINE)) {
-                throw LoanBusinessException.conflict(
-                        "IDEMPOTENCY_KEY_REUSED", "Idempotency-Key đã được dùng cho một consent khác");
-            }
-            return new ContractConsentResult(duplicate, false);
-        }
-        if (request.reasonCode() != com.finora.loan.domain.contract.enums.ContractDeclineReasonCode.INVESTOR_CHANGED_MIND
-                && request.reasonCode() != com.finora.loan.domain.contract.enums.ContractDeclineReasonCode.OTHER) {
+        if (request.reasonCode() != ContractDeclineReasonCode.INVESTOR_CHANGED_MIND
+                && request.reasonCode() != ContractDeclineReasonCode.OTHER) {
             throw LoanBusinessException.badRequest(
                     "INVALID_INVESTOR_DECLINE_REASON", "Lý do từ chối không dành cho nhà đầu tư");
         }
@@ -676,26 +671,79 @@ public class LoanContractStateServiceImpl implements LoanContractStateService {
             throw LoanBusinessException.forbidden(
                     "INVESTOR_CONTRACT_ACCESS_DENIED", "Bạn không có phần vốn trong hợp đồng này");
         }
-        if (parties.stream().anyMatch(party -> party.getStatus() == ContractPartyStatus.SIGNED)) {
+        // Lời từ chối lưu key/hash trên chính party: gửi lại cùng key trả kết quả cũ, key cũ cho nội dung khác là lỗi.
+        List<ContractParty> declinedByKey = parties.stream()
+                .filter(party -> party.getStatus() == ContractPartyStatus.DECLINED
+                        && idempotencyKey.equals(party.getIdempotencyKey()))
+                .toList();
+        if (!declinedByKey.isEmpty()) {
+            if (declinedByKey.stream().allMatch(party -> requestHash.equals(party.getRequestHash()))) {
+                return new ContractConsentResult(contract, false);
+            }
+            throw LoanBusinessException.conflict(
+                    "IDEMPOTENCY_KEY_REUSED", "Idempotency-Key đã được dùng cho một consent khác");
+        }
+        List<ContractParty> active = parties.stream().filter(ContractParty::isActiveLender).toList();
+        if (active.isEmpty()) {
+            throw LoanBusinessException.conflict(
+                    "CONTRACT_PARTY_NOT_PENDING", "Phần vốn của bạn không còn trong hợp đồng này");
+        }
+        if (active.stream().anyMatch(party -> party.getStatus() == ContractPartyStatus.SIGNED)) {
             throw LoanBusinessException.conflict(
                     "CONTRACT_PARTY_ALREADY_SIGNED", "Phần vốn đã ký nên không thể rút đơn phương");
         }
         Instant now = clock.instant();
-        if (expireDuringConsent(contract, now)) {
+        if (expireOrReopenIfDue(contract, now)) {
             return new ContractConsentResult(contract, true);
         }
-        LoanContractStatus previousStatus = contract.getStatus();
-        contract.declineByInvestor(
-                request.version(), request.reasonCode(), request.reasonDetail(), idempotencyKey,
-                requestHash, investorId, now);
-        parties.forEach(party -> party.decline(idempotencyKey, requestHash, investorId, now));
-        contractPartyRepository.saveAllAndFlush(parties);
-        loanContractRepository.saveAndFlush(contract);
-        abandonPdfSignatureOnClose(contract, now);
-        saveHistory(contract, previousStatus, LoanContractStatus.DECLINED,
+        contract.requireVersionMatch(request.version());
+        if (contract.getStatus() != LoanContractStatus.PENDING_LENDER_SIGNATURES) {
+            throw LoanBusinessException.conflict(
+                    "LENDER_SIGNATURE_WINDOW_CLOSED", "Hợp đồng không còn chờ chữ ký nhà đầu tư");
+        }
+        active.forEach(party -> party.decline(idempotencyKey, requestHash, investorId, now));
+        contractPartyRepository.saveAllAndFlush(active);
+        reopenForRefunding(contract, active, LoanFundingReopenService.INVESTOR_DECLINED,
                 request.reasonCode().name(), ActorType.INVESTOR, investorId, now);
-        recordClosedWithoutSignature(contract, request.reasonCode().name(), now);
         return new ContractConsentResult(contract, false);
+    }
+
+    @Override
+    @Transactional
+    public void closeRefundingOnFundingExpired(Long applicationId, Instant now) {
+        LoanContract contract = refundingContract(applicationId);
+        if (contract == null || !contract.expireWhileRefunding(now)) {
+            return;
+        }
+        loanContractRepository.saveAndFlush(contract);
+        saveHistory(contract, LoanContractStatus.PENDING_REFUNDING, LoanContractStatus.EXPIRED,
+                "FUNDING_EXPIRED", ActorType.SYSTEM, "SYSTEM", now);
+        recordClosedEvent(contract, "FUNDING_EXPIRED", now);
+    }
+
+    @Override
+    @Transactional
+    public void closeRefundingOnBorrowerWithdrawal(Long applicationId, String borrowerId, Instant now) {
+        LoanContract contract = refundingContract(applicationId);
+        if (contract == null || !contract.isPendingRefunding()) {
+            return;
+        }
+        // Rút hồ sơ đi qua API hồ sơ, không có Idempotency-Key của hợp đồng: dùng khóa cố định theo số hợp đồng để
+        // ràng buộc consent DECLINED vẫn có bằng chứng và một hợp đồng chỉ bị đóng một lần.
+        String consentKey = "FUNDING-WITHDRAWN-" + contract.getContractNumber();
+        contract.decline(contract.getVersion() == null ? 0L : contract.getVersion(),
+                ContractDeclineReasonCode.BORROWER_CHANGED_MIND, null,
+                consentKey, hashingService.sha256Text(consentKey), borrowerId, now);
+        loanContractRepository.saveAndFlush(contract);
+        saveHistory(contract, LoanContractStatus.PENDING_REFUNDING, LoanContractStatus.DECLINED,
+                "FUNDING_WITHDRAWN_BY_BORROWER", ActorType.BORROWER, borrowerId, now);
+        recordClosedEvent(contract, "FUNDING_WITHDRAWN_BY_BORROWER", now);
+    }
+
+    private LoanContract refundingContract(Long applicationId) {
+        return loanContractRepository.findByApplicationId(applicationId)
+                .flatMap(contract -> loanContractRepository.findByIdForUpdate(contract.getId()))
+                .orElse(null);
     }
 
     @Override
@@ -705,17 +753,7 @@ public class LoanContractStateServiceImpl implements LoanContractStateService {
         if (contract == null) {
             return false;
         }
-        Instant now = clock.instant();
-        LoanContractStatus fromStatus = contract.getStatus();
-        if (!contract.expireIfDue(now)) {
-            return false;
-        }
-        loanContractRepository.saveAndFlush(contract);
-        abandonPdfSignatureOnClose(contract, now);
-        saveHistory(contract, fromStatus, LoanContractStatus.EXPIRED,
-                "SIGNATURE_WINDOW_EXPIRED", ActorType.SYSTEM, "SYSTEM", now);
-        recordClosedWithoutSignature(contract, "SIGNATURE_WINDOW_EXPIRED", now);
-        return true;
+        return expireOrReopenIfDue(contract, clock.instant());
     }
 
     @Override
@@ -768,6 +806,32 @@ public class LoanContractStateServiceImpl implements LoanContractStateService {
     }
 
     private boolean expireDuringConsent(LoanContract contract, Instant now) {
+        return expireOrReopenIfDue(contract, now);
+    }
+
+    /**
+     * Hết hạn ký. Hợp đồng nhiều bên còn ở bước nhà đầu tư ký thì không đóng: phần vốn chưa ký rời hợp đồng, bên đã
+     * ký giữ nguyên và khoản vay quay lại sàn (FUNDING-REOPEN-001). Các bước còn lại (người vay chưa ký) đóng như cũ.
+     */
+    private boolean expireOrReopenIfDue(LoanContract contract, Instant now) {
+        if (!contract.isDueAt(now)) {
+            return false;
+        }
+        if (contract.isMultiParty() && contract.getStatus() == LoanContractStatus.PENDING_LENDER_SIGNATURES) {
+            List<ContractParty> released = new ArrayList<>();
+            for (ContractParty party : contractPartyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(
+                    contract.getId())) {
+                if (party.expireUnsigned(now)) {
+                    released.add(party);
+                }
+            }
+            if (!released.isEmpty()) {
+                contractPartyRepository.saveAllAndFlush(released);
+                reopenForRefunding(contract, released, LoanFundingReopenService.LENDER_SIGNATURE_EXPIRED,
+                        LoanFundingReopenService.LENDER_SIGNATURE_EXPIRED, ActorType.SYSTEM, "SYSTEM", now);
+                return true;
+            }
+        }
         // B49: history ghi đúng trạng thái trước khi hết hạn (PENDING_BORROWER_SIGNATURE/SIGNING với hợp đồng nhiều
         // bên), không mặc định PENDING_SIGNATURE của luồng một bên cũ.
         LoanContractStatus fromStatus = contract.getStatus();
@@ -778,8 +842,41 @@ public class LoanContractStateServiceImpl implements LoanContractStateService {
         abandonPdfSignatureOnClose(contract, now);
         saveHistory(contract, fromStatus, LoanContractStatus.EXPIRED,
                 "SIGNATURE_WINDOW_EXPIRED", ActorType.SYSTEM, "SYSTEM", now);
-        recordClosedWithoutSignature(contract, "SIGNATURE_WINDOW_EXPIRED", now);
+        recordClosedWithoutSignature(contract, "SIGNATURE_WINDOW_EXPIRED", false, now);
         return true;
+    }
+
+    /**
+     * Đưa Contract về chờ gọi vốn bổ sung sau khi các party trong {@code released} đã chuyển DECLINED/EXPIRED.
+     * Phiên ký đang dở của bên còn lại bị đóng vì văn bản sẽ được phát hành lại khi đủ vốn.
+     */
+    private void reopenForRefunding(
+            LoanContract contract,
+            List<ContractParty> released,
+            String fundingReasonCode,
+            String historyReasonCode,
+            ActorType actorType,
+            String actorId,
+            Instant now
+    ) {
+        LoanContractStatus fromStatus = contract.getStatus();
+        contract.reopenForRefunding(actorId, now);
+        loanContractRepository.saveAndFlush(contract);
+        abandonPdfSignatureOnClose(contract, now);
+        List<ContractParty> retained = contractPartyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(
+                        contract.getId()).stream()
+                .filter(ContractParty::isActiveLender)
+                .toList();
+        List<ContractParty> interrupted = retained.stream()
+                .filter(party -> party.expireDigitalSignatureSession(now))
+                .toList();
+        if (!interrupted.isEmpty()) {
+            contractPartyRepository.saveAllAndFlush(interrupted);
+        }
+        saveHistory(contract, fromStatus, LoanContractStatus.PENDING_REFUNDING,
+                historyReasonCode, actorType, actorId, now);
+        loanFundingReopenService.reopen(contract.getApplicationId(), contract.getContractNumber(), released,
+                retained, fundingReasonCode, now);
     }
 
     /** Hợp đồng đóng khi còn phiên ký PDF đang chờ: hủy phiên để chữ ký về muộn không được nhúng vào hợp đồng đã đóng. */
@@ -810,7 +907,30 @@ public class LoanContractStateServiceImpl implements LoanContractStateService {
                 now, TraceContext.currentTraceIdOrCreate()));
     }
 
-    private void recordClosedWithoutSignature(LoanContract contract, String reasonCode, Instant now) {
+    private void recordClosedWithoutSignature(
+            LoanContract contract,
+            String reasonCode,
+            boolean whileRefunding,
+            Instant now
+    ) {
+        recordClosedEvent(contract, reasonCode, now);
+        if (contract.isMultiParty()) {
+            // Contract nhiều bên chỉ được lập sau LoanFullyFunded: tiền nhà đầu tư đang bị giữ theo allocation
+            // đã khóa, nên phải phát bồi hoàn trong cùng transaction đóng Contract để không khóa tiền vô hạn.
+            // Đang gọi vốn bổ sung thì listing đã mở lại (không còn allocation khóa): hủy theo nhánh listing mở.
+            loanFundingCancellationService.cancel(
+                    contract.getApplicationId(),
+                    contract.getContractNumber(),
+                    whileRefunding
+                            ? LoanFundingCancellationService.BORROWER_WITHDREW
+                            : contract.getStatus() == LoanContractStatus.DECLINED
+                                    ? LoanFundingCancellationService.CONTRACT_DECLINED
+                                    : LoanFundingCancellationService.CONTRACT_EXPIRED,
+                    now);
+        }
+    }
+
+    private void recordClosedEvent(LoanContract contract, String reasonCode, Instant now) {
         outboxService.record(
                 "LoanContract",
                 contract.getContractNumber(),
@@ -826,16 +946,5 @@ public class LoanContractStateServiceImpl implements LoanContractStateService {
                         now
                 )
         );
-        if (contract.isMultiParty()) {
-            // Contract nhiều bên chỉ được lập sau LoanFullyFunded: tiền nhà đầu tư đang bị giữ theo allocation
-            // đã khóa, nên phải phát bồi hoàn trong cùng transaction đóng Contract để không khóa tiền vô hạn.
-            loanFundingCancellationService.cancel(
-                    contract.getApplicationId(),
-                    contract.getContractNumber(),
-                    contract.getStatus() == LoanContractStatus.DECLINED
-                            ? LoanFundingCancellationService.CONTRACT_DECLINED
-                            : LoanFundingCancellationService.CONTRACT_EXPIRED,
-                    now);
-        }
     }
 }

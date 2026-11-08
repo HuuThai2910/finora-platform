@@ -662,7 +662,8 @@ PDF, CCCD, payload tài chính đầy đủ và hồ sơ vay **không nằm trê
 | `LoanContractActivated.v1` | `CONTRACT_DOCUMENT` | hợp đồng đã đủ chữ ký |
 | `LoanDisbursed.v1` | `DISBURSEMENT` | khoản vay đã giải ngân và core booking xong |
 | `RepaymentDistributed.v1` | `REPAYMENT` | một giao dịch trả nợ đã thu, ghi core và phân phối |
-| `NoteOwnershipChanged.v1` | `NOTE_OWNERSHIP` | phát hành/chuyển chủ Note |
+| `NoteOwnershipChanged.v1` (`ISSUED`) | `NOTE_OWNERSHIP`, aggregate `NoteIssuance/<listingId>` | phát hành Note: khoản vay mới giải ngân, Note cấp cho nhà đầu tư đã góp vốn |
+| `NoteOwnershipChanged.v1` (`TRANSFERRED`) | `NOTE_OWNERSHIP`, aggregate `NoteTransfer/<reference>` | chuyển nhượng Note: nhà đầu tư mua bán với nhau trên sổ lệnh |
 | `NoteTransferDocumentIssued.v1` | `NOTE_TRANSFER_DOCUMENT` | giấy xác nhận chuyển nhượng Note (PDF ký PAdES, `documentHash` = SHA-256 của file) cấp khi giao dịch sổ lệnh tất toán; aggregate `NoteTransferDocument/<tradeReference>` |
 
 Servicing proof khác như từng quyết định cơ cấu/default chưa được tự động neo nếu không nằm trong các event trên; không được mô tả là đã có.

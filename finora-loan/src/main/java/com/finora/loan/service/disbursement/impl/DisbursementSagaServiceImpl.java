@@ -64,8 +64,9 @@ public class DisbursementSagaServiceImpl implements DisbursementSagaService {
         DisbursementSaga saga = disbursementSagaRepository.save(DisbursementSaga.waitingPayment(
                 application.getId(), contract.getContractNumber(), application.getInvestmentListingId(),
                 application.getBorrowerId(), contract.getPrincipalAmount(), now));
+        // Phần vốn đã rời hợp đồng (nhà đầu tư rút trước khi ký) không còn tiền giữ để capture.
         List<DisbursementAllocationEventData> allocations = parties.stream()
-                .filter(party -> party.getPartyType() == ContractPartyType.LENDER)
+                .filter(ContractParty::isActiveLender)
                 .map(party -> new DisbursementAllocationEventData(
                         party.getCommitmentId(), party.getPartyId(), party.getAllocationAmount().toPlainString(),
                         party.getPaymentHoldReference()))

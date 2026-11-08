@@ -95,6 +95,10 @@ public class ContractParty {
     @Column(name = "signed_at")
     private Instant signedAt;
 
+    /** Thời điểm phần vốn rời hợp đồng (từ chối hoặc hết hạn ký); {@code null} khi còn hiệu lực. */
+    @Column(name = "closed_at")
+    private Instant closedAt;
+
     @Version
     @Column(nullable = false)
     private Long version;
@@ -391,8 +395,67 @@ public class ContractParty {
         idempotencyKey = requireText(requestedIdempotencyKey, "idempotencyKey");
         requestHash = requireHash(requestedHash, "requestHash");
         status = ContractPartyStatus.DECLINED;
-        updatedAt = Objects.requireNonNull(now, "now");
+        closedAt = Objects.requireNonNull(now, "now");
+        updatedAt = now;
         return true;
+    }
+
+    /**
+     * Hết hạn ký mà phần vốn chưa có chữ ký: phần vốn rời hợp đồng để gọi vốn bổ sung. Phần vốn đã ký giữ nguyên.
+     *
+     * @return {@code true} nếu phần vốn vừa rời hợp đồng
+     */
+    public boolean expireUnsigned(Instant now) {
+        if (partyType != ContractPartyType.LENDER
+                || (status != ContractPartyStatus.PENDING_SIGNATURE && status != ContractPartyStatus.SIGNING)) {
+            return false;
+        }
+        clearDigitalSignatureAttempt(now);
+        status = ContractPartyStatus.EXPIRED;
+        closedAt = Objects.requireNonNull(now, "now");
+        updatedAt = now;
+        return true;
+    }
+
+    /** Phần vốn còn thuộc hợp đồng hiện hành (chưa từ chối, chưa hết hạn ký). */
+    public boolean isActiveLender() {
+        return partyType == ContractPartyType.LENDER
+                && status != ContractPartyStatus.DECLINED && status != ContractPartyStatus.EXPIRED;
+    }
+
+    /**
+     * Văn bản phát hành lại sau gọi vốn bổ sung: chấp thuận của bên đã ký được giữ, chỉ thay tham chiếu chữ ký sang
+     * lần nhúng trên bản mới. {@code signedAt} giữ thời điểm nhà đầu tư thật sự đồng ý.
+     */
+    public void carryOverSignature(String transactionId, String evidenceHash, Instant now) {
+        if (status != ContractPartyStatus.SIGNED) {
+            throw LoanDomainException.conflict(
+                    "CONTRACT_PARTY_NOT_SIGNED", "Chỉ phần vốn đã ký mới được giữ chữ ký khi phát hành lại");
+        }
+        signatureTransactionId = requireText(transactionId, "transactionId");
+        signatureEvidenceHash = requireHash(evidenceHash, "evidenceHash");
+        updatedAt = Objects.requireNonNull(now, "now");
+    }
+
+    /**
+     * Provider không ký thay được (SmartCA cần nhà đầu tư xác nhận trên điện thoại): bên đã ký phải ký lại trên văn
+     * bản phát hành lại. Phần vốn và tiền giữ không đổi.
+     */
+    public void resetForReissue(Instant now) {
+        if (!isActiveLender()) {
+            return;
+        }
+        status = ContractPartyStatus.PENDING_SIGNATURE;
+        signatureMethod = null;
+        signatureProvider = null;
+        signatureTransactionId = null;
+        signatureDocumentId = null;
+        signatureRequestedAt = null;
+        signatureEvidenceHash = null;
+        idempotencyKey = null;
+        requestHash = null;
+        signedAt = null;
+        updatedAt = Objects.requireNonNull(now, "now");
     }
 
     public void requireOwner(String actorId) {

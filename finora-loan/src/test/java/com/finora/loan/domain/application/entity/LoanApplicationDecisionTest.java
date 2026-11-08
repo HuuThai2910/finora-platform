@@ -222,6 +222,37 @@ class LoanApplicationDecisionTest {
     }
 
     @Test
+    void investorWithdrawalReopensFundingAndOnlyNewerAllocationCompletesIt() {
+        LoanApplication application = scoringApplication(10L);
+        application.completeScoring(
+                10L, AiRecommendation.APPROVED, pricing("A", "12.0000", "-0.5000"),
+                105L, "AI_DECISION_V17", "SYSTEM", NOW.plusSeconds(3));
+        application.prepareTermsConfirmation(
+                TermsConfirmationStatus.AUTO_AUTHORIZED, "LOAN_TERMS_V1", "a".repeat(64),
+                NOW.plusSeconds(3600), "SYSTEM", NOW.plusSeconds(4));
+        application.requestFunding(1, 1, "SYSTEM", NOW.plusSeconds(5));
+        assertThatThrownBy(() -> application.reopenFunding("SYSTEM", NOW.plusSeconds(6)))
+                .isInstanceOf(LoanDomainException.class)
+                .extracting("code").isEqualTo("LOAN_FUNDING_NOT_FULLY_FUNDED");
+        application.markFullyFunded(20L, new BigDecimal("50000000.00"), 1L, "b".repeat(64),
+                "[{\"commitmentId\":1}]", NOW.plusSeconds(6), "SYSTEM", NOW.plusSeconds(7));
+
+        application.reopenFunding("SYSTEM", NOW.plusSeconds(8));
+
+        // Bản allocation đã khóa được giữ để Investment đối chiếu; allocation kế tiếp phải mới hơn.
+        assertThat(application.getFundingStatus()).isEqualTo(LoanFundingStatus.REQUESTED);
+        assertThat(application.getAllocationVersion()).isEqualTo(1L);
+        assertThatThrownBy(() -> application.markFullyFunded(20L, new BigDecimal("50000000.00"), 1L,
+                "c".repeat(64), "[{\"commitmentId\":2}]", NOW.plusSeconds(9), "SYSTEM", NOW.plusSeconds(9)))
+                .isInstanceOf(LoanDomainException.class)
+                .extracting("code").isEqualTo("STALE_FUNDING_ALLOCATION");
+        assertThat(application.markFullyFunded(20L, new BigDecimal("50000000.00"), 2L, "c".repeat(64),
+                "[{\"commitmentId\":2}]", NOW.plusSeconds(10), "SYSTEM", NOW.plusSeconds(10))).isTrue();
+        assertThat(application.getFundingStatus()).isEqualTo(LoanFundingStatus.FULLY_FUNDED);
+        assertThat(application.getAllocationVersion()).isEqualTo(2L);
+    }
+
+    @Test
     void fundingExpiryClosesRequestedRoundOnceAndNeverOverridesFullyFunded() {
         LoanApplication application = scoringApplication(10L);
         application.completeScoring(

@@ -43,7 +43,7 @@ public record NotificationProperties(
             deadLetterSuffix = text(deadLetterSuffix, ".notification.DLT");
             noteServicingChangedTopic = text(noteServicingChangedTopic, "finora.investment.note-servicing-changed");
             topics = topics == null ? new Topics(null, null, null, null, null, null, null, null, null, null, null,
-                    null, null, null, null, null, null, null, null) : topics;
+                    null, null, null, null, null, null, null, null, null) : topics;
         }
     }
 
@@ -54,7 +54,7 @@ public record NotificationProperties(
             String loanDelinquencyChanged, String loanSettled, String loanRescheduleConsentRequested,
             String loanRescheduleConsentCompleted, String loanRescheduled, String withdrawalCompleted,
             String withdrawalFailed, String repaymentCollected, String repaymentCancelled,
-            String bankLinkOtpRequested) {
+            String bankLinkOtpRequested, String loanFundingReopened) {
         public Topics {
             loanFundingRequested = text(loanFundingRequested, "finora.loan.funding-requested");
             loanFullyFunded = text(loanFullyFunded, "finora.investment.loan-fully-funded");
@@ -77,6 +77,7 @@ public record NotificationProperties(
             repaymentCollected = text(repaymentCollected, "finora.payment.repayment-collected");
             repaymentCancelled = text(repaymentCancelled, "finora.payment.repayment-cancelled");
             bankLinkOtpRequested = text(bankLinkOtpRequested, "finora.payment.bank-link-otp-requested");
+            loanFundingReopened = text(loanFundingReopened, "finora.loan.funding-reopened");
         }
     }
 

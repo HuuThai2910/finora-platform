@@ -676,8 +676,10 @@ public class InvestorContractServiceImpl implements InvestorContractService {
             LoanContractDocument document,
             Instant now
     ) {
-        if (contractPartyRepository.countByContractIdAndPartyTypeAndStatusNot(
-                contract.getId(), ContractPartyType.LENDER, ContractPartyStatus.SIGNED) == 0) {
+        // Phần vốn đã từ chối/hết hạn ký không còn thuộc hợp đồng: chỉ đếm bên còn hiệu lực mà chưa ký.
+        if (contractPartyRepository.countByContractIdAndPartyTypeAndStatusIn(
+                contract.getId(), ContractPartyType.LENDER,
+                List.of(ContractPartyStatus.PENDING_SIGNATURE, ContractPartyStatus.SIGNING)) == 0) {
             contract.markBorrowerSignatureReady("SYSTEM-LENDER-SIGNATURES", now);
             loanContractRepository.saveAndFlush(contract);
             loanContractStatusHistoryRepository.saveAndFlush(LoanContractStatusHistory.create(
@@ -694,7 +696,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
                             contract.getContractNumber(), contract.getDocumentHash(), document.getContentHash(),
                             (int) contractPartyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(
                                     contract.getId()).stream()
-                                    .filter(party -> party.getPartyType() == ContractPartyType.LENDER)
+                                    .filter(ContractParty::isActiveLender)
                                     .map(ContractParty::getPartyId).distinct().count(),
                             now, contract.getExpiresAt(), application.getBorrowerId()));
         }
@@ -810,6 +812,10 @@ public class InvestorContractServiceImpl implements InvestorContractService {
                         "Loan Contract", "contractNumber", contractNumber));
     }
 
+    /**
+     * Phần vốn của nhà đầu tư để đọc: ưu tiên phần còn hiệu lực; nhà đầu tư đã rút vẫn xem được hợp đồng với trạng
+     * thái phần vốn đã từ chối/hết hạn.
+     */
     private List<ContractParty> lenderParties(LoanContract contract, String investorId) {
         List<ContractParty> parties = contractPartyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(
                         contract.getId()).stream()
@@ -820,9 +826,11 @@ public class InvestorContractServiceImpl implements InvestorContractService {
             throw LoanBusinessException.forbidden(
                     "CONTRACT_PARTY_ACCESS_DENIED", "Bạn không phải bên cho vay của hợp đồng này");
         }
-        return parties;
+        List<ContractParty> active = parties.stream().filter(ContractParty::isActiveLender).toList();
+        return active.isEmpty() ? parties : active;
     }
 
+    /** Phần vốn còn hiệu lực để ký; phần đã rời hợp đồng (từ chối/hết hạn) không được ký lại. */
     private List<ContractParty> lenderPartiesForUpdate(LoanContract contract, String investorId) {
         List<ContractParty> parties = contractPartyRepository.findForUpdate(
                 contract.getId(), ContractPartyType.LENDER, investorId);
@@ -830,7 +838,12 @@ public class InvestorContractServiceImpl implements InvestorContractService {
             throw LoanBusinessException.forbidden(
                     "CONTRACT_PARTY_ACCESS_DENIED", "Bạn không phải bên cho vay của hợp đồng này");
         }
-        return parties;
+        List<ContractParty> active = parties.stream().filter(ContractParty::isActiveLender).toList();
+        if (active.isEmpty()) {
+            throw LoanBusinessException.conflict(
+                    "CONTRACT_PARTY_NOT_PENDING", "Phần vốn của bạn đã rời hợp đồng này");
+        }
+        return active;
     }
 
     private LoanContractDocument signableDocument(LoanContract contract) {
@@ -875,9 +888,11 @@ public class InvestorContractServiceImpl implements InvestorContractService {
         LoanContractDocument document = currentDocument(contract);
         List<ContractParty> allParties = contractPartyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(
                 contract.getId());
+        // Nhà đầu tư còn trong hợp đồng chỉ cộng phần còn hiệu lực; người đã rút thấy phần vốn đã rút.
         BigDecimal investorAmount = allParties.stream()
                 .filter(item -> item.getPartyType() == ContractPartyType.LENDER
-                        && item.getPartyId().equals(party.getPartyId()))
+                        && item.getPartyId().equals(party.getPartyId())
+                        && item.isActiveLender() == party.isActiveLender())
                 .map(ContractParty::getAllocationAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         List<ContractPdfSignatureSummary> signatures = contract.isPadesSigned()
@@ -889,8 +904,8 @@ public class InvestorContractServiceImpl implements InvestorContractService {
                 contract.getStatus(), party.getStatus(),
                 contract.getVersion() == null ? 0L : contract.getVersion(), contract.getDocumentHash(),
                 document.getContentHash(), investorAmount, contract.getTermMonths(),
-                (int) allParties.stream().filter(item -> item.getPartyType() == ContractPartyType.LENDER).count(),
-                (int) allParties.stream().filter(item -> item.getPartyType() == ContractPartyType.LENDER
+                (int) allParties.stream().filter(ContractParty::isActiveLender).count(),
+                (int) allParties.stream().filter(item -> item.isActiveLender()
                         && item.getStatus() != ContractPartyStatus.SIGNED).count(),
                 signatureProvider.type(), signatureProvider.method(), contract.getExpiresAt(),
                 contract.getSignatureProfile(), signatures.size(),

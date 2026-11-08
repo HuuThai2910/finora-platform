@@ -8,11 +8,15 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface LoanCollectionCaseRepository extends JpaRepository<LoanCollectionCase, Long> {
     Optional<LoanCollectionCase> findByCaseId(UUID caseId);
+
+    /** Lịch sử xử lý hồ sơ: các đợt thu hồi nợ của một khoản vay, cũ trước. */
+    List<LoanCollectionCase> findByFinoraLoanIdOrderByOpenedAtAsc(Long finoraLoanId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select value from LoanCollectionCase value where value.caseId = :caseId")

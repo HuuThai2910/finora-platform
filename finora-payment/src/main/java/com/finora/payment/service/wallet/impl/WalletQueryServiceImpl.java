@@ -17,7 +17,10 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Xem số dư và sao kê ví VND của người dùng đang đăng nhập.
@@ -48,12 +51,19 @@ public class WalletQueryServiceImpl implements WalletQueryService {
                         walletOwnerResolver.currentOwnerType(), ownerId, "VND")
                 .orElse(null);
         if (wallet == null) return List.of();
-        return ledgerEntryRepository.findWalletEntries(wallet.getWalletId(), PageRequest.of(0, 100)).stream()
-                .map(this::toResponse)
-                .toList();
+        // Một giao dịch có thể ghi nhiều dòng vào cùng một ví, ví dụ giải ngân trừ tiền giữ của từng phần vốn
+        // mà một nhà đầu tư góp vào cùng khoản vay. Sao kê gộp lại thành một dòng cho mỗi giao dịch và chiều tiền,
+        // để mỗi dòng có mã giao dịch riêng và số tiền là tổng ví thật sự tăng/giảm.
+        Map<String, WalletTransactionResponse> lines = new LinkedHashMap<>();
+        for (LedgerEntry entry : ledgerEntryRepository.findWalletEntries(wallet.getWalletId(), PageRequest.of(0, 100))) {
+            String key = entry.getTransaction().getTransactionId() + ":" + entry.getDirection();
+            lines.merge(key, toResponse(entry, entry.getAmount()),
+                    (line, more) -> toResponse(entry, line.amount().add(more.amount())));
+        }
+        return List.copyOf(lines.values());
     }
 
-    private WalletTransactionResponse toResponse(LedgerEntry entry) {
+    private WalletTransactionResponse toResponse(LedgerEntry entry, BigDecimal amount) {
         var transaction = entry.getTransaction();
         boolean credit = entry.getDirection() == LedgerDirection.CREDIT;
         String description = switch (transaction.getTransactionType()) {
@@ -69,6 +79,6 @@ public class WalletQueryServiceImpl implements WalletQueryService {
         return new WalletTransactionResponse(
                 transaction.getTransactionId(), transaction.getPostedAt(),
                 transaction.getTransactionType().name(), description,
-                entry.getAmount(), credit ? "CREDIT" : "DEBIT", transaction.getReferenceId());
+                amount, credit ? "CREDIT" : "DEBIT", transaction.getReferenceId());
     }
 }

@@ -312,7 +312,7 @@ public class ContractPdfSignatureServiceImpl implements ContractPdfSignatureServ
     private void requireAllLendersSigned(LoanContract contract) {
         long lenders = contractPartyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(contract.getId())
                 .stream()
-                .filter(party -> party.getPartyType() == ContractPartyType.LENDER)
+                .filter(ContractParty::isActiveLender)
                 .map(ContractParty::getPartyId)
                 .distinct()
                 .count();

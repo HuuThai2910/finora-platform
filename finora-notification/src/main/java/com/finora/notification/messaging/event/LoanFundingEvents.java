@@ -32,4 +32,12 @@ public final class LoanFundingEvents {
      */
     public record FundingCancelled(Long loanApplicationId, String applicationNumber, String contractNumber,
             Long allocationVersion, String reasonCode, Instant cancelledAt, String borrowerId) {}
+
+    /**
+     * {@code LoanFundingReopened.v1} (Loan): nhà đầu tư chưa ký rời hợp đồng, khoản vay quay lại sàn. Người nhận nằm
+     * ngay trong event (người vay, người rời đi, người ở lại) nên không cần projection lender.
+     */
+    public record FundingReopened(Long loanApplicationId, String applicationNumber, String contractNumber,
+            String reasonCode, String releasedAmount, List<String> releasedInvestorIds,
+            List<String> retainedInvestorIds, Instant reopenedAt, String borrowerId) {}
 }

@@ -698,6 +698,24 @@ class NotificationFlowIT {
                 .isEqualTo(IntakeResult.DELIVERED);
         assertThat(types("b-" + withdrawnLoan)).containsExactly("LOAN_FUNDING_CANCELLED");
 
+        // FUNDING-REOPEN-001: người nhận nằm trong event; người rời đi và người ở lại nhận nội dung khác nhau.
+        Long reopenedLoan = SEQUENCE.incrementAndGet();
+        Map<String, Object> reopened = new LinkedHashMap<>();
+        reopened.put("loanApplicationId", reopenedLoan);
+        reopened.put("applicationNumber", "LA-2026-" + reopenedLoan);
+        reopened.put("contractNumber", "LC-" + reopenedLoan);
+        reopened.put("reasonCode", "INVESTOR_DECLINED");
+        reopened.put("releasedAmount", "20000000.00");
+        reopened.put("releasedInvestorIds", List.of("leave-" + reopenedLoan));
+        reopened.put("retainedInvestorIds", List.of("stay-" + reopenedLoan));
+        reopened.put("reopenedAt", "2026-10-17T03:02:00Z");
+        reopened.put("borrowerId", "b-" + reopenedLoan);
+        assertThat(send("finora.loan.funding-reopened", "LoanFundingReopened", 1, reopened))
+                .isEqualTo(IntakeResult.DELIVERED);
+        assertThat(types("b-" + reopenedLoan)).containsExactly("LOAN_FUNDING_REOPENED");
+        assertThat(types("leave-" + reopenedLoan)).containsExactly("INVESTMENT_LEFT_CONTRACT");
+        assertThat(types("stay-" + reopenedLoan)).containsExactly("INVESTMENT_FUNDING_REOPENED");
+
         Long consentLoan = SEQUENCE.incrementAndGet();
         Map<String, Object> consent = new LinkedHashMap<>();
         consent.put("requestId", UUID.randomUUID().toString());

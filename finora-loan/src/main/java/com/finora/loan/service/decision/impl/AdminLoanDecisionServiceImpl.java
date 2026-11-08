@@ -29,6 +29,7 @@ import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
 import com.finora.loan.repository.scoring.BorrowerCreditProfileRepository;
 import com.finora.loan.repository.scoring.BorrowerEligibilityCheckRepository;
 import com.finora.loan.repository.scoring.CreditScoringAssessmentRepository;
+import com.finora.loan.service.application.LoanApplicationTimelineService;
 import com.finora.loan.service.decision.AdminDecisionResult;
 import com.finora.loan.service.decision.AdminLoanDecisionService;
 import com.finora.loan.service.decision.AdminLoanDecisionStateService;
@@ -72,6 +73,7 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
     private final LoanApplicationMapper loanApplicationMapper;
     private final HashingService hashingService;
     private final StoredAiCreditResponseReader storedAiCreditResponseReader;
+    private final LoanApplicationTimelineService loanApplicationTimelineService;
 
     @Override
     @Transactional(readOnly = true)
@@ -154,7 +156,7 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
                 : snapshot.reviewReasons();
         return adminLoanDecisionMapper.toDetail(
                 application, initialSchedule, finalSchedule, eligibility, creditProfile, assessment, history,
-                contractNumber, reviewReasons);
+                contractNumber, reviewReasons, loanApplicationTimelineService.timeline(application));
     }
 
     @Override

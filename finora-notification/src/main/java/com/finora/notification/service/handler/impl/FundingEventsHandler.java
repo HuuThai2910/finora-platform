@@ -41,6 +41,7 @@ public class FundingEventsHandler implements InboundEventHandler {
     static final EventKey FULLY_FUNDED = new EventKey("LoanFullyFunded", 2);
     static final EventKey FUNDING_EXPIRED = new EventKey("LoanFundingExpired", 1);
     static final EventKey FUNDING_CANCELLED = new EventKey("LoanFundingCancelled", 1);
+    static final EventKey FUNDING_REOPENED = new EventKey("LoanFundingReopened", 1);
 
     private final EventPayloads eventPayloads;
     private final LoanRecipientService loanRecipientService;
@@ -48,7 +49,7 @@ public class FundingEventsHandler implements InboundEventHandler {
 
     @Override
     public Set<EventKey> keys() {
-        return Set.of(FUNDING_REQUESTED, FULLY_FUNDED, FUNDING_EXPIRED, FUNDING_CANCELLED);
+        return Set.of(FUNDING_REQUESTED, FULLY_FUNDED, FUNDING_EXPIRED, FUNDING_CANCELLED, FUNDING_REOPENED);
     }
 
     @Override
@@ -58,6 +59,7 @@ public class FundingEventsHandler implements InboundEventHandler {
             case "LoanFullyFunded" -> fullyFunded(event);
             case "LoanFundingExpired" -> fundingExpired(event);
             case "LoanFundingCancelled" -> fundingCancelled(event);
+            case "LoanFundingReopened" -> fundingReopened(event);
             default -> throw new IllegalArgumentException("FundingEventsHandler không nhận " + event.eventType());
         };
     }
@@ -155,6 +157,45 @@ public class FundingEventsHandler implements InboundEventHandler {
         if (borrower.isEmpty()) return HandlerOutcome.await("BORROWER_UNKNOWN", drafts);
         if (!lendersKnown) return HandlerOutcome.await("LENDERS_UNKNOWN", drafts);
         return HandlerOutcome.deliver(drafts);
+    }
+
+    private HandlerOutcome fundingReopened(InboundEvent event) {
+        var payload = eventPayloads.read(event, LoanFundingEvents.FundingReopened.class);
+        Long loanId = loanId(payload.loanApplicationId(), event.eventType());
+        String reasonCode = required(payload.reasonCode(), "reasonCode", event.eventType());
+        Optional<String> borrower = loanRecipientService.borrower(loanId, payload.borrowerId(),
+                payload.applicationNumber(), payload.contractNumber(), null, event.eventId());
+        LoanReference reference = loanRecipientService.find(loanId).orElse(null);
+        String application = notificationText.applicationLabel(loanId, reference, payload.applicationNumber());
+        List<NotificationDraft> drafts = new ArrayList<>();
+        borrower.ifPresent(id -> drafts.add(NotificationDraft.of(id, NotificationTemplate.LOAN_FUNDING_REOPENED,
+                Map.of("reason", reopenReason(reasonCode), "application", application,
+                        "amount", notificationText.moneyOr(payload.releasedAmount(), "0.00")),
+                loanReference(loanId))));
+        if (payload.releasedInvestorIds() != null) {
+            payload.releasedInvestorIds().stream().filter(HandlerChecks::hasText).distinct().forEach(investorId ->
+                    drafts.add(NotificationDraft.of(investorId, NotificationTemplate.INVESTMENT_LEFT_CONTRACT,
+                            Map.of("reason", leftReason(reasonCode), "application", application),
+                            loanReference(loanId))));
+        }
+        if (payload.retainedInvestorIds() != null) {
+            payload.retainedInvestorIds().stream().filter(HandlerChecks::hasText).distinct().forEach(investorId ->
+                    drafts.add(NotificationDraft.of(investorId, NotificationTemplate.INVESTMENT_FUNDING_REOPENED,
+                            Map.of("application", application), loanReference(loanId))));
+        }
+        return borrower.isEmpty() ? HandlerOutcome.await("BORROWER_UNKNOWN", drafts) : HandlerOutcome.deliver(drafts);
+    }
+
+    private static String reopenReason(String reasonCode) {
+        return "LENDER_SIGNATURE_EXPIRED".equals(reasonCode)
+                ? "Một số nhà đầu tư chưa ký hợp đồng đúng hạn."
+                : "Một nhà đầu tư đã rút trước khi ký hợp đồng.";
+    }
+
+    private static String leftReason(String reasonCode) {
+        return "LENDER_SIGNATURE_EXPIRED".equals(reasonCode)
+                ? "Hợp đồng đã hết hạn ký mà phần vốn của bạn chưa được ký."
+                : "Bạn đã từ chối ký hợp đồng.";
     }
 
     private static String reason(String reasonCode, String contract) {

@@ -204,6 +204,7 @@ public class PortfolioServiceImpl implements PortfolioService {
                     String orderReference = orderReferences.get(commitment.getOrderId());
                     boolean cancelAllowed = commitment.getStatus() == CommitmentStatus.ACTIVE
                             && listing != null && listing.getStatus() == com.finora.common.enums.investment.ListingStatus.OPEN
+                            && commitment.getContractBoundAt() == null
                             && orderReference != null;
                     return investmentMapper.toCommitmentResponse(
                             commitment,

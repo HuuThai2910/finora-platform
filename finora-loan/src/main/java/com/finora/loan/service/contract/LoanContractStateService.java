@@ -9,6 +9,7 @@ import com.finora.loan.integration.signature.contract.SignatureEvidence;
 import com.finora.loan.integration.signature.contract.SignatureSubmissionStatus;
 import com.finora.loan.integration.signature.contract.SigningCertificate;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -110,8 +111,9 @@ public interface LoanContractStateService {
     );
 
     /**
-     * Nhà đầu tư từ chối trước khi phần vốn của họ có chữ ký. Một Contract dùng chung cho toàn bộ allocation,
-     * nên quyết định này đóng Contract và phát cùng event bồi hoàn như nhánh borrower từ chối.
+     * Nhà đầu tư từ chối trước khi phần vốn của họ có chữ ký (FUNDING-REOPEN-001). Hợp đồng không đóng: phần vốn của
+     * nhà đầu tư này rời hợp đồng, bên đã ký giữ nguyên, Contract chuyển {@code PENDING_REFUNDING} và Loan phát
+     * {@code LoanFundingReopened.v1} để Investment nhả tiền của phần rời đi và đưa khoản vay lại lên sàn.
      */
     ContractConsentResult declineByInvestor(
             String contractNumber,
@@ -120,6 +122,18 @@ public interface LoanContractStateService {
             DeclineLoanContractRequest request,
             String investorId
     );
+
+    /**
+     * Đợt gọi vốn bổ sung hết hạn (LoanFundingExpired): Contract đang {@code PENDING_REFUNDING} của hồ sơ chuyển
+     * {@code EXPIRED}. Không phát bồi hoàn vì Investment đã tự hủy phần vốn theo nhánh hết hạn.
+     */
+    void closeRefundingOnFundingExpired(Long applicationId, Instant now);
+
+    /**
+     * Người vay rút hồ sơ khi khoản vay đang gọi vốn bổ sung: Contract {@code PENDING_REFUNDING} chuyển
+     * {@code DECLINED}. Caller phát {@code LoanFundingCancelled(BORROWER_WITHDREW)} trong cùng transaction.
+     */
+    void closeRefundingOnBorrowerWithdrawal(Long applicationId, String borrowerId, Instant now);
 
     /** Mỗi Contract chạy một transaction ngắn; worker không giữ lock cho cả batch. */
     boolean expireOne(Long contractId);

@@ -11,6 +11,7 @@ import com.finora.loan.domain.scoring.enums.CreditProfileSource;
 import com.finora.loan.domain.scoring.enums.EligibilityResult;
 import com.finora.loan.dto.application.response.ApplicantFinancialResponse;
 import com.finora.loan.dto.application.response.LoanApplicationHistoryResponse;
+import com.finora.loan.dto.application.response.LoanApplicationTimelineItemResponse;
 import com.finora.loan.dto.application.response.ScheduleCalculationSnapshotResponse;
 
 import java.math.BigDecimal;
@@ -56,7 +57,12 @@ public record AdminLoanReviewDetailResponse(
          * Mã lý do AI chuyển hồ sơ cho người thẩm định (vd. {@code SCORE_IN_REVIEW_BAND}); rỗng khi AI không chuyển
          * hoặc lần chấm diễn ra trước khi Loan lưu trường này.
          */
-        List<String> aiReviewReasons
+        List<String> aiReviewReasons,
+        /**
+         * Lịch sử xử lý đầy đủ (mới nhất trước): thẩm định, gọi vốn, ký hợp đồng gồm nhà đầu tư rút và gọi vốn bổ sung,
+         * giải ngân, cơ cấu/gia hạn, thu hồi nợ, đóng khoản vay.
+         */
+        List<LoanApplicationTimelineItemResponse> timeline
 ) {
     public record EligibilityEvidence(
             Integer age,

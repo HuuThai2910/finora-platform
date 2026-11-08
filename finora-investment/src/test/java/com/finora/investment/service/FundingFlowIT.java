@@ -114,6 +114,9 @@ class FundingFlowIT {
     private LoanFundingCancelledHandler loanFundingCancelledHandler;
 
     @Autowired
+    private com.finora.investment.service.messaging.LoanFundingReopenedHandler loanFundingReopenedHandler;
+
+    @Autowired
     private com.finora.investment.service.messaging.LoanFundingRequestedHandler loanFundingRequestedHandler;
 
     @Autowired
@@ -948,6 +951,64 @@ class FundingFlowIT {
         assertThat(listing.getPurpose()).isEqualTo(purpose);
         assertThat(listing.getRegion()).isEqualTo("Không công bố");
         assertThat(listing.getStatus()).isEqualTo(ListingStatus.OPEN);
+    }
+
+    @Test
+    @DisplayName("Nhà đầu tư chưa ký rút: chỉ phần vốn đó được nhả, listing mở lại và allocation mới mang version 2")
+    void investorWithdrawalReopensListingAndKeepsOtherCommitments() {
+        MarketListingResponse created = newListing("10000000.00", "1000000.00");
+        actAs("INVESTOR-STAY");
+        OrderResponse stay = fundingService.placeOrder(created.listingId(), "key-reopen-stay",
+                new PlaceOrderRequest(new BigDecimal("6000000.00"), "INVESTOR_RISK_V1"));
+        actAs("INVESTOR-LEAVE");
+        BigDecimal leaverBefore = mockPayment().availableBalance("INVESTOR-LEAVE");
+        OrderResponse leave = fundingService.placeOrder(created.listingId(), "key-reopen-leave",
+                new PlaceOrderRequest(new BigDecimal("4000000.00"), "INVESTOR_RISK_V1"));
+        SecurityContextHolder.clearContext();
+        var funded = listingRepository.findById(created.listingId()).orElseThrow();
+        assertThat(funded.getStatus()).isEqualTo(ListingStatus.FULLY_FUNDED);
+        assertThat(funded.getAllocationVersion()).isEqualTo(1L);
+        var leavingCommitment = commitmentRepository.findByListingIdAndStatus(funded.getId(), CommitmentStatus.ACTIVE)
+                .stream().filter(commitment -> commitment.getInvestorId().equals("INVESTOR-LEAVE")).findFirst()
+                .orElseThrow();
+        assertThat(leavingCommitment.getContractBoundAt()).isNotNull();
+
+        var event = new com.finora.investment.messaging.event.LoanFundingReopenedEventData(
+                funded.getLoanId(), funded.getApplicationNumber(), funded.getId(), funded.getFundingRound(),
+                "LC-REOPEN-" + funded.getId(), 1L, funded.getAllocationHash(), "INVESTOR_DECLINED",
+                List.of(leavingCommitment.getId()), Instant.now());
+        UUID eventId = UUID.randomUUID();
+        loanFundingReopenedHandler.handle(eventId, Instant.now(), event);
+        // Kafka giao trùng cùng eventId không nhả lần hai.
+        loanFundingReopenedHandler.handle(eventId, Instant.now(), event);
+
+        var reopened = listingRepository.findById(created.listingId()).orElseThrow();
+        assertThat(reopened.getStatus()).isEqualTo(ListingStatus.OPEN);
+        assertThat(reopened.getCommittedAmount()).isEqualByComparingTo("6000000.00");
+        assertThat(reopened.getContractStatus()).isEqualTo("PENDING_REFUNDING");
+        assertThat(reopened.getFundingClosesAt()).isAfter(Instant.now());
+        assertThat(orderRepository.findByOrderReference(leave.orderReference()).orElseThrow().getRejectedReasonCode())
+                .isEqualTo("INVESTOR_DECLINED");
+        assertThat(orderRepository.findByOrderReference(stay.orderReference()).orElseThrow().getStatus())
+                .isEqualTo(OrderStatus.COMMITTED);
+        // Phần vốn đã gắn hợp đồng không hủy được qua lệnh dù listing đã mở lại.
+        actAs("INVESTOR-STAY");
+        assertThatThrownBy(() -> fundingService.cancelOrder(stay.orderReference()))
+                .isInstanceOf(InvestmentDomainException.class)
+                .hasMessageContaining("hợp đồng");
+        SecurityContextHolder.clearContext();
+        assertThat(fundingMaintenance.releasePendingHolds(100)).isGreaterThanOrEqualTo(1);
+        assertThat(mockPayment().availableBalance("INVESTOR-LEAVE")).isEqualByComparingTo(leaverBefore);
+
+        // Nhà đầu tư mới góp phần còn thiếu: allocation mới gồm phần vốn cũ và phần mới, version 2.
+        actAs("INVESTOR-NEW");
+        fundingService.placeOrder(created.listingId(), "key-reopen-new",
+                new PlaceOrderRequest(new BigDecimal("4000000.00"), "INVESTOR_RISK_V1"));
+        SecurityContextHolder.clearContext();
+        var refunded = listingRepository.findById(created.listingId()).orElseThrow();
+        assertThat(refunded.getStatus()).isEqualTo(ListingStatus.FULLY_FUNDED);
+        assertThat(refunded.getAllocationVersion()).isEqualTo(2L);
+        assertThat(refunded.getAllocationHash()).isNotEqualTo(funded.getAllocationHash());
     }
 
     private LoanFundingCancelledEventData cancellationOf(
