@@ -150,7 +150,7 @@ class NotificationFlowIT {
     void contextUsesPostgreSql17AndAllMigrationsApplied() {
         assertThat(jdbc.queryForObject("SHOW server_version", String.class)).startsWith("17.");
         assertThat(flyway.info().pending()).isEmpty();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("4");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("5");
     }
 
     @Test
