@@ -3,6 +3,7 @@ package com.finora.user.service.impl;
 import com.finora.common.util.PiiMasker;
 import com.finora.user.integration.notification.client.NotificationClient;
 import com.finora.user.integration.notification.contract.OtpEmailRequest;
+import com.finora.user.integration.notification.contract.StaffAccountEmailRequest;
 import com.finora.user.integration.notification.contract.SuspiciousActivityAlertRequest;
 import com.finora.user.integration.notification.contract.WelcomeEmailRequest;
 import com.finora.user.service.NotificationService;
@@ -73,6 +74,23 @@ public class NotificationServiceImpl implements NotificationService {
         } catch (Exception e) {
             log.error("Lỗi gửi OTP đăng ký: email={}, lỗi={}",
                     PiiMasker.maskEmail(email), e.getMessage());
+        }
+    }
+
+    @Override
+    public boolean sendStaffAccountEmail(Long userId, String email, String fullName, String roleName,
+                                         String temporaryPassword) {
+        try {
+            notificationClient.sendStaffAccountEmail(
+                    new StaffAccountEmailRequest(email, fullName, roleName, temporaryPassword));
+            // Tuyệt đối không ghi mật khẩu tạm ra log.
+            log.info("Đã gửi email thông tin đăng nhập nhân viên: userId={}, email={}",
+                    userId, PiiMasker.maskEmail(email));
+            return true;
+        } catch (Exception e) {
+            log.error("Lỗi gửi email thông tin đăng nhập nhân viên: userId={}, email={}, lỗi={}",
+                    userId, PiiMasker.maskEmail(email), e.getMessage());
+            return false;
         }
     }
 

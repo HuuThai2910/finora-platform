@@ -26,7 +26,7 @@ public enum OpsFunction {
     RESCHEDULE("reschedule", "Cơ cấu nợ", "Cho vay", true, true),
     WITHDRAWAL("withdrawal", "Rút tiền", "Vận hành", true, true),
     RECONCILIATION("reconciliation", "Đối soát & sự cố", "Vận hành", true, false),
-    FUNDING("funding", "Gọi vốn & chuyển nhượng", "Đầu tư", true, true),
+    FUNDING("funding", "Gọi vốn", "Đầu tư", true, true),
     FUNDING_SETTINGS("funding-settings", "Cấu hình gọi vốn", "Đầu tư", true, false),
     SECONDARY_MARKET("secondary-market", "Chợ chuyển nhượng", "Đầu tư", true, true),
     LOAN_PRODUCT("loan-product", "Sản phẩm vay", "Sản phẩm", true, false),

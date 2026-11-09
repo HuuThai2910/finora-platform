@@ -9,6 +9,8 @@ import com.finora.common.util.CryptoUtils;
 import com.finora.common.util.PiiMasker;
 import com.finora.user.config.CryptoProperties;
 import com.finora.user.domain.entity.UserProfile;
+import com.finora.user.domain.enums.AccountScope;
+import com.finora.user.dto.request.UserListFilter;
 import com.finora.user.dto.request.UserSearchCriteria;
 import com.finora.user.dto.response.UserProfileResponse;
 import com.finora.user.dto.response.UserStatsResponse;
@@ -24,11 +26,14 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -60,6 +65,9 @@ public class UserProfileServiceImpl implements UserProfileService {
     private final CryptoProperties cryptoProperties;
     private final Clock clock;
 
+    /** Múi giờ nghiệp vụ: khoảng ngày của bảng lọc và mốc tính tuổi theo giờ Việt Nam. */
+    static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
+
     /** Giới hạn chuỗi tìm, đủ cho họ tên hoặc email dài. */
     static final int MAX_SEARCH_LENGTH = 100;
 
@@ -78,8 +86,18 @@ public class UserProfileServiceImpl implements UserProfileService {
     @Override
     public PageResponse<UserProfileResponse> searchUsers(UserSearchCriteria criteria, Pageable pageable) {
         UserRole roleFilter = parseRole(criteria.role());
+        AccountScope scope = parseScope(criteria.scope());
         EkycStatus ekycFilter = parseEkycStatus(criteria.ekycStatus());
         String staffRoleFilter = isNoFilter(criteria.staffRoleCode()) ? null : criteria.staffRoleCode().trim();
+        // Vai trò nằm ngoài nhóm đang xem thì chắc chắn rỗng: báo lỗi để client không hiện "không có ai" sai nghĩa.
+        if (scope != null && roleFilter != null && !scope.contains(roleFilter)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "ROLE_OUT_OF_SCOPE",
+                    "Vai trò " + roleFilter + " không thuộc nhóm tài khoản " + scope);
+        }
+        if (staffRoleFilter != null && scope == AccountScope.CUSTOMER) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "STAFF_ROLE_NOT_ALLOWED",
+                    "Chỉ lọc được vai trò nhân viên khi xem tài khoản nhân viên");
+        }
         if (staffRoleFilter != null) {
             // Chỉ tài khoản STAFF mới mang mã vai trò nhân viên (ràng buộc ck_user_profiles_staff_role_code).
             if (roleFilter != null && roleFilter != UserRole.STAFF) {
@@ -105,8 +123,14 @@ public class UserProfileServiceImpl implements UserProfileService {
 
         Pageable sorted = PageRequest.of(pageable.getPageNumber(), Math.min(Math.max(pageable.getPageSize(), 1), 100),
                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
-        Page<UserProfile> page = userProfileRepository.findAll(UserProfileSpecifications.matching(
-                roleFilter, ekycFilter, staffRoleFilter, search, identifierHashes), sorted);
+        UserListFilter advanced = criteria.filter().validate();
+        Specification<UserProfile> specification = UserProfileSpecifications.matching(
+                roleFilter, scope == null ? null : scope.roles(), ekycFilter, staffRoleFilter, search, identifierHashes);
+        if (!advanced.isEmpty()) {
+            specification = specification.and(UserProfileSpecifications.withFilter(
+                    advanced, LocalDate.now(clock.withZone(BUSINESS_ZONE)), BUSINESS_ZONE));
+        }
+        Page<UserProfile> page = userProfileRepository.findAll(specification, sorted);
 
         return PageResponse.<UserProfileResponse>builder()
                 .content(page.getContent().stream()
@@ -173,6 +197,17 @@ public class UserProfileServiceImpl implements UserProfileService {
             return UserRole.valueOf(role.toUpperCase());
         } catch (IllegalArgumentException e) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "Vai trò không hợp lệ: " + role);
+        }
+    }
+
+    /** Nhóm tài khoản {@code STAFF}/{@code CUSTOMER}; rỗng hoặc "ALL" là không giới hạn. */
+    private AccountScope parseScope(String scope) {
+        if (isNoFilter(scope)) return null;
+        try {
+            return AccountScope.valueOf(scope.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "SCOPE_INVALID",
+                    "Nhóm tài khoản không hợp lệ: " + scope);
         }
     }
 
@@ -277,7 +312,18 @@ public class UserProfileServiceImpl implements UserProfileService {
                     "Chỉ tài khoản nhân viên mới gán được vai trò nhân viên");
         }
 
+        // Người vay/nhà đầu tư do khách tự chọn lúc đăng ký; tài khoản nội bộ không được hạ thành khách hàng.
+        if (!AccountScope.STAFF.contains(newRole)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "ROLE_NOT_ASSIGNABLE",
+                    "Chỉ đổi được giữa Quản trị viên và Nhân viên");
+        }
+
         UserProfile profile = findByIdOrThrow(userId);
+        // Khách hàng không bao giờ thành nhân viên: tài khoản nhân viên phải tạo mới bằng thông tin riêng.
+        if (!AccountScope.STAFF.contains(profile.getRole())) {
+            throw new BusinessException(HttpStatus.CONFLICT, "CUSTOMER_ROLE_LOCKED",
+                    "Không đổi vai trò được cho tài khoản khách hàng; hãy tạo tài khoản nhân viên mới");
+        }
         preventSelfAction(profile, currentKeycloakId, "Không thể tự đổi vai trò của chính mình");
 
         // Vai trò nhân viên phải tồn tại thật trên Keycloak (404 STAFF_ROLE_NOT_FOUND nếu không).

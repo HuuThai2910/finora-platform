@@ -14,7 +14,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-public interface MarketListingRepository extends JpaRepository<MarketListing, Long> {
+public interface MarketListingRepository extends JpaRepository<MarketListing, Long>,
+        org.springframework.data.jpa.repository.JpaSpecificationExecutor<MarketListing> {
 
     /**
      * Đọc listing kèm khóa ghi để chống overfund.

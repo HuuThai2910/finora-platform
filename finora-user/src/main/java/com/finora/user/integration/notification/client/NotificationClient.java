@@ -2,6 +2,7 @@ package com.finora.user.integration.notification.client;
 
 import com.finora.user.config.ServiceAccountConfig;
 import com.finora.user.integration.notification.contract.OtpEmailRequest;
+import com.finora.user.integration.notification.contract.StaffAccountEmailRequest;
 import com.finora.user.integration.notification.contract.SuspiciousActivityAlertRequest;
 import com.finora.user.integration.notification.contract.WelcomeEmailRequest;
 import com.finora.user.util.ExternalCallFailures;
@@ -72,6 +73,10 @@ public class NotificationClient {
 
     public void sendOtpEmail(OtpEmailRequest request) {
         post("/api/internal/notifications/otp-email", request);
+    }
+
+    public void sendStaffAccountEmail(StaffAccountEmailRequest request) {
+        post("/api/internal/notifications/staff-account-email", request);
     }
 
     public void sendSuspiciousActivityAlert(SuspiciousActivityAlertRequest request) {

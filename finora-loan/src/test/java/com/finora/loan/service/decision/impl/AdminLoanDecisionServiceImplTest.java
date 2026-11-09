@@ -137,6 +137,34 @@ class AdminLoanDecisionServiceImplTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void advancedFilterGoesThroughOneSpecificationQuery() {
+        when(applications.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(Pageable.class)))
+                .thenReturn(Page.empty());
+        var filter = new com.finora.loan.dto.decision.request.AdminApplicationFilter(null, null,
+                new BigDecimal("10000000"), null, null, null, null, null, List.of("A"), null, null, null, null);
+
+        service.listApplications(null, null, "hs-2026", ApplicationServicingFlag.INCIDENT, filter, 0, 20);
+
+        verify(applications).findAll(any(org.springframework.data.jpa.domain.Specification.class), any(Pageable.class));
+        verify(applications, org.mockito.Mockito.never()).searchAdminByServicing(any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.anyBoolean(), any());
+    }
+
+    @Test
+    void invalidRangeIsRejectedBeforeAnyQuery() {
+        var filter = new com.finora.loan.dto.decision.request.AdminApplicationFilter(null, null, null, null, 24, 6,
+                null, null, null, null, null, null, null);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> service.listApplications(null, null, null, null, filter, 0, 20))
+                .isInstanceOfSatisfying(com.finora.common.exception.BusinessException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("FILTER_RANGE_INVALID"));
+        verifyNoMoreInteractions(applications);
+    }
+
+    @Test
     void listRowsCarryLoanNumberAndServicingFlags() {
         LoanApplication application = mock(LoanApplication.class);
         when(application.getId()).thenReturn(APPLICATION_ID);

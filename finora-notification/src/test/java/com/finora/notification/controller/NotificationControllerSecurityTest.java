@@ -85,6 +85,27 @@ class NotificationControllerSecurityTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void staffAccountEmailCarriesOnlyGeneratedPasswordCharacters() throws Exception {
+        String valid = "{\"email\":\"nv.nam@finora.vn\",\"fullName\":\"Lê Văn Nam\",\"roleName\":\"Nhân viên (Thu hồi nợ)\","
+                + "\"temporaryPassword\":\"Ab3$kLmn-Pq_R7x\"}";
+        mvc.perform(post("/api/internal/notifications/staff-account-email").contentType(MediaType.APPLICATION_JSON)
+                        .content(valid).with(serviceAccount()))
+                .andExpect(status().isOk());
+        verify(emailService).sendStaffAccountEmail("nv.nam@finora.vn", "Lê Văn Nam", "Nhân viên (Thu hồi nợ)",
+                "Ab3$kLmn-Pq_R7x");
+
+        mvc.perform(post("/api/internal/notifications/staff-account-email").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"nv.nam@finora.vn\",\"roleName\":\"Nhân viên\","
+                                + "\"temporaryPassword\":\"<a href=x>Bấm vào đây</a>\"}")
+                        .with(serviceAccount()))
+                .andExpect(status().isBadRequest());
+
+        mvc.perform(post("/api/internal/notifications/staff-account-email").contentType(MediaType.APPLICATION_JSON)
+                        .content(valid).with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isForbidden());
+    }
+
     private static org.springframework.test.web.servlet.request.RequestPostProcessor serviceAccount() {
         return jwt().jwt(token -> token.claim("azp", "finora-user-client"))
                 .authorities(new SimpleGrantedAuthority(NotificationSecurityConfig.INTERNAL_SEND_AUTHORITY));

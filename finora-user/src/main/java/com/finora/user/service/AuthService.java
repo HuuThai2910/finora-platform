@@ -1,5 +1,6 @@
 package com.finora.user.service;
 
+import com.finora.user.dto.request.ChangePasswordRequest;
 import com.finora.user.dto.request.LoginRequest;
 import com.finora.user.dto.request.RegisterRequest;
 import com.finora.user.dto.request.ResetPasswordRequest;
@@ -7,6 +8,8 @@ import com.finora.user.dto.request.VerifyRegistrationRequest;
 import com.finora.user.dto.response.AuthResponse;
 import com.finora.user.dto.response.RegistrationChallengeResponse;
 import org.keycloak.representations.AccessTokenResponse;
+
+import java.util.UUID;
 
 /**
  * Interface dịch vụ xác thực — đăng ký, đăng nhập, làm mới token, quên/đặt lại mật khẩu.
@@ -39,4 +42,13 @@ public interface AuthService {
     void verifyResetOtp(String email, String otp);
 
     void resetPassword(ResetPasswordRequest request);
+
+    /**
+     * Người dùng đang đăng nhập tự đổi mật khẩu: xác minh mật khẩu hiện tại với Keycloak, đặt mật khẩu mới rồi tắt cờ
+     * {@code mustChangePassword}. Mật khẩu hiện tại sai tính như một lần đăng nhập sai (chung bộ đếm khóa 15 phút).
+     *
+     * @param keycloakUserId Keycloak ID của người gọi (claim {@code sub})
+     * @param ipAddress      IP người gọi — ghi vào bộ đếm đăng nhập sai
+     */
+    void changePassword(UUID keycloakUserId, ChangePasswordRequest request, String ipAddress);
 }

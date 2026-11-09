@@ -14,6 +14,14 @@ public interface NotificationService {
      */
     void sendRegistrationOtp(String email, String otp);
 
+    /**
+     * Gửi email thông tin đăng nhập (email + mật khẩu tạm) cho tài khoản nhân viên mới.
+     *
+     * @return {@code true} nếu finora-notification đã nhận yêu cầu; {@code false} khi lỗi (đã ghi log, không ném)
+     */
+    boolean sendStaffAccountEmail(Long userId, String email, String fullName, String roleName,
+                                  String temporaryPassword);
+
     void sendSuspiciousActivityAlert(Long userId, String email,
                                       String ipAddress, String userAgent,
                                       String reason);

@@ -15,7 +15,9 @@ import com.finora.investment.integration.user.client.UserIdentityClient;
 import com.finora.investment.mapper.InvestmentMapper;
 import com.finora.investment.messaging.event.LoanFundingExpiredEventData;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
+import com.finora.investment.dto.request.ListingAdvancedFilter;
 import com.finora.investment.repository.MarketListingRepository;
+import com.finora.investment.repository.MarketListingSpecifications;
 import com.finora.investment.service.FundingSettingsService;
 import com.finora.investment.service.ListingCommitmentCanceller;
 import com.finora.investment.service.MarketListingService;
@@ -47,6 +49,9 @@ import java.util.stream.Collectors;
 public class MarketListingServiceImpl implements MarketListingService {
 
     private static final int MAX_PAGE_SIZE = 100;
+
+    /** Múi giờ nghiệp vụ: khoảng ngày của bảng lọc tính theo giờ Việt Nam. */
+    private static final java.time.ZoneId BUSINESS_ZONE = java.time.ZoneId.of("Asia/Ho_Chi_Minh");
 
     /** Kiểu sắp xếp danh sách gọi vốn; giá trị lạ quay về mặc định thay vì báo lỗi (app cũ không gửi tham số này). */
     static Sort listingSort(String sort) {
@@ -218,6 +223,25 @@ public class MarketListingServiceImpl implements MarketListingService {
             int page,
             int size
     ) {
+        return search(status, creditGrade, minAnnualRate, maxTermMonths, hiddenBorrowerId, q, sort,
+                ListingAdvancedFilter.NONE, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<MarketListingResponse> search(
+            String status,
+            String creditGrade,
+            BigDecimal minAnnualRate,
+            Integer maxTermMonths,
+            String hiddenBorrowerId,
+            String q,
+            String sort,
+            ListingAdvancedFilter filter,
+            int page,
+            int size
+    ) {
+        ListingAdvancedFilter advanced = filter == null ? ListingAdvancedFilter.NONE : filter.validate();
         Pageable pageable = PageRequest.of(
                 Math.max(page, 0),
                 Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
@@ -227,17 +251,22 @@ public class MarketListingServiceImpl implements MarketListingService {
                 : "%" + q.trim().toLowerCase(java.util.Locale.ROOT).replace("!", "!!").replace("%", "!%")
                         .replace("_", "!_") + "%";
 
-        Page<MarketListing> result = marketListingRepository.search(
-                resolveStatus(status),
-                normalize(creditGrade),
-                minAnnualRate,
-                maxTermMonths,
-                hiddenBorrowerId,
-                pattern,
-                // Mã hiển thị HS-/HĐ- lưu chữ hoa (có chữ Đ): so bằng mẫu viết hoa, không qua LOWER của database.
-                SearchPatterns.containsCode(q),
-                pageable
-        );
+        // Bộ lọc nâng cao (web quản trị): một Specification cùng nghĩa với truy vấn cũ cộng các khoảng mới. App nhà đầu
+        // tư không gửi tham số mới nên vẫn đi đúng truy vấn cũ.
+        Page<MarketListing> result = advanced.isEmpty()
+                ? marketListingRepository.search(
+                        resolveStatus(status),
+                        normalize(creditGrade),
+                        minAnnualRate,
+                        maxTermMonths,
+                        hiddenBorrowerId,
+                        pattern,
+                        // Mã hiển thị HS-/HĐ- lưu chữ hoa (có chữ Đ): so bằng mẫu viết hoa, không qua LOWER của database.
+                        SearchPatterns.containsCode(q),
+                        pageable)
+                : marketListingRepository.findAll(MarketListingSpecifications.matching(
+                        resolveStatus(status), normalize(creditGrade), minAnnualRate, maxTermMonths, hiddenBorrowerId,
+                        pattern, SearchPatterns.containsCode(q), advanced, BUSINESS_ZONE), pageable);
 
         return PageResponse.<MarketListingResponse>builder()
                 .content(result.getContent().stream().map(investmentMapper::toListingResponse).toList())

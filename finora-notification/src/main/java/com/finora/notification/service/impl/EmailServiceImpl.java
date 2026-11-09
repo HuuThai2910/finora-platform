@@ -46,6 +46,13 @@ public class EmailServiceImpl implements EmailService {
     }
 
     @Override
+    public void sendStaffAccountEmail(String toEmail, String fullName, String roleName, String temporaryPassword) {
+        sendHtmlEmail(toEmail,
+                "Tài khoản quản trị FINORA của bạn",
+                emailTemplateService.renderStaffAccountEmail(fullName, toEmail, roleName, temporaryPassword));
+    }
+
+    @Override
     public void sendSuspiciousActivityAlert(String toEmail, String ipAddress, String reason) {
         sendHtmlEmail(toEmail,
                 "Cảnh báo hoạt động đăng nhập bất thường — FINORA",

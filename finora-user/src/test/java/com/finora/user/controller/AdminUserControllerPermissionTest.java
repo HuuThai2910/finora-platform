@@ -72,6 +72,45 @@ class AdminUserControllerPermissionTest {
     }
 
     @Test
+    void scopeIsPassedToServiceForServerSidePaging() throws Exception {
+        authenticateWith("ROLE_ADMIN");
+        when(userProfileService.searchUsers(any(), any())).thenReturn(PageResponse.<UserProfileResponse>builder()
+                .content(List.of()).page(0).size(10).totalElements(0).totalPages(0).last(true).build());
+
+        mockMvc.perform(get(BASE).param("scope", "STAFF").param("role", "ADMIN").param("size", "10"))
+                .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<com.finora.user.dto.request.UserSearchCriteria> criteria =
+                org.mockito.ArgumentCaptor.forClass(com.finora.user.dto.request.UserSearchCriteria.class);
+        verify(userProfileService).searchUsers(criteria.capture(), any());
+        org.assertj.core.api.Assertions.assertThat(criteria.getValue().scope()).isEqualTo("STAFF");
+        org.assertj.core.api.Assertions.assertThat(criteria.getValue().role()).isEqualTo("ADMIN");
+    }
+
+    @Test
+    void advancedFilterParametersBind() throws Exception {
+        authenticateWith("ROLE_ADMIN");
+        when(userProfileService.searchUsers(any(), any())).thenReturn(PageResponse.<UserProfileResponse>builder()
+                .content(List.of()).page(0).size(10).totalElements(0).totalPages(0).last(true).build());
+
+        mockMvc.perform(get(BASE).param("createdFrom", "2026-11-01").param("createdTo", "2026-11-09")
+                        .param("locked", "true").param("ageMin", "18").param("ageMax", "30")
+                        .param("gender", "FEMALE").param("lastLoginFrom", "2026-11-08"))
+                .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<com.finora.user.dto.request.UserSearchCriteria> criteria =
+                org.mockito.ArgumentCaptor.forClass(com.finora.user.dto.request.UserSearchCriteria.class);
+        verify(userProfileService).searchUsers(criteria.capture(), any());
+        var filter = criteria.getValue().filter();
+        org.assertj.core.api.Assertions.assertThat(filter.createdFrom()).isEqualTo(java.time.LocalDate.of(2026, 11, 1));
+        org.assertj.core.api.Assertions.assertThat(filter.locked()).isTrue();
+        org.assertj.core.api.Assertions.assertThat(filter.ageMax()).isEqualTo(30);
+        org.assertj.core.api.Assertions.assertThat(filter.gender())
+                .isEqualTo(com.finora.common.enums.user.Gender.FEMALE);
+        org.assertj.core.api.Assertions.assertThat(filter.lastLoginFrom()).isEqualTo(java.time.LocalDate.of(2026, 11, 8));
+    }
+
+    @Test
     void serviceAccountReadAllStillWorks() throws Exception {
         authenticateWith("user:admin:read_all");
 

@@ -100,6 +100,38 @@ public class EmailTemplateServiceImpl implements EmailTemplateService {
     }
 
     @Override
+    public String renderStaffAccountEmail(String fullName, String loginEmail, String roleName, String temporaryPassword) {
+        String greeting = fullName == null || fullName.isBlank()
+                ? "Xin chào!"
+                : "Xin chào, %s!".formatted(HtmlSanitizer.escape(fullName));
+
+        return WRAPPER_OPEN
+                + HEADER_PRIMARY.formatted("Tài khoản quản trị")
+                + BODY_OPEN
+                + """
+                        <h2 style="color: #1a73e8; margin-top: 0;">%s</h2>
+                        <p style="color: #333; line-height: 1.6;">
+                            Quản trị viên đã tạo cho bạn tài khoản trên trang quản trị <strong>FINORA</strong> với vai trò <strong>%s</strong>.
+                        </p>
+                        <table style="width: 100%%; border-collapse: collapse; margin: 20px 0;">
+                            <tr>
+                                <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; color: #757575; width: 140px;">Email đăng nhập</td>
+                                <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; color: #333; font-weight: bold;">%s</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; color: #757575;">Mật khẩu tạm</td>
+                                <td style="padding: 10px; border-bottom: 1px solid #e0e0e0; color: #333; font-weight: bold; font-family: Consolas, monospace; letter-spacing: 1px;">%s</td>
+                            </tr>
+                        </table>
+                        <p style="color: #333; line-height: 1.6;">
+                            Ở lần đăng nhập đầu tiên, hệ thống sẽ yêu cầu bạn <strong>đổi mật khẩu</strong> trước khi sử dụng. Không chia sẻ mật khẩu này cho bất kỳ ai.
+                        </p>""".formatted(greeting, HtmlSanitizer.escape(roleName), HtmlSanitizer.escape(loginEmail),
+                        HtmlSanitizer.escape(temporaryPassword))
+                + FOOTER.formatted("Nếu bạn không phải người nhận tài khoản này, vui lòng bỏ qua email và báo cho quản trị viên FINORA.")
+                + WRAPPER_CLOSE;
+    }
+
+    @Override
     public String renderSuspiciousActivityAlert(String ipAddress, String reason) {
         return WRAPPER_OPEN
                 + HEADER_ALERT

@@ -7,6 +7,7 @@ import com.finora.common.util.PiiMasker;
 import com.finora.user.config.CryptoProperties;
 import com.finora.user.domain.entity.UserProfile;
 import com.finora.user.domain.model.PendingRegistration;
+import com.finora.user.dto.request.ChangePasswordRequest;
 import com.finora.user.dto.request.LoginRequest;
 import com.finora.user.dto.request.RegisterRequest;
 import com.finora.user.dto.request.ResetPasswordRequest;
@@ -267,7 +268,8 @@ public class AuthServiceImpl implements AuthService {
                 profile.getFullName(),
                 List.of(profile.getRole().name()),
                 tokenResponse.getToken(),
-                tokenResponse.getRefreshToken());
+                tokenResponse.getRefreshToken(),
+                profile.isMustChangePassword());
     }
 
     /**
@@ -382,6 +384,55 @@ public class AuthServiceImpl implements AuthService {
 
         log.info("Đã đặt lại mật khẩu cho userId={}, email={}",
                 profile.getId(), PiiMasker.maskEmail(request.getEmail()));
+    }
+
+    // ── Tự đổi mật khẩu ────────────────────────────────────────────
+
+    /**
+     * Xác minh mật khẩu hiện tại bằng chính password grant như đăng nhập (Keycloak không có API "kiểm mật khẩu"),
+     * rồi thu hồi ngay phiên vừa sinh ra để không để lại phiên thừa. Mật khẩu đổi bằng Admin API nên phiên web đang
+     * dùng vẫn giữ nguyên.
+     */
+    @Override
+    public void changePassword(UUID keycloakUserId, ChangePasswordRequest request, String ipAddress) {
+        UserProfile profile = userProfileRepository.findByKeycloakUserId(keycloakUserId)
+                .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "USER_NOT_FOUND",
+                        "Không tìm thấy hồ sơ người dùng"));
+        String email = profile.getEmail();
+
+        if (rateLimitService.isLoginBlocked(email)) {
+            throw new BusinessException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Nhập sai mật khẩu quá nhiều lần, vui lòng thử lại sau 15 phút");
+        }
+        if (request.getNewPassword().equals(request.getCurrentPassword())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "PASSWORD_UNCHANGED",
+                    "Mật khẩu mới phải khác mật khẩu hiện tại");
+        }
+
+        AccessTokenResponse verification;
+        try {
+            verification = keycloakAdminService.getUserToken(email, request.getCurrentPassword());
+        } catch (BusinessException e) {
+            if (e.getStatus() == HttpStatus.UNAUTHORIZED) {
+                rateLimitService.recordFailedLogin(email, ipAddress);
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "CURRENT_PASSWORD_INVALID",
+                        "Mật khẩu hiện tại không đúng");
+            }
+            throw e;
+        }
+        rateLimitService.resetFailedLogin(email);
+        if (verification != null && verification.getRefreshToken() != null) {
+            keycloakAdminService.revokeRefreshToken(verification.getRefreshToken());
+        }
+
+        keycloakAdminService.resetPassword(keycloakUserId.toString(), request.getNewPassword());
+        if (profile.isMustChangePassword()) {
+            profile.setMustChangePassword(false);
+            userProfileRepository.save(profile);
+        }
+
+        log.info("Người dùng đã tự đổi mật khẩu: userId={}, email={}",
+                profile.getId(), PiiMasker.maskEmail(email));
     }
 
     // ── Tiện ích nội bộ ────────────────────────────────────────────

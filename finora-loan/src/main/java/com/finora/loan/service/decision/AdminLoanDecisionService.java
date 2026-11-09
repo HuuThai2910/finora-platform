@@ -2,6 +2,7 @@ package com.finora.loan.service.decision;
 
 import com.finora.loan.domain.application.enums.LoanApplicationStatus;
 import com.finora.loan.domain.servicing.enums.ApplicationServicingFlag;
+import com.finora.loan.dto.decision.request.AdminApplicationFilter;
 import com.finora.loan.dto.decision.request.ApproveLoanApplicationRequest;
 import com.finora.loan.dto.decision.request.RejectLoanApplicationRequest;
 import com.finora.loan.dto.decision.response.AdminAssessmentExplanationResponse;
@@ -38,6 +39,15 @@ public interface AdminLoanDecisionService {
     PageResponse<AdminLoanReviewSummaryResponse> listApplications(
             LoanApplicationStatus status, String borrowerId, String q, ApplicationServicingFlag servicing,
             int page, int size);
+
+    /**
+     * Như trên, thêm bộ lọc nâng cao của bảng lọc web (ngày nộp, số tiền, kỳ hạn, điểm/hạng lần chấm mới nhất, lãi
+     * suất, sản phẩm, mục đích). Bộ lọc rỗng thì như trên; khoảng sai trả 400 {@code FILTER_RANGE_INVALID} /
+     * {@code FILTER_VALUE_INVALID}.
+     */
+    PageResponse<AdminLoanReviewSummaryResponse> listApplications(
+            LoanApplicationStatus status, String borrowerId, String q, ApplicationServicingFlag servicing,
+            AdminApplicationFilter filter, int page, int size);
 
     /**
      * Detail dùng số query cố định và chỉ đọc snapshot local; không gọi User, AI hoặc Fineract.

@@ -73,6 +73,26 @@ class ProofControllerSecurityTest {
     }
 
     @Test
+    void auditFilterParametersBindIntoFilter() throws Exception {
+        when(queryService.search(any(), any(), any(), any(com.finora.blockchain.dto.request.ProofSearchFilter.class),
+                anyInt(), anyInt())).thenReturn(PageResponse.<com.finora.blockchain.dto.response.ProofResponse>builder()
+                .content(List.of()).page(0).size(20).totalElements(0).totalPages(0).last(true).build());
+
+        mvc.perform(get("/api/v1/blockchain/proofs").param("status", "CONFIRMED").param("proofType", "REPAYMENT")
+                        .param("provider", "MOCK").param("createdFrom", "2026-11-01").param("createdTo", "2026-11-09")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isOk());
+
+        verify(queryService).search(org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.eq("CONFIRMED"),
+                org.mockito.ArgumentMatchers.eq(new com.finora.blockchain.dto.request.ProofSearchFilter(
+                        com.finora.blockchain.domain.proof.enums.ProofType.REPAYMENT,
+                        com.finora.blockchain.domain.proof.enums.ProofProviderType.MOCK,
+                        java.time.LocalDate.of(2026, 11, 1), java.time.LocalDate.of(2026, 11, 9))),
+                org.mockito.ArgumentMatchers.eq(0), org.mockito.ArgumentMatchers.eq(20));
+    }
+
+    @Test
     void adminBrowsesProofsOfALoan() throws Exception {
         when(queryService.search("LOAN_APPLICATION", "123", null, 0, 20)).thenReturn(PageResponse.<com.finora.blockchain.dto.response.ProofResponse>builder()
                 .content(List.of()).page(0).size(20).totalElements(0).totalPages(0).last(true).build());

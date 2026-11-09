@@ -1,5 +1,9 @@
 package com.finora.blockchain.controller;
 
+import com.finora.blockchain.domain.proof.enums.ProofProviderType;
+import com.finora.blockchain.domain.proof.enums.ProofType;
+import com.finora.blockchain.dto.request.ProofSearchFilter;
+import java.time.LocalDate;
 import com.finora.blockchain.dto.request.ProofVerificationRequest;
 import com.finora.blockchain.dto.response.ProofResponse;
 import com.finora.blockchain.dto.response.ProofVerificationResponse;
@@ -13,6 +17,7 @@ import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -40,10 +45,19 @@ public class ProofController {
             @RequestParam(required = false) @Size(max = 40) String referenceType,
             @RequestParam(required = false) @Size(max = 100) String referenceId,
             @RequestParam(required = false) @Size(max = 30) String status,
+            @RequestParam(required = false) ProofType proofType,
+            @RequestParam(required = false) ProofProviderType provider,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate createdFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate createdTo,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
-        return ResponseEntity.ok(proofQueryService.search(referenceType, referenceId, status, page, size));
+        // Bảng lọc trang Kiểm toán: loại bằng chứng, sổ cái (MOCK/HYPERLEDGER_FABRIC), ngày tạo theo giờ Việt Nam.
+        ProofSearchFilter filter = new ProofSearchFilter(proofType, provider, createdFrom, createdTo);
+        boolean referenceWithStatus = referenceId != null && !referenceId.isBlank() && status != null && !status.isBlank();
+        return ResponseEntity.ok(filter.isEmpty() && !referenceWithStatus
+                ? proofQueryService.search(referenceType, referenceId, status, page, size)
+                : proofQueryService.search(referenceType, referenceId, status, filter, page, size));
     }
 
     @GetMapping("/{proofId}")
