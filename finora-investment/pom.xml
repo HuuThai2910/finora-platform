@@ -12,7 +12,7 @@
 
     <artifactId>finora-investment</artifactId>
     <name>FINORA Investment Service</name>
-    <description>Sàn khớp lệnh P2P, gọi vốn Notes, Auto-Invest</description>
+    <description>Sàn khớp lệnh P2P, gọi vốn Notes</description>
 
     <dependencies>
         <dependency>

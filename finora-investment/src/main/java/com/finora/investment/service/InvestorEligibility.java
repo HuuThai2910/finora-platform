@@ -9,8 +9,8 @@ import com.finora.investment.domain.listing.entity.MarketListing;
 public interface InvestorEligibility {
 
     /**
-     * Người dùng đang gọi API đã eKYC. Chạy trong worker (Auto-Invest) thì không có JWT người dùng:
-     * điều kiện đã được kiểm lúc nhà đầu tư bật Auto-Invest nên bỏ qua.
+     * Người dùng đang gọi API đã eKYC. Không có JWT người dùng (lời gọi nội bộ trong worker) thì bỏ
+     * qua vì không có người dùng nào để kiểm.
      */
     void requireVerifiedInvestor();
 

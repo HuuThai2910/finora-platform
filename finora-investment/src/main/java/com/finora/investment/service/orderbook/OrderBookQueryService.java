@@ -19,6 +19,9 @@ public interface OrderBookQueryService {
      */
     Page<OrderBookSummaryResponse> listBooks(String hiddenBorrowerId, Pageable pageable);
 
+    /** Như trên, thêm ô tìm {@code q}: mã hồ sơ hoặc mã hợp đồng của khoản vay, khớp một phần; rỗng thì như trên. */
+    Page<OrderBookSummaryResponse> listBooks(String hiddenBorrowerId, String q, Pageable pageable);
+
     /** Ảnh chụp công khai của một sổ; sổ chưa có lệnh nào trả về hai phía rỗng. */
     OrderBookSnapshotResponse snapshot(Long listingId);
 

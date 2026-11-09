@@ -40,7 +40,7 @@ class TransferDocumentPdfTest {
         byte[] pdf = new TransferDocumentPdfRendererImpl().render(content(true));
 
         String text = text(pdf);
-        assertThat(text).contains("GIẤY XÁC NHẬN CHUYỂN NHƯỢNG NOTE", "CN-TRD-0123456789ABCDEF0123",
+        assertThat(text).contains("GIẤY XÁC NHẬN CHUYỂN NHƯỢNG PHẦN VỐN", "CN-TRD-0123456789ABCDEF0123",
                 "Nguyễn Văn An", "********2345", "Trần Thị Bình", "Chưa cập nhật",
                 "N-1001-01", "N-1001-02", "1.980.000 ₫", "99%", "HD-2026-0042",
                 "NoteTransferDocument/TRD-0123456789ABCDEF0123", "CON DẤU DEMO");

@@ -152,7 +152,7 @@
       "finora-investment-client": [
         {
           "name": "payment:hold:on_behalf",
-          "description": "Auto-Invest: giu/nha tien trong vi thay nha dau tu (chi hold/release)"
+          "description": "Worker Investment: giu/nha tien trong vi thay nha dau tu (chi hold/release)"
         }
       ],
       "finora-loan-client": [
@@ -196,7 +196,7 @@
         },
         {
           "name": "user:identity:read_internal",
-          "description": "Service account finora-investment doc ho ten + CCCD da che de in giay chuyen nhuong Note; khong nam trong role nguoi dung"
+          "description": "Service account finora-investment (giay chuyen nhuong Note) va finora-loan (hop dong vay) doc ho ten + CCCD da che; khong nam trong role nguoi dung"
         }
       ],
       "finora-ops": [
@@ -331,7 +331,7 @@
     {
       "clientId": "finora-investment-client",
       "name": "FINORA Investment Service",
-      "description": "Service account cua finora-investment: Auto-Invest goi Payment, giay chuyen nhuong Note doc danh tinh tu User khi khong co JWT nguoi dung",
+      "description": "Service account cua finora-investment: worker doi soat goi Payment, giay chuyen nhuong Note doc danh tinh tu User khi khong co JWT nguoi dung",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
@@ -507,6 +507,9 @@
       "clientRoles": {
         "finora-loan-client": [
           "ai:credit:score"
+        ],
+        "finora-user-client": [
+          "user:identity:read_internal"
         ]
       }
     },

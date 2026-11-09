@@ -54,6 +54,7 @@ public class DisbursementEventsHandler implements InboundEventHandler {
         String amount = required(notificationText.money(payload.amount()), "amount", event.eventType());
         Optional<String> borrower = loanRecipientService.borrower(loanId, payload.borrowerId(),
                 payload.applicationNumber(), payload.contractNumber(), payload.loanNumber(), event.eventId());
+        loanRecipientService.rememberDisplayCodes(loanId, null, payload.contractCode());
         LoanRecipientService.Lenders lenders = loanRecipientService.lenders(loanId);
         LoanReference reference = loanRecipientService.find(loanId).orElse(null);
         String loan = notificationText.loanLabel(loanId, reference, payload.loanNumber(), payload.contractNumber(),

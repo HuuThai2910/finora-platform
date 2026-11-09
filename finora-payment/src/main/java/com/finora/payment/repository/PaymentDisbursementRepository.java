@@ -18,6 +18,9 @@ public interface PaymentDisbursementRepository extends JpaRepository<PaymentDisb
     Optional<PaymentDisbursement> findBySagaId(UUID sagaId);
     org.springframework.data.domain.Page<PaymentDisbursement> findByStatusInOrderByUpdatedAtAscIdAsc(
             List<PaymentDisbursementStatus> statuses, Pageable page);
+    /** Lệnh giải ngân chưa kết thúc của một hồ sơ vay (phần "Sau giải ngân" của trang hồ sơ trên web quản trị). */
+    org.springframework.data.domain.Page<PaymentDisbursement> findByLoanApplicationIdAndStatusInOrderByUpdatedAtAscIdAsc(
+            Long loanApplicationId, List<PaymentDisbursementStatus> statuses, Pageable page);
     @Lock(LockModeType.PESSIMISTIC_WRITE) @Query("select d from PaymentDisbursement d where d.id=:id")
     Optional<PaymentDisbursement> findByIdForUpdate(@Param("id") Long id);
     @Query("select d.id from PaymentDisbursement d where d.status in :statuses and d.nextAttemptAt<=:now order by d.nextAttemptAt,d.id")

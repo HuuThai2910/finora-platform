@@ -29,11 +29,12 @@ public class LoanContractMapper {
 
     private final ScheduleCalculationSnapshotMapper scheduleCalculationSnapshotMapper;
 
-    public LoanContractSummaryResponse toSummary(LoanContract contract, String applicationNumber) {
+    public LoanContractSummaryResponse toSummary(LoanContract contract, LoanApplication application) {
         return new LoanContractSummaryResponse(
-                contract.getContractNumber(), applicationNumber, contract.getPrincipalAmount(),
+                contract.getContractNumber(), application.getApplicationNumber(), contract.getPrincipalAmount(),
                 contract.getTermMonths(), contract.getAnnualInterestRate(), contract.getTotalRepayment(),
-                contract.getStatus(), contract.getExpiresAt(), contract.getVersion(), contract.getCreatedAt()
+                contract.getStatus(), contract.getExpiresAt(), contract.getVersion(), contract.getCreatedAt(),
+                contract.getContractCode(), application.getApplicationCode(), application.getPurposeCode()
         );
     }
 
@@ -71,7 +72,8 @@ public class LoanContractMapper {
                 disbursement == null ? null : disbursement.getDisbursedAt(),
                 contract.getVersion(), contract.getCreatedAt(), contract.getUpdatedAt(),
                 contract.getSignatureProfile(), toSignedPdf(contract, pdfSignatures),
-                toPdf(contract, receipt, "receipt")
+                toPdf(contract, receipt, "receipt"),
+                contract.getContractCode(), application.getApplicationCode(), application.getPurposeCode()
         );
     }
 

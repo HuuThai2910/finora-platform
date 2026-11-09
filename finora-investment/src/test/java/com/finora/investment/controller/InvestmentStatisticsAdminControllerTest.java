@@ -57,7 +57,6 @@ class InvestmentStatisticsAdminControllerTest {
     void adminGetsDenseSeriesWithNumericMoney() throws Exception {
         when(repository.commitmentsByBucket(any())).thenReturn(List.of());
         when(repository.fullyFundedListingsByBucket(any())).thenReturn(List.of());
-        when(repository.autoInvestByBucket(any())).thenReturn(List.of());
         // 3 lần khớp, mỗi lần 1 Note giá 985; 1 lần là Note nợ xấu nên nhóm performing còn 2 lần, 2 Note.
         when(repository.tradesByBucket(any())).thenReturn(List.of(new TradeBucketRow(
                 LocalDate.of(2026, 10, 3), 3, new BigDecimal("2955000"), new BigDecimal("14775"), 2955, 3,

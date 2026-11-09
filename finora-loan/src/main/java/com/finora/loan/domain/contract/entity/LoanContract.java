@@ -6,6 +6,7 @@ import com.finora.loan.domain.contract.enums.ContractSignatureProfile;
 import com.finora.loan.domain.contract.enums.LoanContractStatus;
 import com.finora.loan.domain.contract.enums.SignatureMethod;
 import com.finora.loan.domain.contract.enums.SignatureProviderType;
+import com.finora.loan.domain.contract.model.BorrowerIdentity;
 import com.finora.loan.domain.contract.model.LoanContractTerms;
 import com.finora.loan.domain.product.enums.RepaymentMethod;
 import com.finora.loan.exception.LoanDomainException;
@@ -44,6 +45,10 @@ public class LoanContract {
 
     @Column(name = "contract_number", nullable = false, length = 50, unique = true, updatable = false)
     private String contractNumber;
+
+    /** Mã hiển thị {@code HĐ-yyyyMMdd-XXXX} cho người dùng; khóa API/event vẫn là {@link #contractNumber}. */
+    @Column(name = "contract_code", nullable = false, length = 20, unique = true, updatable = false)
+    private String contractCode;
 
     @Column(name = "application_id", nullable = false, unique = true, updatable = false)
     private Long applicationId;
@@ -114,6 +119,19 @@ public class LoanContract {
      */
     @Column(name = "early_settlement_policy_version", length = 50, updatable = false)
     private String earlySettlementPolicyVersion;
+
+    /**
+     * Danh tính bên vay in trên văn bản, chụp lúc lập (hoặc phát hành lại) hợp đồng. Cả ba cột {@code null} với hợp đồng
+     * lập trước V39: văn bản đã lưu của chúng ghi mã tham chiếu người vay, biên nhận render sau giữ cùng cách ghi.
+     */
+    @Column(name = "borrower_full_name", length = 255)
+    private String borrowerFullName;
+
+    @Column(name = "borrower_masked_id_number", length = 32)
+    private String borrowerMaskedIdNumber;
+
+    @Column(name = "borrower_identity_captured_at")
+    private Instant borrowerIdentityCapturedAt;
 
     @Column(name = "document_content", nullable = false, columnDefinition = "text")
     private String documentContent;
@@ -258,6 +276,38 @@ public class LoanContract {
         contract.createdAt = now;
         contract.updatedAt = now;
         return contract;
+    }
+
+    /** Gắn mã hiển thị một lần trước lần insert đầu tiên (cột không cho update). */
+    public void assignContractCode(String code) {
+        if (id != null || contractCode != null) {
+            throw new IllegalStateException("Mã hiển thị hợp đồng chỉ gắn một lần trước khi lưu");
+        }
+        contractCode = requireText(code, "contractCode");
+    }
+
+    /**
+     * Chụp danh tính bên vay đã in lên văn bản. Chỉ ghi khi hợp đồng chưa có danh tính (lập mới, hoặc hợp đồng cũ được
+     * phát hành lại sau gọi vốn bổ sung); đã có thì giữ nguyên để mọi bản render sau in cùng một người.
+     *
+     * @return {@code true} nếu lần này mới ghi
+     */
+    public boolean captureBorrowerIdentity(BorrowerIdentity identity) {
+        Objects.requireNonNull(identity, "borrowerIdentity");
+        if (borrowerIdentityCapturedAt != null) {
+            return false;
+        }
+        borrowerFullName = identity.fullName();
+        borrowerMaskedIdNumber = identity.maskedIdNumber();
+        borrowerIdentityCapturedAt = identity.capturedAt();
+        return true;
+    }
+
+    /** Danh tính bên vay đã chụp; {@code null} với hợp đồng lập trước khi có cột này. */
+    public BorrowerIdentity getBorrowerIdentity() {
+        return borrowerIdentityCapturedAt == null
+                ? null
+                : new BorrowerIdentity(borrowerFullName, borrowerMaskedIdNumber, borrowerIdentityCapturedAt);
     }
 
     /** Ghi biểu phí trả trước đã in trong văn bản, một lần trước khi lưu Contract (cột không cho update). */

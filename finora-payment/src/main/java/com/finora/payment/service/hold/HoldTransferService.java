@@ -13,7 +13,7 @@ import com.finora.payment.dto.response.TransferResponse;
 public interface HoldTransferService {
 
     /**
-     * Client role của service account finora-investment, dùng cho Auto-Invest: giữ và nhả tiền
+     * Client role của service account finora-investment, dùng cho worker của Investment: giữ và nhả tiền
      * thay nhà đầu tư khi không có JWT của họ. Chỉ áp dụng cho hold/release, không cho transfer.
      */
     String ON_BEHALF_AUTHORITY = "payment:hold:on_behalf";

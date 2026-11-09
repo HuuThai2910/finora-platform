@@ -14,6 +14,12 @@ public interface OrderBookAdminService {
 
     Page<AdminTradeResponse> trades(SettlementStatus status, Pageable pageable);
 
+    /**
+     * Như trên, thêm ô tìm {@code q}: mã lần khớp, mã hồ sơ ({@code HS-…}/{@code LA-…}) hoặc mã hợp đồng
+     * ({@code HĐ-…}/{@code HD-…}/{@code LC-…}) của khoản vay, khớp một phần; rỗng thì như trên.
+     */
+    Page<AdminTradeResponse> trades(SettlementStatus status, String q, Pageable pageable);
+
     OrderBookAdminSummaryResponse summary();
 
     /**

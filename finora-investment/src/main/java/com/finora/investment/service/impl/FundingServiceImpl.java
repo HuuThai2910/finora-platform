@@ -75,7 +75,7 @@ public class FundingServiceImpl implements FundingService {
         if (investmentOrderRepository.findByInvestorIdAndIdempotencyKey(investorId, idempotencyKey).isEmpty()) {
             requireRiskAcknowledgement(request);
         }
-        return placeOrderFor(investorId, listingId, idempotencyKey, request);
+        return placeOrderAs(investorId, listingId, idempotencyKey, request);
     }
 
     /**
@@ -95,15 +95,13 @@ public class FundingServiceImpl implements FundingService {
     }
 
     /**
-     * Lõi đặt lệnh, nhận {@code investorId} tường minh thay vì đọc JWT — Auto-Invest chạy trong
-     * worker không có người dùng đăng nhập.
+     * Lõi đặt lệnh cho nhà đầu tư {@code investorId} đã đọc từ JWT.
      *
      * <p>Gửi lại cùng khóa mà lệnh cũ còn kẹt ở {@code PENDING_FUNDS} (lần trước Payment không
      * phản hồi) thì làm tiếp từ bước giữ tiền: Payment idempotent theo mã lệnh nên không giữ hai
      * lần, và bước chốt cam kết tự kiểm tra lại listing.</p>
      */
-    @Override
-    public OrderResponse placeOrderFor(
+    private OrderResponse placeOrderAs(
             String investorId, Long listingId, String idempotencyKey, PlaceOrderRequest request) {
         String requestHash = hashRequest(listingId, request.amount());
 

@@ -2,7 +2,6 @@ package com.finora.investment.repository;
 
 import com.finora.common.enums.investment.CommitmentStatus;
 import com.finora.common.statistics.StatisticsPeriod;
-import com.finora.investment.domain.autoinvest.entity.AutoInvestMatch;
 import com.finora.investment.domain.orderbook.enums.SettlementStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -46,10 +45,6 @@ public class InvestmentStatisticsRepository {
             GROUP BY status
             """;
 
-    private static final String ACTIVE_AUTO_INVEST_SQL = """
-            SELECT COUNT(*) FROM auto_invest_configs WHERE enabled
-            """;
-
     private static final String COMMITMENTS_SERIES_SQL = """
             SELECT date_trunc(:unit, created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS bucket_start,
                    COUNT(*) AS commitments,
@@ -90,15 +85,6 @@ public class InvestmentStatisticsRepository {
             GROUP BY 1
             """;
 
-    private static final String AUTO_INVEST_SERIES_SQL = """
-            SELECT date_trunc(:unit, created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS bucket_start,
-                   COUNT(*) FILTER (WHERE outcome = :matched) AS placed,
-                   COUNT(*) FILTER (WHERE outcome = :skipped) AS skipped
-            FROM auto_invest_matches
-            WHERE created_at >= :startInclusive AND created_at < :endExclusive
-            GROUP BY 1
-            """;
-
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
     /** Số listing và tổng mục tiêu/vốn đã gom theo từng trạng thái; chỉ trạng thái có dữ liệu. */
@@ -116,11 +102,6 @@ public class InvestmentStatisticsRepository {
                 rs.getString("status"),
                 rs.getLong("notes"),
                 rs.getBigDecimal("outstanding_principal")));
-    }
-
-    public long countActiveAutoInvestConfigs() {
-        Long count = jdbcTemplate.queryForObject(ACTIVE_AUTO_INVEST_SQL, new MapSqlParameterSource(), Long.class);
-        return count == null ? 0 : count;
     }
 
     public List<CommitmentBucketRow> commitmentsByBucket(StatisticsPeriod period) {
@@ -151,16 +132,6 @@ public class InvestmentStatisticsRepository {
                 rs.getLong("performing_trades"),
                 rs.getLong("performing_price_quantity"),
                 rs.getLong("performing_quantity")));
-    }
-
-    public List<AutoInvestBucketRow> autoInvestByBucket(StatisticsPeriod period) {
-        MapSqlParameterSource params = periodParams(period)
-                .addValue("matched", AutoInvestMatch.Outcome.MATCHED.name())
-                .addValue("skipped", AutoInvestMatch.Outcome.SKIPPED.name());
-        return jdbcTemplate.query(AUTO_INVEST_SERIES_SQL, params, (rs, rowNum) -> new AutoInvestBucketRow(
-                rs.getObject("bucket_start", LocalDate.class),
-                rs.getLong("placed"),
-                rs.getLong("skipped")));
     }
 
     /**
@@ -204,8 +175,5 @@ public class InvestmentStatisticsRepository {
             long performingPriceQuantity,
             long performingQuantity
     ) {
-    }
-
-    public record AutoInvestBucketRow(LocalDate bucketStart, long placed, long skipped) {
     }
 }

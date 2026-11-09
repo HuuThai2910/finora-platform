@@ -912,7 +912,7 @@ public class InvestorContractServiceImpl implements InvestorContractService {
                 signatures.isEmpty() ? null : signatures.getLast().contentHash(),
                 loanContractDocumentRepository.findContentHash(contract.getId(), ContractPdfArtifactType.SIGNED_RECEIPT)
                         .orElse(null),
-                party.getSignedAt());
+                party.getSignedAt(), contract.getContractCode(), application.getApplicationCode());
     }
 
     private String stableTransactionId(String contractNumber, String investorId, String key) {

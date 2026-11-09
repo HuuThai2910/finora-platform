@@ -82,7 +82,7 @@ public enum NotificationTemplate {
             "{amount} VND của khoản vay {loan} đã được chuyển vào ví FINORA của bạn.",
             "Giải ngân", "Khoản vay của bạn đã được giải ngân."),
     NOTES_ISSUED(DISBURSEMENT, "Khoản đầu tư đã bắt đầu",
-            "Khoản vay {loan} đã giải ngân; Note của bạn đã được phát hành và bắt đầu tính lãi.",
+            "Khoản vay {loan} đã giải ngân; phần vốn của bạn đã được phát hành và bắt đầu tính lãi.",
             "Khoản đầu tư", "Khoản đầu tư của bạn đã bắt đầu."),
 
     // ---- Người vay: trả nợ và nhắc lịch ----
@@ -148,7 +148,7 @@ public enum NotificationTemplate {
 
     // ---- Nhà đầu tư: servicing từ Investment (giữ đúng changeType) ----
     REPAYMENT_CREDITED(REPAYMENT, "Đã nhận khoản trả nợ",
-            "{loan} vừa phân bổ {amount} VND vào các Note của bạn.",
+            "{loan} vừa phân bổ {amount} VND vào các phần vốn của bạn.",
             "Khoản đầu tư", "Bạn vừa nhận một khoản trả nợ."),
     EARLY_SETTLEMENT(REPAYMENT, "Khoản vay đã tất toán sớm",
             "{loan} đã tất toán sớm; {amount} VND gốc, lãi và phí trả trước đã được phân bổ cho bạn.",

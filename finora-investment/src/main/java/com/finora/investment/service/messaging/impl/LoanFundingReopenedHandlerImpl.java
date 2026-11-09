@@ -117,7 +117,6 @@ public class LoanFundingReopenedHandlerImpl implements LoanFundingReopenedHandle
         if (listing.getFundingClosesAt().isBefore(minimumClose)) {
             listing.setFundingClosesAt(minimumClose);
         }
-        listing.setAutoInvestProcessedAt(null);
         listing.setUpdatedBy(ACTOR);
         listing.setUpdatedAt(now);
         marketListingRepository.saveAndFlush(listing);

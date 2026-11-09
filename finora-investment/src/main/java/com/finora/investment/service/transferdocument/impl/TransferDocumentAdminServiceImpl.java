@@ -12,6 +12,7 @@ import com.finora.investment.repository.NoteTransferDocumentRepository;
 import com.finora.investment.repository.NoteTransferDocumentRow;
 import com.finora.investment.service.transferdocument.TransferDocumentAdminService;
 import com.finora.investment.service.transferdocument.TransferDocumentStateService;
+import com.finora.investment.util.SearchPatterns;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -31,7 +32,16 @@ public class TransferDocumentAdminServiceImpl implements TransferDocumentAdminSe
     @Override
     @Transactional(readOnly = true)
     public Page<TransferDocumentAdminResponse> list(NoteTransferDocumentStatus status, Pageable pageable) {
-        Page<NoteTransferDocumentRow> rows = status == null
+        return list(status, null, pageable);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<TransferDocumentAdminResponse> list(NoteTransferDocumentStatus status, String q, Pageable pageable) {
+        String code = SearchPatterns.containsCode(q);
+        Page<NoteTransferDocumentRow> rows = code != null
+                ? noteTransferDocumentRepository.searchRows(status, code, pageable)
+                : status == null
                 ? noteTransferDocumentRepository.findRows(pageable)
                 : noteTransferDocumentRepository.findRowsByStatus(status, pageable);
         return rows.map(row -> response(row, null));

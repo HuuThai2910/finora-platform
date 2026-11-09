@@ -1,30 +1,22 @@
 package com.finora.loan.mapper.application;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.NullNode;
 import com.finora.loan.domain.application.entity.ApplicantFinancialSnapshot;
 import com.finora.loan.domain.application.entity.LoanApplication;
 import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
-import com.finora.loan.domain.scoring.entity.BorrowerCreditProfile;
 import com.finora.loan.domain.scoring.entity.BorrowerEligibilityCheck;
 import com.finora.loan.domain.scoring.entity.CreditScoringAssessment;
 import com.finora.loan.domain.scoring.enums.CreditAssessmentStatus;
 import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.Background;
 import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.CreditAssessment;
-import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.CreditHistory;
 import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.LoanRequest;
 import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.RepaymentCapacity;
-import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.RuleResult;
 import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse;
 import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.List;
-
 /**
  * Dựng hồ sơ người vay cho nhà đầu tư từ các snapshot Loan đã lưu. Mapper chỉ chép theo allowlist:
- * field nào không có ở đây thì không bao giờ ra khỏi Loan qua API này.
+ * field nào không có ở đây thì không bao giờ ra khỏi Loan qua API này. Lịch sử tín dụng và bảng luật
+ * đã chấm cố ý không có.
  */
 @Component
 public class InvestorBorrowerProfileMapper {
@@ -33,9 +25,7 @@ public class InvestorBorrowerProfileMapper {
             LoanApplication application,
             ScheduleCalculationSnapshot schedule,
             BorrowerEligibilityCheck eligibility,
-            BorrowerCreditProfile creditProfile,
-            CreditScoringAssessment assessment,
-            JsonNode ruleTrace
+            CreditScoringAssessment assessment
     ) {
         ApplicantFinancialSnapshot financial = application.getFinancialSnapshot();
         boolean scored = assessment != null && assessment.getStatus() == CreditAssessmentStatus.SUCCEEDED;
@@ -52,10 +42,8 @@ public class InvestorBorrowerProfileMapper {
                         eligibility == null ? null : eligibility.getProfileSource(),
                         eligibility == null ? null : eligibility.getCheckedAt(),
                         financial.getHomeOwnership(), financial.getEducationLevel()),
-                creditHistory(creditProfile),
-                // Lần chấm lỗi/đang chờ thì không công bố con số hay luật nào, kể cả khi còn snapshot cũ.
-                scored ? assessment(application, assessment) : null,
-                scored ? ruleResults(ruleTrace) : List.of()
+                // Lần chấm lỗi/đang chờ thì không công bố con số nào, kể cả khi còn snapshot cũ.
+                scored ? assessment(application, assessment) : null
         );
     }
 
@@ -75,59 +63,9 @@ public class InvestorBorrowerProfileMapper {
         );
     }
 
-    private CreditHistory creditHistory(BorrowerCreditProfile profile) {
-        if (profile == null) {
-            return null;
-        }
-        return new CreditHistory(
-                profile.isHasInternalCreditHistory(), profile.getCompletedLoanCount(),
-                profile.getInternalDelinquenciesLast2Years(), profile.getInternalDefaultedLoanCount(),
-                profile.getSource());
-    }
-
     private CreditAssessment assessment(LoanApplication application, CreditScoringAssessment assessment) {
         return new CreditAssessment(
                 assessment.getEvaluationScore(), assessment.getCreditGrade(), assessment.getPdProbability(),
                 assessment.getRiskScore(), application.getDecisionSource(), assessment.getScoredAt());
-    }
-
-    /**
-     * Chép {@code rule_trace} theo allowlist. Luật là dữ liệu admin cấu hình nên phần tử lạ (không phải
-     * object) bị bỏ qua; {@code gia_tri} không phải số/chuỗi thành null để không lọt cấu trúc lồng.
-     */
-    private List<RuleResult> ruleResults(JsonNode ruleTrace) {
-        if (ruleTrace == null || !ruleTrace.isArray()) {
-            return List.of();
-        }
-        List<RuleResult> results = new ArrayList<>();
-        for (JsonNode item : ruleTrace) {
-            if (!item.isObject()) {
-                continue;
-            }
-            results.add(new RuleResult(
-                    text(item, "ma"), text(item, "mo_ta"), text(item, "truong"), scalar(item.get("gia_tri")),
-                    integer(item, "diem"), integer(item, "toi_da"), decimal(item, "trong_so"),
-                    item.path("thieu_du_lieu").asBoolean(false)));
-        }
-        return List.copyOf(results);
-    }
-
-    private static String text(JsonNode item, String key) {
-        JsonNode value = item.get(key);
-        return value != null && value.isTextual() ? value.asText() : null;
-    }
-
-    private static Integer integer(JsonNode item, String key) {
-        JsonNode value = item.get(key);
-        return value != null && value.isNumber() ? value.intValue() : null;
-    }
-
-    private static BigDecimal decimal(JsonNode item, String key) {
-        JsonNode value = item.get(key);
-        return value != null && value.isNumber() ? value.decimalValue() : null;
-    }
-
-    private static JsonNode scalar(JsonNode value) {
-        return value != null && (value.isNumber() || value.isTextual()) ? value : NullNode.getInstance();
     }
 }

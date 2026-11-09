@@ -21,6 +21,13 @@ public interface AdminRepaymentReconciliationService {
      */
     PageResponse<RepaymentReconciliationResponse> list(List<PaymentRepaymentStatus> statuses, int page, int size);
 
+    /**
+     * Như trên, lọc theo một hồ sơ vay khi {@code loanApplicationId} có giá trị (phần "Sau giải ngân" của trang hồ sơ);
+     * {@code null} thì như trên.
+     */
+    PageResponse<RepaymentReconciliationResponse> list(List<PaymentRepaymentStatus> statuses, Long loanApplicationId,
+            int page, int size);
+
     /** Chỉ tra cứu transaction theo external reference; tuyệt đối không POST repayment lần hai. */
     RepaymentReconciliationResponse reconcile(UUID repaymentId);
 

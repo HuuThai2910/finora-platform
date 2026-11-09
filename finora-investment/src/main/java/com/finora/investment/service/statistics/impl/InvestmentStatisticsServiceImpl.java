@@ -7,7 +7,6 @@ import com.finora.common.statistics.StatisticsPeriod;
 import com.finora.investment.dto.response.InvestmentStatisticsSeriesResponse.Point;
 import com.finora.investment.dto.response.InvestmentStatisticsSeriesResponse;
 import com.finora.investment.dto.response.InvestmentStatisticsSummaryResponse;
-import com.finora.investment.repository.InvestmentStatisticsRepository.AutoInvestBucketRow;
 import com.finora.investment.repository.InvestmentStatisticsRepository.CommitmentBucketRow;
 import com.finora.investment.repository.InvestmentStatisticsRepository.CountBucketRow;
 import com.finora.investment.repository.InvestmentStatisticsRepository.ListingStatusRow;
@@ -30,7 +29,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Số liệu sàn gọi vốn, Notes và Auto-Invest cho trang thống kê quản trị (STATS-001). Chỉ đọc.
+ * Số liệu sàn gọi vốn và Notes cho trang thống kê quản trị (STATS-001). Chỉ đọc.
  *
  * <p>Các câu trong một request chạy chung một transaction chỉ đọc; ở READ COMMITTED các câu vẫn có thể
  * thấy dữ liệu lệch nhau vài mili giây (ví dụ một lệnh vừa khớp giữa hai câu). Chấp nhận được với số liệu
@@ -50,7 +49,6 @@ public class InvestmentStatisticsServiceImpl implements InvestmentStatisticsServ
     public InvestmentStatisticsSummaryResponse summary() {
         List<ListingStatusRow> listingRows = investmentStatisticsRepository.listingsByStatus();
         List<NoteStatusRow> noteRows = investmentStatisticsRepository.notesByStatus();
-        long activeConfigs = investmentStatisticsRepository.countActiveAutoInvestConfigs();
 
         Map<String, Long> listingsByStatus = zeroFilled(ListingStatus.values());
         listingRows.forEach(row -> listingsByStatus.put(row.status(), row.listings()));
@@ -75,8 +73,7 @@ public class InvestmentStatisticsServiceImpl implements InvestmentStatisticsServ
                 new InvestmentStatisticsSummaryResponse.Listings(listingsByStatus),
                 new InvestmentStatisticsSummaryResponse.OpenFunding(
                         open.listings(), target, committed, fillRatePercent(committed, target)),
-                new InvestmentStatisticsSummaryResponse.Notes(notesByStatus, activeOutstanding),
-                new InvestmentStatisticsSummaryResponse.AutoInvest(activeConfigs));
+                new InvestmentStatisticsSummaryResponse.Notes(notesByStatus, activeOutstanding));
     }
 
     @Override
@@ -90,17 +87,14 @@ public class InvestmentStatisticsServiceImpl implements InvestmentStatisticsServ
                 investmentStatisticsRepository.fullyFundedListingsByBucket(period), CountBucketRow::bucketStart);
         Map<LocalDate, TradeBucketRow> trades = byBucket(
                 investmentStatisticsRepository.tradesByBucket(period), TradeBucketRow::bucketStart);
-        Map<LocalDate, AutoInvestBucketRow> autoInvest = byBucket(
-                investmentStatisticsRepository.autoInvestByBucket(period), AutoInvestBucketRow::bucketStart);
 
-        // Ghép bốn bản đồ theo từng cột của khoảng: cột không có dòng nào thành 0, không cần dense riêng.
+        // Ghép ba bản đồ theo từng cột của khoảng: cột không có dòng nào thành 0, không cần dense riêng.
         Map<LocalDate, Point> points = new LinkedHashMap<>();
         for (LocalDate start : period.bucketStarts()) {
             CommitmentBucketRow commitment = commitments.get(start);
             CountBucketRow funded = fullyFunded.get(start);
             TradeBucketRow trade = trades.get(start);
-            AutoInvestBucketRow auto = autoInvest.get(start);
-            if (commitment == null && funded == null && trade == null && auto == null) {
+            if (commitment == null && funded == null && trade == null) {
                 continue;
             }
             points.put(start, new Point(
@@ -117,9 +111,7 @@ public class InvestmentStatisticsServiceImpl implements InvestmentStatisticsServ
                     trade == null ? 0 : trade.performingQuantity(),
                     // Cột chỉ có khớp Note nợ xấu cho null (không phải 0) để web bỏ cột đó khỏi trung bình.
                     trade == null ? null
-                            : averagePricePermille(trade.performingPriceQuantity(), trade.performingQuantity()),
-                    auto == null ? 0 : auto.placed(),
-                    auto == null ? 0 : auto.skipped()));
+                            : averagePricePermille(trade.performingPriceQuantity(), trade.performingQuantity())));
         }
 
         return new InvestmentStatisticsSeriesResponse(
@@ -154,7 +146,7 @@ public class InvestmentStatisticsServiceImpl implements InvestmentStatisticsServ
     }
 
     private static Point emptyPoint(LocalDate bucketStart) {
-        return new Point(bucketStart, money(null), 0, 0, 0, money(null), money(null), null, 0, 0, 0, null, 0, 0);
+        return new Point(bucketStart, money(null), 0, 0, 0, money(null), money(null), null, 0, 0, 0, null);
     }
 
     private static BigDecimal money(BigDecimal value) {

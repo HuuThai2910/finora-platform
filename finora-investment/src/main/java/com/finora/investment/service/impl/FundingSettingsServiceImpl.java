@@ -46,13 +46,13 @@ public class FundingSettingsServiceImpl implements FundingSettingsService {
     public FundingSettingsResponse update(UpdateFundingSettingsRequest request) {
         SecurityUtils.requirePermission(OpsFunction.FUNDING_SETTINGS.action());
 
-        BigDecimal denomination = positive(request.noteDenomination(), "mệnh giá Note");
+        BigDecimal denomination = positive(request.noteDenomination(), "mệnh giá mỗi phần vốn");
         BigDecimal minimum = positive(request.minInvestmentAmount(), "mức đầu tư tối thiểu");
 
         if (minimum.remainder(denomination).signum() != 0) {
             throw InvestmentDomainException.invalidInput(
                     "MIN_INVESTMENT_NOT_DIVISIBLE",
-                    "Mức đầu tư tối thiểu phải chia hết cho mệnh giá Note");
+                    "Mức đầu tư tối thiểu phải chia hết cho mệnh giá mỗi phần vốn");
         }
         if (request.fundingDays() == null || request.fundingDays() < 1 || request.fundingDays() > 90) {
             throw InvestmentDomainException.invalidInput(

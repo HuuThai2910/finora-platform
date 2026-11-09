@@ -77,6 +77,25 @@ class AdminRepaymentReconciliationServiceImplTest {
     }
 
     @Test
+    void listOfOneApplicationReadsOnlyItsRepayments() {
+        actAs(OpsFunction.RECONCILIATION.view());
+        when(repayments.findByLoanApplicationIdAndStatusInOrderByUpdatedAtAscIdAsc(
+                org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        var response = service.list(List.of(PaymentRepaymentStatus.RECONCILIATION_REQUIRED), 7L, 0, 20);
+
+        assertThat(response.getContent()).isEmpty();
+        verify(repayments).findByLoanApplicationIdAndStatusInOrderByUpdatedAtAscIdAsc(
+                org.mockito.ArgumentMatchers.eq(7L),
+                org.mockito.ArgumentMatchers.eq(List.of(PaymentRepaymentStatus.RECONCILIATION_REQUIRED)),
+                org.mockito.ArgumentMatchers.any(Pageable.class));
+        verify(repayments, never()).findByStatusInOrderByUpdatedAtAscIdAsc(
+                org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.any(Pageable.class));
+    }
+
+    @Test
     void listCanBeNarrowedToOpenWorkButNeverOutsideTheIncidentQueue() {
         actAs("ROLE_ADMIN");
         when(repayments.findByStatusInOrderByUpdatedAtAscIdAsc(

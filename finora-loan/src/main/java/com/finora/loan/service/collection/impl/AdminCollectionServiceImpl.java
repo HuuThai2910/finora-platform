@@ -12,6 +12,7 @@ import com.finora.loan.repository.collection.LoanCollectionActionRepository;
 import com.finora.loan.repository.collection.LoanCollectionCaseRepository;
 import com.finora.loan.service.collection.AdminCollectionService;
 import com.finora.loan.util.HashingService;
+import com.finora.loan.util.SearchPatterns;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -42,9 +43,19 @@ public class AdminCollectionServiceImpl implements AdminCollectionService {
     @Transactional(readOnly = true)
     public PageResponse<CollectionCaseResponse> list(CollectionCaseStatus status, CollectionStage stage,
             int page, int size) {
+        return list(status, stage, null, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<CollectionCaseResponse> list(CollectionCaseStatus status, CollectionStage stage, String q,
+            int page, int size) {
         PageRequest pageable = PageRequest.of(page, size);
         Page<LoanCollectionCase> result;
-        if (status != null && stage != null) {
+        String code = SearchPatterns.containsCode(q);
+        if (code != null) {
+            result = loanCollectionCaseRepository.search(status, stage, code, pageable);
+        } else if (status != null && stage != null) {
             result = loanCollectionCaseRepository.findByStatusAndStageOrderByDaysPastDueDescUpdatedAtAsc(
                     status, stage, pageable);
         } else if (status != null) {
@@ -54,6 +65,18 @@ public class AdminCollectionServiceImpl implements AdminCollectionService {
         } else {
             result = loanCollectionCaseRepository.findAllByOrderByDaysPastDueDescUpdatedAtAsc(pageable);
         }
+        return PageResponse.from(result.map(this::caseResponse));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<CollectionCaseResponse> listByLoan(String loanNumber, CollectionCaseStatus status,
+            int page, int size) {
+        PageRequest pageable = PageRequest.of(page, size);
+        String value = loanNumber.trim();
+        Page<LoanCollectionCase> result = status == null
+                ? loanCollectionCaseRepository.findByLoanNumberOrderByOpenedAtDesc(value, pageable)
+                : loanCollectionCaseRepository.findByLoanNumberAndStatusOrderByOpenedAtDesc(value, status, pageable);
         return PageResponse.from(result.map(this::caseResponse));
     }
 

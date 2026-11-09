@@ -6,7 +6,7 @@ Chi tiết quyền sở hữu, System of Record và state authority được đ�
 
 - `finora-user`: hồ sơ người dùng, trạng thái eKYC; Keycloak là nguồn xác thực.
 - `finora-loan`: FINORA Product/Application/Contract/lifecycle, bản chiếu lịch trả nợ và Saga giải ngân; Apache Fineract là nguồn chuẩn core account/schedule/balance khi tích hợp.
-- `finora-investment`: market, order, commitment, Note và auto-invest.
+- `finora-investment`: market, order, commitment và Note.
 - `finora-payment`: ví, hold/release/transfer, bút toán và phân bổ tiền; không sở hữu vòng đời khoản vay.
 - `finora-blockchain`: adapter Fabric, proof/audit/reconciliation; không là nguồn state nghiệp vụ.
 - `finora-notification`: consumer và chiến lược kênh thông báo.

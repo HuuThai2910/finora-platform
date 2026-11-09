@@ -25,7 +25,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {
         "spring.kafka.listener.auto-startup=false",
         "finora.investment.payment.mode=stub",
-        "finora.investment.auto-invest.enabled=false",
         "finora.investment.order-book.settlement.enabled=false",
         "finora.investment.maintenance.enabled=false",
         "finora.investment.outbox.publisher-delay=3600000",

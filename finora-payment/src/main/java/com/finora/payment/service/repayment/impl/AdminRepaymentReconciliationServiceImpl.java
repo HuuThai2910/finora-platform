@@ -49,6 +49,13 @@ public class AdminRepaymentReconciliationServiceImpl implements AdminRepaymentRe
     @Override
     @Transactional(readOnly = true)
     public PageResponse<RepaymentReconciliationResponse> list(List<PaymentRepaymentStatus> statuses, int page, int size) {
+        return list(statuses, null, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<RepaymentReconciliationResponse> list(List<PaymentRepaymentStatus> statuses,
+            Long loanApplicationId, int page, int size) {
         SecurityUtils.requirePermission(OpsFunction.RECONCILIATION.view());
         List<PaymentRepaymentStatus> filter = statuses == null || statuses.isEmpty() ? INCIDENT_STATUSES : statuses;
         if (!INCIDENT_STATUSES.containsAll(filter)) {
@@ -56,8 +63,11 @@ public class AdminRepaymentReconciliationServiceImpl implements AdminRepaymentRe
                     "Chỉ lọc được theo CORE_POSTING, RECONCILIATION_REQUIRED hoặc FAILED");
         }
         Duration safeAfter = repostSafeAfter();
-        Page<RepaymentReconciliationResponse> result = paymentRepaymentRepository
-                .findByStatusInOrderByUpdatedAtAscIdAsc(filter, PageRequest.of(page, size))
+        PageRequest pageable = PageRequest.of(page, size);
+        Page<RepaymentReconciliationResponse> result = (loanApplicationId == null
+                ? paymentRepaymentRepository.findByStatusInOrderByUpdatedAtAscIdAsc(filter, pageable)
+                : paymentRepaymentRepository.findByLoanApplicationIdAndStatusInOrderByUpdatedAtAscIdAsc(
+                        loanApplicationId, filter, pageable))
                 .map(value -> RepaymentReconciliationResponse.from(value, safeAfter));
         return PageResponse.<RepaymentReconciliationResponse>builder()
                 .content(result.getContent()).page(result.getNumber()).size(result.getSize())

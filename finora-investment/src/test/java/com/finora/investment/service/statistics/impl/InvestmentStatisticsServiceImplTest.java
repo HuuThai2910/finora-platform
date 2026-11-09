@@ -6,7 +6,6 @@ import com.finora.common.statistics.StatisticsPeriod;
 import com.finora.investment.dto.response.InvestmentStatisticsSeriesResponse.Point;
 import com.finora.investment.dto.response.InvestmentStatisticsSeriesResponse;
 import com.finora.investment.dto.response.InvestmentStatisticsSummaryResponse;
-import com.finora.investment.repository.InvestmentStatisticsRepository.AutoInvestBucketRow;
 import com.finora.investment.repository.InvestmentStatisticsRepository.CommitmentBucketRow;
 import com.finora.investment.repository.InvestmentStatisticsRepository.CountBucketRow;
 import com.finora.investment.repository.InvestmentStatisticsRepository.ListingStatusRow;
@@ -57,7 +56,6 @@ class InvestmentStatisticsServiceImplTest {
         when(repository.notesByStatus()).thenReturn(List.of(
                 new NoteStatusRow("ACTIVE", 900, new BigDecimal("812345678.5")),
                 new NoteStatusRow("CLOSED", 40, BigDecimal.ZERO)));
-        when(repository.countActiveAutoInvestConfigs()).thenReturn(4L);
 
         InvestmentStatisticsSummaryResponse summary = service.summary();
 
@@ -72,14 +70,12 @@ class InvestmentStatisticsServiceImplTest {
         assertThat(summary.notes().byStatus()).containsExactly(
                 entry("ACTIVE", 900L), entry("CLOSED", 40L), entry("DEFAULTED", 0L));
         assertThat(summary.notes().activeOutstandingPrincipal()).isEqualTo(new BigDecimal("812345678.50"));
-        assertThat(summary.autoInvest().activeConfigs()).isEqualTo(4);
     }
 
     @Test
     void summaryWithoutOpenListingsHasNullFillRateAndZeroMoney() {
         when(repository.listingsByStatus()).thenReturn(List.of());
         when(repository.notesByStatus()).thenReturn(List.of());
-        when(repository.countActiveAutoInvestConfigs()).thenReturn(0L);
 
         InvestmentStatisticsSummaryResponse summary = service.summary();
 
@@ -106,7 +102,6 @@ class InvestmentStatisticsServiceImplTest {
                 // Cột chỉ có khớp Note nợ xấu: giá chung có, giá performing phải null chứ không phải 0.
                 new TradeBucketRow(day2, 1, new BigDecimal("500000"), new BigDecimal("2500"), 500, 1,
                         0, 0, 0)));
-        when(repository.autoInvestByBucket(any())).thenReturn(List.of(new AutoInvestBucketRow(day1, 1, 3)));
 
         InvestmentStatisticsSeriesResponse response = service.series(day1, day3, StatisticsBucket.DAY);
 
@@ -116,11 +111,11 @@ class InvestmentStatisticsServiceImplTest {
         assertThat(response.timezone()).isEqualTo("Asia/Ho_Chi_Minh");
         assertThat(response.points()).containsExactly(
                 new Point(day1, new BigDecimal("3000000.00"), 2, 0, 0,
-                        new BigDecimal("0.00"), new BigDecimal("0.00"), null, 0, 0, 0, null, 1, 3),
+                        new BigDecimal("0.00"), new BigDecimal("0.00"), null, 0, 0, 0, null),
                 new Point(day2, new BigDecimal("0.00"), 0, 0, 1,
-                        new BigDecimal("500000.00"), new BigDecimal("2500.00"), 500, 1, 0, 0, null, 0, 0),
+                        new BigDecimal("500000.00"), new BigDecimal("2500.00"), 500, 1, 0, 0, null),
                 new Point(day3, new BigDecimal("0.00"), 0, 1, 2,
-                        new BigDecimal("3900000.00"), new BigDecimal("19500.00"), 986, 4, 1, 3, 985, 0, 0));
+                        new BigDecimal("3900000.00"), new BigDecimal("19500.00"), 986, 4, 1, 3, 985));
     }
 
     @Test

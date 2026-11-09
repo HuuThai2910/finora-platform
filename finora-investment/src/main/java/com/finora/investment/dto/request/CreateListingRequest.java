@@ -20,12 +20,16 @@ public class CreateListingRequest {
     private Long loanId;
     private String contractNumber;
     private String applicationNumber;
+    /** Mã hiển thị {@code HS-...} của hồ sơ; null với event cũ. */
+    private String applicationCode;
     private Integer listingVersion;
     private Integer fundingRound;
     private String termsVersion;
     private String termsHash;
     private String productCode;
     private String purpose;
+    /** Mã {@code LoanPurpose} của Loan; null với event cũ. */
+    private String purposeCode;
     private String region;
     private String creditGrade;
     private Integer creditScore;

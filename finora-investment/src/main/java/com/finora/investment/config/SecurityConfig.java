@@ -30,8 +30,8 @@ import java.util.List;
  * thông tin niêm yết công khai, không chứa dữ liệu cá nhân người vay (F03 bước 4).
  * {@code /investments/admin/**} kiểm quyền chức năng ngay tại tầng URL: nhân viên cần quyền Xem/Thao tác
  * {@code ops:*} của màn tương ứng ({@link OpsFunction}), ADMIN luôn qua; đường dẫn quản trị chưa gán chức năng
- * vẫn chỉ ADMIN. Đặt/huỷ lệnh,
- * Auto-Invest và danh mục cá nhân yêu cầu vai trò INVESTOR; quyền trên từng lệnh vẫn do
+ * vẫn chỉ ADMIN. Đặt/huỷ lệnh
+ * và danh mục cá nhân yêu cầu vai trò INVESTOR; quyền trên từng lệnh vẫn do
  * domain kiểm khi so chủ sở hữu, còn eKYC và chặn tự cấp vốn ở {@code InvestorEligibility}.</p>
  */
 @Configuration
@@ -110,8 +110,7 @@ public class SecurityConfig {
                                 "/api/v1/investments/order-books/*/orders").hasRole("INVESTOR")
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/investments/order-books/orders/*")
                                 .hasRole("INVESTOR")
-                        .requestMatchers("/api/v1/investments/auto-invest", "/api/v1/investments/auto-invest/**",
-                                "/api/v1/investments/portfolio", "/api/v1/investments/commitments",
+                        .requestMatchers("/api/v1/investments/portfolio", "/api/v1/investments/commitments",
                                 "/api/v1/investments/order-books/orders/mine",
                                 "/api/v1/investments/order-books/*/me").hasRole("INVESTOR")
                         .anyRequest().authenticated()

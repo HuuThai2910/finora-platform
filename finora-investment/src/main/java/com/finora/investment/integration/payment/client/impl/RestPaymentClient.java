@@ -210,7 +210,7 @@ public class RestPaymentClient implements PaymentClient {
 
     /**
      * Đang phục vụ request của người dùng thì chuyển tiếp JWT của họ; không có (worker
-     * Auto-Invest) thì dùng token service account. Payment tự quyết token nào được làm gì —
+     * đối soát) thì dùng token service account. Payment tự quyết token nào được làm gì —
      * token người dùng không bao giờ mang quyền giữ tiền thay người khác.
      * <p>
      * Gọi trên thread của request, trước khi vào circuit breaker: lời gọi HTTP chạy trên thread pool riêng, nơi không có

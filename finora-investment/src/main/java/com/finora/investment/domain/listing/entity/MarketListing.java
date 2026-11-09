@@ -79,6 +79,14 @@ public class MarketListing {
     @Column(name = "application_number", nullable = false, length = 30, updatable = false)
     private String applicationNumber;
 
+    /** Mã hiển thị {@code HS-...} của hồ sơ do Loan gửi; null với listing tạo trước khi Loan có mã này. */
+    @Column(name = "application_code", length = 20)
+    private String applicationCode;
+
+    /** Mã hiển thị {@code HĐ-...} của hợp đồng; có từ khi nhận event yêu cầu ký/kích hoạt/giải ngân của Loan. */
+    @Column(name = "contract_code", length = 20)
+    private String contractCode;
+
     /** ID logic người vay, chỉ dùng nội bộ để chặn tự cấp vốn; không trả ra API sàn. */
     @Column(name = "borrower_id", length = 100, updatable = false)
     private String borrowerId;
@@ -98,6 +106,10 @@ public class MarketListing {
     /** Nhãn mục đích + chi tiết người vay tự nhập do Loan gửi; tối đa 600 ký tự theo V15. */
     @Column(nullable = false, length = 600, updatable = false)
     private String purpose;
+
+    /** Mã {@code LoanPurpose} của Loan ({@code EDUCATION}…), để app chọn biểu tượng; null khi không nhận ra. */
+    @Column(name = "purpose_code", length = 40, updatable = false)
+    private String purposeCode;
 
     @Column(nullable = false, length = 100, updatable = false)
     private String region;
@@ -152,14 +164,6 @@ public class MarketListing {
 
     @Column(name = "allocation_hash", length = 64)
     private String allocationHash;
-
-    /**
-     * Lúc worker Auto-Invest xét xong listing này. Chỉ ghi bằng câu UPDATE riêng
-     * ({@code MarketListingRepository.markAutoInvestProcessed}) để không đụng {@code @Version}
-     * trong lúc nhà đầu tư khác đang đặt lệnh.
-     */
-    @Column(name = "auto_invest_processed_at", insertable = false, updatable = false)
-    private Instant autoInvestProcessedAt;
 
     @Version
     @Column(nullable = false)

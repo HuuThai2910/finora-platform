@@ -17,13 +17,26 @@ import java.util.UUID;
  *                      không trả lịch. FINORA không tự tính lịch
  * @param nextDueAmount số tiền của kỳ đó, chuỗi decimal VND hai chữ số thập phân (Blockchain neo hash nên không dùng số);
  *                      vắng mặt khi core không trả
+ * @param contractCode  mã hiển thị {@code HĐ-...} của hợp đồng (field optional thêm sau); khóa đối chiếu vẫn là
+ *                      {@code contractNumber}
  */
 public record LoanDisbursedEventData(UUID sagaId, Long loanApplicationId, String applicationNumber,
         String contractNumber, Long listingId, String amount, String currency,
         String paymentReference, Long fineractLoanId, String coreConfigVersion, Instant disbursedAt,
         String earlySettlementPolicyVersion, String loanNumber, LocalDate maturityDate, String borrowerId,
         @JsonInclude(JsonInclude.Include.NON_NULL) LocalDate nextDueDate,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String nextDueAmount) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) String nextDueAmount,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String contractCode) {
+
+    public LoanDisbursedEventData(UUID sagaId, Long loanApplicationId, String applicationNumber,
+            String contractNumber, Long listingId, String amount, String currency,
+            String paymentReference, Long fineractLoanId, String coreConfigVersion, Instant disbursedAt,
+            String earlySettlementPolicyVersion, String loanNumber, LocalDate maturityDate, String borrowerId,
+            LocalDate nextDueDate, String nextDueAmount) {
+        this(sagaId, loanApplicationId, applicationNumber, contractNumber, listingId, amount, currency,
+                paymentReference, fineractLoanId, coreConfigVersion, disbursedAt, earlySettlementPolicyVersion, loanNumber,
+                maturityDate, borrowerId, nextDueDate, nextDueAmount, null);
+    }
 
     public LoanDisbursedEventData(UUID sagaId, Long loanApplicationId, String applicationNumber,
             String contractNumber, Long listingId, String amount, String currency,
@@ -31,6 +44,6 @@ public record LoanDisbursedEventData(UUID sagaId, Long loanApplicationId, String
             String earlySettlementPolicyVersion) {
         this(sagaId, loanApplicationId, applicationNumber, contractNumber, listingId, amount, currency,
                 paymentReference, fineractLoanId, coreConfigVersion, disbursedAt, earlySettlementPolicyVersion, null, null,
-                null, null, null);
+                null, null, null, null);
     }
 }

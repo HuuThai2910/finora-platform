@@ -29,9 +29,11 @@ public class AdminRepaymentReconciliationController {
     @GetMapping
     public ResponseEntity<PageResponse<RepaymentReconciliationResponse>> list(
             @RequestParam(name = "status", required = false) List<PaymentRepaymentStatus> statuses,
+            @RequestParam(required = false) @Min(1) Long loanApplicationId,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-        return ResponseEntity.ok(adminRepaymentReconciliationService.list(statuses, page, size));
+        // loanApplicationId: phần "Sau giải ngân" của trang hồ sơ vay chỉ đọc sự cố của đúng hồ sơ đó.
+        return ResponseEntity.ok(adminRepaymentReconciliationService.list(statuses, loanApplicationId, page, size));
     }
 
     @PostMapping("/{repaymentId}/reconcile")

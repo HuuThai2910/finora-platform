@@ -18,13 +18,13 @@ import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 /**
- * Dựng PDF A4 "Giấy xác nhận chuyển nhượng Note" từ {@link TransferDocumentContent}. Cùng font DejaVu và bố cục với
+ * Dựng PDF A4 "Giấy xác nhận chuyển nhượng phần vốn" từ {@link TransferDocumentContent}. Cùng font DejaVu và bố cục với
  * hợp đồng vay của Loan để hai loại văn bản trông cùng một bộ.
  */
 @Component
 public class TransferDocumentPdfRendererImpl implements TransferDocumentPdfRenderer {
 
-    static final String DOCUMENT_VERSION = "NOTE_TRANSFER_PDF_V1";
+    static final String DOCUMENT_VERSION = "NOTE_TRANSFER_PDF_V2";
     private static final ZoneId VIETNAM = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("HH:mm:ss 'ngày' dd/MM/yyyy");
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd 'tháng' MM 'năm' yyyy");
@@ -67,7 +67,7 @@ public class TransferDocumentPdfRendererImpl implements TransferDocumentPdfRende
                     .append("</td><td>").append(note.defaulted() ? "Nợ xấu" : "Đang thu nợ").append("</td></tr>");
         }
         String defaultedClause = content.defaulted()
-                ? "<li>Một hoặc nhiều Note trong giao dịch thuộc khoản vay đang nợ xấu tại thời điểm khớp. Bên nhận"
+                ? "<li>Một hoặc nhiều phần vốn trong giao dịch thuộc khoản vay đang nợ xấu tại thời điểm khớp. Bên nhận"
                         + " chuyển nhượng đã xác nhận cảnh báo rủi ro này khi đặt lệnh mua.</li>"
                 : "";
         return """
@@ -80,9 +80,9 @@ public class TransferDocumentPdfRendererImpl implements TransferDocumentPdfRende
                   <div class="brand"><strong>FINORA</strong><span>Nền tảng cho vay ngang hàng</span></div>
                   <div class="country"><strong>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</strong><b>Độc lập - Tự do - Hạnh phúc</b></div>
                 </div>
-                <h1>GIẤY XÁC NHẬN CHUYỂN NHƯỢNG NOTE</h1>
+                <h1>GIẤY XÁC NHẬN CHUYỂN NHƯỢNG PHẦN VỐN</h1>
                 <p class="center">Số: <b>%1$s</b></p>
-                <p>FINORA xác nhận giao dịch chuyển nhượng Note dưới đây đã được khớp trên sổ lệnh của nền tảng và đã
+                <p>FINORA xác nhận giao dịch chuyển nhượng phần vốn (phần cho vay theo mệnh giá) dưới đây đã được khớp trên sổ lệnh của nền tảng và đã
                 thanh toán đầy đủ cho bên chuyển nhượng.</p>
 
                 <h2>1. Các bên</h2>
@@ -107,24 +107,24 @@ public class TransferDocumentPdfRendererImpl implements TransferDocumentPdfRende
                   <tr><th>Thời điểm khớp lệnh</th><td>%15$s</td></tr>
                   <tr><th>Thời điểm thanh toán</th><td>%16$s</td></tr>
                   <tr><th>Giá khớp</th><td>%17$s dư nợ gốc</td></tr>
-                  <tr><th>Số Note</th><td>%18$d</td></tr>
+                  <tr><th>Số phần vốn</th><td>%18$d</td></tr>
                   <tr><th>Tổng dư nợ gốc chuyển nhượng</th><td>%19$s</td></tr>
                   <tr><th>Giá chuyển nhượng</th><td><b>%20$s</b></td></tr>
                   <tr><th>Phí nền tảng</th><td>%21$s</td></tr>
                   <tr><th>Bên chuyển nhượng thực nhận</th><td>%22$s</td></tr>
                 </table>
 
-                <h2>4. Danh sách Note</h2>
+                <h2>4. Danh sách phần vốn</h2>
                 <table class="notes">
-                  <tr><th>STT</th><th>Mã Note</th><th>Dư nợ gốc khi chuyển</th><th>Giá chuyển nhượng</th><th>Tình trạng</th></tr>
+                  <tr><th>STT</th><th>Mã phần vốn</th><th>Dư nợ gốc khi chuyển</th><th>Giá chuyển nhượng</th><th>Tình trạng</th></tr>
                   %23$s
                 </table>
 
                 <h2>5. Nội dung xác nhận</h2>
                 <ol>
-                  <li>Kể từ thời điểm khớp lệnh, Bên nhận chuyển nhượng là chủ sở hữu các Note nêu tại mục 4 và được
-                  nhận toàn bộ tiền gốc, lãi của các Note đó phát sinh từ thời điểm này.</li>
-                  <li>Bên chuyển nhượng không còn quyền đối với các Note đã chuyển nhượng và đã nhận đủ khoản tiền nêu
+                  <li>Kể từ thời điểm khớp lệnh, Bên nhận chuyển nhượng là chủ sở hữu các phần vốn nêu tại mục 4 và được
+                  nhận toàn bộ tiền gốc, lãi của các phần vốn đó phát sinh từ thời điểm này.</li>
+                  <li>Bên chuyển nhượng không còn quyền đối với các phần vốn đã chuyển nhượng và đã nhận đủ khoản tiền nêu
                   tại mục 3.</li>
                   <li>Việc chuyển nhượng không làm thay đổi nghĩa vụ trả nợ của người vay theo hợp đồng vay gốc.</li>
                   <li>Hai bên đã đồng ý điều khoản giao dịch sổ lệnh khi đặt lệnh; FINORA khớp lệnh và chuyển tiền theo

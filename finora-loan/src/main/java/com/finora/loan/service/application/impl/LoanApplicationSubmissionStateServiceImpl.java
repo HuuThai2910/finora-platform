@@ -134,6 +134,8 @@ public class LoanApplicationSubmissionStateServiceImpl implements LoanApplicatio
                 disclosureVersion,
                 now
         );
+        // Mã hiển thị HS-yyyyMMdd-XXXX theo ngày nộp; khóa API/event vẫn là mã LA- ngẫu nhiên ở trên.
+        application.assignApplicationCode(applicationNumberGenerator.nextCode(now));
         // eKYC chụp lúc nộp đi cùng hồ sơ trong một lần insert; worker chấm điểm đọc lại bản này (W2-KYC).
         application.attachKycSnapshot(kycSnapshot);
         loanApplicationRepository.saveAndFlush(application);

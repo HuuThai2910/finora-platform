@@ -123,8 +123,8 @@ public class OrderBookCommandServiceImpl implements OrderBookCommandService {
     }
 
     private BookOrderResponse respond(BookOrder order) {
-        Long loanId = marketListingRepository.findById(order.getListingId()).map(MarketListing::getLoanId).orElse(null);
-        return OrderBookMapper.toResponse(order, loanId);
+        MarketListing listing = marketListingRepository.findById(order.getListingId()).orElse(null);
+        return OrderBookMapper.toResponse(order, listing);
     }
 
     /** Vân tay nội dung lệnh, gắn với khóa idempotency để phát hiện dùng lại khóa cho lệnh khác. */

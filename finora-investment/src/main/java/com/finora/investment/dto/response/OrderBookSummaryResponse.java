@@ -14,6 +14,12 @@ public record OrderBookSummaryResponse(
         String bestBidPercent,
         String bestAskPercent,
         String lastTradePercent,
-        Instant lastTradeAt
+        Instant lastTradeAt,
+        /** Mã hiển thị {@code HS-...}/{@code HĐ-...} của khoản vay; null với khoản niêm yết trước khi Loan có mã. */
+        String applicationCode,
+        String contractCode,
+        /** Mục đích vay (nhãn) để app gọi tên khoản vay thay cho mã số; {@code purposeCode} để chọn biểu tượng. */
+        String purpose,
+        String purposeCode
 ) {
 }

@@ -50,7 +50,7 @@ File này là nguồn chuẩn để quyết định một chức năng, entity, 
 
 ## `finora-investment`
 
-**Sở hữu:** market listing projection, investment order, matching, commitment, Note ownership, portfolio projection, auto-invest và secondary market.
+**Sở hữu:** market listing projection, investment order, matching, commitment, Note ownership, portfolio projection và secondary market. Auto-Invest đã gỡ (2026-11-09): nhà đầu tư chỉ góp vốn bằng tay; bảng `auto_invest_*` còn trong DB nhưng không còn code dùng.
 
 **Không sở hữu:** loan state nguồn chuẩn, wallet balance/ledger, KYC state nguồn chuẩn hoặc repayment schedule nguồn chuẩn.
 

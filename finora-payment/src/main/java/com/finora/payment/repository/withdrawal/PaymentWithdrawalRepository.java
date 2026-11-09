@@ -57,4 +57,8 @@ public interface PaymentWithdrawalRepository extends JpaRepository<PaymentWithdr
 
     Page<PaymentWithdrawal> findByStatusInOrderByUpdatedAtAscIdAsc(Collection<WithdrawalStatus> statuses,
             Pageable pageable);
+
+    /** Lệnh rút chưa có kết quả cuối của một chủ ví (trang chi tiết khách hàng trên web quản trị). */
+    Page<PaymentWithdrawal> findByOwnerIdAndStatusInOrderByUpdatedAtAscIdAsc(String ownerId,
+            Collection<WithdrawalStatus> statuses, Pageable pageable);
 }

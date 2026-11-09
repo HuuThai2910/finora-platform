@@ -17,6 +17,8 @@ public record AdminLoanServicingReconciliationResponse(
         String source,
         Instant dataAsOf,
         Instant lastSyncedAt,
-        boolean stale
+        boolean stale,
+        /** Mã hiển thị {@code HS-…} của hồ sơ; {@code null} khi không tra được. */
+        String applicationCode
 ) {
 }

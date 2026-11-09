@@ -461,6 +461,20 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
         }
     }
 
+    @Override
+    public boolean deleteUserSession(String keycloakUserId, String sessionId) {
+        RealmResource realm = getRealmResource();
+        // Kiểm phiên thuộc đúng tài khoản trước khi xóa: mã phiên lưu ở DB User không được dùng xóa phiên người khác.
+        boolean owned = realm.users().get(keycloakUserId).getUserSessions().stream()
+                .anyMatch(session -> sessionId.equals(session.getId()));
+        if (!owned) {
+            return false;
+        }
+        realm.deleteSession(sessionId);
+        log.info("Đã đăng xuất một phiên của keycloakUserId={}", keycloakUserId);
+        return true;
+    }
+
     // ── Vai trò nhân viên ───────────────────────────────────────────
 
     @Override

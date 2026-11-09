@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 
-/** D37: chữ ký MOCK, booking Fineract mock và hồ sơ người vay mock chỉ hợp lệ ở local/e2e/demo. */
+/** D37: chữ ký MOCK, booking Fineract mock, hồ sơ và danh tính người vay mock chỉ hợp lệ ở local/e2e/demo. */
 @Component
 class LoanSimulatedSettings implements SimulatedSettingsCheck {
 
@@ -22,6 +22,9 @@ class LoanSimulatedSettings implements SimulatedSettingsCheck {
         }
         if ("mock".equalsIgnoreCase(environment.getProperty("finora.borrower-profile.provider", "user").trim())) {
             simulated.add("finora.borrower-profile.provider=mock");
+        }
+        if ("mock".equalsIgnoreCase(environment.getProperty("finora.borrower-identity.provider", "user").trim())) {
+            simulated.add("finora.borrower-identity.provider=mock");
         }
         return simulated;
     }

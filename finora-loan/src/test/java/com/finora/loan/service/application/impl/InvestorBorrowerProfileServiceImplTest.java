@@ -13,19 +13,15 @@ import com.finora.loan.domain.application.enums.LoanPurpose;
 import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
 import com.finora.loan.domain.core.enums.ScheduleCalculationPurpose;
 import com.finora.loan.domain.product.enums.RepaymentMethod;
-import com.finora.loan.domain.scoring.entity.BorrowerCreditProfile;
 import com.finora.loan.domain.scoring.entity.BorrowerEligibilityCheck;
 import com.finora.loan.domain.scoring.entity.CreditScoringAssessment;
 import com.finora.loan.domain.scoring.enums.BorrowerKycStatus;
 import com.finora.loan.domain.scoring.enums.BorrowerProfileSource;
 import com.finora.loan.domain.scoring.enums.CreditAssessmentStatus;
-import com.finora.loan.domain.scoring.enums.CreditProfileSource;
 import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse;
 import com.finora.loan.mapper.application.InvestorBorrowerProfileMapper;
-import com.finora.loan.mapper.scoring.StoredAiCreditResponseReader;
 import com.finora.loan.repository.application.LoanApplicationRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
-import com.finora.loan.repository.scoring.BorrowerCreditProfileRepository;
 import com.finora.loan.repository.scoring.BorrowerEligibilityCheckRepository;
 import com.finora.loan.repository.scoring.CreditScoringAssessmentRepository;
 import com.finora.loan.service.application.InvestorBorrowerProfileService;
@@ -49,7 +45,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * Hồ sơ người vay cho nhà đầu tư: đúng người được xem, đúng hồ sơ được xem, và không bao giờ mang
- * theo SHAP hay định danh dù snapshot chấm điểm có đủ các khối đó.
+ * theo SHAP, định danh, lịch sử tín dụng hay bảng luật dù snapshot chấm điểm có đủ các khối đó.
  */
 class InvestorBorrowerProfileServiceImplTest {
 
@@ -71,12 +67,10 @@ class InvestorBorrowerProfileServiceImplTest {
     private final LoanApplicationRepository applications = mock(LoanApplicationRepository.class);
     private final ScheduleCalculationSnapshotRepository schedules = mock(ScheduleCalculationSnapshotRepository.class);
     private final BorrowerEligibilityCheckRepository eligibilities = mock(BorrowerEligibilityCheckRepository.class);
-    private final BorrowerCreditProfileRepository creditProfiles = mock(BorrowerCreditProfileRepository.class);
     private final CreditScoringAssessmentRepository assessments = mock(CreditScoringAssessmentRepository.class);
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private final InvestorBorrowerProfileService service = new InvestorBorrowerProfileServiceImpl(
-            applications, schedules, eligibilities, creditProfiles, assessments,
-            new StoredAiCreditResponseReader(objectMapper), new InvestorBorrowerProfileMapper());
+            applications, schedules, eligibilities, assessments, new InvestorBorrowerProfileMapper());
 
     @BeforeEach
     void signInAsInvestor() {
@@ -101,17 +95,14 @@ class InvestorBorrowerProfileServiceImplTest {
         assertThat(response.capacity().dtiSnapshot()).isEqualByComparingTo("15.00");
         assertThat(response.background().age()).isEqualTo(30);
         assertThat(response.background().profileSource()).isEqualTo(BorrowerProfileSource.MOCK_USER_PROFILE);
-        assertThat(response.creditHistory().source()).isEqualTo(CreditProfileSource.NO_HISTORY);
         assertThat(response.assessment().creditGrade()).isEqualTo("C");
         assertThat(response.assessment().decisionSource()).isEqualTo(LoanDecisionSource.ADMIN);
-        assertThat(response.ruleResults()).singleElement()
-                .satisfies(rule -> assertThat(rule.value().intValue()).isEqualTo(712));
 
         String body = objectMapper.writeValueAsString(response);
         assertThat(body).doesNotContain(
                 "modelExplanation", "tom_tat", "yeu_to", "int_rate", "borrowerExplanation", "thong_diep",
                 "goi_y_cai_thien", "rejectionReasons", "CIC_CURRENT_BAD_DEBT", "borrowerId", "BORROWER-42",
-                "modelVersion");
+                "modelVersion", "creditHistory", "ruleResults", "ruleTrace", "cic_score");
     }
 
     @Test
@@ -121,7 +112,7 @@ class InvestorBorrowerProfileServiceImplTest {
         when(applications.findByApplicationNumber(NUMBER)).thenReturn(Optional.of(application));
 
         assertThatThrownBy(() -> service.profile(NUMBER)).isInstanceOf(ResourceNotFoundException.class);
-        verifyNoInteractions(schedules, eligibilities, creditProfiles, assessments);
+        verifyNoInteractions(schedules, eligibilities, assessments);
     }
 
     @Test
@@ -142,17 +133,6 @@ class InvestorBorrowerProfileServiceImplTest {
                     assertThat(((BusinessException) error).getCode()).isEqualTo("INVESTOR_ROLE_REQUIRED");
                 });
         verifyNoInteractions(applications);
-    }
-
-    @Test
-    void corruptSnapshotKeepsProfileButDropsRules() {
-        LoanApplication application = listedApplication();
-        stubEvidence(application, "{hỏng", true);
-
-        InvestorBorrowerProfileResponse response = service.profile(NUMBER);
-
-        assertThat(response.ruleResults()).isEmpty();
-        assertThat(response.assessment().evaluationScore()).isEqualByComparingTo("68.92");
     }
 
     @Test
@@ -200,10 +180,6 @@ class InvestorBorrowerProfileServiceImplTest {
         when(eligibility.getProfileSource()).thenReturn(BorrowerProfileSource.MOCK_USER_PROFILE);
         when(eligibilities.findFirstByApplicationIdOrderByCreatedAtDescIdDesc(7L))
                 .thenReturn(Optional.of(eligibility));
-
-        BorrowerCreditProfile creditProfile = mock(BorrowerCreditProfile.class);
-        when(creditProfile.getSource()).thenReturn(CreditProfileSource.NO_HISTORY);
-        when(creditProfiles.findByBorrowerId(application.getBorrowerId())).thenReturn(Optional.of(creditProfile));
 
         CreditScoringAssessment assessment = mock(CreditScoringAssessment.class);
         when(assessment.getId()).thenReturn(51L);

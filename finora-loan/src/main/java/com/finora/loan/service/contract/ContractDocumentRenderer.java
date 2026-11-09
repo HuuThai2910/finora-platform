@@ -11,9 +11,12 @@ import java.util.List;
  */
 public interface ContractDocumentRenderer {
 
-    /** Văn bản hợp đồng một bên từ hồ sơ và lịch trả nợ cuối. */
+    /**
+     * Văn bản hợp đồng một bên từ hồ sơ và lịch trả nợ cuối. {@code heading} mang số hợp đồng, mã hiển thị và danh tính
+     * bên vay đã chụp; hợp đồng cũ chưa có danh tính in theo cách ghi trước V39.
+     */
     String render(
-            String contractNumber,
+            ContractHeading heading,
             LoanApplication application,
             ScheduleCalculationSnapshot schedule,
             String termsVersion,
@@ -23,7 +26,7 @@ public interface ContractDocumentRenderer {
 
     /** Văn bản hợp đồng nhiều bên: văn bản gốc kèm danh sách bên cho vay và phân bổ đã khóa. */
     String renderFunded(
-            String contractNumber,
+            ContractHeading heading,
             LoanApplication application,
             ScheduleCalculationSnapshot schedule,
             String termsVersion,

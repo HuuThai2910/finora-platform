@@ -68,22 +68,26 @@ public class NotificationTextImpl implements NotificationText {
     @Override
     public String loanLabel(Long loanApplicationId, LoanReference reference, String loanNumber, String contractNumber,
             String applicationNumber) {
-        String label = first(loanNumber, contractNumber, applicationNumber);
+        String label = first(loanNumber, reference == null ? null : reference.getLoanNumber(),
+                reference == null ? null : reference.getContractCode(), contractNumber,
+                reference == null ? null : reference.getApplicationCode(), applicationNumber);
         if (label == null && reference != null) {
-            label = first(reference.getLoanNumber(), reference.getContractNumber(), reference.getApplicationNumber());
+            label = first(reference.getContractNumber(), reference.getApplicationNumber());
         }
         return label != null ? label : "khoản vay #" + loanApplicationId;
     }
 
     @Override
     public String applicationLabel(Long loanApplicationId, LoanReference reference, String applicationNumber) {
-        String label = first(applicationNumber, reference == null ? null : reference.getApplicationNumber());
+        String label = first(reference == null ? null : reference.getApplicationCode(), applicationNumber,
+                reference == null ? null : reference.getApplicationNumber());
         return label != null ? label : "#" + loanApplicationId;
     }
 
     @Override
     public String contractLabel(LoanReference reference, String contractNumber) {
-        String label = first(contractNumber, reference == null ? null : reference.getContractNumber());
+        String label = first(reference == null ? null : reference.getContractCode(), contractNumber,
+                reference == null ? null : reference.getContractNumber());
         return label != null ? label : "của khoản vay";
     }
 

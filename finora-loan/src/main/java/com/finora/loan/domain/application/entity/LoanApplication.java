@@ -46,6 +46,10 @@ public class LoanApplication {
     @Column(name = "application_number", nullable = false, length = 30, unique = true, updatable = false)
     private String applicationNumber;
 
+    /** Mã hiển thị {@code HS-yyyyMMdd-XXXX} cho người dùng; khóa API/event vẫn là {@link #applicationNumber}. */
+    @Column(name = "application_code", nullable = false, length = 20, unique = true, updatable = false)
+    private String applicationCode;
+
     @Column(name = "borrower_id", nullable = false, length = 100, updatable = false)
     private String borrowerId;
 
@@ -353,6 +357,14 @@ public class LoanApplication {
         application.createdAt = now;
         application.updatedAt = now;
         return application;
+    }
+
+    /** Gắn mã hiển thị một lần trước lần insert đầu tiên (cột không cho update). */
+    public void assignApplicationCode(String code) {
+        if (id != null || applicationCode != null) {
+            throw new IllegalStateException("Mã hiển thị hồ sơ chỉ gắn một lần trước khi lưu");
+        }
+        applicationCode = requireText(code, "applicationCode");
     }
 
     /**

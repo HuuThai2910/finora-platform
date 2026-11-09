@@ -14,7 +14,8 @@ import org.springframework.web.bind.annotation.RestController;
  * Endpoint nội bộ cho service khác gọi bằng token service account, không đi qua gateway công khai.
  * <p>
  * Quyền {@code user:identity:read_internal} là client role của {@code finora-user-client}, chỉ gán cho service account
- * {@code finora-investment-client}; không nằm trong role người dùng nào nên token người dùng nhận 403.
+ * {@code finora-investment-client} và {@code finora-loan-client}; không nằm trong role người dùng nào nên token người
+ * dùng nhận 403.
  */
 @RestController
 @RequestMapping("/api/v1/internal/users")
@@ -25,7 +26,8 @@ public class InternalUserController {
 
     /**
      * Họ tên và CCCD đã che (chỉ giữ 4 số cuối) của một người dùng, để Investment in lên giấy xác nhận chuyển
-     * nhượng Note. {@code userId} là giá trị Investment lưu làm investorId/buyer_id/seller_id.
+     * nhượng Note và Loan in lên hợp đồng vay. {@code userId} là giá trị Investment lưu làm investorId/buyer_id/seller_id,
+     * Loan lưu làm borrower_id.
      */
     @GetMapping("/{userId}/identity")
     @PreAuthorize("hasAuthority('user:identity:read_internal')")

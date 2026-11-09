@@ -21,7 +21,13 @@ import java.math.BigDecimal;
 @Component
 public class InvestmentMapper {
 
+    /** Dòng danh sách sàn: không kèm họ tên người vay để khỏi gọi User cho từng dòng. */
     public MarketListingResponse toListingResponse(MarketListing listing) {
+        return toListingResponse(listing, null);
+    }
+
+    /** @param borrowerFullName họ tên người vay theo hồ sơ User; null khi chưa có hoặc không đọc được */
+    public MarketListingResponse toListingResponse(MarketListing listing, String borrowerFullName) {
         BigDecimal remainingAmount = calculateRemainingAmount(listing);
         BigDecimal fundedPercent = calculateFundedPercent(listing);
         return new MarketListingResponse(
@@ -47,7 +53,11 @@ public class InvestmentMapper {
                 listing.getFundingClosesAt(),
                 listing.getCancelledAt(),
                 listing.getCancellationReason(),
-                listing.getDisbursedAt()
+                listing.getDisbursedAt(),
+                borrowerFullName,
+                listing.getApplicationCode(),
+                listing.getContractCode(),
+                listing.getPurposeCode()
         );
     }
 

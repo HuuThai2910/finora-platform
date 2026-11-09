@@ -18,6 +18,21 @@ public interface AdminCollectionService {
     PageResponse<CollectionCaseResponse> list(CollectionCaseStatus status, CollectionStage stage,
             int page, int size);
 
+    /**
+     * Như trên, thêm ô tìm {@code q}: mã khoản vay {@code LN-…}, mã hồ sơ ({@code HS-…}/{@code LA-…}) hoặc mã hợp đồng
+     * ({@code HĐ-…}/{@code HD-…}/{@code LC-…}), khớp một phần; rỗng thì như trên.
+     */
+    PageResponse<CollectionCaseResponse> list(CollectionCaseStatus status, CollectionStage stage, String q,
+            int page, int size);
+
+    /**
+     * Hồ sơ thu hồi của đúng một khoản vay (phần "Sau giải ngân" của trang hồ sơ vay), mới mở trước.
+     *
+     * @param loanNumber mã khoản vay {@code LN-…}
+     * @param status trạng thái cần lọc; {@code null} là mọi trạng thái
+     */
+    PageResponse<CollectionCaseResponse> listByLoan(String loanNumber, CollectionCaseStatus status, int page, int size);
+
     /** Lịch sử hành động của một hồ sơ thu hồi, mới nhất trước. */
     PageResponse<CollectionActionResponse> actions(UUID caseId, int page, int size);
 

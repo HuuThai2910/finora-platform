@@ -67,7 +67,7 @@ fi
 
 if ! kc get "clients/$CLIENT_UUID/roles/$ROLE" -r "$REALM" >/dev/null 2>&1; then
   kc create "clients/$CLIENT_UUID/roles" -r "$REALM" -s "name=$ROLE" \
-    -s "description=Auto-Invest: giu/nha tien thay nha dau tu" >/dev/null
+    -s "description=Worker Investment: giu/nha tien thay nha dau tu" >/dev/null
   echo "Đã tạo client role $ROLE"
 fi
 

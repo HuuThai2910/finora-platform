@@ -10,6 +10,8 @@ import com.finora.loan.domain.core.enums.ScheduleCalculationPurpose;
 import com.finora.loan.domain.scoring.entity.BorrowerCreditProfile;
 import com.finora.loan.domain.scoring.entity.BorrowerEligibilityCheck;
 import com.finora.loan.domain.scoring.entity.CreditScoringAssessment;
+import com.finora.loan.domain.servicing.enums.ApplicationServicingFlag;
+import com.finora.loan.domain.servicing.model.ApplicationServicingSummary;
 import com.finora.loan.dto.decision.request.ApproveLoanApplicationRequest;
 import com.finora.loan.dto.decision.request.RejectLoanApplicationRequest;
 import com.finora.loan.dto.decision.response.AdminAssessmentExplanationResponse;
@@ -30,10 +32,12 @@ import com.finora.loan.repository.scoring.BorrowerCreditProfileRepository;
 import com.finora.loan.repository.scoring.BorrowerEligibilityCheckRepository;
 import com.finora.loan.repository.scoring.CreditScoringAssessmentRepository;
 import com.finora.loan.service.application.LoanApplicationTimelineService;
+import com.finora.loan.service.decision.AdminApplicationServicingService;
 import com.finora.loan.service.decision.AdminDecisionResult;
 import com.finora.loan.service.decision.AdminLoanDecisionService;
 import com.finora.loan.service.decision.AdminLoanDecisionStateService;
 import com.finora.loan.util.HashingService;
+import com.finora.loan.util.SearchPatterns;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -74,6 +78,7 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
     private final HashingService hashingService;
     private final StoredAiCreditResponseReader storedAiCreditResponseReader;
     private final LoanApplicationTimelineService loanApplicationTimelineService;
+    private final AdminApplicationServicingService adminApplicationServicingService;
 
     @Override
     @Transactional(readOnly = true)
@@ -93,6 +98,31 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
             int page,
             int size
     ) {
+        return listApplications(status, borrowerId, null, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<AdminLoanReviewSummaryResponse> listApplications(
+            LoanApplicationStatus status,
+            String borrowerId,
+            String q,
+            int page,
+            int size
+    ) {
+        return listApplications(status, borrowerId, q, null, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<AdminLoanReviewSummaryResponse> listApplications(
+            LoanApplicationStatus status,
+            String borrowerId,
+            String q,
+            ApplicationServicingFlag servicing,
+            int page,
+            int size
+    ) {
         String borrower = borrowerId == null || borrowerId.isBlank() ? null : borrowerId.trim();
         PageRequest pageable = PageRequest.of(
                 page,
@@ -100,7 +130,20 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))
         );
         Page<LoanApplication> applications;
-        if (borrower != null) {
+        String code = SearchPatterns.containsCode(q);
+        if (servicing != null) {
+            // Không tìm thì "%" khớp mọi hồ sơ (mã tra cứu luôn có) và ID người vay rỗng không khớp ai.
+            String trimmed = SearchPatterns.trimmed(q);
+            applications = loanApplicationRepository.searchAdminByServicing(
+                    status, borrower, code == null ? "%" : code, trimmed == null ? "" : trimmed,
+                    servicing == ApplicationServicingFlag.OVERDUE,
+                    servicing == ApplicationServicingFlag.RESCHEDULE_PENDING,
+                    servicing == ApplicationServicingFlag.INCIDENT,
+                    pageable);
+        } else if (code != null) {
+            applications = loanApplicationRepository.searchAdmin(
+                    status, borrower, code, SearchPatterns.trimmed(q), pageable);
+        } else if (borrower != null) {
             applications = status == null
                     ? loanApplicationRepository.findByBorrowerId(borrower, pageable)
                     : loanApplicationRepository.findByBorrowerIdAndStatus(borrower, status, pageable);
@@ -116,8 +159,11 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
                         .toList())
                 .stream()
                 .collect(Collectors.toMap(CreditScoringAssessment::getId, Function.identity()));
+        Map<Long, ApplicationServicingSummary> servicingSummaries = adminApplicationServicingService.summariesOf(
+                applications.getContent().stream().map(LoanApplication::getId).toList());
         return PageResponse.from(applications.map(application -> adminLoanDecisionMapper.toSummary(
-                application, assessments.get(application.getLatestCreditAssessmentId()))));
+                application, assessments.get(application.getLatestCreditAssessmentId()),
+                servicingSummaries.get(application.getId()))));
     }
 
     @Override
@@ -147,7 +193,8 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
                                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))))
                 .map(loanApplicationMapper::toHistoryResponse)
                 .getContent();
-        String contractNumber = loanContractRepository.findContractNumberByApplicationId(application.getId())
+        LoanContractRepository.ContractCodeView contract = loanContractRepository
+                .findContractReferenceByApplicationId(application.getId())
                 .orElse(null);
         // Lý do chuyển thẩm định chỉ nằm trong snapshot response AI đã lưu; snapshot cũ không có thì để rỗng.
         StoredAiCreditResponse snapshot = assessment == null ? null : storedAiCreditResponseReader.read(assessment);
@@ -156,7 +203,10 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
                 : snapshot.reviewReasons();
         return adminLoanDecisionMapper.toDetail(
                 application, initialSchedule, finalSchedule, eligibility, creditProfile, assessment, history,
-                contractNumber, reviewReasons, loanApplicationTimelineService.timeline(application));
+                contract == null ? null : contract.getContractNumber(), reviewReasons,
+                loanApplicationTimelineService.timeline(application),
+                contract == null ? null : contract.getContractCode(),
+                adminApplicationServicingService.summaryOf(application.getId()));
     }
 
     @Override

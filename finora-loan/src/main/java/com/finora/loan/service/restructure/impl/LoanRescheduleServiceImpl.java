@@ -30,6 +30,7 @@ import com.finora.loan.service.outbox.OutboxService;
 import com.finora.loan.service.restructure.LoanRescheduleService;
 import com.finora.loan.service.restructure.LoanTermExtensionLimitPolicy;
 import com.finora.loan.util.HashingService;
+import com.finora.loan.util.SearchPatterns;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -154,9 +155,32 @@ public class LoanRescheduleServiceImpl implements LoanRescheduleService {
     @Override
     @Transactional(readOnly = true)
     public PageResponse<LoanRescheduleResponse> listAdmin(LoanRescheduleStatus status, int page, int size) {
+        return listAdmin(status, null, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<LoanRescheduleResponse> listAdmin(LoanRescheduleStatus status, String q, int page, int size) {
+        String code = SearchPatterns.containsCode(q);
+        if (code != null) {
+            return PageResponse.from(loanRescheduleRequestRepository.search(status, code, PageRequest.of(page, size))
+                    .map(this::toResponse));
+        }
         Page<LoanRescheduleRequest> requests = status == null
                 ? loanRescheduleRequestRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(page, size))
                 : loanRescheduleRequestRepository.findByStatusOrderByCreatedAtDesc(status, PageRequest.of(page, size));
+        return PageResponse.from(requests.map(this::toResponse));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<LoanRescheduleResponse> listAdminByLoan(String loanNumber, LoanRescheduleStatus status,
+            int page, int size) {
+        String value = loanNumber.trim();
+        PageRequest pageable = PageRequest.of(page, size);
+        Page<LoanRescheduleRequest> requests = status == null
+                ? loanRescheduleRequestRepository.findByLoanNumberOrderByCreatedAtDesc(value, pageable)
+                : loanRescheduleRequestRepository.findByLoanNumberAndStatusOrderByCreatedAtDesc(value, status, pageable);
         return PageResponse.from(requests.map(this::toResponse));
     }
 

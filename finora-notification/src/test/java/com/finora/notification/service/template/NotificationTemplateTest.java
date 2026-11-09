@@ -53,7 +53,7 @@ class NotificationTemplateTest {
         String message = NotificationTemplate.REPAYMENT_CREDITED.renderMessage(
                 Map.of("loan", "LN-2026-000001", "amount", "842500.00"));
 
-        assertThat(message).isEqualTo("LN-2026-000001 vừa phân bổ 842500.00 VND vào các Note của bạn.");
+        assertThat(message).isEqualTo("LN-2026-000001 vừa phân bổ 842500.00 VND vào các phần vốn của bạn.");
     }
 
     @Test

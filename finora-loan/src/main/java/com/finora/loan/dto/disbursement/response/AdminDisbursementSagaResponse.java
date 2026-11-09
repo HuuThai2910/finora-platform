@@ -2,6 +2,7 @@ package com.finora.loan.dto.disbursement.response;
 
 import com.finora.loan.domain.disbursement.entity.DisbursementSaga;
 import com.finora.loan.domain.disbursement.enums.DisbursementSagaStatus;
+import com.finora.loan.dto.decision.response.ApplicationNumberResponse;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -32,17 +33,30 @@ public record AdminDisbursementSagaResponse(
         Instant createdAt,
         Instant updatedAt,
         /** Mã hồ sơ {@code LA-…}; {@code null} khi không tra được. */
-        String applicationNumber
+        String applicationNumber,
+        /** Mã hiển thị {@code HS-…} của hồ sơ; {@code null} khi không tra được. */
+        String applicationCode,
+        /** Mã hiển thị {@code HĐ-…}; {@code contractNumber} vẫn là externalId đối chiếu Fineract. */
+        String contractCode
 ) {
     public static AdminDisbursementSagaResponse from(DisbursementSaga saga) {
-        return from(saga, null);
+        return from(saga, null, null, null);
     }
 
-    public static AdminDisbursementSagaResponse from(DisbursementSaga saga, String applicationNumber) {
+    public static AdminDisbursementSagaResponse from(
+            DisbursementSaga saga, ApplicationNumberResponse reference, String contractCode) {
+        return reference == null
+                ? from(saga, null, null, contractCode)
+                : from(saga, reference.applicationNumber(), reference.applicationCode(), contractCode);
+    }
+
+    public static AdminDisbursementSagaResponse from(
+            DisbursementSaga saga, String applicationNumber, String applicationCode, String contractCode) {
         return new AdminDisbursementSagaResponse(saga.getSagaId(), saga.getLoanApplicationId(), saga.getContractNumber(),
                 saga.getStatus(), saga.getAmount(), saga.getCurrency(), saga.getPaymentReference(), saga.getFineractLoanId(),
                 saga.getAttemptCount(), saga.attemptsSinceRepair(), saga.getRepairCount(), saga.getNextRetryAt(),
                 saga.getLastErrorCode(), saga.getLastErrorDetail(), saga.getLastRepairBy(), saga.getLastRepairAt(),
-                saga.getLastRepairNote(), saga.getCreatedAt(), saga.getUpdatedAt(), applicationNumber);
+                saga.getLastRepairNote(), saga.getCreatedAt(), saga.getUpdatedAt(), applicationNumber,
+                applicationCode, contractCode);
     }
 }

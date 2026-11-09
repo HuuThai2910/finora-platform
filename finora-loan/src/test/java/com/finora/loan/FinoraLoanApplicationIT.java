@@ -75,6 +75,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.kafka.listener.auto-startup=false",
         "finora.loan.outbox.publisher-delay=3600000",
         "finora.signature.provider=mock",
+        // Hợp đồng in danh tính bên vay đọc từ finora-user; IT không chạy User nên dùng bản giả lập (không có họ tên).
+        "finora.borrower-identity.provider=mock",
         // Worker đối soát SmartCA được gọi tay trong test; không để lịch chạy chen giữa các bước.
         "finora.signature.pades.worker-delay=3600000",
         // Hạn mức dư nợ là cấu hình; IT dùng 150 triệu vì các test N+1 nộp ba hồ sơ 50 triệu cho cùng người vay.
@@ -1261,9 +1263,10 @@ class FinoraLoanApplicationIT {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.totalElements").value(3))
                     .andExpect(jsonPath("$.data.length()").value(3));
-            // Page content + count + batch assessment + một query fixed của projection liên quan.
-            // Giới hạn vẫn cố định theo page, không tăng theo số hồ sơ.
-            assertThat(statistics.getQueryExecutionCount()).isLessThanOrEqualTo(4L);
+            // Page content + count + batch assessment + một query fixed của projection liên quan, cộng tối đa sáu
+            // query tình trạng sau giải ngân của cả trang (AdminApplicationServicingService: khoản vay, saga, thu hồi
+            // mở, cơ cấu chờ duyệt, sai lệch mở, số liệu cũ). Giới hạn vẫn cố định theo page, không tăng theo số hồ sơ.
+            assertThat(statistics.getQueryExecutionCount()).isLessThanOrEqualTo(10L);
         } finally {
             statistics.setStatisticsEnabled(false);
         }

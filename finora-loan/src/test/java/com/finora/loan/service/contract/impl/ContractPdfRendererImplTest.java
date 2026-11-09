@@ -9,8 +9,10 @@ import com.finora.loan.domain.contract.enums.ContractPartyType;
 import com.finora.loan.domain.contract.enums.ContractPdfArtifactType;
 import com.finora.loan.domain.contract.enums.SignatureMethod;
 import com.finora.loan.domain.contract.enums.SignatureProviderType;
+import com.finora.loan.domain.contract.model.BorrowerIdentity;
 import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
 import com.finora.loan.domain.product.enums.RepaymentMethod;
+import com.finora.loan.service.contract.ContractHeading;
 import com.finora.loan.service.contract.ContractPdfArtifact;
 import com.finora.loan.service.contract.ContractPdfRenderer;
 import com.finora.loan.service.contract.ContractSignatureReceipt;
@@ -43,7 +45,7 @@ class ContractPdfRendererImplTest {
                 new ObjectMapper().findAndRegisterModules(), hashing);
 
         ContractPdfArtifact artifact = renderer.renderSignable(
-                "LC-3512BFF2CC0B4DB8AEA3", application, schedule,
+                legacy("LC-3512BFF2CC0B4DB8AEA3"), application, schedule,
                 "LOAN_TERMS_V1", Instant.parse("2026-10-08T10:00:00Z"));
 
         assertThat(artifact.artifactType()).isEqualTo(ContractPdfArtifactType.SIGNABLE);
@@ -120,10 +122,10 @@ class ContractPdfRendererImplTest {
                         new BigDecimal("40.000000"), "HOLD-102"));
 
         ContractPdfArtifact legacy = renderer.renderFundedSignable(
-                "LC-PADES-001", application(), schedule(), "LOAN_TERMS_V2", Instant.parse("2026-10-08T10:00:00Z"),
+                legacy("LC-PADES-001"), application(), schedule(), "LOAN_TERMS_V2", Instant.parse("2026-10-08T10:00:00Z"),
                 allocations, 1L, "d".repeat(64));
         ContractPdfArtifact pades = renderer.renderFundedSignable(
-                "LC-PADES-001", application(), schedule(), "LOAN_TERMS_V2", Instant.parse("2026-10-08T10:00:00Z"),
+                legacy("LC-PADES-001"), application(), schedule(), "LOAN_TERMS_V2", Instant.parse("2026-10-08T10:00:00Z"),
                 allocations, 1L, "d".repeat(64), true);
 
         assertThat(legacy.documentVersion()).isEqualTo(ContractPdfRenderer.DOCUMENT_VERSION);
@@ -146,6 +148,89 @@ class ContractPdfRendererImplTest {
         try (PDDocument pdf = PDDocument.load(legacy.content())) {
             assertThat(new PDFTextStripper().getText(pdf).replaceAll("\\s+", " "))
                     .contains("không tự chứng minh chữ ký PAdES");
+        }
+    }
+
+    @Test
+    void newContractPrintsBorrowerNameMaskedIdAndDisplayCodes() throws Exception {
+        HashingService hashing = new HashingService(new ObjectMapper().findAndRegisterModules());
+        ContractPdfRenderer renderer = new ContractPdfRendererImpl(
+                new ObjectMapper().findAndRegisterModules(), hashing);
+        LoanApplication application = application();
+        when(application.getApplicationCode()).thenReturn("HS-20261108-3RXA");
+        ContractHeading heading = new ContractHeading("LC-3512BFF2CC0B4DB8AEA3", "HĐ-20261109-K7QM",
+                new BorrowerIdentity("Nguyễn Văn An", "********1234", Instant.parse("2026-11-09T02:00:00Z")));
+
+        ContractPdfArtifact first = renderer.renderSignable(
+                heading, application, schedule(), "LOAN_TERMS_V1", Instant.parse("2026-11-16T10:00:00Z"));
+        ContractPdfArtifact second = renderer.renderSignable(
+                heading, application, schedule(), "LOAN_TERMS_V1", Instant.parse("2026-11-16T10:00:00Z"));
+
+        Path output = Path.of("target", "test-output", "finora-contract-borrower-identity-preview.pdf");
+        Files.createDirectories(output.getParent());
+        Files.write(output, first.content());
+        try (PDDocument pdf = PDDocument.load(first.content())) {
+            String text = new PDFTextStripper().getText(pdf).replaceAll("\\s+", " ");
+            assertThat(text)
+                    .contains("Số: HĐ-20261109-K7QM")
+                    .contains("HS-20261108-3RXA")
+                    .contains("Ông/Bà Nguyễn Văn An")
+                    .contains("Số CCCD: ********1234")
+                    .contains("LC-3512BFF2CC0B4DB8AEA3 / LA-7FA66C3814FE443887DB")
+                    .doesNotContain("Mã tham chiếu BORROWER-001")
+                    .doesNotContain("thông tin định danh đầy đủ sẽ lấy từ User Service");
+        }
+        // Cùng snapshot thì cùng nội dung văn bản: danh tính lấy từ heading, không đọc lại User lúc render.
+        try (PDDocument a = PDDocument.load(first.content()); PDDocument b = PDDocument.load(second.content())) {
+            assertThat(new PDFTextStripper().getText(b)).isEqualTo(new PDFTextStripper().getText(a));
+        }
+    }
+
+    @Test
+    void borrowerWithoutNameIsMarkedNotUpdated() throws Exception {
+        HashingService hashing = new HashingService(new ObjectMapper().findAndRegisterModules());
+        ContractPdfRenderer renderer = new ContractPdfRendererImpl(
+                new ObjectMapper().findAndRegisterModules(), hashing);
+        ContractHeading heading = new ContractHeading("LC-3512BFF2CC0B4DB8AEA3", "HĐ-20261109-K7QM",
+                new BorrowerIdentity(null, null, Instant.parse("2026-11-09T02:00:00Z")));
+
+        ContractPdfArtifact artifact = renderer.renderSignable(
+                heading, application(), schedule(), "LOAN_TERMS_V1", Instant.parse("2026-11-16T10:00:00Z"));
+
+        try (PDDocument pdf = PDDocument.load(artifact.content())) {
+            String text = new PDFTextStripper().getText(pdf).replaceAll("\\s+", " ");
+            assertThat(text)
+                    .contains("Chưa cập nhật hồ sơ")
+                    .contains("Số CCCD: Chưa cập nhật")
+                    .doesNotContain("Ông/Bà");
+        }
+    }
+
+    @Test
+    void receiptOfContractWithCapturedIdentityPrintsTheSameBorrower() throws Exception {
+        HashingService hashing = new HashingService(new ObjectMapper().findAndRegisterModules());
+        ContractPdfRenderer renderer = new ContractPdfRendererImpl(
+                new ObjectMapper().findAndRegisterModules(), hashing);
+        LoanContract contract = mock(LoanContract.class);
+        when(contract.getContractNumber()).thenReturn("LC-3512BFF2CC0B4DB8AEA3");
+        when(contract.getContractCode()).thenReturn("HĐ-20261109-K7QM");
+        when(contract.getBorrowerIdentity()).thenReturn(
+                new BorrowerIdentity("Nguyễn Văn An", "********1234", Instant.parse("2026-11-09T02:00:00Z")));
+        when(contract.getTermsVersion()).thenReturn("LOAN_TERMS_V1");
+        when(contract.getExpiresAt()).thenReturn(Instant.parse("2026-11-16T10:00:00Z"));
+        when(contract.getSignedBy()).thenReturn("BORROWER-001");
+        when(contract.getSignedAt()).thenReturn(Instant.parse("2026-11-10T10:00:00Z"));
+        when(contract.getSignatureMethod()).thenReturn(SignatureMethod.CLICK_WRAP_MVP);
+
+        ContractPdfArtifact artifact = renderer.renderSignedReceipt(
+                contract, application(), schedule(), "b".repeat(64));
+
+        try (PDDocument pdf = PDDocument.load(artifact.content())) {
+            String text = new PDFTextStripper().getText(pdf).replaceAll("\\s+", " ");
+            assertThat(text)
+                    .contains("Số: HĐ-20261109-K7QM")
+                    .contains("Ông/Bà Nguyễn Văn An")
+                    .contains("Số CCCD: ********1234");
         }
     }
 
@@ -186,6 +271,11 @@ class ContractPdfRendererImplTest {
                     .doesNotContain("UID=");
             assertThat(text.replaceAll("\\s+", "")).contains("b".repeat(64));
         }
+    }
+
+    /** Hợp đồng lập trước V39: chưa có mã hiển thị in trên văn bản và chưa chụp danh tính. */
+    private static ContractHeading legacy(String contractNumber) {
+        return new ContractHeading(contractNumber, null, null);
     }
 
     private LoanApplication application() {

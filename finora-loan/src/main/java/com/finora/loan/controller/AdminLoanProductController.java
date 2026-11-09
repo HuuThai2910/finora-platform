@@ -13,6 +13,7 @@ import com.finora.loan.service.product.LoanProductService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -39,10 +40,11 @@ public class AdminLoanProductController {
     public ResponseEntity<PageResponse<LoanProductResponse>> list(
             @RequestParam(required = false) LoanProductStatus status,
             @RequestParam(required = false) CoreSyncStatus coreSyncStatus,
+            @RequestParam(required = false) @Size(max = 100) String q,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
-        return ResponseEntity.ok(loanProductService.listAdmin(status, coreSyncStatus, page, size));
+        return ResponseEntity.ok(loanProductService.listAdmin(status, coreSyncStatus, q, page, size));
     }
 
     @PostMapping

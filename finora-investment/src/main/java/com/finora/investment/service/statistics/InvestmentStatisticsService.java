@@ -7,15 +7,15 @@ import com.finora.investment.dto.response.InvestmentStatisticsSummaryResponse;
 import java.time.LocalDate;
 
 /**
- * Số liệu sàn gọi vốn, Notes và Auto-Invest cho trang thống kê quản trị (STATS-001). Chỉ đọc.
+ * Số liệu sàn gọi vốn và Notes cho trang thống kê quản trị (STATS-001). Chỉ đọc.
  */
 public interface InvestmentStatisticsService {
 
     InvestmentStatisticsSummaryResponse summary();
 
     /**
-     * Chuỗi theo cột trong khoảng {@code from..to}: bốn câu {@code GROUP BY} (vốn góp, listing đủ vốn,
-     * khớp lệnh, Auto-Invest) rồi ghép theo ngày đầu cột và trải đủ mọi cột.
+     * Chuỗi theo cột trong khoảng {@code from..to}: ba câu {@code GROUP BY} (vốn góp, listing đủ vốn,
+     * khớp lệnh) rồi ghép theo ngày đầu cột và trải đủ mọi cột.
      *
      * @throws com.finora.common.exception.BusinessException 400 {@code STATISTICS_RANGE_INVALID} khi khoảng sai
      */

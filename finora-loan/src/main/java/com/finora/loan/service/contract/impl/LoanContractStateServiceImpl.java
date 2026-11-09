@@ -37,6 +37,7 @@ import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.contract.LoanContractStatusHistoryRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
 import com.finora.loan.service.contract.ContractConsentResult;
+import com.finora.loan.service.contract.ContractHeading;
 import com.finora.loan.service.contract.ContractPdfArtifact;
 import com.finora.loan.service.contract.ContractPdfRenderer;
 import com.finora.loan.service.contract.ContractPdfSignatureService;
@@ -509,8 +510,10 @@ public class LoanContractStateServiceImpl implements LoanContractStateService {
         LoanApplication application = loanApplicationRepository.findById(contract.getApplicationId())
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Loan Application", "id", contract.getApplicationId()));
+        // Hợp đồng mới in mã hiển thị như bản đã ký; hợp đồng cũ giữ mã LC-/LA- đã in trên văn bản của chúng.
+        ContractHeading heading = ContractHeading.of(contract);
         ContractPdfArtifact receipt = contractPdfRenderer.renderSignatureReceipt(new ContractSignatureReceipt(
-                contract.getContractNumber(), application.getApplicationNumber(),
+                heading.contractLabel(), heading.applicationLabel(application),
                 published.signable().getContentHash(), published.signable().getDocumentVersion(),
                 published.signedPdf().getContentHash(), published.signedPdf().getContentLength(), now, rows));
         loanContractDocumentRepository.saveAndFlush(LoanContractDocument.create(
@@ -586,7 +589,7 @@ public class LoanContractStateServiceImpl implements LoanContractStateService {
                         contract.getContractNumber(), application.getInvestmentListingId(),
                         contract.getDocumentHash(), receipt.getContentHash(),
                         application.getAllocationVersion(), application.getAllocationHash(), now,
-                        application.getBorrowerId()));
+                        application.getBorrowerId(), contract.getContractCode()));
         disbursementSagaService.start(contract, application,
                 contractPartyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(contract.getId()), now);
     }

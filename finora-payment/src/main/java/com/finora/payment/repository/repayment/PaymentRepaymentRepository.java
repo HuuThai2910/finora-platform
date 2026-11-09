@@ -23,6 +23,10 @@ public interface PaymentRepaymentRepository extends JpaRepository<PaymentRepayme
     Page<PaymentRepayment> findByStatusInOrderByUpdatedAtAscIdAsc(
             List<PaymentRepaymentStatus> statuses, Pageable pageable);
 
+    /** Khoản trả nợ đang sự cố của một hồ sơ vay (phần "Sau giải ngân" của trang hồ sơ trên web quản trị). */
+    Page<PaymentRepayment> findByLoanApplicationIdAndStatusInOrderByUpdatedAtAscIdAsc(
+            Long loanApplicationId, List<PaymentRepaymentStatus> statuses, Pageable pageable);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select repayment from PaymentRepayment repayment where repayment.id = :id")
     Optional<PaymentRepayment> findByIdForUpdate(@Param("id") Long id);

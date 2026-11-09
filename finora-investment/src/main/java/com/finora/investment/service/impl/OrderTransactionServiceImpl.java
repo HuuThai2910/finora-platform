@@ -391,7 +391,7 @@ public class OrderTransactionServiceImpl implements OrderTransactionService {
         }
         if (amount.remainder(listing.getNoteDenomination()).signum() != 0) {
             throw InvestmentDomainException.invalidInput(
-                    "ORDER_NOT_DIVISIBLE", "Số tiền đầu tư phải chia hết cho mệnh giá Note");
+                    "ORDER_NOT_DIVISIBLE", "Số tiền đầu tư phải chia hết cho mệnh giá mỗi phần vốn");
         }
         if (amount.compareTo(remaining) > 0) {
             throw InvestmentDomainException.conflict(

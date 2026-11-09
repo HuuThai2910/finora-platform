@@ -272,6 +272,11 @@ finora:
   # `mock` (VERIFIED, 30 tuổi) chỉ dùng cho test và stack E2E, không phải dữ liệu thật.
   borrower-profile:
     provider: ${FINORA_BORROWER_PROFILE_PROVIDER:user}
+  # Họ tên + CCCD đã che của bên vay in lên hợp đồng, đọc lúc lập hợp đồng qua API nội bộ finora-user bằng service account
+  # finora-loan-client (client role user:identity:read_internal của finora-user-client, docker/keycloak/add-loan-identity-role.sh).
+  # `mock` chỉ cho Loan chạy một mình: không có họ tên, hợp đồng ghi "Chưa cập nhật hồ sơ".
+  borrower-identity:
+    provider: ${FINORA_BORROWER_IDENTITY_PROVIDER:user}
   user:
     base-url: ${USER_SERVICE_URL:http://localhost:8085}
     connect-timeout: ${USER_CONNECT_TIMEOUT:2s}
@@ -398,6 +403,15 @@ resilience4j:
         automatic-transition-from-open-to-half-open-enabled: true
         ignore-exceptions:
           - org.springframework.web.client.HttpClientErrorException
+      # Đọc họ tên + CCCD đã che của bên vay khi lập hợp đồng (service account). Không bỏ qua 4xx: thiếu quyền hay sai
+      # địa chỉ lặp lại ở mọi lượt, mở mạch giúp các lượt thử lại của consumer không dồn vào finora-user.
+      user-identity:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
       # Ký số VNPT SmartCA (chỉ khi finora.signature.provider=VNPT_SMART_CA).
       vnpt-smartca:
         sliding-window-size: 10
@@ -440,6 +454,10 @@ resilience4j:
         cancel-running-future: true
       user-profile:
         # Cao hơn connect 2 giây + read 3 giây của finora-user để HTTP client phân loại timeout trước; không dùng mặc định 1 giây.
+        timeout-duration: ${USER_TIME_LIMITER_TIMEOUT:6s}
+        cancel-running-future: true
+      user-identity:
+        # Cùng client timeout với user-profile (connect 2 giây + read 3 giây); time limiter cao hơn để HTTP client phân loại trước.
         timeout-duration: ${USER_TIME_LIMITER_TIMEOUT:6s}
         cancel-running-future: true
       vnpt-smartca:

@@ -62,4 +62,36 @@ public interface NoteTransferDocumentRepository extends JpaRepository<NoteTransf
             countQuery = "SELECT COUNT(d) FROM NoteTransferDocument d WHERE d.status = :status")
     Page<NoteTransferDocumentRow> findRowsByStatus(
             @Param("status") NoteTransferDocumentStatus status, Pageable pageable);
+
+    /**
+     * Ô tìm của bảng giấy xác nhận: {@code code} (đã viết hoa, dạng {@code %…%}) khớp số giấy, mã lần khớp hoặc mã hồ
+     * sơ/hợp đồng của khoản vay. {@code status} {@code null} là mọi trạng thái.
+     */
+    @Query(value = """
+            SELECT new com.finora.investment.repository.NoteTransferDocumentRow(
+                d.documentNumber, d.tradeReference, d.loanId, d.listingId, t.sellerId, t.buyerId, t.quantity,
+                t.amount, d.status, d.contentHash, d.attempts, d.lastError, t.executedAt, d.issuedAt)
+            FROM NoteTransferDocument d, BookTrade t
+            WHERE t.id = d.tradeId
+              AND (:status IS NULL OR d.status = :status)
+              AND (UPPER(d.documentNumber) LIKE :code ESCAPE '!' OR UPPER(d.tradeReference) LIKE :code ESCAPE '!'
+                   OR d.listingId IN (
+                    SELECT l.id FROM MarketListing l
+                    WHERE l.applicationCode LIKE :code ESCAPE '!' OR l.contractCode LIKE :code ESCAPE '!'
+                       OR l.applicationNumber LIKE :code ESCAPE '!' OR l.contractNumber LIKE :code ESCAPE '!'))
+            ORDER BY d.createdAt DESC, d.id DESC
+            """,
+            countQuery = """
+            SELECT COUNT(d) FROM NoteTransferDocument d
+            WHERE (:status IS NULL OR d.status = :status)
+              AND (UPPER(d.documentNumber) LIKE :code ESCAPE '!' OR UPPER(d.tradeReference) LIKE :code ESCAPE '!'
+                   OR d.listingId IN (
+                    SELECT l.id FROM MarketListing l
+                    WHERE l.applicationCode LIKE :code ESCAPE '!' OR l.contractCode LIKE :code ESCAPE '!'
+                       OR l.applicationNumber LIKE :code ESCAPE '!' OR l.contractNumber LIKE :code ESCAPE '!'))
+            """)
+    Page<NoteTransferDocumentRow> searchRows(
+            @Param("status") NoteTransferDocumentStatus status,
+            @Param("code") String code,
+            Pageable pageable);
 }

@@ -63,7 +63,8 @@ public class LoanApplicationMapper {
                 application.getCreatedBy(),
                 application.getUpdatedBy(),
                 application.getCreatedAt(),
-                application.getUpdatedAt()
+                application.getUpdatedAt(),
+                application.getApplicationCode()
         );
     }
 

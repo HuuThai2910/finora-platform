@@ -11,6 +11,7 @@ import com.finora.loan.domain.servicing.model.LoanServicingSnapshot;
 import com.finora.loan.repository.servicing.FinoraLoanRepository;
 import com.finora.loan.repository.servicing.LoanReconciliationIncidentRepository;
 import com.finora.loan.repository.servicing.LoanServicingProjectionRepository;
+import com.finora.loan.service.application.ApplicationNumberLookupService;
 import com.finora.loan.service.servicing.AdminLoanServicingReconciliationService;
 import com.finora.loan.service.servicing.LoanServicingSyncService;
 import org.junit.jupiter.api.AfterEach;
@@ -46,12 +47,14 @@ class AdminLoanServicingReconciliationServiceImplTest {
     @Mock private LoanServicingProjectionRepository projections;
     @Mock private LoanReconciliationIncidentRepository incidents;
     @Mock private LoanServicingSyncService syncService;
+    @Mock private ApplicationNumberLookupService applicationNumberLookupService;
     private AdminLoanServicingReconciliationService service;
     private FinoraLoan loan;
 
     @BeforeEach
     void setUp() {
-        service = new AdminLoanServicingReconciliationServiceImpl(loans, projections, incidents, syncService);
+        service = new AdminLoanServicingReconciliationServiceImpl(loans, projections, incidents, syncService,
+                applicationNumberLookupService);
         loan = FinoraLoan.activate("LN-001", 9L, "APP-001", "LC-001", "borrower-1",
                 88L, money("10000000"), "VND", NOW.minusSeconds(86400));
         ReflectionTestUtils.setField(loan, "id", 1L);
@@ -117,6 +120,51 @@ class AdminLoanServicingReconciliationServiceImplTest {
             assertThat(item.occurrenceCount()).isEqualTo(1);
         });
         verify(syncService, org.mockito.Mockito.never()).sync(any());
+    }
+
+    @Test
+    void statusReadsStoredProjectionWithoutSyncing() {
+        when(loans.findByLoanNumber("LN-001")).thenReturn(Optional.of(loan));
+        when(projections.findByFinoraLoanId(1L)).thenReturn(Optional.of(projection()));
+
+        var response = service.status("LN-001");
+
+        assertThat(response.loanNumber()).isEqualTo("LN-001");
+        assertThat(response.stale()).isTrue();
+        verify(syncService, org.mockito.Mockito.never()).sync(any());
+    }
+
+    @Test
+    void statusOfUnknownLoanIsNotFound() {
+        when(loans.findByLoanNumber("LN-404")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.status("LN-404"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("LOAN_NOT_FOUND"));
+    }
+
+    @Test
+    void listsOpenIncidentsOfOneLoan() {
+        LoanReconciliationIncident incident = LoanReconciliationIncident.open(1L, "LN-001",
+                ReconciliationIncidentType.EXTERNAL_ID_MISMATCH, "LC-001", "wrong", NOW);
+        when(incidents.findByLoanNumberAndStatusOrderByUpdatedAtAscIdAsc(
+                org.mockito.ArgumentMatchers.eq("LN-001"),
+                org.mockito.ArgumentMatchers.eq(ReconciliationIncidentStatus.OPEN), any()))
+                .thenReturn(new PageImpl<>(List.of(incident)));
+
+        var response = service.listIncidentsByLoan("LN-001", null, 0, 20);
+
+        assertThat(response.data()).singleElement()
+                .satisfies(item -> assertThat(item.loanNumber()).isEqualTo("LN-001"));
+    }
+
+    @Test
+    void staffWithoutReconciliationViewCannotReadLoanStatus() {
+        authenticateStaff(OpsFunction.COLLECTION.view());
+
+        assertThatThrownBy(() -> service.status("LN-001"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo("PERMISSION_REQUIRED"));
     }
 
     @Test

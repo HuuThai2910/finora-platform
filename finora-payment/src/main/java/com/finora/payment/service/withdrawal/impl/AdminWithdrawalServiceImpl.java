@@ -39,9 +39,19 @@ public class AdminWithdrawalServiceImpl implements AdminWithdrawalService {
     @Override
     @Transactional(readOnly = true)
     public PageResponse<AdminWithdrawalResponse> list(int page, int size) {
+        return list(null, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<AdminWithdrawalResponse> list(String ownerId, int page, int size) {
         SecurityUtils.requirePermission(OpsFunction.WITHDRAWAL.view());
-        Page<AdminWithdrawalResponse> result = paymentWithdrawalRepository
-                .findByStatusInOrderByUpdatedAtAscIdAsc(INCIDENT_STATUSES, PageRequest.of(page, size))
+        PageRequest pageable = PageRequest.of(page, size);
+        String owner = ownerId == null || ownerId.isBlank() ? null : ownerId.trim();
+        Page<AdminWithdrawalResponse> result = (owner == null
+                ? paymentWithdrawalRepository.findByStatusInOrderByUpdatedAtAscIdAsc(INCIDENT_STATUSES, pageable)
+                : paymentWithdrawalRepository.findByOwnerIdAndStatusInOrderByUpdatedAtAscIdAsc(
+                        owner, INCIDENT_STATUSES, pageable))
                 .map(AdminWithdrawalResponse::from);
         return PageResponse.<AdminWithdrawalResponse>builder().content(result.getContent()).page(result.getNumber())
                 .size(result.getSize()).totalElements(result.getTotalElements()).totalPages(result.getTotalPages())

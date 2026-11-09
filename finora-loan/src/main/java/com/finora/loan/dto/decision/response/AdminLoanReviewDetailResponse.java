@@ -4,11 +4,14 @@ import com.finora.loan.domain.application.enums.LoanApplicationStatus;
 import com.finora.loan.domain.application.enums.LoanDecisionSource;
 import com.finora.loan.domain.application.enums.LoanPurpose;
 import com.finora.loan.domain.application.enums.TermsConfirmationStatus;
+import com.finora.loan.domain.disbursement.enums.DisbursementSagaStatus;
 import com.finora.loan.domain.product.enums.RepaymentMethod;
 import com.finora.loan.domain.scoring.enums.BorrowerKycStatus;
 import com.finora.loan.domain.scoring.enums.BorrowerProfileSource;
 import com.finora.loan.domain.scoring.enums.CreditProfileSource;
 import com.finora.loan.domain.scoring.enums.EligibilityResult;
+import com.finora.loan.domain.servicing.enums.ApplicationServicingFlag;
+import com.finora.loan.domain.servicing.enums.FinoraLoanStatus;
 import com.finora.loan.dto.application.response.ApplicantFinancialResponse;
 import com.finora.loan.dto.application.response.LoanApplicationHistoryResponse;
 import com.finora.loan.dto.application.response.LoanApplicationTimelineItemResponse;
@@ -62,7 +65,19 @@ public record AdminLoanReviewDetailResponse(
          * Lịch sử xử lý đầy đủ (mới nhất trước): thẩm định, gọi vốn, ký hợp đồng gồm nhà đầu tư rút và gọi vốn bổ sung,
          * giải ngân, cơ cấu/gia hạn, thu hồi nợ, đóng khoản vay.
          */
-        List<LoanApplicationTimelineItemResponse> timeline
+        List<LoanApplicationTimelineItemResponse> timeline,
+        /** Mã hiển thị {@code HS-yyyyMMdd-XXXX}; {@code applicationNumber} vẫn là khóa tra cứu API. */
+        String applicationCode,
+        /** Mã hiển thị {@code HĐ-yyyyMMdd-XXXX}; {@code null} khi chưa có Contract. */
+        String contractCode,
+        /** Mã khoản vay {@code LN-…}; {@code null} cho tới khi giải ngân xong và khoản vay được kích hoạt. */
+        String loanNumber,
+        /** Trạng thái khoản vay đang phục vụ; {@code null} khi chưa có khoản vay. */
+        FinoraLoanStatus loanStatus,
+        /** Trạng thái saga giải ngân; {@code null} khi hồ sơ chưa vào giải ngân. */
+        DisbursementSagaStatus disbursementStatus,
+        /** Việc vận hành đang mở của khoản vay (quá hạn, chờ duyệt cơ cấu, sự cố). */
+        List<ApplicationServicingFlag> servicingFlags
 ) {
     public record EligibilityEvidence(
             Integer age,

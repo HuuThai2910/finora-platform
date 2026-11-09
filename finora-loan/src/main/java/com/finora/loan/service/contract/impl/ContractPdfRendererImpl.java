@@ -10,7 +10,9 @@ import com.finora.loan.domain.contract.enums.ContractPartyStatus;
 import com.finora.loan.domain.contract.enums.ContractPartyType;
 import com.finora.loan.domain.contract.enums.ContractPdfArtifactType;
 import com.finora.loan.domain.contract.enums.SignatureProviderType;
+import com.finora.loan.domain.contract.model.BorrowerIdentity;
 import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
+import com.finora.loan.service.contract.ContractHeading;
 import com.finora.loan.service.contract.ContractPdfArtifact;
 import com.finora.loan.service.contract.ContractPdfRenderer;
 import com.finora.loan.service.contract.ContractSignatureReceipt;
@@ -39,6 +41,8 @@ import java.util.List;
 public class ContractPdfRendererImpl implements ContractPdfRenderer {
 
     private static final String NO_BORROWER_EVIDENCE = "Chưa có bằng chứng xác nhận của người vay";
+    private static final String NOT_UPDATED_PROFILE = "Chưa cập nhật hồ sơ";
+    private static final String NOT_UPDATED = "Chưa cập nhật";
     private static final String DETACHED_RECEIPT_NOTICE = "<b>XÁC NHẬN CỦA HỆ THỐNG FINORA</b><br/>FINORA ghi nhận"
             + " phiên bản, trạng thái, thời điểm và phương thức thao tác. Receipt này là bằng chứng hệ thống tách rời;"
             + " không tự chứng minh chữ ký PAdES đã được nhúng vào PDF.";
@@ -74,14 +78,14 @@ public class ContractPdfRendererImpl implements ContractPdfRenderer {
 
     @Override
     public ContractPdfArtifact renderSignable(
-            String contractNumber,
+            ContractHeading heading,
             LoanApplication application,
             ScheduleCalculationSnapshot schedule,
             String termsVersion,
             Instant expiresAt
     ) {
         byte[] content = render(html(
-                contractNumber, application, schedule, termsVersion, expiresAt,
+                heading, application, schedule, termsVersion, expiresAt,
                 "CHỜ NGƯỜI VAY XÁC NHẬN", null, null, null, null, pdfVersion(application)
         ));
         return artifact(ContractPdfArtifactType.SIGNABLE, pdfVersion(application), content);
@@ -89,7 +93,7 @@ public class ContractPdfRendererImpl implements ContractPdfRenderer {
 
     @Override
     public ContractPdfArtifact renderFundedSignable(
-            String contractNumber,
+            ContractHeading heading,
             LoanApplication application,
             ScheduleCalculationSnapshot schedule,
             String termsVersion,
@@ -98,13 +102,13 @@ public class ContractPdfRendererImpl implements ContractPdfRenderer {
             long allocationVersion,
             String allocationHash
     ) {
-        return renderFundedSignable(contractNumber, application, schedule, termsVersion, expiresAt,
+        return renderFundedSignable(heading, application, schedule, termsVersion, expiresAt,
                 allocations, allocationVersion, allocationHash, false);
     }
 
     @Override
     public ContractPdfArtifact renderFundedSignable(
-            String contractNumber,
+            ContractHeading heading,
             LoanApplication application,
             ScheduleCalculationSnapshot schedule,
             String termsVersion,
@@ -116,7 +120,7 @@ public class ContractPdfRendererImpl implements ContractPdfRenderer {
     ) {
         String version = pades ? padesPdfVersion(application) : pdfVersion(application);
         String base = html(
-                contractNumber, application, schedule, termsVersion, expiresAt,
+                heading, application, schedule, termsVersion, expiresAt,
                 pades ? "KÝ SỐ SAU CÙNG" : "CHỜ CÁC BÊN KÝ", null, null, null, null, version);
         String lenderRows = allocations.stream()
                 .map(allocation -> "<tr><td>" + allocation.commitmentId() + "</td><td>"
@@ -219,7 +223,7 @@ public class ContractPdfRendererImpl implements ContractPdfRenderer {
             String signedDocumentHash
     ) {
         byte[] content = render(html(
-                contract.getContractNumber(), application, schedule, contract.getTermsVersion(),
+                ContractHeading.of(contract), application, schedule, contract.getTermsVersion(),
                 contract.getExpiresAt(), receiptStatus(contract),
                 contract.getSignedBy(), contract.getSignedAt(),
                 contract.getSignatureMethod() == null ? null : contract.getSignatureMethod().name(),
@@ -243,7 +247,7 @@ public class ContractPdfRendererImpl implements ContractPdfRenderer {
                         && party.getStatus() != ContractPartyStatus.EXPIRED)
                 .toList();
         String base = html(
-                contract.getContractNumber(), application, schedule, contract.getTermsVersion(),
+                ContractHeading.of(contract), application, schedule, contract.getTermsVersion(),
                 contract.getExpiresAt(), receiptStatus(contract), contract.getSignedBy(),
                 contract.getSignedAt(),
                 contract.getSignatureMethod() == null ? null : contract.getSignatureMethod().name(),
@@ -339,7 +343,7 @@ public class ContractPdfRendererImpl implements ContractPdfRenderer {
     }
 
     private String html(
-            String contractNumber,
+            ContractHeading heading,
             LoanApplication application,
             ScheduleCalculationSnapshot schedule,
             String termsVersion,
@@ -373,7 +377,7 @@ public class ContractPdfRendererImpl implements ContractPdfRenderer {
                   <h2>ĐIỀU KHOẢN TÀI CHÍNH CỐT LÕI</h2>
                   %s
                   <h2>THÔNG TIN GIAO KẾT</h2>
-                  <table class="info"><tr><th>Mã hồ sơ vay</th><td>%s</td></tr><tr><th>Bên vay</th><td>Mã tham chiếu %s - thông tin định danh đầy đủ sẽ lấy từ User Service khi tích hợp production</td></tr><tr><th>Bên cho vay</th><td>Chưa xác lập trong LN-008; không giả mạo nhà đầu tư hoặc chữ ký SmartCA</td></tr><tr><th>Vai trò FINORA</th><td>Nền tảng kết nối và lưu bằng chứng giao dịch; không phải bên cho vay trong bản thiết kế P2P</td></tr></table>
+                  <table class="info"><tr><th>Mã hồ sơ vay</th><td>%s</td></tr><tr><th>Bên vay</th><td>%s</td></tr><tr><th>Bên cho vay</th><td>Chưa xác lập trong LN-008; không giả mạo nhà đầu tư hoặc chữ ký SmartCA</td></tr><tr><th>Vai trò FINORA</th><td>Nền tảng kết nối và lưu bằng chứng giao dịch; không phải bên cho vay trong bản thiết kế P2P</td></tr></table>
                   <div class="page-break"></div>
                   <h2>ĐIỀU 1. SỐ TIỀN, MỤC ĐÍCH VÀ THỜI HẠN VAY</h2>
                   <ol><li>Số tiền vay: <b>%s</b>.</li><li>Mục đích vay: %s.</li><li>Thời hạn vay: <b>%d tháng</b>, tính từ ngày giải ngân thực tế. Ngày giải ngân dự kiến: %s.</li></ol>
@@ -396,12 +400,12 @@ public class ContractPdfRendererImpl implements ContractPdfRenderer {
                   <p>Các bên phải có thời gian hợp lý để đọc toàn bộ hợp đồng và phụ lục. Mọi chữ ký/xác nhận phải gắn với đúng phiên bản tài liệu và cho phép phát hiện thay đổi.</p>
                   <table class="signatures"><tr><th>BÊN CHO VAY</th><th>BÊN VAY</th></tr><tr><td><b>CHƯA TÍCH HỢP</b><br/>Investment Service/VNPT SmartCA chưa cung cấp bằng chứng ký.</td><td><b>%s</b><br/>%s</td></tr></table>
                   <h2>THÔNG TIN ĐỐI CHIẾU</h2>
-                  <table class="info"><tr><th>Phiên bản điều khoản</th><td>%s</td></tr><tr><th>Phiên bản PDF</th><td>%s</td></tr><tr><th>Mã PDF đã xác nhận</th><td class="hash">%s</td></tr><tr><th>Hạn xác nhận</th><td>%s</td></tr><tr><th>Chính sách lịch trả</th><td>%s</td></tr><tr><th>Mã lịch trả</th><td class="hash">%s</td></tr></table>
+                  <table class="info">%s<tr><th>Phiên bản điều khoản</th><td>%s</td></tr><tr><th>Phiên bản PDF</th><td>%s</td></tr><tr><th>Mã PDF đã xác nhận</th><td class="hash">%s</td></tr><tr><th>Hạn xác nhận</th><td>%s</td></tr><tr><th>Chính sách lịch trả</th><td>%s</td></tr><tr><th>Mã lịch trả</th><td class="hash">%s</td></tr></table>
                   <div class="notice blue"><b>XÁC NHẬN CỦA HỆ THỐNG FINORA</b><br/>FINORA ghi nhận phiên bản, trạng thái, thời điểm và phương thức thao tác. Receipt này là bằng chứng hệ thống tách rời; không tự chứng minh chữ ký PAdES đã được nhúng vào PDF.</div>
                 </body></html>
                 """.formatted(
-                css(pdfVersion), escape(contractNumber), summary(application, schedule, finalRate),
-                escape(application.getApplicationNumber()), escape(application.getBorrowerId()),
+                css(pdfVersion), escape(heading.contractLabel()), summary(application, schedule, finalRate),
+                escape(heading.applicationLabel(application)), borrowerCell(heading, application),
                 money(application.getRequestedAmount()), escape(purpose(application)),
                 application.getRequestedTermMonths(), date(schedule.getExpectedDisbursementDate()),
                 percentage(baseRate), percentage(finalRate), repaymentMethod(application),
@@ -411,11 +415,40 @@ public class ContractPdfRendererImpl implements ContractPdfRenderer {
                         application.getRequestedTermMonths(), ContractTextVersion.dailyInterest(application)),
                 date(schedule.getExpectedDisbursementDate()),
                 scheduleTable(schedule.getPeriodsSnapshotJson()), escape(receiptStatus),
-                signatureEvidence(signedBy, signedAt, signatureMethod), escape(termsVersion),
+                signatureEvidence(signedBy, signedAt, signatureMethod), systemReferenceRow(heading, application),
+                escape(termsVersion),
                 pdfVersion, escape(signedDocumentHash == null ? "Chưa xác nhận" : signedDocumentHash),
                 dateTime(expiresAt), escape(schedule.getCalculationPolicyVersion()),
                 escape(schedule.getResponseHash())
         );
+    }
+
+    /**
+     * Ô "Bên vay": họ tên + CCCD đã che chụp lúc lập hợp đồng. Hợp đồng cũ giữ nguyên câu cũ để biên nhận render lại khớp
+     * bản đã ký; người vay chưa có họ tên thì ghi "Chưa cập nhật hồ sơ" như giấy chuyển nhượng Note, không điền tên đoán.
+     */
+    private static String borrowerCell(ContractHeading heading, LoanApplication application) {
+        if (heading.legacy()) {
+            return "Mã tham chiếu " + escape(application.getBorrowerId())
+                    + " - thông tin định danh đầy đủ sẽ lấy từ User Service khi tích hợp production";
+        }
+        BorrowerIdentity borrower = heading.borrower();
+        String name = borrower.fullName() == null
+                ? "<i>" + NOT_UPDATED_PROFILE + "</i>"
+                : "Ông/Bà <b>" + escape(borrower.fullName()) + "</b>";
+        String idNumber = borrower.maskedIdNumber() == null
+                ? "<i>" + NOT_UPDATED + "</i>"
+                : escape(borrower.maskedIdNumber());
+        return name + "<br/>Số CCCD: " + idNumber;
+    }
+
+    /** Mã tra cứu {@code LC-}/{@code LA-} đi kèm mã hiển thị để đối soát với hệ thống; hợp đồng cũ đã in mã này ở đầu. */
+    private static String systemReferenceRow(ContractHeading heading, LoanApplication application) {
+        if (heading.legacy()) {
+            return "";
+        }
+        return "<tr><th>Mã tra cứu hệ thống</th><td class=\"hash\">" + escape(heading.contractNumber()) + " / "
+                + escape(application.getApplicationNumber()) + "</td></tr>";
     }
 
     private String summary(

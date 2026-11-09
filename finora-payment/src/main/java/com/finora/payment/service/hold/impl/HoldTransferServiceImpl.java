@@ -156,7 +156,7 @@ public class HoldTransferServiceImpl implements HoldTransferService {
             throw new BusinessException(HttpStatus.CONFLICT, "PAYMENT_HOLD_ORDER_MISMATCH", "Mã lệnh không khớp khoản tiền giữ");
         }
         if (hold.getOwnerId().equals(request.sellerId())) {
-            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, "PAYMENT_SELF_TRANSFER", "Không thể tự mua Note của chính mình");
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, "PAYMENT_SELF_TRANSFER", "Không thể tự mua phần vốn của chính mình");
         }
         BigDecimal amount = request.amount().setScale(2);
         BigDecimal fee = request.platformFee().setScale(2);
@@ -203,7 +203,7 @@ public class HoldTransferServiceImpl implements HoldTransferService {
             requireActor(actorId, request.buyerId());
         }
         if (request.buyerId().equals(request.sellerId())) {
-            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, "PAYMENT_SELF_TRANSFER", "Không thể tự mua Note của chính mình");
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, "PAYMENT_SELF_TRANSFER", "Không thể tự mua phần vốn của chính mình");
         }
         if (request.platformFee().compareTo(request.price()) > 0) {
             throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, "PAYMENT_INVALID_FEE", "Phí không được lớn hơn giá chuyển nhượng");

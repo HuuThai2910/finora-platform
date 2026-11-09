@@ -12,8 +12,10 @@ import com.finora.user.dto.request.VerifyResetOtpRequest;
 import com.finora.user.dto.response.AuthResponse;
 import com.finora.user.dto.response.RegistrationChallengeResponse;
 import com.finora.user.service.AuthService;
+import com.finora.user.service.LoginDeviceService;
 import com.finora.user.util.AuthCookieManager;
 import com.finora.user.util.HttpRequestUtils;
+import com.finora.user.util.LoginDeviceHeaders;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -42,6 +44,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final AuthCookieManager authCookieManager;
+    private final LoginDeviceService loginDeviceService;
 
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(
@@ -53,6 +56,9 @@ public class AuthController {
                 request,
                 HttpRequestUtils.extractIpAddress(httpRequest),
                 HttpRequestUtils.extractUserAgent(httpRequest));
+        // Ghi thiết bị sau khi đã có token (cần claim sid); lỗi ghi không làm hỏng đăng nhập.
+        loginDeviceService.recordLogin(authResponse.getUserId(), LoginDeviceHeaders.from(httpRequest),
+                authResponse.getAccessToken());
 
         return respondWithTokens(authResponse, HttpStatus.OK, httpRequest, httpResponse);
     }
@@ -83,6 +89,9 @@ public class AuthController {
             HttpServletResponse httpResponse) {
 
         AuthResponse authResponse = authService.verifyRegistration(request);
+        // Đăng ký xong là đăng nhập luôn: thiết bị đăng ký là thiết bị đăng nhập đầu tiên của tài khoản.
+        loginDeviceService.recordLogin(authResponse.getUserId(), LoginDeviceHeaders.from(httpRequest),
+                authResponse.getAccessToken());
         return respondWithTokens(authResponse, HttpStatus.CREATED, httpRequest, httpResponse);
     }
 

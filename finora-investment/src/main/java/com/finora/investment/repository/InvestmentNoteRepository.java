@@ -117,6 +117,39 @@ public interface InvestmentNoteRepository extends JpaRepository<InvestmentNote, 
             """)
     Page<Long> findTradableListingIds(@Param("hiddenBorrowerId") String hiddenBorrowerId, Pageable pageable);
 
+    /**
+     * Như {@link #findTradableListingIds}, chỉ giữ khoản vay có mã hồ sơ/hợp đồng (mã hiển thị lẫn mã tra cứu) khớp
+     * {@code code} (đã viết hoa, dạng {@code %…%}).
+     */
+    @Query(value = """
+            SELECT n.listingId FROM InvestmentNote n
+            WHERE n.status IN ('ACTIVE', 'DEFAULTED')
+              AND (:hiddenBorrowerId IS NULL OR NOT EXISTS (
+                    SELECT l.id FROM MarketListing l
+                    WHERE l.id = n.listingId AND l.borrowerId = :hiddenBorrowerId))
+              AND n.listingId IN (
+                    SELECT l.id FROM MarketListing l
+                    WHERE l.applicationCode LIKE :code ESCAPE '!' OR l.contractCode LIKE :code ESCAPE '!'
+                       OR l.applicationNumber LIKE :code ESCAPE '!' OR l.contractNumber LIKE :code ESCAPE '!')
+            GROUP BY n.listingId
+            ORDER BY n.listingId DESC
+            """,
+            countQuery = """
+            SELECT COUNT(DISTINCT n.listingId) FROM InvestmentNote n
+            WHERE n.status IN ('ACTIVE', 'DEFAULTED')
+              AND (:hiddenBorrowerId IS NULL OR NOT EXISTS (
+                    SELECT l.id FROM MarketListing l
+                    WHERE l.id = n.listingId AND l.borrowerId = :hiddenBorrowerId))
+              AND n.listingId IN (
+                    SELECT l.id FROM MarketListing l
+                    WHERE l.applicationCode LIKE :code ESCAPE '!' OR l.contractCode LIKE :code ESCAPE '!'
+                       OR l.applicationNumber LIKE :code ESCAPE '!' OR l.contractNumber LIKE :code ESCAPE '!')
+            """)
+    Page<Long> searchTradableListingIds(
+            @Param("hiddenBorrowerId") String hiddenBorrowerId,
+            @Param("code") String code,
+            Pageable pageable);
+
     /** Các đợt gọi vốn trong danh sách có Note nợ xấu, một truy vấn cho cả trang. */
     @Query("""
             SELECT DISTINCT n.listingId FROM InvestmentNote n

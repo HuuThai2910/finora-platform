@@ -17,6 +17,9 @@ import java.util.UUID;
 
 public interface DisbursementSagaRepository extends JpaRepository<DisbursementSaga, Long> {
     Optional<DisbursementSaga> findByLoanApplicationId(Long loanApplicationId);
+
+    /** Saga giải ngân của các hồ sơ trên một trang danh sách quản trị (mỗi hồ sơ tối đa một saga). */
+    List<DisbursementSaga> findByLoanApplicationIdIn(Collection<Long> loanApplicationIds);
     Optional<DisbursementSaga> findByContractNumber(String contractNumber);
     List<DisbursementSaga> findByBorrowerIdAndStatusInOrderByCreatedAtDescIdDesc(
             String borrowerId, Collection<DisbursementSagaStatus> statuses);

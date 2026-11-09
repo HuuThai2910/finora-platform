@@ -65,7 +65,7 @@ public class NoteIssuanceServiceImpl implements NoteIssuanceService {
                         "LISTING_NOT_FOUND", "Không tìm thấy khoản vay trên sàn"));
         if (listing.getStatus() != ListingStatus.FULLY_FUNDED || listing.getDisbursedAt() == null) {
             throw InvestmentDomainException.conflict("LISTING_NOT_DISBURSED",
-                    "Chỉ khóa vốn và phát hành Note sau khi Loan xác nhận đã giải ngân khoản vay");
+                    "Chỉ khóa vốn và phát hành phần vốn sau khi Loan xác nhận đã giải ngân khoản vay");
         }
     }
 
@@ -124,7 +124,7 @@ public class NoteIssuanceServiceImpl implements NoteIssuanceService {
         if (commitments.isEmpty()) {
             throw InvestmentDomainException.conflict(
                     "NO_FINALIZED_COMMITMENT",
-                    "Chưa có phần vốn nào được khóa để phát hành Note"
+                    "Chưa có khoản góp vốn nào được khóa để phát hành phần vốn"
             );
         }
 

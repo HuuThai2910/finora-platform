@@ -15,9 +15,11 @@ import com.finora.loan.domain.contract.enums.ContractPartyType;
 import com.finora.loan.domain.contract.enums.ContractPdfArtifactType;
 import com.finora.loan.domain.contract.enums.ContractPdfSignatureStatus;
 import com.finora.loan.domain.contract.enums.LoanContractStatus;
+import com.finora.loan.domain.contract.model.BorrowerIdentity;
 import com.finora.loan.domain.contract.model.LoanContractTerms;
 import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
 import com.finora.loan.exception.LoanBusinessException;
+import com.finora.loan.integration.profile.BorrowerIdentityUnavailableException;
 import com.finora.loan.integration.signature.client.SignatureProvider;
 import com.finora.loan.messaging.event.InvestorSignatureRequestedEventData;
 import com.finora.loan.messaging.event.LoanContractCreatedEventData;
@@ -27,6 +29,7 @@ import com.finora.loan.repository.contract.LoanContractDocumentRepository;
 import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.contract.LoanContractStatusHistoryRepository;
 import com.finora.loan.service.contract.ContractDocumentRenderer;
+import com.finora.loan.service.contract.ContractHeading;
 import com.finora.loan.service.contract.ContractNumberGenerator;
 import com.finora.loan.service.contract.ContractPdfArtifact;
 import com.finora.loan.service.contract.ContractPdfRenderer;
@@ -53,7 +56,8 @@ import java.util.stream.Collectors;
 /**
  * Lập hợp đồng vay từ hồ sơ đã duyệt và lịch trả nợ cuối, gồm văn bản click-wrap và PDF để ký.
  *
- * <p>Hợp đồng, PDF, history và outbox được ghi trong cùng transaction.</p>
+ * <p>Hợp đồng, PDF, history và outbox được ghi trong cùng transaction. Văn bản in mã hiển thị {@code HĐ-}/{@code HS-} và
+ * danh tính bên vay mà nơi gọi đã đọc từ finora-user trước transaction; danh tính được chụp lên Contract.</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -83,6 +87,7 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
             ActorType actorType,
             String actorId,
             String reasonCode,
+            BorrowerIdentity borrowerIdentity,
             Instant now
     ) {
         LoanContract existing = loanContractRepository.findByApplicationId(application.getId()).orElse(null);
@@ -90,10 +95,12 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
             return existing;
         }
         String contractNumber = contractNumberGenerator.next();
+        ContractHeading heading = new ContractHeading(
+                contractNumber, contractNumberGenerator.nextCode(now), requireIdentity(borrowerIdentity));
         // Văn bản theo cách tính lãi của sản phẩm core trên hồ sơ (Q3): V4 nhận điều 4 tính lãi theo ngày.
         ContractTextVersion textVersion = ContractTextVersion.of(application, loanContractProperties);
         String documentContent = contractDocumentRenderer.render(
-                contractNumber,
+                heading,
                 application,
                 finalSchedule,
                 textVersion.termsVersion(),
@@ -101,7 +108,7 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
                 expiresAt
         );
         ContractPdfArtifact pdf = contractPdfRenderer.renderSignable(
-                contractNumber, application, finalSchedule, textVersion.termsVersion(), expiresAt);
+                heading, application, finalSchedule, textVersion.termsVersion(), expiresAt);
         LoanContract contract = LoanContract.create(
                 contractNumber,
                 application.getId(),
@@ -115,6 +122,8 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
                 actorId,
                 now
         );
+        contract.assignContractCode(heading.contractCode());
+        contract.captureBorrowerIdentity(heading.borrower());
         // Văn bản vừa render in điều 4 với biểu phí này; Payment tính phí trả trước theo đúng giá trị lưu ở đây.
         contract.recordEarlySettlementPolicy(LoanServicingContractTerms.EARLY_SETTLEMENT_POLICY_VERSION);
         loanContractRepository.saveAndFlush(contract);
@@ -171,6 +180,7 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
             String allocationHash,
             Instant expiresAt,
             String actorId,
+            BorrowerIdentity borrowerIdentity,
             Instant now
     ) {
         LoanContract existing = loanContractRepository.findByApplicationId(application.getId()).orElse(null);
@@ -179,24 +189,27 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
             // lại chính Contract đó thay vì lập hợp đồng mới.
             return existing.isPendingRefunding()
                     ? reissueFunded(existing, application, finalSchedule, allocations, allocationVersion,
-                            allocationHash, expiresAt, actorId, now)
+                            allocationHash, expiresAt, actorId, borrowerIdentity, now)
                     : existing;
         }
         validateAllocations(application, allocations, allocationVersion, allocationHash);
-        String contractNumber = contractNumberGenerator.next();
+        ContractHeading heading = new ContractHeading(
+                contractNumberGenerator.next(), contractNumberGenerator.nextCode(now), requireIdentity(borrowerIdentity));
         ContractTextVersion textVersion = ContractTextVersion.of(application, loanContractProperties);
         // R5/D13: cách ký chốt lúc lập Contract; tắt PAdES chỉ ảnh hưởng hợp đồng mới, không đổi hợp đồng đang ký.
         boolean pades = padesSignatureProperties.isEnabled();
         String documentContent = contractDocumentRenderer.renderFunded(
-                contractNumber, application, finalSchedule, textVersion.termsVersion(),
+                heading, application, finalSchedule, textVersion.termsVersion(),
                 textVersion.documentVersion(), expiresAt, allocations, allocationVersion, allocationHash);
         ContractPdfArtifact pdf = contractPdfRenderer.renderFundedSignable(
-                contractNumber, application, finalSchedule, textVersion.termsVersion(),
+                heading, application, finalSchedule, textVersion.termsVersion(),
                 expiresAt, allocations, allocationVersion, allocationHash, pades);
         LoanContract contract = LoanContract.create(
-                contractNumber, application.getId(), application.getBorrowerId(),
+                heading.contractNumber(), application.getId(), application.getBorrowerId(),
                 terms(application, finalSchedule), textVersion.termsVersion(), textVersion.documentVersion(),
                 documentContent, hashingService.sha256Text(documentContent), expiresAt, actorId, now);
+        contract.assignContractCode(heading.contractCode());
+        contract.captureBorrowerIdentity(heading.borrower());
         contract.recordEarlySettlementPolicy(LoanServicingContractTerms.EARLY_SETTLEMENT_POLICY_VERSION);
         contract.initializeMultiParty();
         if (pades) {
@@ -223,7 +236,7 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
                         application.getInvestmentListingId(), contract.getContractNumber(),
                         contract.getDocumentHash(), pdf.contentHash(), allocationVersion, allocationHash,
                         (int) allocations.stream().map(FundedContractAllocation::investorId).distinct().count(),
-                        expiresAt));
+                        expiresAt, application.getApplicationCode(), contract.getContractCode()));
         return contract;
     }
 
@@ -244,6 +257,7 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
             String allocationHash,
             Instant expiresAt,
             String actorId,
+            BorrowerIdentity borrowerIdentity,
             Instant now
     ) {
         LoanContract contract = loanContractRepository.findByIdForUpdate(existing.getId()).orElseThrow();
@@ -251,6 +265,12 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
             return contract;
         }
         validateAllocations(application, allocations, allocationVersion, allocationHash);
+        // Hợp đồng lập trước V39 chưa có danh tính: bản phát hành lại là văn bản mới nên in danh tính vừa đọc từ User.
+        // Đã có thì giữ nguyên để bên đã ký vẫn thấy đúng người trên bản mới.
+        if (contract.getBorrowerIdentity() == null) {
+            contract.captureBorrowerIdentity(requireIdentity(borrowerIdentity));
+        }
+        ContractHeading heading = ContractHeading.of(contract);
         List<ContractParty> parties = contractPartyRepository.findByContractIdOrderByPartyTypeAscCommitmentIdAsc(
                 contract.getId());
         Map<Long, ContractParty> retained = parties.stream()
@@ -277,10 +297,10 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
         }
 
         String documentContent = contractDocumentRenderer.renderFunded(
-                contract.getContractNumber(), application, finalSchedule, contract.getTermsVersion(),
+                heading, application, finalSchedule, contract.getTermsVersion(),
                 contract.getDocumentVersion(), expiresAt, allocations, allocationVersion, allocationHash);
         ContractPdfArtifact pdf = contractPdfRenderer.renderFundedSignable(
-                contract.getContractNumber(), application, finalSchedule, contract.getTermsVersion(),
+                heading, application, finalSchedule, contract.getTermsVersion(),
                 expiresAt, allocations, allocationVersion, allocationHash, contract.isPadesSigned());
         contract.reissueAfterRefunding(documentContent, hashingService.sha256Text(documentContent), expiresAt,
                 actorId, now);
@@ -318,8 +338,20 @@ public class LoanContractCreationServiceImpl implements LoanContractCreationServ
                         application.getInvestmentListingId(), contract.getContractNumber(),
                         contract.getDocumentHash(), pdf.contentHash(), allocationVersion, allocationHash,
                         (int) allocations.stream().map(FundedContractAllocation::investorId).distinct().count(),
-                        expiresAt));
+                        expiresAt, application.getApplicationCode(), contract.getContractCode()));
         return contract;
+    }
+
+    /**
+     * Danh tính phải được đọc trước transaction; thiếu nghĩa là nơi gọi chưa đọc được (hoặc chưa đọc) từ User. Ném lỗi
+     * tạm thời để event được thử lại thay vì lập hợp đồng không có bên vay.
+     */
+    private static BorrowerIdentity requireIdentity(BorrowerIdentity borrowerIdentity) {
+        if (borrowerIdentity == null) {
+            throw new BorrowerIdentityUnavailableException(
+                    "BORROWER_IDENTITY_MISSING", "Chưa có danh tính bên vay để lập hợp đồng", null);
+        }
+        return borrowerIdentity;
     }
 
     private void carryOverPadesSignatures(LoanContract contract, List<ContractParty> signedParties, Instant now) {
