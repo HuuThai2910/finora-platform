@@ -5,17 +5,13 @@ import com.finora.common.security.SecurityUtils;
 import com.finora.loan.domain.application.entity.LoanApplication;
 import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
 import com.finora.loan.domain.core.enums.ScheduleCalculationPurpose;
-import com.finora.loan.domain.scoring.entity.BorrowerCreditProfile;
 import com.finora.loan.domain.scoring.entity.BorrowerEligibilityCheck;
 import com.finora.loan.domain.scoring.entity.CreditScoringAssessment;
 import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse;
 import com.finora.loan.exception.LoanBusinessException;
-import com.finora.loan.integration.ai.contract.StoredAiCreditResponse;
 import com.finora.loan.mapper.application.InvestorBorrowerProfileMapper;
-import com.finora.loan.mapper.scoring.StoredAiCreditResponseReader;
 import com.finora.loan.repository.application.LoanApplicationRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
-import com.finora.loan.repository.scoring.BorrowerCreditProfileRepository;
 import com.finora.loan.repository.scoring.BorrowerEligibilityCheckRepository;
 import com.finora.loan.repository.scoring.CreditScoringAssessmentRepository;
 import com.finora.loan.service.application.InvestorBorrowerProfileService;
@@ -27,7 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
  * Hồ sơ người vay cho nhà đầu tư trước khi góp vốn (NĐ 94/2025 Điều 22 khoản 3 và khoản 8 điểm c:
  * cung cấp đầy đủ thông tin khoản vay trước khi khách hàng giao kết).
  *
- * <p>Số query cố định (tối đa 6), chỉ đọc snapshot local; không gọi User, AI hay Fineract.</p>
+ * <p>Số query cố định (tối đa 5), chỉ đọc snapshot local; không gọi User, AI hay Fineract. Không đọc lịch sử
+ * tín dụng hay bảng luật đã chấm: hai phần đó không công bố cho nhà đầu tư.</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -38,9 +35,7 @@ public class InvestorBorrowerProfileServiceImpl implements InvestorBorrowerProfi
     private final LoanApplicationRepository loanApplicationRepository;
     private final ScheduleCalculationSnapshotRepository scheduleCalculationSnapshotRepository;
     private final BorrowerEligibilityCheckRepository borrowerEligibilityCheckRepository;
-    private final BorrowerCreditProfileRepository borrowerCreditProfileRepository;
     private final CreditScoringAssessmentRepository creditScoringAssessmentRepository;
-    private final StoredAiCreditResponseReader storedAiCreditResponseReader;
     private final InvestorBorrowerProfileMapper investorBorrowerProfileMapper;
 
     @Override
@@ -67,16 +62,11 @@ public class InvestorBorrowerProfileServiceImpl implements InvestorBorrowerProfi
         BorrowerEligibilityCheck eligibility = borrowerEligibilityCheckRepository
                 .findFirstByApplicationIdOrderByCreatedAtDescIdDesc(application.getId())
                 .orElse(null);
-        BorrowerCreditProfile creditProfile = borrowerCreditProfileRepository
-                .findByBorrowerId(application.getBorrowerId())
-                .orElse(null);
         CreditScoringAssessment assessment = application.getLatestCreditAssessmentId() == null
                 ? null
                 : creditScoringAssessmentRepository.findByIdAndApplicationId(
                         application.getLatestCreditAssessmentId(), application.getId()).orElse(null);
-        StoredAiCreditResponse snapshot = assessment == null ? null : storedAiCreditResponseReader.read(assessment);
 
-        return investorBorrowerProfileMapper.toResponse(application, schedule, eligibility, creditProfile, assessment,
-                snapshot == null ? null : snapshot.ruleTrace());
+        return investorBorrowerProfileMapper.toResponse(application, schedule, eligibility, assessment);
     }
 }

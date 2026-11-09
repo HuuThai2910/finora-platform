@@ -33,7 +33,10 @@ public record OrderBookSnapshotResponse(
         Instant lastTradeAt,
         List<PriceLevel> bids,
         List<PriceLevel> asks,
-        List<TradeTick> recentTrades
+        List<TradeTick> recentTrades,
+        /** Mục đích vay (nhãn) để app gọi tên khoản vay thay cho mã số; {@code purposeCode} để chọn biểu tượng. */
+        String purpose,
+        String purposeCode
 ) {
 
     /** Một mức giá: tổng số Note còn chờ khớp và số lệnh ở mức đó. */

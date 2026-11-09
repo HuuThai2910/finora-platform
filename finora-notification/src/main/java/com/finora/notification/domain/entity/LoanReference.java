@@ -27,6 +27,9 @@ public class LoanReference implements org.springframework.data.domain.Persistabl
     @Column(name = "application_number", length = 64) private String applicationNumber;
     @Column(name = "contract_number", length = 64) private String contractNumber;
     @Column(name = "loan_number", length = 64) private String loanNumber;
+    /** Mã hiển thị {@code HS-...}/{@code HĐ-...} cho câu thông báo; null khi chỉ nhận event của Loan bản cũ. */
+    @Column(name = "application_code", length = 20) private String applicationCode;
+    @Column(name = "contract_code", length = 20) private String contractCode;
     /** Phiên bản allocation của danh sách nhà đầu tư đang lưu ({@code LoanFullyFunded.allocationVersion}). */
     @Column(name = "lender_allocation_version") private Long lenderAllocationVersion;
     @Column(name = "last_source_event_id", nullable = false) private UUID lastSourceEventId;
@@ -80,6 +83,12 @@ public class LoanReference implements org.springframework.data.domain.Persistabl
         if (this.applicationNumber == null && hasText(applicationNumber)) this.applicationNumber = applicationNumber;
         if (this.contractNumber == null && hasText(contractNumber)) this.contractNumber = contractNumber;
         if (this.loanNumber == null && hasText(loanNumber)) this.loanNumber = loanNumber;
+    }
+
+    /** Mã hiển thị cũng chỉ điền chỗ trống như {@link #fillLabels}. */
+    public void fillDisplayCodes(String applicationCode, String contractCode) {
+        if (this.applicationCode == null && hasText(applicationCode)) this.applicationCode = applicationCode.trim();
+        if (this.contractCode == null && hasText(contractCode)) this.contractCode = contractCode.trim();
     }
 
     public void lendersReplaced(long allocationVersion) {

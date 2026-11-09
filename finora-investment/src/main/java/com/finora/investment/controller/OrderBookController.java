@@ -56,6 +56,7 @@ public class OrderBookController {
     /** Các khoản vay còn Note lưu hành, kèm giá mua/bán tốt nhất. */
     @GetMapping
     public ResponseEntity<PageResponse<OrderBookSummaryResponse>> listBooks(
+            @RequestParam(required = false) @Size(max = 100) String q,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
         // Khoản vay của chính người xem không hiện trên Sàn; quản trị viên và nhân viên có quyền Xem Chợ thứ cấp
@@ -63,7 +64,7 @@ public class OrderBookController {
         String hiddenBorrowerId = SecurityUtils.hasPermission(OpsFunction.SECONDARY_MARKET.view())
                 ? null : SecurityUtils.getCurrentUserId();
         return ResponseEntity.ok(
-                toPageResponse(orderBookQueryService.listBooks(hiddenBorrowerId, PageRequest.of(page, size))));
+                toPageResponse(orderBookQueryService.listBooks(hiddenBorrowerId, q, PageRequest.of(page, size))));
     }
 
     @GetMapping("/{listingId}")

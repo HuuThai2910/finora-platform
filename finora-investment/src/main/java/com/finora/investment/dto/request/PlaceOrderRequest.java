@@ -24,7 +24,7 @@ public record PlaceOrderRequest(
         @Size(max = 50, message = "Phiên bản công bố rủi ro không hợp lệ")
         String riskAcknowledgementVersion
 ) {
-    /** Lệnh hệ thống đặt thay nhà đầu tư (Auto-Invest) không có thao tác xác nhận trên màn hình. */
+    /** Lệnh không kèm xác nhận công bố rủi ro (dùng cho bước ghi lệnh nội bộ và kiểm thử). */
     public PlaceOrderRequest(BigDecimal amount) {
         this(amount, null);
     }

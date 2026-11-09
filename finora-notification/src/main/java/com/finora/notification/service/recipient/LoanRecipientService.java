@@ -22,6 +22,12 @@ public interface LoanRecipientService {
     Optional<LoanReference> find(Long loanApplicationId);
 
     /**
+     * Điền mã hiển thị ({@code HS-...}, {@code HĐ-...}) Loan gửi kèm event vào dòng tham chiếu đã có; chưa có dòng hoặc
+     * event cũ không mang mã thì không làm gì.
+     */
+    void rememberDisplayCodes(Long loanApplicationId, String applicationCode, String contractCode);
+
+    /**
      * Người vay để gửi: ưu tiên {@code borrowerId} trong event (khi producer đã bổ sung, P1–P4), kiểm khớp bảng tra;
      * không có thì lấy từ bảng tra.
      */

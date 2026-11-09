@@ -32,6 +32,21 @@ public interface LoanRescheduleService {
     /** Danh sách yêu cầu cho quản trị, lọc tùy chọn theo trạng thái, mới nhất trước. */
     PageResponse<LoanRescheduleResponse> listAdmin(LoanRescheduleStatus status, int page, int size);
 
+    /**
+     * Như trên, thêm ô tìm {@code q}: mã khoản vay {@code LN-…}, mã hồ sơ hoặc mã hợp đồng (mới lẫn cũ), khớp một phần;
+     * rỗng thì như trên.
+     */
+    PageResponse<LoanRescheduleResponse> listAdmin(LoanRescheduleStatus status, String q, int page, int size);
+
+    /**
+     * Yêu cầu cơ cấu của đúng một khoản vay cho quản trị (phần "Sau giải ngân" của trang hồ sơ vay), mới nhất trước.
+     *
+     * @param loanNumber mã khoản vay {@code LN-…}
+     * @param status trạng thái cần lọc; {@code null} là mọi trạng thái
+     */
+    PageResponse<LoanRescheduleResponse> listAdminByLoan(String loanNumber, LoanRescheduleStatus status,
+            int page, int size);
+
     /** Quản trị duyệt: yêu cầu chuyển sang chờ nhà đầu tư đồng ý; gửi lại cùng {@code decisionKey} trả kết quả cũ. */
     LoanRescheduleResponse approve(UUID requestId, String decisionKey,
             AdminLoanRescheduleDecisionRequest input);

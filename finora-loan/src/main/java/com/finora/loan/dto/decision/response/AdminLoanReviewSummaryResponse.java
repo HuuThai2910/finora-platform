@@ -5,9 +5,11 @@ import com.finora.loan.domain.application.enums.LoanDecisionSource;
 import com.finora.loan.domain.application.enums.LoanPurpose;
 import com.finora.loan.domain.application.enums.TermsConfirmationStatus;
 import com.finora.loan.domain.product.enums.RepaymentMethod;
+import com.finora.loan.domain.servicing.enums.ApplicationServicingFlag;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 
 public record AdminLoanReviewSummaryResponse(
         String applicationNumber,
@@ -30,6 +32,12 @@ public record AdminLoanReviewSummaryResponse(
         String adminDecidedBy,
         Instant adminDecidedAt,
         /** Mục đích vay để danh sách quản trị hiện icon/nhãn theo từng dòng mà không phải gọi chi tiết từng hồ sơ. */
-        LoanPurpose purposeCode
+        LoanPurpose purposeCode,
+        /** Mã hiển thị {@code HS-yyyyMMdd-XXXX}; {@code applicationNumber} vẫn là khóa tra cứu API. */
+        String applicationCode,
+        /** Mã khoản vay {@code LN-…}; {@code null} khi hồ sơ chưa giải ngân xong. */
+        String loanNumber,
+        /** Việc vận hành đang mở của khoản vay (quá hạn, chờ duyệt cơ cấu, sự cố) để danh sách gắn nhãn cảnh báo. */
+        List<ApplicationServicingFlag> servicingFlags
 ) {
 }

@@ -184,7 +184,7 @@ mà `LoanFundingRequested.v1` mang theo (trường bổ sung).
 `finora.investment.risk-disclosure.version` (D6, [`LEGAL-DISCLOSURE-02`](../../docs/LEGAL-COMPLIANCE.md)); thiếu →
 `400 RISK_ACKNOWLEDGEMENT_REQUIRED`, lệch → `409 RISK_DISCLOSURE_OUTDATED`, kiểm trước khi ghi lệnh hay giữ tiền.
 Investment lưu version + thời điểm trên `investment_orders`. Gửi lại cùng `Idempotency-Key` của lệnh đã tạo trả lệnh
-cũ, không kiểm lại version. Lệnh Auto-Invest đi qua `placeOrderFor` nên không mang xác nhận từng lệnh.
+cũ, không kiểm lại version. Auto-Invest đã gỡ (2026-11-09) nên mọi lệnh sơ cấp mới đều do nhà đầu tư tự đặt và mang xác nhận.
 
 **CURRENT STATE (2026-10-17, Wave 2D, R3):** lệnh góp vốn đối soát với khoản giữ của Payment, không sửa DB Payment:
 

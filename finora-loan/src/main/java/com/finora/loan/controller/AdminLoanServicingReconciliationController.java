@@ -8,6 +8,7 @@ import com.finora.loan.dto.servicing.response.LoanReconciliationIncidentResponse
 import com.finora.loan.service.servicing.AdminLoanServicingReconciliationService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -32,6 +33,13 @@ public class AdminLoanServicingReconciliationController {
         return ResponseEntity.ok(adminLoanServicingReconciliationService.listStale(page, size));
     }
 
+    /** Số liệu đang lưu của một khoản vay so với lịch đồng bộ; chỉ đọc, không gọi hệ thống lõi. */
+    @GetMapping("/{loanNumber}")
+    public ResponseEntity<AdminLoanServicingReconciliationResponse> status(
+            @PathVariable @Size(max = 50) String loanNumber) {
+        return ResponseEntity.ok(adminLoanServicingReconciliationService.status(loanNumber));
+    }
+
     @PostMapping("/{loanNumber}/reconcile")
     public ResponseEntity<AdminLoanServicingReconciliationResponse> reconcile(@PathVariable String loanNumber) {
         return ResponseEntity.ok(adminLoanServicingReconciliationService.reconcile(loanNumber));
@@ -41,8 +49,14 @@ public class AdminLoanServicingReconciliationController {
     public ResponseEntity<PageResponse<LoanReconciliationIncidentResponse>> incidents(
             @RequestParam(required = false) ReconciliationIncidentStatus status,
             @RequestParam(required = false) ReconciliationIncidentType type,
+            @RequestParam(required = false) @Size(max = 50) String loanNumber,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+        // loanNumber: phần "Sau giải ngân" của trang hồ sơ vay chỉ đọc sai lệch của đúng khoản vay đó.
+        if (loanNumber != null && !loanNumber.isBlank()) {
+            return ResponseEntity.ok(adminLoanServicingReconciliationService.listIncidentsByLoan(
+                    loanNumber, status, page, size));
+        }
         return ResponseEntity.ok(adminLoanServicingReconciliationService.listIncidents(status, type, page, size));
     }
 }

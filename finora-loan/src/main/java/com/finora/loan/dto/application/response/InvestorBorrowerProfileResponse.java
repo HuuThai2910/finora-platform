@@ -1,6 +1,5 @@
 package com.finora.loan.dto.application.response;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.finora.loan.domain.application.enums.CreditInformationSource;
 import com.finora.loan.domain.application.enums.EducationLevel;
 import com.finora.loan.domain.application.enums.HomeOwnership;
@@ -9,12 +8,10 @@ import com.finora.loan.domain.application.enums.LoanPurpose;
 import com.finora.loan.domain.product.enums.RepaymentMethod;
 import com.finora.loan.domain.scoring.enums.BorrowerKycStatus;
 import com.finora.loan.domain.scoring.enums.BorrowerProfileSource;
-import com.finora.loan.domain.scoring.enums.CreditProfileSource;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.List;
 
 /**
  * Hồ sơ người vay nhà đầu tư xem trước khi góp vốn: những gì admin thấy ở trang thẩm định, trừ định
@@ -23,7 +20,9 @@ import java.util.List;
  * <p>Cố ý không có {@code borrowerId}, họ tên, CCCD, liên hệ, địa chỉ (NĐ 94/2025 Điều 11 khoản 2
  * điểm d: bảo mật với bên không liên quan; Luật BVDLCN 2025: tối thiểu hóa). Cũng không có
  * {@code modelExplanation} (SHAP) và {@code borrowerExplanation}: SHAP chỉ dành cho thẩm định viên,
- * còn thông điệp gửi người vay viết cho chính người vay và phần gợi ý xếp theo SHAP.</p>
+ * còn thông điệp gửi người vay viết cho chính người vay và phần gợi ý xếp theo SHAP. Lịch sử tín dụng
+ * (lịch sử vay tại FINORA) và bảng luật đã chấm (gồm điểm CIC) cũng không công bố cho nhà đầu tư;
+ * nhà đầu tư chỉ thấy điểm tổng hợp trong {@code assessment}.</p>
  *
  * <p>Tiền và tỷ lệ là số JSON như mọi DTO khác của Loan; {@code dtiSnapshot} đã là phần trăm,
  * {@code pdProbability} là tỷ lệ 0..1.</p>
@@ -33,11 +32,8 @@ public record InvestorBorrowerProfileResponse(
         LoanRequest loan,
         RepaymentCapacity capacity,
         Background background,
-        /** {@code null} khi Loan chưa có bản ghi lịch sử vay nội bộ của người vay. */
-        CreditHistory creditHistory,
         /** {@code null} khi lần chấm gần nhất chưa thành công. */
-        CreditAssessment assessment,
-        List<RuleResult> ruleResults
+        CreditAssessment assessment
 ) {
     /** Khoản vay người vay đề nghị; kỳ trả lấy từ lịch cuối, chưa có thì lịch lúc nộp. */
     public record LoanRequest(
@@ -80,16 +76,6 @@ public record InvestorBorrowerProfileResponse(
     ) {
     }
 
-    /** Lịch sử vay tại FINORA (không phải CIC). */
-    public record CreditHistory(
-            boolean hasInternalCreditHistory,
-            int completedLoanCount,
-            int internalDelinquenciesLast2Years,
-            int internalDefaultedLoanCount,
-            CreditProfileSource source
-    ) {
-    }
-
     /** Kết quả chấm điểm; {@code riskScore} là điểm theo bảng luật 0..100. */
     public record CreditAssessment(
             BigDecimal evaluationScore,
@@ -98,19 +84,6 @@ public record InvestorBorrowerProfileResponse(
             Integer riskScore,
             LoanDecisionSource decisionSource,
             Instant scoredAt
-    ) {
-    }
-
-    /** Một luật đã chấm, chép theo allowlist từ {@code rule_trace} của AI; {@code value} là số, chuỗi hoặc null. */
-    public record RuleResult(
-            String code,
-            String description,
-            String field,
-            JsonNode value,
-            Integer points,
-            Integer maxPoints,
-            BigDecimal weight,
-            boolean missingData
     ) {
     }
 }

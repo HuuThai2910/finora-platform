@@ -21,6 +21,10 @@ public record AdminLoanDecisionResponse(
         LoanContractStatus contractStatus,
         Long contractVersion,
         String documentHash,
-        Instant expiresAt
+        Instant expiresAt,
+        /** Mã hiển thị {@code HS-yyyyMMdd-XXXX}; {@code applicationNumber} vẫn là khóa tra cứu API. */
+        String applicationCode,
+        /** Mã hiển thị {@code HĐ-yyyyMMdd-XXXX}; {@code null} khi chưa có Contract. */
+        String contractCode
 ) {
 }

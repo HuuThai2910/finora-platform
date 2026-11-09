@@ -49,6 +49,8 @@ public class ContractLifecycleEventHandlerImpl implements ContractLifecycleEvent
         }
         requireSameDocument(listing, data.documentHash());
         listing.setContractNumber(data.contractNumber());
+        // Mã hiển thị chỉ bổ sung khi chưa có: listing tạo trước khi Loan có mã nhận mã hồ sơ từ đây.
+        fillDisplayCodes(listing, data.applicationCode(), data.contractCode());
         // Ba topic Contract/giải ngân không bảo đảm thứ tự giữa nhau: event yêu cầu ký đến muộn sau khi Contract đã
         // hiệu lực hoặc đã giải ngân thì chỉ bổ sung tham chiếu, không đưa trạng thái lùi về chờ ký.
         if (!"EFFECTIVE".equals(listing.getContractStatus()) && listing.getDisbursedAt() == null) {
@@ -89,6 +91,7 @@ public class ContractLifecycleEventHandlerImpl implements ContractLifecycleEvent
                     "CONTRACT_ACTIVATION_MISMATCH", "Contract kích hoạt không khớp projection đã nhận");
         }
         listing.setContractNumber(data.contractNumber());
+        fillDisplayCodes(listing, null, data.contractCode());
         listing.setContractDocumentHash(data.documentHash());
         listing.setContractStatus("EFFECTIVE");
         listing.setContractReceiptHash(data.pdfReceiptHash());
@@ -99,6 +102,16 @@ public class ContractLifecycleEventHandlerImpl implements ContractLifecycleEvent
         processedEventRepository.saveAndFlush(ProcessedEvent.create(
                 eventId, "LoanContractActivated", 1, "finora-loan",
                 data.contractNumber(), occurredAt, clock.instant()));
+    }
+
+    /** Ghi mã hiển thị Loan gửi kèm event khi listing chưa có; event cũ không có mã thì giữ nguyên. */
+    static void fillDisplayCodes(MarketListing listing, String applicationCode, String contractCode) {
+        if (listing.getApplicationCode() == null && applicationCode != null && !applicationCode.isBlank()) {
+            listing.setApplicationCode(applicationCode.trim());
+        }
+        if (listing.getContractCode() == null && contractCode != null && !contractCode.isBlank()) {
+            listing.setContractCode(contractCode.trim());
+        }
     }
 
     private static void requireSameDocument(MarketListing listing, String documentHash) {

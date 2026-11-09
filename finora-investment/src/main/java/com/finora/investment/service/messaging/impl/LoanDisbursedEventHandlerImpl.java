@@ -43,6 +43,8 @@ public class LoanDisbursedEventHandlerImpl implements LoanDisbursedEventHandler{
    throw InvestmentDomainException.conflict("LOAN_DISBURSED_MISMATCH","LoanDisbursed không khớp listing/hợp đồng");
   requireFinancialResult(listing,data);
   listing.setContractNumber(data.contractNumber());
+  if(listing.getContractCode()==null&&data.contractCode()!=null&&!data.contractCode().isBlank())
+    listing.setContractCode(data.contractCode().trim());
   listing.setContractStatus("EFFECTIVE");
   noteIssuanceService.finalizeCommitments(listing.getId());
   noteIssuanceService.activateNotes(listing.getId());

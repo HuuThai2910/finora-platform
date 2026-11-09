@@ -38,9 +38,18 @@ public class AdminDisbursementReconciliationServiceImpl implements AdminDisburse
     @Override
     @Transactional(readOnly = true)
     public PageResponse<DisbursementReconciliationResponse> list(int page, int size) {
+        return list(null, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<DisbursementReconciliationResponse> list(Long loanApplicationId, int page, int size) {
         SecurityUtils.requirePermission(OpsFunction.RECONCILIATION.view());
-        Page<DisbursementReconciliationResponse> result = paymentDisbursementRepository
-                .findByStatusInOrderByUpdatedAtAscIdAsc(OPEN_STATUSES, PageRequest.of(page, size))
+        PageRequest pageable = PageRequest.of(page, size);
+        Page<DisbursementReconciliationResponse> result = (loanApplicationId == null
+                ? paymentDisbursementRepository.findByStatusInOrderByUpdatedAtAscIdAsc(OPEN_STATUSES, pageable)
+                : paymentDisbursementRepository.findByLoanApplicationIdAndStatusInOrderByUpdatedAtAscIdAsc(
+                        loanApplicationId, OPEN_STATUSES, pageable))
                 .map(DisbursementReconciliationResponse::from);
         return PageResponse.<DisbursementReconciliationResponse>builder()
                 .content(result.getContent()).page(result.getNumber()).size(result.getSize())

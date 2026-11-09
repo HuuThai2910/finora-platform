@@ -5,6 +5,7 @@ import com.finora.payment.dto.response.AdminWithdrawalResponse;
 import com.finora.payment.service.withdrawal.AdminWithdrawalService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -28,9 +29,11 @@ public class AdminWithdrawalController {
 
     @GetMapping
     public ResponseEntity<PageResponse<AdminWithdrawalResponse>> list(
+            @RequestParam(required = false) @Size(max = 100) String ownerId,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-        return ResponseEntity.ok(adminWithdrawalService.list(page, size));
+        // ownerId: trang chi tiết khách hàng chỉ đọc lệnh rút của đúng khách hàng đó.
+        return ResponseEntity.ok(adminWithdrawalService.list(ownerId, page, size));
     }
 
     @GetMapping("/{withdrawalId}")

@@ -75,6 +75,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.kafka.listener.auto-startup=false",
         "finora.loan.outbox.publisher-delay=3600000",
         "finora.signature.provider=mock",
+        // Hợp đồng in danh tính bên vay đọc từ finora-user; IT không chạy User nên dùng bản giả lập (không có họ tên).
+        "finora.borrower-identity.provider=mock",
         // Worker đối soát SmartCA được gọi tay trong test; không để lịch chạy chen giữa các bước.
         "finora.signature.pades.worker-delay=3600000",
         // Hạn mức dư nợ là cấu hình; IT dùng 150 triệu vì các test N+1 nộp ba hồ sơ 50 triệu cho cùng người vay.

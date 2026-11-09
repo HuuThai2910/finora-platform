@@ -39,7 +39,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Token service account mang {@code payment:hold:on_behalf} (Auto-Invest của finora-investment)
+ * Token service account mang {@code payment:hold:on_behalf} (worker của finora-investment)
  * giữ/nhả được tiền thay nhà đầu tư; token người dùng thường thì không.
  */
 class HoldTransferServiceImplOnBehalfTest {

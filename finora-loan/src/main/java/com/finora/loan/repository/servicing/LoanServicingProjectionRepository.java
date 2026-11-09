@@ -18,6 +18,11 @@ public interface LoanServicingProjectionRepository extends JpaRepository<LoanSer
     List<LoanServicingProjection> findByFinoraLoanIdIn(Collection<Long> finoraLoanIds);
     Page<LoanServicingProjection> findByStaleTrueOrderByUpdatedAtAscIdAsc(Pageable pageable);
 
+    /** Khoản vay (trong {@code loanIds}) có số liệu lưu đã cũ so với hệ thống lõi: nhãn trên danh sách hồ sơ. */
+    @Query("select projection.finoraLoanId from LoanServicingProjection projection "
+            + "where projection.stale = true and projection.finoraLoanId in :loanIds")
+    List<Long> findStaleLoanIds(@Param("loanIds") Collection<Long> loanIds);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select projection from LoanServicingProjection projection where projection.finoraLoanId = :loanId")
     Optional<LoanServicingProjection> findByFinoraLoanIdForUpdate(@Param("loanId") Long loanId);

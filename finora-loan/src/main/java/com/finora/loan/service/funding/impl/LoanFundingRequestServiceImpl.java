@@ -71,7 +71,9 @@ public class LoanFundingRequestServiceImpl implements LoanFundingRequestService 
                         application.getRepaymentMethodSnapshot().name(),
                         application.getTermsVersion(),
                         application.getTermsHash(),
-                        application.getBorrowerId()
+                        application.getBorrowerId(),
+                        application.getApplicationCode(),
+                        application.getPurposeCode().name()
                 )
         );
     }

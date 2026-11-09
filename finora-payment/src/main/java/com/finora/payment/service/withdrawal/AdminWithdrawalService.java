@@ -14,6 +14,11 @@ public interface AdminWithdrawalService {
     /** Lệnh rút đang gửi provider, chờ provider hoặc cần đối soát, lâu chưa cập nhật nhất đứng trước. */
     PageResponse<AdminWithdrawalResponse> list(int page, int size);
 
+    /**
+     * Như trên, lọc theo chủ ví khi {@code ownerId} có giá trị (trang chi tiết khách hàng); rỗng thì như trên.
+     */
+    PageResponse<AdminWithdrawalResponse> list(String ownerId, int page, int size);
+
     /** Một lệnh rút theo mã, ở mọi trạng thái. */
     AdminWithdrawalResponse find(UUID withdrawalId);
 

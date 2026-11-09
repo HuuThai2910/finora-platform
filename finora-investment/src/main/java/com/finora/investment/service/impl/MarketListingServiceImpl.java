@@ -11,6 +11,7 @@ import com.finora.investment.dto.response.FundingProgressResponse;
 import com.finora.investment.dto.response.ListingInvestorResponse;
 import com.finora.investment.dto.response.MarketListingResponse;
 import com.finora.investment.exception.InvestmentDomainException;
+import com.finora.investment.integration.user.client.UserIdentityClient;
 import com.finora.investment.mapper.InvestmentMapper;
 import com.finora.investment.messaging.event.LoanFundingExpiredEventData;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
@@ -19,6 +20,7 @@ import com.finora.investment.service.FundingSettingsService;
 import com.finora.investment.service.ListingCommitmentCanceller;
 import com.finora.investment.service.MarketListingService;
 import com.finora.investment.service.outbox.InvestmentOutboxService;
+import com.finora.investment.util.SearchPatterns;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -65,6 +67,7 @@ public class MarketListingServiceImpl implements MarketListingService {
     private final FundingSettingsService fundingSettingsService;
     private final InvestmentOutboxService investmentOutboxService;
     private final ListingCommitmentCanceller listingCommitmentCanceller;
+    private final UserIdentityClient userIdentityClient;
 
     @Override
     @Transactional
@@ -89,11 +92,13 @@ public class MarketListingServiceImpl implements MarketListingService {
                 .loanId(request.getLoanId())
                 .contractNumber(request.getContractNumber())
                 .applicationNumber(requireText(request.getApplicationNumber(), "applicationNumber"))
+                .applicationCode(blankToNull(request.getApplicationCode()))
                 .listingVersion(requirePositive(request.getListingVersion(), "listingVersion"))
                 .termsVersion(requireText(request.getTermsVersion(), "termsVersion"))
                 .termsHash(requireText(request.getTermsHash(), "termsHash"))
                 .productCode(request.getProductCode())
                 .purpose(request.getPurpose())
+                .purposeCode(blankToNull(request.getPurposeCode()))
                 .region(request.getRegion())
                 .creditGrade(request.getCreditGrade())
                 .creditScore(request.getCreditScore())
@@ -128,7 +133,7 @@ public class MarketListingServiceImpl implements MarketListingService {
                 || normalized.remainder(denomination).signum() != 0) {
             throw InvestmentDomainException.invalidInput(
                     "LISTING_TARGET_NOT_DIVISIBLE",
-                    "Số tiền Loan yêu cầu không chia hết cho mệnh giá Note hiện hành"
+                    "Số tiền Loan yêu cầu không chia hết cho mệnh giá phần vốn hiện hành"
             );
         }
         return normalized;
@@ -170,6 +175,11 @@ public class MarketListingServiceImpl implements MarketListingService {
                     "LISTING_SNAPSHOT_INVALID", field + " không được để trống");
         }
         return value.trim();
+    }
+
+    /** Trường tùy chọn của event (ví dụ mã hiển thị): rỗng thì lưu null. */
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     /** Danh sách khoản vay đang mở gọi vốn, có lọc và phân trang. */
@@ -224,6 +234,8 @@ public class MarketListingServiceImpl implements MarketListingService {
                 maxTermMonths,
                 hiddenBorrowerId,
                 pattern,
+                // Mã hiển thị HS-/HĐ- lưu chữ hoa (có chữ Đ): so bằng mẫu viết hoa, không qua LOWER của database.
+                SearchPatterns.containsCode(q),
                 pageable
         );
 
@@ -237,10 +249,27 @@ public class MarketListingServiceImpl implements MarketListingService {
                 .build();
     }
 
+    /** Không mở transaction: lời gọi User không được giữ kết nối DB trong lúc chờ. */
     @Override
-    @Transactional(readOnly = true)
     public MarketListingResponse detail(Long listingId) {
-        return investmentMapper.toListingResponse(requireListing(listingId));
+        MarketListing listing = requireListing(listingId);
+        return investmentMapper.toListingResponse(listing, borrowerFullName(listing.getBorrowerId()));
+    }
+
+    /**
+     * Họ tên người vay hiện cho nhà đầu tư. User lỗi hay chậm thì trả null để màn khoản vay vẫn mở được;
+     * app hiện "Chưa cập nhật" thay vì chặn việc đặt lệnh vì thiếu một dòng chữ.
+     */
+    private String borrowerFullName(String borrowerId) {
+        if (borrowerId == null || borrowerId.isBlank()) {
+            return null;
+        }
+        try {
+            return userIdentityClient.identity(borrowerId).fullName();
+        } catch (UserIdentityClient.UserIdentityUnavailableException exception) {
+            log.warn("Không đọc được họ tên người vay: borrowerId={}, code={}", borrowerId, exception.code());
+            return null;
+        }
     }
 
     /**

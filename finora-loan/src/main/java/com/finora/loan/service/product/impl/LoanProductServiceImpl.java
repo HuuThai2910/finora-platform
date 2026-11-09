@@ -16,6 +16,7 @@ import com.finora.loan.exception.LoanBusinessException;
 import com.finora.loan.mapper.product.LoanProductMapper;
 import com.finora.loan.repository.product.LoanProductRepository;
 import com.finora.loan.service.product.LoanProductService;
+import com.finora.loan.util.SearchPatterns;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -142,12 +143,14 @@ public class LoanProductServiceImpl implements LoanProductService {
     public PageResponse<LoanProductResponse> listAdmin(
             LoanProductStatus status,
             CoreSyncStatus coreSyncStatus,
+            String q,
             int page,
             int size
     ) {
         Page<LoanProductResponse> products = loanProductRepository.findAdminProducts(
                         status,
                         coreSyncStatus,
+                        SearchPatterns.containsLower(q),
                         PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")))
                 )
                 .map(loanProductMapper::toResponse);

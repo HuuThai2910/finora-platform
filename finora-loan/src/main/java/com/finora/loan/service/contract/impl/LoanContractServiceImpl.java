@@ -90,7 +90,7 @@ public class LoanContractServiceImpl implements LoanContractService {
                 .stream()
                 .collect(Collectors.toMap(LoanApplication::getId, Function.identity()));
         return PageResponse.from(contracts.map(contract -> loanContractMapper.toSummary(
-                contract, applications.get(contract.getApplicationId()).getApplicationNumber())));
+                contract, applications.get(contract.getApplicationId()))));
     }
 
     @Override

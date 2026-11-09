@@ -71,6 +71,7 @@ public class FundingEventsHandler implements InboundEventHandler {
         if (!hasText(payload.borrowerId())) return HandlerOutcome.deliver(List.of());
         LoanReference reference = loanRecipientService.remember(loanId, payload.borrowerId(),
                 payload.applicationNumber(), null, null, event.eventId());
+        loanRecipientService.rememberDisplayCodes(loanId, payload.applicationCode(), null);
         String amount = required(notificationText.money(payload.targetAmount()), "targetAmount", event.eventType());
         return HandlerOutcome.deliver(List.of(NotificationDraft.of(reference.getBorrowerId(),
                 NotificationTemplate.LOAN_FUNDING_OPENED,

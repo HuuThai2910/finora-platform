@@ -35,6 +35,10 @@ public record InvestorContractResponse(
         int pdfSignatureCount,
         String signedPdfDocumentHash,
         String receiptDocumentHash,
-        Instant investorSignedAt
+        Instant investorSignedAt,
+        /** Mã hiển thị {@code HĐ-yyyyMMdd-XXXX} cho người dùng; {@code contractNumber} vẫn là khóa tra cứu API. */
+        String contractCode,
+        /** Mã hiển thị {@code HS-...} của hồ sơ gốc. */
+        String applicationCode
 ) {
 }

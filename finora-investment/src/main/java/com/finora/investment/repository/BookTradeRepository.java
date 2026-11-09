@@ -45,4 +45,23 @@ public interface BookTradeRepository extends JpaRepository<BookTrade, Long> {
             GROUP BY t.settlementStatus
             """)
     List<SettlementTotalsView> sumBySettlementStatus();
+
+    /**
+     * Ô tìm của bảng lần khớp quản trị: {@code code} (đã viết hoa, dạng {@code %…%}) khớp mã lần khớp hoặc mã hồ sơ/hợp
+     * đồng của khoản vay (mã hiển thị lẫn mã tra cứu). {@code status} {@code null} là mọi trạng thái thanh toán.
+     */
+    @Query("""
+            SELECT t FROM BookTrade t
+            WHERE (:status IS NULL OR t.settlementStatus = :status)
+              AND (UPPER(t.tradeReference) LIKE :code ESCAPE '!'
+                   OR t.listingId IN (
+                    SELECT l.id FROM MarketListing l
+                    WHERE l.applicationCode LIKE :code ESCAPE '!' OR l.contractCode LIKE :code ESCAPE '!'
+                       OR l.applicationNumber LIKE :code ESCAPE '!' OR l.contractNumber LIKE :code ESCAPE '!'))
+            ORDER BY t.executedAt DESC, t.id DESC
+            """)
+    Page<BookTrade> search(
+            @Param("status") SettlementStatus status,
+            @Param("code") String code,
+            Pageable pageable);
 }

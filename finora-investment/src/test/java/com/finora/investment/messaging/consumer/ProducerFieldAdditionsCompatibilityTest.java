@@ -4,15 +4,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
 import com.finora.common.messaging.FinoraKafkaHeaders;
 import com.finora.common.messaging.KafkaEventReader;
+import com.finora.investment.messaging.event.InvestorSignatureRequestedEventData;
 import com.finora.investment.messaging.event.LoanContractActivatedEventData;
 import com.finora.investment.messaging.event.LoanDisbursedEventData;
 import com.finora.investment.messaging.event.LoanFundingCancelledEventData;
+import com.finora.investment.messaging.event.LoanFundingRequestedEventData;
 import com.finora.investment.messaging.event.LoanRescheduleConsentRequestedEventData;
 import com.finora.investment.messaging.event.LoanRescheduledEventData;
 import com.finora.investment.messaging.event.RepaymentDistributedEventData;
 import com.finora.investment.service.messaging.ContractLifecycleEventHandler;
 import com.finora.investment.service.messaging.LoanDisbursedEventHandler;
 import com.finora.investment.service.messaging.LoanFundingCancelledHandler;
+import com.finora.investment.service.messaging.LoanFundingRequestedHandler;
 import com.finora.investment.service.messaging.LoanRescheduleConsentRequestedHandler;
 import com.finora.investment.service.messaging.LoanServicingLifecycleEventHandler;
 import com.finora.investment.service.messaging.RepaymentDistributedEventHandler;
@@ -30,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -58,6 +62,50 @@ class ProducerFieldAdditionsCompatibilityTest {
         ArgumentCaptor<LoanContractActivatedEventData> data = ArgumentCaptor.forClass(LoanContractActivatedEventData.class);
         verify(handler).handleActivated(eq(EVENT_ID), any(), data.capture());
         assertThat(data.getValue().contractNumber()).isEqualTo("LC-10");
+    }
+
+    @Test
+    void fundingRequestedWithApplicationCode() {
+        LoanFundingRequestedHandler handler = mock(LoanFundingRequestedHandler.class);
+
+        new LoanFundingRequestedConsumer(reader, handler).consume(record(envelope("""
+                {"loanApplicationId":10,"applicationNumber":"LA-10","listingVersion":1,"fundingRound":1,
+                 "productCode":"SP-01","purpose":"Chi phí giáo dục","borrowerRegion":null,"creditGrade":"B",
+                 "creditScore":80,"targetAmount":"10000000.00","annualInterestRate":"15.0000","termMonths":12,
+                 "repaymentMethod":"ANNUITY","termsVersion":"LOAN_TERMS_V2","termsHash":"%s","borrowerId":"42",
+                 "applicationCode":"HS-20261109-3RXA","purposeCode":"EDUCATION"}
+                """.formatted("a".repeat(64))), EVENT_ID.toString(), "LoanFundingRequested", "1"));
+
+        ArgumentCaptor<LoanFundingRequestedEventData> data = ArgumentCaptor.forClass(LoanFundingRequestedEventData.class);
+        verify(handler).handle(eq(EVENT_ID), any(), data.capture());
+        assertThat(data.getValue().applicationCode()).isEqualTo("HS-20261109-3RXA");
+        assertThat(data.getValue().purposeCode()).isEqualTo("EDUCATION");
+        assertThat(data.getValue().applicationNumber()).isEqualTo("LA-10");
+    }
+
+    @Test
+    void signatureRequestedWithDisplayCodesAndWithoutThem() {
+        ContractLifecycleEventHandler handler = mock(ContractLifecycleEventHandler.class);
+        InvestorSignatureRequestedConsumer consumer = new InvestorSignatureRequestedConsumer(reader, handler);
+        String base = """
+                "loanApplicationId":10,"applicationNumber":"LA-10","listingId":20,"contractNumber":"LC-10",
+                "documentHash":"%s","pdfDocumentHash":"%s","allocationVersion":1,"allocationHash":"%s",
+                "lenderCount":2,"expiresAt":"2026-11-16T03:00:00Z"
+                """.formatted("a".repeat(64), "b".repeat(64), "c".repeat(64)).strip();
+
+        consumer.consume(record(envelope("{" + base
+                + ",\"applicationCode\":\"HS-20261109-3RXA\",\"contractCode\":\"HĐ-20261110-K7QM\"}"),
+                EVENT_ID.toString(), "InvestorSignatureRequested", "1"));
+        consumer.consume(record(envelope("{" + base + "}"), EVENT_ID.toString(), "InvestorSignatureRequested", "1"));
+
+        ArgumentCaptor<InvestorSignatureRequestedEventData> data =
+                ArgumentCaptor.forClass(InvestorSignatureRequestedEventData.class);
+        verify(handler, times(2)).handleSignatureRequested(eq(EVENT_ID), any(), data.capture());
+        assertThat(data.getAllValues().get(0).contractCode()).isEqualTo("HĐ-20261110-K7QM");
+        assertThat(data.getAllValues().get(0).applicationCode()).isEqualTo("HS-20261109-3RXA");
+        // Producer cũ không gửi mã: hai field là null, event vẫn đọc được.
+        assertThat(data.getAllValues().get(1).contractCode()).isNull();
+        assertThat(data.getAllValues().get(1).contractNumber()).isEqualTo("LC-10");
     }
 
     @Test

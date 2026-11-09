@@ -5,6 +5,7 @@ import com.finora.common.security.KeycloakJwtAuthenticationConverter;
 import com.finora.common.security.SecurityUtils;
 import com.finora.common.security.ops.OpsFunction;
 import com.finora.loan.config.SecurityConfig;
+import com.finora.loan.service.application.ApplicationNumberLookupService;
 import com.finora.loan.service.collection.AdminCollectionService;
 import com.finora.loan.service.core.CoreProductSyncService;
 import com.finora.loan.service.decision.AdminLoanDecisionService;
@@ -84,13 +85,30 @@ class AdminOpsPermissionSecurityTest {
     private AdminRepaymentEventQuarantineService quarantineService;
     @MockBean
     private AdminLoanStatisticsService statisticsService;
+    @MockBean
+    private ApplicationNumberLookupService applicationNumberLookupService;
 
     /** Không gọi Keycloak: token giả dựng bằng {@code jwt()} nên decoder không bao giờ được dùng. */
     @MockBean
     private JwtDecoder jwtDecoder;
 
-    /** Một API quản trị cùng chức năng và loại quyền (Xem hay Thao tác) mà nó đòi. */
-    record Endpoint(HttpMethod method, String path, OpsFunction function, boolean action) {
+    /**
+     * Chức năng mà quyền Xem cũng mở được các API đọc hồ sơ vay: nhân viên thu hồi, cơ cấu, đối soát xử lý việc sau giải
+     * ngân ngay trên trang hồ sơ.
+     */
+    private static final List<OpsFunction> APPLICATION_READERS = List.of(
+            OpsFunction.LOAN_APPLICATION, OpsFunction.COLLECTION, OpsFunction.RESCHEDULE, OpsFunction.RECONCILIATION);
+
+    /**
+     * Một API quản trị cùng chức năng và loại quyền (Xem hay Thao tác) mà nó đòi. {@code alsoAllowed}: chức năng khác mà
+     * quyền cùng loại cũng mở được API này.
+     */
+    record Endpoint(HttpMethod method, String path, OpsFunction function, boolean action,
+            List<OpsFunction> alsoAllowed) {
+
+        Endpoint(HttpMethod method, String path, OpsFunction function, boolean action) {
+            this(method, path, function, action, List.of());
+        }
 
         String permission() {
             return action ? function.action() : function.view();
@@ -106,11 +124,14 @@ class AdminOpsPermissionSecurityTest {
         String app = "/api/v1/admin/loan-applications/LA-1";
         String product = "/api/v1/admin/loan-products/1";
         return List.of(
-                view(HttpMethod.GET, "/api/v1/admin/loan-applications", OpsFunction.LOAN_APPLICATION),
-                view(HttpMethod.GET, app + "/review", OpsFunction.LOAN_APPLICATION),
-                view(HttpMethod.GET, app + "/explanation", OpsFunction.LOAN_APPLICATION),
-                view(HttpMethod.GET, app + "/assessments", OpsFunction.LOAN_APPLICATION),
-                view(HttpMethod.GET, app + "/assessments/5", OpsFunction.LOAN_APPLICATION),
+                applicationRead("/api/v1/admin/loan-applications"),
+                applicationRead("/api/v1/admin/loan-applications?servicing=OVERDUE"),
+                applicationRead("/api/v1/admin/loan-applications/numbers?ids=1,2"),
+                applicationRead("/api/v1/admin/loan-applications/lookup?code=HS-20261109-K7QM"),
+                applicationRead(app + "/review"),
+                applicationRead(app + "/explanation"),
+                applicationRead(app + "/assessments"),
+                applicationRead(app + "/assessments/5"),
                 act(HttpMethod.POST, app + "/approve", OpsFunction.LOAN_APPLICATION),
                 act(HttpMethod.POST, app + "/reject", OpsFunction.LOAN_APPLICATION),
                 act(HttpMethod.POST, app + "/scoring-retry", OpsFunction.LOAN_APPLICATION),
@@ -133,6 +154,12 @@ class AdminOpsPermissionSecurityTest {
                 view(HttpMethod.GET, "/api/v1/admin/loan-servicing-reconciliation", OpsFunction.RECONCILIATION),
                 view(HttpMethod.GET, "/api/v1/admin/loan-servicing-reconciliation/incidents",
                         OpsFunction.RECONCILIATION),
+                view(HttpMethod.GET, "/api/v1/admin/loan-servicing-reconciliation/incidents?loanNumber=LN-1",
+                        OpsFunction.RECONCILIATION),
+                view(HttpMethod.GET, "/api/v1/admin/loan-servicing-reconciliation/LN-1", OpsFunction.RECONCILIATION),
+                view(HttpMethod.GET, "/api/v1/admin/collection-cases?loanNumber=LN-1", OpsFunction.COLLECTION),
+                view(HttpMethod.GET, "/api/v1/admin/loan-reschedule-requests?loanNumber=LN-1", OpsFunction.RESCHEDULE),
+                view(HttpMethod.GET, "/api/v1/admin/disbursement-sagas?loanApplicationId=7", OpsFunction.RECONCILIATION),
                 act(HttpMethod.POST, "/api/v1/admin/loan-servicing-reconciliation/LN-1/reconcile",
                         OpsFunction.RECONCILIATION),
                 view(HttpMethod.GET, "/api/v1/admin/disbursement-sagas", OpsFunction.RECONCILIATION),
@@ -184,7 +211,8 @@ class AdminOpsPermissionSecurityTest {
     void permissionOfAnotherFunctionDoesNotApply(Endpoint endpoint) throws Exception {
         // Có đủ Xem + Thao tác của mọi chức năng khác vẫn không mở được API của chức năng này.
         List<String> others = new ArrayList<>(OpsFunction.allPermissions());
-        others.removeIf(permission -> permission.startsWith(OpsFunction.PREFIX + endpoint.function().code() + ":"));
+        Stream.concat(Stream.of(endpoint.function()), endpoint.alsoAllowed().stream()).forEach(function ->
+                others.removeIf(permission -> permission.startsWith(OpsFunction.PREFIX + function.code() + ":")));
 
         assertThat(perform(endpoint, staff(others.toArray(String[]::new)))).as(endpoint.toString()).isEqualTo(403);
     }
@@ -201,6 +229,29 @@ class AdminOpsPermissionSecurityTest {
                         .content("{}")
                         .with(viewer))
                 .andExpect(status().isForbidden());
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("applicationReaders")
+    void servicingStaffReadApplicationsButCannotDecide(OpsFunction function) throws Exception {
+        RequestPostProcessor viewer = staff(function.view(), function.action());
+
+        mockMvc.perform(request(HttpMethod.GET, "/api/v1/admin/loan-applications?servicing=OVERDUE").with(viewer))
+                .andExpect(status().isOk());
+        mockMvc.perform(request(HttpMethod.GET, "/api/v1/admin/loan-applications/LA-1/review").with(viewer))
+                .andExpect(status().isOk());
+        if (function != OpsFunction.LOAN_APPLICATION) {
+            mockMvc.perform(request(HttpMethod.POST, "/api/v1/admin/loan-applications/LA-1/approve")
+                            .header("Idempotency-Key", "k-1")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{}")
+                            .with(viewer))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
+    static Stream<OpsFunction> applicationReaders() {
+        return APPLICATION_READERS.stream();
     }
 
     @Test
@@ -248,6 +299,12 @@ class AdminOpsPermissionSecurityTest {
         authorities.add(new SimpleGrantedAuthority(SecurityUtils.ROLE_STAFF));
         Arrays.stream(permissions).map(SimpleGrantedAuthority::new).forEach(authorities::add);
         return jwt().authorities(authorities);
+    }
+
+    /** API đọc hồ sơ vay: quyền Xem hồ sơ vay hoặc của một chức năng sau giải ngân. */
+    private static Endpoint applicationRead(String path) {
+        return new Endpoint(HttpMethod.GET, path, OpsFunction.LOAN_APPLICATION, false,
+                APPLICATION_READERS.subList(1, APPLICATION_READERS.size()));
     }
 
     private static Endpoint view(HttpMethod method, String path, OpsFunction function) {

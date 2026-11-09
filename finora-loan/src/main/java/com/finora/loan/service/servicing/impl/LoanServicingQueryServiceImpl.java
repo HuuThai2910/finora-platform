@@ -1,6 +1,7 @@
 package com.finora.loan.service.servicing.impl;
 
 import com.finora.common.security.SecurityUtils;
+import com.finora.loan.domain.application.entity.LoanApplication;
 import com.finora.loan.domain.contract.entity.LoanContract;
 import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
 import com.finora.loan.domain.disbursement.enums.DisbursementSagaStatus;
@@ -76,18 +77,26 @@ public class LoanServicingQueryServiceImpl implements LoanServicingQueryService 
     public List<PendingLoanActivationResponse> pendingMine() {
         var sagas = disbursementSagaRepository.findByBorrowerIdAndStatusInOrderByCreatedAtDescIdDesc(
                 SecurityUtils.getCurrentUserId(), BORROWER_VISIBLE_PENDING_STATUSES);
-        Map<Long, String> applicationNumbers = loanApplicationRepository.findAllById(
+        Map<Long, LoanApplication> applications = loanApplicationRepository.findAllById(
                         sagas.stream().map(saga -> saga.getLoanApplicationId()).toList())
-                .stream().collect(Collectors.toMap(application -> application.getId(),
-                        application -> application.getApplicationNumber()));
-        return sagas.stream().map(saga -> new PendingLoanActivationResponse(
-                saga.getLoanApplicationId(),
-                applicationNumbers.getOrDefault(saga.getLoanApplicationId(), "#" + saga.getLoanApplicationId()),
-                saga.getContractNumber(),
-                saga.getAmount(),
-                saga.getCurrency(),
-                saga.getStatus(),
-                saga.getUpdatedAt())).toList();
+                .stream().collect(Collectors.toMap(LoanApplication::getId, Function.identity()));
+        Map<String, String> contractCodes = loanContractRepository.findContractCodes(
+                        sagas.stream().map(saga -> saga.getContractNumber()).toList())
+                .stream().collect(Collectors.toMap(LoanContractRepository.ContractCodeView::getContractNumber,
+                        LoanContractRepository.ContractCodeView::getContractCode));
+        return sagas.stream().map(saga -> {
+            LoanApplication application = applications.get(saga.getLoanApplicationId());
+            return new PendingLoanActivationResponse(
+                    saga.getLoanApplicationId(),
+                    application == null ? "#" + saga.getLoanApplicationId() : application.getApplicationNumber(),
+                    saga.getContractNumber(),
+                    saga.getAmount(),
+                    saga.getCurrency(),
+                    saga.getStatus(),
+                    saga.getUpdatedAt(),
+                    application == null ? null : application.getApplicationCode(),
+                    contractCodes.get(saga.getContractNumber()));
+        }).toList();
     }
 
     @Override

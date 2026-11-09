@@ -7,6 +7,7 @@ import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
 import com.finora.loan.domain.scoring.entity.BorrowerCreditProfile;
 import com.finora.loan.domain.scoring.entity.BorrowerEligibilityCheck;
 import com.finora.loan.domain.scoring.entity.CreditScoringAssessment;
+import com.finora.loan.domain.servicing.model.ApplicationServicingSummary;
 import com.finora.loan.dto.application.response.ApplicantFinancialResponse;
 import com.finora.loan.dto.application.response.LoanApplicationHistoryResponse;
 import com.finora.loan.dto.application.response.LoanApplicationTimelineItemResponse;
@@ -30,6 +31,16 @@ public class AdminLoanDecisionMapper {
             LoanApplication application,
             CreditScoringAssessment assessment
     ) {
+        return toSummary(application, assessment, null);
+    }
+
+    /** {@code servicing} là {@code null} khi hồ sơ chưa vào giải ngân. */
+    public AdminLoanReviewSummaryResponse toSummary(
+            LoanApplication application,
+            CreditScoringAssessment assessment,
+            ApplicationServicingSummary servicing
+    ) {
+        ApplicationServicingSummary value = servicing == null ? ApplicationServicingSummary.NONE : servicing;
         return new AdminLoanReviewSummaryResponse(
                 application.getApplicationNumber(),
                 application.getBorrowerId(),
@@ -48,7 +59,10 @@ public class AdminLoanDecisionMapper {
                 application.getSubmittedAt(),
                 application.getAdminDecidedBy(),
                 application.getAdminDecidedAt(),
-                application.getPurposeCode()
+                application.getPurposeCode(),
+                application.getApplicationCode(),
+                value.loanNumber(),
+                value.flags()
         );
     }
 
@@ -79,7 +93,7 @@ public class AdminLoanDecisionMapper {
             List<String> aiReviewReasons
     ) {
         return toDetail(application, initialSchedule, finalSchedule, eligibility, creditProfile, assessment,
-                recentHistory, contractNumber, aiReviewReasons, List.of());
+                recentHistory, contractNumber, aiReviewReasons, List.of(), null);
     }
 
     public AdminLoanReviewDetailResponse toDetail(
@@ -92,8 +106,29 @@ public class AdminLoanDecisionMapper {
             List<LoanApplicationHistoryResponse> recentHistory,
             String contractNumber,
             List<String> aiReviewReasons,
-            List<LoanApplicationTimelineItemResponse> timeline
+            List<LoanApplicationTimelineItemResponse> timeline,
+            String contractCode
     ) {
+        return toDetail(application, initialSchedule, finalSchedule, eligibility, creditProfile, assessment,
+                recentHistory, contractNumber, aiReviewReasons, timeline, contractCode, null);
+    }
+
+    /** {@code servicing} là {@code null} khi hồ sơ chưa vào giải ngân. */
+    public AdminLoanReviewDetailResponse toDetail(
+            LoanApplication application,
+            ScheduleCalculationSnapshot initialSchedule,
+            ScheduleCalculationSnapshot finalSchedule,
+            BorrowerEligibilityCheck eligibility,
+            BorrowerCreditProfile creditProfile,
+            CreditScoringAssessment assessment,
+            List<LoanApplicationHistoryResponse> recentHistory,
+            String contractNumber,
+            List<String> aiReviewReasons,
+            List<LoanApplicationTimelineItemResponse> timeline,
+            String contractCode,
+            ApplicationServicingSummary servicing
+    ) {
+        ApplicationServicingSummary value = servicing == null ? ApplicationServicingSummary.NONE : servicing;
         return new AdminLoanReviewDetailResponse(
                 application.getId(),
                 application.getApplicationNumber(),
@@ -127,7 +162,13 @@ public class AdminLoanDecisionMapper {
                 application.getAdminDecidedAt(),
                 contractNumber,
                 aiReviewReasons == null ? List.of() : List.copyOf(aiReviewReasons),
-                timeline == null ? List.of() : List.copyOf(timeline)
+                timeline == null ? List.of() : List.copyOf(timeline),
+                application.getApplicationCode(),
+                contractCode,
+                value.loanNumber(),
+                value.loanStatus(),
+                value.disbursementStatus(),
+                value.flags()
         );
     }
 
@@ -147,7 +188,9 @@ public class AdminLoanDecisionMapper {
                 contract == null ? null : contract.getStatus(),
                 contract == null ? null : contract.getVersion(),
                 contract == null ? null : contract.getDocumentHash(),
-                contract == null ? null : contract.getExpiresAt()
+                contract == null ? null : contract.getExpiresAt(),
+                application.getApplicationCode(),
+                contract == null ? null : contract.getContractCode()
         );
     }
 

@@ -41,6 +41,22 @@ class AdminDisbursementReconciliationServiceImplTest {
     }
 
     @Test
+    void listOfOneApplicationReadsOnlyItsOpenDisbursements() {
+        actAs(OpsFunction.RECONCILIATION.view());
+        when(disbursements.findByLoanApplicationIdAndStatusInOrderByUpdatedAtAscIdAsc(
+                org.mockito.ArgumentMatchers.eq(10L), org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
+
+        var response = service.list(10L, 0, 20);
+
+        assertThat(response.getContent()).isEmpty();
+        org.mockito.Mockito.verify(disbursements, org.mockito.Mockito.never()).findByStatusInOrderByUpdatedAtAscIdAsc(
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.any(org.springframework.data.domain.Pageable.class));
+    }
+
+    @Test
     void findReturnsACompletedDisbursementWithItsProviderAndLookupCounts() {
         actAs("ROLE_ADMIN");
         UUID sagaId = UUID.randomUUID();

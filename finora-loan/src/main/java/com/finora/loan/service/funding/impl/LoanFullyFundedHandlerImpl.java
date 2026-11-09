@@ -2,12 +2,16 @@ package com.finora.loan.service.funding.impl;
 
 import com.finora.loan.config.LoanContractProperties;
 import com.finora.loan.domain.application.entity.LoanApplication;
+import com.finora.loan.domain.contract.entity.LoanContract;
+import com.finora.loan.domain.contract.model.BorrowerIdentity;
 import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
 import com.finora.loan.domain.messaging.entity.ProcessedEvent;
 import com.finora.loan.exception.LoanBusinessException;
+import com.finora.loan.integration.profile.client.BorrowerIdentityClient;
 import com.finora.loan.messaging.event.FundingAllocationEventData;
 import com.finora.loan.messaging.event.LoanFullyFundedEventData;
 import com.finora.loan.repository.application.LoanApplicationRepository;
+import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.core.ScheduleCalculationSnapshotRepository;
 import com.finora.loan.repository.messaging.ProcessedEventRepository;
 import com.finora.loan.service.contract.FundedContractAllocation;
@@ -16,7 +20,7 @@ import com.finora.loan.service.funding.LoanFullyFundedHandler;
 import com.finora.loan.util.HashingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -30,6 +34,9 @@ import java.util.UUID;
  * Xử lý event {@code LoanFullyFunded}: khóa funding snapshot, lập một Contract chung và ghi marker cùng commit.
  *
  * <p>Allocation phải được sắp theo commitmentId và khớp {@code allocationHash} trước khi lập hợp đồng.</p>
+ *
+ * <p>Hợp đồng in họ tên + CCCD đã che của bên vay đọc từ finora-user. Lời gọi HTTP đó chạy trước transaction (không giữ
+ * khóa hồ sơ trong lúc chờ mạng); phần ghi vẫn là một transaction như trước qua {@link TransactionTemplate}.</p>
  */
 @Service
 @RequiredArgsConstructor
@@ -43,13 +50,47 @@ public class LoanFullyFundedHandlerImpl implements LoanFullyFundedHandler {
     private final LoanApplicationRepository loanApplicationRepository;
     private final ScheduleCalculationSnapshotRepository scheduleCalculationSnapshotRepository;
     private final LoanContractCreationService loanContractCreationService;
+    private final LoanContractRepository loanContractRepository;
+    private final BorrowerIdentityClient borrowerIdentityClient;
     private final LoanContractProperties loanContractProperties;
     private final HashingService hashingService;
+    private final TransactionTemplate transactionTemplate;
     private final Clock clock;
 
     @Override
-    @Transactional
     public void handle(UUID eventId, Instant occurredAt, LoanFullyFundedEventData eventData) {
+        BorrowerIdentity borrowerIdentity = borrowerIdentityForContract(eventId, eventData);
+        transactionTemplate.executeWithoutResult(status -> apply(eventId, occurredAt, eventData, borrowerIdentity));
+    }
+
+    /**
+     * Đọc danh tính bên vay khi event này có thể lập hợp đồng mới hoặc phát hành lại hợp đồng chưa có danh tính. Event
+     * đã xử lý, hồ sơ không tồn tại hay hợp đồng đã có danh tính thì không gọi User; transaction phía sau tự báo lỗi hoặc
+     * bỏ qua như trước. Trạng thái đổi giữa lúc đọc và lúc ghi thì {@code createFunded} ném lỗi tạm thời và event được
+     * thử lại.
+     */
+    private BorrowerIdentity borrowerIdentityForContract(UUID eventId, LoanFullyFundedEventData eventData) {
+        if (eventData == null || eventData.loanApplicationId() == null
+                || processedEventRepository.existsByEventId(eventId)) {
+            return null;
+        }
+        LoanApplication application = loanApplicationRepository.findById(eventData.loanApplicationId()).orElse(null);
+        if (application == null) {
+            return null;
+        }
+        LoanContract contract = loanContractRepository.findByApplicationId(application.getId()).orElse(null);
+        if (contract != null && (!contract.isPendingRefunding() || contract.getBorrowerIdentity() != null)) {
+            return null;
+        }
+        return borrowerIdentityClient.identity(application.getBorrowerId());
+    }
+
+    private void apply(
+            UUID eventId,
+            Instant occurredAt,
+            LoanFullyFundedEventData eventData,
+            BorrowerIdentity borrowerIdentity
+    ) {
         if (processedEventRepository.existsByEventId(eventId)) {
             return;
         }
@@ -96,7 +137,7 @@ public class LoanFullyFundedHandlerImpl implements LoanFullyFundedHandler {
                             "Không tìm thấy lịch trả nợ cuối để lập hợp đồng"));
             loanContractCreationService.createFunded(
                     application, schedule, allocations, eventData.allocationVersion(), eventData.allocationHash(),
-                    now.plus(loanContractProperties.signatureWindow()), SYSTEM_ACTOR, now);
+                    now.plus(loanContractProperties.signatureWindow()), SYSTEM_ACTOR, borrowerIdentity, now);
         }
         processedEventRepository.saveAndFlush(ProcessedEvent.create(
                 eventId, EVENT_TYPE, EVENT_VERSION, "finora-investment",

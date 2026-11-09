@@ -25,9 +25,12 @@ public interface ContractPdfRenderer {
     /** Trang biên nhận chữ ký số tách rời của hợp đồng PAdES (Q9, D45). */
     String RECEIPT_DOCUMENT_VERSION = "PADES_RECEIPT_V1";
 
-    /** PDF để người vay đọc và ký của hợp đồng một bên. */
+    /**
+     * PDF để người vay đọc và ký của hợp đồng một bên. {@code heading} mang số hợp đồng, mã hiển thị và danh tính bên vay
+     * đã chụp (họ tên + CCCD đã che); hợp đồng cũ chưa có danh tính in theo cách ghi trước V39.
+     */
     ContractPdfArtifact renderSignable(
-            String contractNumber,
+            ContractHeading heading,
             LoanApplication application,
             ScheduleCalculationSnapshot schedule,
             String termsVersion,
@@ -36,7 +39,7 @@ public interface ContractPdfRenderer {
 
     /** PDF để các bên ký của hợp đồng nhiều bên (bản không ký PAdES). */
     ContractPdfArtifact renderFundedSignable(
-            String contractNumber,
+            ContractHeading heading,
             LoanApplication application,
             ScheduleCalculationSnapshot schedule,
             String termsVersion,
@@ -51,7 +54,7 @@ public interface ContractPdfRenderer {
      * ra trang biên nhận nằm ngoài tệp. Đổi văn bản nên mang version riêng ({@code ..._PADES}).
      */
     ContractPdfArtifact renderFundedSignable(
-            String contractNumber,
+            ContractHeading heading,
             LoanApplication application,
             ScheduleCalculationSnapshot schedule,
             String termsVersion,

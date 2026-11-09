@@ -61,7 +61,7 @@ public class TransferDocumentSealImpl implements TransferDocumentSeal {
     static final String DEMO_COMMON_NAME = "FINORA DEMO - KHONG CO GIA TRI PHAP LY";
     private static final int DEMO_KEY_SIZE = 2048;
     private static final PadesSignatureLabel LABEL = new PadesSignatureLabel(
-            "FINORA", "Xác nhận chuyển nhượng Note", "FINORA, Việt Nam");
+            "FINORA", "Xác nhận chuyển nhượng phần vốn", "FINORA, Việt Nam");
 
     private final PadesSignaturePreparer padesSignaturePreparer;
     private final PadesCmsBuilder padesCmsBuilder;

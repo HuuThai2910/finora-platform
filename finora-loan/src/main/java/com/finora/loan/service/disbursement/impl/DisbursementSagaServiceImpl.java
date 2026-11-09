@@ -194,7 +194,8 @@ public class DisbursementSagaServiceImpl implements DisbursementSagaService {
                         application.getCoreConfigVersionSnapshot(), now, contract.getEarlySettlementPolicyVersion(),
                         loan.getLoanNumber(), bookingResult.maturityDate(), application.getBorrowerId(),
                         bookingResult.nextDueDate(),
-                        bookingResult.nextDueAmount() == null ? null : bookingResult.nextDueAmount().toPlainString()));
+                        bookingResult.nextDueAmount() == null ? null : bookingResult.nextDueAmount().toPlainString(),
+                        contract.getContractCode()));
     }
 
     @Override

@@ -3,8 +3,10 @@ import com.finora.common.exception.BusinessException;
 import com.finora.common.security.SecurityUtils;
 import com.finora.loan.domain.disbursement.entity.DisbursementSaga;
 import com.finora.loan.domain.disbursement.enums.DisbursementSagaStatus;
+import com.finora.loan.dto.decision.response.ApplicationNumberResponse;
 import com.finora.loan.dto.disbursement.response.AdminDisbursementSagaResponse;
 import com.finora.loan.dto.response.PageResponse;
+import com.finora.loan.repository.contract.LoanContractRepository;
 import com.finora.loan.repository.disbursement.DisbursementSagaRepository;
 import com.finora.loan.service.application.ApplicationNumberLookupService;
 import com.finora.loan.service.disbursement.AdminDisbursementSagaService;
@@ -18,6 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.UUID;
 
 /**
@@ -30,6 +34,7 @@ import java.util.UUID;
 public class AdminDisbursementSagaServiceImpl implements AdminDisbursementSagaService {
     private final DisbursementSagaRepository disbursementSagaRepository;
     private final ApplicationNumberLookupService applicationNumberLookupService;
+    private final LoanContractRepository loanContractRepository;
     private final Clock clock;
 
     @Override
@@ -37,10 +42,28 @@ public class AdminDisbursementSagaServiceImpl implements AdminDisbursementSagaSe
     public PageResponse<AdminDisbursementSagaResponse> list(DisbursementSagaStatus status, int page, int size) {
         DisbursementSagaStatus statusFilter = status == null ? DisbursementSagaStatus.REPAIR_REQUIRED : status;
         var sagas = disbursementSagaRepository.findByStatusOrderByUpdatedAtAscIdAsc(statusFilter, PageRequest.of(page, size));
-        Map<Long, String> numbers = applicationNumberLookupService.numbersOf(
-                sagas.getContent().stream().map(DisbursementSaga::getLoanApplicationId).toList());
-        return PageResponse.from(sagas.map(saga ->
-                AdminDisbursementSagaResponse.from(saga, numbers.get(saga.getLoanApplicationId()))));
+        Map<Long, ApplicationNumberResponse> references = applicationNumberLookupService.referencesOf(
+                        sagas.getContent().stream().map(DisbursementSaga::getLoanApplicationId).toList())
+                .stream().collect(Collectors.toMap(ApplicationNumberResponse::id, Function.identity()));
+        Map<String, String> contractCodes = contractCodes(
+                sagas.getContent().stream().map(DisbursementSaga::getContractNumber).toList());
+        return PageResponse.from(sagas.map(saga -> AdminDisbursementSagaResponse.from(saga,
+                references.get(saga.getLoanApplicationId()), contractCodes.get(saga.getContractNumber()))));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<AdminDisbursementSagaResponse> listByApplication(
+            Long loanApplicationId, DisbursementSagaStatus status) {
+        DisbursementSagaStatus statusFilter = status == null ? DisbursementSagaStatus.REPAIR_REQUIRED : status;
+        List<AdminDisbursementSagaResponse> rows = disbursementSagaRepository.findByLoanApplicationId(loanApplicationId)
+                .filter(saga -> saga.getStatus() == statusFilter)
+                .map(saga -> List.of(AdminDisbursementSagaResponse.from(saga,
+                        applicationNumberLookupService.referencesOf(List.of(saga.getLoanApplicationId())).stream()
+                                .findFirst().orElse(null),
+                        contractCodes(List.of(saga.getContractNumber())).get(saga.getContractNumber()))))
+                .orElse(List.of());
+        return new PageResponse<>(rows, 0, Math.max(rows.size(), 1), rows.size());
     }
 
     @Override
@@ -58,6 +81,14 @@ public class AdminDisbursementSagaServiceImpl implements AdminDisbursementSagaSe
         log.warn("Admin đưa saga giải ngân về ghi core lại: sagaId={}, contract={}, actor={}, repairCount={}",
                 saga.getSagaId(), saga.getContractNumber(), actorId, saga.getRepairCount());
         return AdminDisbursementSagaResponse.from(saga, applicationNumberLookupService
-                .numbersOf(List.of(saga.getLoanApplicationId())).get(saga.getLoanApplicationId()));
+                        .referencesOf(List.of(saga.getLoanApplicationId())).stream().findFirst().orElse(null),
+                contractCodes(List.of(saga.getContractNumber())).get(saga.getContractNumber()));
+    }
+
+    /** Mã hiển thị {@code HĐ-…} theo mã tra cứu, đọc projection nên không tải văn bản hợp đồng. */
+    private Map<String, String> contractCodes(List<String> contractNumbers) {
+        return contractNumbers.isEmpty() ? Map.of() : loanContractRepository.findContractCodes(contractNumbers).stream()
+                .collect(Collectors.toMap(LoanContractRepository.ContractCodeView::getContractNumber,
+                        LoanContractRepository.ContractCodeView::getContractCode));
     }
 }

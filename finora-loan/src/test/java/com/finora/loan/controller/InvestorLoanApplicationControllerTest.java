@@ -1,7 +1,6 @@
 package com.finora.loan.controller;
 
 import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.node.IntNode;
 import com.finora.common.exception.GlobalExceptionHandler;
 import com.finora.loan.domain.application.enums.CreditInformationSource;
 import com.finora.loan.domain.application.enums.EducationLevel;
@@ -15,7 +14,6 @@ import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.
 import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.CreditAssessment;
 import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.LoanRequest;
 import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.RepaymentCapacity;
-import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse.RuleResult;
 import com.finora.loan.dto.application.response.InvestorBorrowerProfileResponse;
 import com.finora.loan.exception.LoanBusinessException;
 import com.finora.loan.service.application.InvestorBorrowerProfileService;
@@ -29,7 +27,6 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.List;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -37,7 +34,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** Hợp đồng JSON mà app nhà đầu tư đọc: tên field, kiểu giá trị luật và lỗi 403 có mã. */
+/** Hợp đồng JSON mà app nhà đầu tư đọc: tên field, phần cố ý không công bố và lỗi 403 có mã. */
 class InvestorLoanApplicationControllerTest {
 
     private static final String PATH = "/api/v1/investor/loan-applications/{applicationNumber}/borrower-profile";
@@ -68,8 +65,9 @@ class InvestorLoanApplicationControllerTest {
                 .andExpect(jsonPath("$.capacity.dtiSnapshot").value(15.0))
                 .andExpect(jsonPath("$.background.profileSource").value("MOCK_USER_PROFILE"))
                 .andExpect(jsonPath("$.assessment.pdProbability").value(0.3568))
-                .andExpect(jsonPath("$.ruleResults[0].field").value("cic_score"))
-                .andExpect(jsonPath("$.ruleResults[0].value").value(712))
+                // Lịch sử tín dụng và bảng luật đã chấm không công bố cho nhà đầu tư.
+                .andExpect(jsonPath("$.creditHistory").doesNotExist())
+                .andExpect(jsonPath("$.ruleResults").doesNotExist())
                 .andExpect(jsonPath("$.borrowerId").doesNotExist())
                 .andExpect(jsonPath("$.modelExplanation").doesNotExist());
     }
@@ -95,10 +93,7 @@ class InvestorLoanApplicationControllerTest {
                         new BigDecimal("15.00"), 60, CreditInformationSource.SELF_DECLARED, at),
                 new Background(30, BorrowerKycStatus.VERIFIED, BorrowerProfileSource.MOCK_USER_PROFILE, at,
                         HomeOwnership.RENT, EducationLevel.UNIVERSITY),
-                null,
                 new CreditAssessment(new BigDecimal("68.92"), "C", new BigDecimal("0.3568"), 95,
-                        LoanDecisionSource.ADMIN, at),
-                List.of(new RuleResult("CHARACTER_CIC_HISTORY", "Điểm tín dụng CIC — lịch sử trả nợ", "cic_score",
-                        IntNode.valueOf(712), 15, 20, new BigDecimal("1.0"), false)));
+                        LoanDecisionSource.ADMIN, at));
     }
 }

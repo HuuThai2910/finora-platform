@@ -10,6 +10,12 @@ public interface TransferDocumentAdminService {
 
     Page<TransferDocumentAdminResponse> list(NoteTransferDocumentStatus status, Pageable pageable);
 
+    /**
+     * Như trên, thêm ô tìm {@code q}: số giấy, mã lần khớp hoặc mã hồ sơ/hợp đồng của khoản vay, khớp một phần; rỗng thì
+     * như trên.
+     */
+    Page<TransferDocumentAdminResponse> list(NoteTransferDocumentStatus status, String q, Pageable pageable);
+
     TransferDocumentAdminResponse detail(String tradeReference);
 
     /** PDF đã đóng dấu, đúng bytes đã lưu lúc phát hành. */

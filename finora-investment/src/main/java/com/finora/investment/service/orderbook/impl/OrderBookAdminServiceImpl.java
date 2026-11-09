@@ -18,6 +18,7 @@ import com.finora.investment.repository.NoteTransferRepository;
 import com.finora.investment.repository.RestingTotalsView;
 import com.finora.investment.repository.SettlementTotalsView;
 import com.finora.investment.service.orderbook.OrderBookAdminService;
+import com.finora.investment.util.SearchPatterns;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -54,7 +55,16 @@ public class OrderBookAdminServiceImpl implements OrderBookAdminService {
     @Override
     @Transactional(readOnly = true)
     public Page<AdminTradeResponse> trades(SettlementStatus status, Pageable pageable) {
-        Page<BookTrade> page = status == null
+        return trades(status, null, pageable);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<AdminTradeResponse> trades(SettlementStatus status, String q, Pageable pageable) {
+        String code = SearchPatterns.containsCode(q);
+        Page<BookTrade> page = code != null
+                ? bookTradeRepository.search(status, code, pageable)
+                : status == null
                 ? bookTradeRepository.findAllByOrderByExecutedAtDescIdDesc(pageable)
                 : bookTradeRepository.findBySettlementStatusOrderByExecutedAtDescIdDesc(status, pageable);
         // Mã khoản vay của cả trang trong một truy vấn.

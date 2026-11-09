@@ -148,8 +148,6 @@ $catalog = [ordered]@{
     investment = @{
         Module = 'finora-investment'; Port = 8084; Heap = '256m'
         Env = [ordered]@{
-            # Auto-Invest có thể góp vốn trước nhà đầu tư của kịch bản và trở thành bên phải ký.
-            INVESTMENT_AUTO_INVEST_ENABLED = 'false'
             # Quyết định #10 (2026-10-17): nhà đầu tư E2E đăng ký mới nên tắt cổng eKYC chỉ trong stack này.
             INVESTMENT_REQUIRE_EKYC = 'false'
             KAFKA_BOOTSTRAP_SERVERS = 'localhost:9092'

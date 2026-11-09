@@ -10,6 +10,11 @@ import java.util.UUID;
  */
 public interface LoanFullyFundedHandler {
 
-    /** Xử lý một event trong một transaction; {@code eventId} đã xử lý thì bỏ qua. */
+    /**
+     * Xử lý một event trong một transaction; {@code eventId} đã xử lý thì bỏ qua.
+     *
+     * <p>Khi event sẽ lập (hoặc phát hành lại) hợp đồng, danh tính bên vay được đọc từ finora-user trước transaction.
+     * Không đọc được thì ném {@code BorrowerIdentityUnavailableException}, không ghi gì, để consumer thử lại.</p>
+     */
     void handle(UUID eventId, Instant occurredAt, LoanFullyFundedEventData eventData);
 }

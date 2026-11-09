@@ -16,9 +16,10 @@ import java.time.Instant;
 /**
  * Access token của service account {@code finora-investment-client} (client_credentials).
  *
- * <p>Dùng khi Investment gọi Payment mà không có JWT của người dùng — hiện chỉ có Auto-Invest
- * chạy trong worker. Token mang client role {@code payment:hold:on_behalf}, nên Payment cho
- * phép giữ/nhả tiền thay nhà đầu tư. Cache tới trước lúc hết hạn {@link #REFRESH_MARGIN}.</p>
+ * <p>Dùng khi Investment gọi Payment hoặc User mà không có JWT của người dùng — các worker đối soát
+ * (làm tiếp lệnh kẹt, nhả khoản giữ) và lập giấy chuyển nhượng. Token mang client role
+ * {@code payment:hold:on_behalf}, nên Payment cho phép giữ/nhả tiền thay nhà đầu tư. Cache tới trước
+ * lúc hết hạn {@link #REFRESH_MARGIN}.</p>
  */
 @Slf4j
 @Component
@@ -57,7 +58,7 @@ public class ServiceTokenProvider {
         }
         if (clientSecret == null || clientSecret.isBlank()) {
             throw new IllegalStateException(
-                    "Thiếu KEYCLOAK_INVESTMENT_CLIENT_SECRET — Auto-Invest không giữ tiền được");
+                    "Thiếu KEYCLOAK_INVESTMENT_CLIENT_SECRET — worker không gọi được Payment/User thay nhà đầu tư");
         }
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
         form.add("grant_type", "client_credentials");

@@ -28,9 +28,11 @@ public interface LoanProductService {
 
     LoanProductResponse getAdminDetail(long id);
 
+    /** {@code q}: tên hoặc mã sản phẩm, khớp một phần không phân biệt hoa thường; rỗng là không lọc. */
     PageResponse<LoanProductResponse> listAdmin(
             LoanProductStatus status,
             CoreSyncStatus coreSyncStatus,
+            String q,
             int page,
             int size
     );

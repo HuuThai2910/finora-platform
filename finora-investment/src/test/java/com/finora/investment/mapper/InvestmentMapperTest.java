@@ -19,7 +19,7 @@ class InvestmentMapperTest {
     void listingResponseCarriesApplicationNumber() {
         MarketListing listing = MarketListing.builder()
                 .id(5L).loanId(77L).applicationNumber("LA-0123456789ABCDEF0123")
-                .productCode("SP-01").purpose("Chi phí giáo dục").region("Không công bố")
+                .productCode("SP-01").purpose("Chi phí giáo dục").purposeCode("EDUCATION").region("Không công bố")
                 .creditGrade("B").creditScore(80)
                 .targetAmount(new BigDecimal("10000000.00")).committedAmount(new BigDecimal("4000000.00"))
                 .annualInterestRate(new BigDecimal("15.0000")).termMonths(12).repaymentMethod("ANNUITY")
@@ -33,5 +33,6 @@ class InvestmentMapperTest {
         assertThat(response.applicationNumber()).isEqualTo("LA-0123456789ABCDEF0123");
         assertThat(response.loanId()).isEqualTo(77L);
         assertThat(response.remainingAmount()).isEqualTo("6000000.00");
+        assertThat(response.purposeCode()).isEqualTo("EDUCATION");
     }
 }

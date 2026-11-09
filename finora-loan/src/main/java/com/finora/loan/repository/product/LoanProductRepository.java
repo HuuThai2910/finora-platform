@@ -36,10 +36,12 @@ public interface LoanProductRepository extends JpaRepository<LoanProduct, Long> 
             from LoanProduct product
             where (:status is null or product.status = :status)
               and (:coreSyncStatus is null or product.coreSyncStatus = :coreSyncStatus)
+              and (:q is null or lower(product.name) like :q escape '!' or lower(product.code) like :q escape '!')
             """)
     Page<LoanProduct> findAdminProducts(
             @Param("status") LoanProductStatus status,
             @Param("coreSyncStatus") CoreSyncStatus coreSyncStatus,
+            @Param("q") String q,
             Pageable pageable
     );
 

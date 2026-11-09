@@ -21,6 +21,7 @@ import com.finora.investment.repository.MarketListingRepository;
 import com.finora.investment.repository.OrderBookRepository;
 import com.finora.investment.repository.PriceLevelView;
 import com.finora.investment.service.orderbook.OrderBookQueryService;
+import com.finora.investment.util.SearchPatterns;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -64,7 +65,16 @@ public class OrderBookQueryServiceImpl implements OrderBookQueryService {
     @Override
     @Transactional(readOnly = true)
     public Page<OrderBookSummaryResponse> listBooks(String hiddenBorrowerId, Pageable pageable) {
-        Page<Long> listingIds = investmentNoteRepository.findTradableListingIds(hiddenBorrowerId, pageable);
+        return listBooks(hiddenBorrowerId, null, pageable);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<OrderBookSummaryResponse> listBooks(String hiddenBorrowerId, String q, Pageable pageable) {
+        String code = SearchPatterns.containsCode(q);
+        Page<Long> listingIds = code != null
+                ? investmentNoteRepository.searchTradableListingIds(hiddenBorrowerId, code, pageable)
+                : investmentNoteRepository.findTradableListingIds(hiddenBorrowerId, pageable);
         if (listingIds.isEmpty()) {
             return new PageImpl<>(List.of(), pageable, listingIds.getTotalElements());
         }
@@ -94,7 +104,11 @@ public class OrderBookQueryServiceImpl implements OrderBookQueryService {
                             percentOrNull(best.bestBid()),
                             percentOrNull(best.bestAsk()),
                             book.map(OrderBook::getLastTradePermille).map(OrderBookQueryServiceImpl::percentOrNull).orElse(null),
-                            book.map(OrderBook::getLastTradeAt).orElse(null));
+                            book.map(OrderBook::getLastTradeAt).orElse(null),
+                            listing.getApplicationCode(),
+                            listing.getContractCode(),
+                            listing.getPurpose(),
+                            listing.getPurposeCode());
                 })
                 .toList();
         return new PageImpl<>(rows, pageable, listingIds.getTotalElements());
@@ -134,14 +148,16 @@ public class OrderBookQueryServiceImpl implements OrderBookQueryService {
                 listing.getNoteDenomination().toPlainString(),
                 referenceOutstanding == null ? null : referenceOutstanding.toPlainString(),
                 defaulted,
-                defaulted ? "Khoản vay gốc đang trong tình trạng nợ xấu; Note có thể không thu hồi đủ gốc lãi" : null,
+                defaulted ? "Khoản vay gốc đang trong tình trạng nợ xấu; phần vốn thuộc khoản nợ xấu có thể không thu hồi đủ gốc lãi" : null,
                 bids.isEmpty() ? null : bids.get(0).pricePercent(),
                 asks.isEmpty() ? null : asks.get(0).pricePercent(),
                 book.map(OrderBook::getLastTradePermille).map(OrderBookQueryServiceImpl::percentOrNull).orElse(null),
                 book.map(OrderBook::getLastTradeAt).orElse(null),
                 bids,
                 asks,
-                trades);
+                trades,
+                listing.getPurpose(),
+                listing.getPurposeCode());
     }
 
     @Override
@@ -150,11 +166,11 @@ public class OrderBookQueryServiceImpl implements OrderBookQueryService {
         Page<BookOrder> page = activeOnly
                 ? bookOrderRepository.findByInvestorIdAndStatusInOrderByCreatedAtDesc(investorId, ACTIVE_STATUSES, pageable)
                 : bookOrderRepository.findByInvestorIdOrderByCreatedAtDesc(investorId, pageable);
-        // Mã khoản vay của cả trang trong một truy vấn, không mỗi lệnh một lần.
-        Map<Long, Long> loanIds = marketListingRepository
+        // Khoản vay gốc của cả trang trong một truy vấn, không mỗi lệnh một lần.
+        Map<Long, MarketListing> listings = marketListingRepository
                 .findAllById(page.getContent().stream().map(BookOrder::getListingId).distinct().toList())
-                .stream().collect(Collectors.toMap(MarketListing::getId, MarketListing::getLoanId));
-        return page.map(order -> OrderBookMapper.toResponse(order, loanIds.get(order.getListingId())));
+                .stream().collect(Collectors.toMap(MarketListing::getId, Function.identity()));
+        return page.map(order -> OrderBookMapper.toResponse(order, listings.get(order.getListingId())));
     }
 
     @Override
@@ -166,7 +182,7 @@ public class OrderBookQueryServiceImpl implements OrderBookQueryService {
         // Note họ sở hữu), nên không phân trang ở đây.
         List<BookOrderResponse> active = bookOrderRepository
                 .findByListingIdAndInvestorIdAndStatusInOrderByCreatedAtDesc(listingId, investorId, ACTIVE_STATUSES)
-                .stream().map(order -> OrderBookMapper.toResponse(order, listing.getLoanId())).toList();
+                .stream().map(order -> OrderBookMapper.toResponse(order, listing)).toList();
         return new OrderBookPositionResponse(
                 listingId,
                 investmentNoteRepository.countFreeNotes(listingId, investorId),

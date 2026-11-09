@@ -30,9 +30,9 @@ public record PlaceBookOrderRequest(
         @Digits(integer = 3, fraction = 1, message = "Giá chỉ có một chữ số thập phân (bước 0,1%)")
         BigDecimal pricePercent,
 
-        @NotNull(message = "Số Note không được để trống")
-        @Min(value = 1, message = "Phải đặt ít nhất 1 Note")
-        @Max(value = 10000, message = "Một lệnh đặt tối đa 10.000 Note")
+        @NotNull(message = "Số phần vốn không được để trống")
+        @Min(value = 1, message = "Phải đặt ít nhất 1 phần vốn")
+        @Max(value = 10000, message = "Một lệnh đặt tối đa 10.000 phần vốn")
         Integer quantity,
 
         Boolean acknowledgeDefault

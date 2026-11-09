@@ -389,7 +389,7 @@ services:
       LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC: ${LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC:-finora.loan.reschedule-consent-requested}
       INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC: ${INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC:-finora.investment.reschedule-consent-completed}
       PAYMENT_SERVICE_URL: http://payment:8082/api/v1
-      # Auto-Invest lấy token service account qua tên nội bộ; issuer vẫn là localhost:8180
+      # Worker lấy token service account qua tên nội bộ; issuer vẫn là localhost:8180
       # nhờ KC_HOSTNAME_URL nên Payment chấp nhận token này.
       KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/finora/protocol/openid-connect/token
       INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC: ${INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC:-finora.investment.note-ownership-changed}
@@ -427,6 +427,8 @@ services:
       KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/finora/protocol/openid-connect/token
       # eKYC người vay đọc từ User bằng token của người vay khi nộp hồ sơ (W2-KYC); `mock` chỉ cho test/E2E.
       FINORA_BORROWER_PROFILE_PROVIDER: ${FINORA_BORROWER_PROFILE_PROVIDER:-user}
+      # Họ tên + CCCD đã che của bên vay in trên hợp đồng (service account, docker/keycloak/add-loan-identity-role.sh).
+      FINORA_BORROWER_IDENTITY_PROVIDER: ${FINORA_BORROWER_IDENTITY_PROVIDER:-user}
       USER_SERVICE_URL: http://user:8085
       FINERACT_BASE_URL: http://fineract:8443/fineract-provider/api/v1
       FINERACT_BOOKING_PROVIDER: ${FINERACT_BOOKING_PROVIDER:-mock}

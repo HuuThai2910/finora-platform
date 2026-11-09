@@ -68,7 +68,7 @@ public class OrderBookTransactionServiceImpl implements OrderBookTransactionServ
         BigDecimal maxOutstanding = investmentNoteRepository.findMaxTradableOutstanding(command.listingId());
         if (maxOutstanding == null || maxOutstanding.signum() <= 0) {
             throw InvestmentDomainException.conflict(
-                    "BOOK_NOT_TRADABLE", "Khoản vay này chưa có Note nào đang lưu hành để mua");
+                    "BOOK_NOT_TRADABLE", "Khoản vay này chưa có phần vốn nào đang lưu hành để mua");
         }
 
         Instant now = clock.instant();
@@ -134,7 +134,7 @@ public class OrderBookTransactionServiceImpl implements OrderBookTransactionServ
         if (notes.size() < command.quantity()) {
             throw InvestmentDomainException.conflict(
                     "INSUFFICIENT_FREE_NOTES",
-                    "Bạn chỉ còn " + notes.size() + " Note của khoản vay này chưa nằm trong lệnh bán nào");
+                    "Bạn chỉ còn " + notes.size() + " phần vốn của khoản vay này chưa nằm trong lệnh bán nào");
         }
 
         Instant now = clock.instant();

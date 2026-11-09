@@ -61,6 +61,7 @@ public class ContractEventsHandler implements InboundEventHandler {
         Long loanId = loanId(payload.loanApplicationId(), event.eventType());
         LoanReference reference = loanRecipientService.remember(loanId, null, payload.applicationNumber(),
                 payload.contractNumber(), null, event.eventId());
+        loanRecipientService.rememberDisplayCodes(loanId, payload.applicationCode(), payload.contractCode());
         LoanRecipientService.Lenders lenders = loanRecipientService.lenders(loanId);
         if (lenders.supersedes(payload.allocationVersion())) return HandlerOutcome.filtered("STALE_ALLOCATION");
         if (!lenders.matches(payload.allocationVersion())) return HandlerOutcome.await("LENDERS_UNKNOWN", List.of());
@@ -94,6 +95,7 @@ public class ContractEventsHandler implements InboundEventHandler {
         Long loanId = loanId(payload.loanApplicationId(), event.eventType());
         Optional<String> borrower = loanRecipientService.borrower(loanId, payload.borrowerId(),
                 payload.applicationNumber(), payload.contractNumber(), null, event.eventId());
+        loanRecipientService.rememberDisplayCodes(loanId, null, payload.contractCode());
         LoanRecipientService.Lenders lenders = loanRecipientService.lenders(loanId);
         if (lenders.supersedes(payload.allocationVersion())) return HandlerOutcome.filtered("STALE_ALLOCATION");
         LoanReference reference = loanRecipientService.find(loanId).orElse(null);

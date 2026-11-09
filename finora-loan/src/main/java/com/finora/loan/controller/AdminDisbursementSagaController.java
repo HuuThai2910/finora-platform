@@ -26,8 +26,13 @@ public class AdminDisbursementSagaController {
     @GetMapping
     public ResponseEntity<PageResponse<AdminDisbursementSagaResponse>> list(
             @RequestParam(required = false) DisbursementSagaStatus status,
+            @RequestParam(required = false) @Min(1) Long loanApplicationId,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+        // loanApplicationId: phần "Sau giải ngân" của trang hồ sơ vay chỉ đọc saga của đúng hồ sơ đó.
+        if (loanApplicationId != null) {
+            return ResponseEntity.ok(adminDisbursementSagaService.listByApplication(loanApplicationId, status));
+        }
         return ResponseEntity.ok(adminDisbursementSagaService.list(status, page, size));
     }
 

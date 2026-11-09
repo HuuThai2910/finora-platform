@@ -47,6 +47,83 @@ public interface LoanApplicationRepository extends JpaRepository<LoanApplication
 
     Optional<LoanApplication> findByApplicationNumber(String applicationNumber);
 
+    /** Mã hiển thị {@code HS-...} đã có hồ sơ dùng chưa; bộ sinh mã gọi để chọn lại khi trùng. */
+    boolean existsByApplicationCode(String applicationCode);
+
+    Optional<LoanApplication> findByApplicationCode(String applicationCode);
+
+    /**
+     * Ô tìm của danh sách hồ sơ quản trị: {@code code} (đã viết hoa, dạng {@code %…%}) khớp mã hồ sơ {@code HS-}/{@code LA-}
+     * hoặc mã hợp đồng {@code HĐ-}/{@code LC-} của hồ sơ; {@code borrowerKey} khớp nguyên ID người vay. Họ tên/email người
+     * vay nằm ở finora-user nên không tìm được ở đây.
+     */
+    @Query("""
+            select application from LoanApplication application
+            where (:status is null or application.status = :status)
+              and (:borrowerId is null or application.borrowerId = :borrowerId)
+              and (application.applicationCode like :code escape '!'
+                   or application.applicationNumber like :code escape '!'
+                   or application.borrowerId = :borrowerKey
+                   or application.id in (
+                       select contract.applicationId from LoanContract contract
+                       where contract.contractCode like :code escape '!'
+                          or contract.contractNumber like :code escape '!'))
+            """)
+    Page<LoanApplication> searchAdmin(
+            @Param("status") LoanApplicationStatus status,
+            @Param("borrowerId") String borrowerId,
+            @Param("code") String code,
+            @Param("borrowerKey") String borrowerKey,
+            Pageable pageable);
+
+    /**
+     * Danh sách hồ sơ quản trị lọc theo việc vận hành của khoản vay (đúng một trong ba cờ bật): {@code overdue} là có
+     * hồ sơ thu hồi đang mở, {@code reschedule} là có yêu cầu cơ cấu chờ thẩm định, {@code incident} là có sai lệch đối
+     * soát đang mở, số liệu lưu đã cũ so với hệ thống lõi hoặc saga giải ngân chờ vận hành. Ô tìm như
+     * {@link #searchAdmin}; không tìm thì truyền {@code code = "%"} (khớp mọi hồ sơ vì mã tra cứu luôn có) và
+     * {@code borrowerKey} rỗng.
+     */
+    @Query("""
+            select application from LoanApplication application
+            where (:status is null or application.status = :status)
+              and (:borrowerId is null or application.borrowerId = :borrowerId)
+              and (application.applicationCode like :code escape '!'
+                   or application.applicationNumber like :code escape '!'
+                   or application.borrowerId = :borrowerKey
+                   or application.id in (
+                       select contract.applicationId from LoanContract contract
+                       where contract.contractCode like :code escape '!'
+                          or contract.contractNumber like :code escape '!'))
+              and ((:overdue = true and application.id in (
+                       select loan.loanApplicationId from FinoraLoan loan, LoanCollectionCase collectionCase
+                       where collectionCase.finoraLoanId = loan.id
+                         and collectionCase.status = com.finora.loan.domain.collection.enums.CollectionCaseStatus.OPEN))
+                or (:reschedule = true and application.id in (
+                       select loan.loanApplicationId from FinoraLoan loan, LoanRescheduleRequest request
+                       where request.finoraLoanId = loan.id
+                         and request.status = com.finora.loan.domain.restructure.enums.LoanRescheduleStatus.PENDING_REVIEW))
+                or (:incident = true and (
+                       application.id in (
+                           select loan.loanApplicationId from FinoraLoan loan, LoanReconciliationIncident incident
+                           where incident.finoraLoanId = loan.id
+                             and incident.status = com.finora.loan.domain.servicing.enums.ReconciliationIncidentStatus.OPEN)
+                       or application.id in (
+                           select loan.loanApplicationId from FinoraLoan loan, LoanServicingProjection projection
+                           where projection.finoraLoanId = loan.id and projection.stale = true)
+                       or application.id in (
+                           select saga.loanApplicationId from DisbursementSaga saga
+                           where saga.status = com.finora.loan.domain.disbursement.enums.DisbursementSagaStatus.REPAIR_REQUIRED))))
+            """)
+    Page<LoanApplication> searchAdminByServicing(
+            @Param("status") LoanApplicationStatus status,
+            @Param("borrowerId") String borrowerId,
+            @Param("code") String code,
+            @Param("borrowerKey") String borrowerKey,
+            @Param("overdue") boolean overdue,
+            @Param("reschedule") boolean reschedule,
+            @Param("incident") boolean incident,
+            Pageable pageable);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select application from LoanApplication application where application.applicationNumber = :applicationNumber")
     Optional<LoanApplication> findByApplicationNumberForUpdate(@Param("applicationNumber") String applicationNumber);
@@ -82,6 +159,12 @@ public interface LoanApplicationRepository extends JpaRepository<LoanApplication
     @org.springframework.data.jpa.repository.Query(
             "select a.id, a.applicationNumber from LoanApplication a where a.id in :ids")
     java.util.List<Object[]> findApplicationNumbers(
+            @org.springframework.data.repository.query.Param("ids") java.util.Collection<Long> ids);
+
+    /** Mã tra cứu và mã hiển thị theo ID — trả bộ {@code [Long id, String applicationNumber, String applicationCode]}. */
+    @org.springframework.data.jpa.repository.Query(
+            "select a.id, a.applicationNumber, a.applicationCode from LoanApplication a where a.id in :ids")
+    java.util.List<Object[]> findApplicationReferences(
             @org.springframework.data.repository.query.Param("ids") java.util.Collection<Long> ids);
 
     /** Hồ sơ của một người vay theo trạng thái — trang khách hàng và trang thẩm định của admin. */

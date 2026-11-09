@@ -40,6 +40,7 @@ class AdminLoanDecisionMapperTest {
         assertThat(detail.applicationNumber()).isEqualTo("LA-TEST-001");
         assertThat(detail.status()).isEqualTo(LoanApplicationStatus.APPROVED);
         assertThat(detail.contractNumber()).isEqualTo(CONTRACT_NUMBER);
+        assertThat(detail.applicationCode()).isEqualTo("HS-20261017-3RXA");
 
         // Web đọc đúng hai tên field này để dựng link proof.
         JsonNode body = json.valueToTree(detail);
@@ -61,6 +62,7 @@ class AdminLoanDecisionMapperTest {
         LoanApplication application = mock(LoanApplication.class);
         when(application.getId()).thenReturn(7L);
         when(application.getApplicationNumber()).thenReturn("LA-TEST-001");
+        when(application.getApplicationCode()).thenReturn("HS-20261017-3RXA");
         when(application.getBorrowerId()).thenReturn("BORROWER-42");
         when(application.getStatus()).thenReturn(LoanApplicationStatus.APPROVED);
         when(application.getFinancialSnapshot()).thenReturn(ApplicantFinancialSnapshot.capture(

@@ -85,12 +85,12 @@ class OwnLoanHiddenControllerTest {
 
     @Test
     void orderBookListHidesViewersOwnLoans() throws Exception {
-        when(queryService.listBooks(any(), any(Pageable.class))).thenReturn(Page.empty());
+        when(queryService.listBooks(any(), any(), any(Pageable.class))).thenReturn(Page.empty());
 
         mockMvc.perform(get("/api/v1/investments/order-books").with(user("42", "ROLE_INVESTOR")))
                 .andExpect(status().isOk());
 
-        verify(queryService).listBooks(eq("42"), any(Pageable.class));
+        verify(queryService).listBooks(eq("42"), isNull(), any(Pageable.class));
     }
 
     @Test
@@ -120,34 +120,34 @@ class OwnLoanHiddenControllerTest {
 
     @Test
     void adminSeesEveryOrderBook() throws Exception {
-        when(queryService.listBooks(any(), any(Pageable.class))).thenReturn(Page.empty());
+        when(queryService.listBooks(any(), any(), any(Pageable.class))).thenReturn(Page.empty());
 
         mockMvc.perform(get("/api/v1/investments/order-books").with(user("1", "ROLE_ADMIN")))
                 .andExpect(status().isOk());
 
-        verify(queryService).listBooks(isNull(), any(Pageable.class));
+        verify(queryService).listBooks(isNull(), isNull(), any(Pageable.class));
     }
 
     @Test
     void staffWithSecondaryMarketViewSeesEveryOrderBook() throws Exception {
-        when(queryService.listBooks(any(), any(Pageable.class))).thenReturn(Page.empty());
+        when(queryService.listBooks(any(), any(), any(Pageable.class))).thenReturn(Page.empty());
 
         mockMvc.perform(get("/api/v1/investments/order-books")
                         .with(user("7", "ROLE_STAFF", OpsFunction.SECONDARY_MARKET.view())))
                 .andExpect(status().isOk());
 
-        verify(queryService).listBooks(isNull(), any(Pageable.class));
+        verify(queryService).listBooks(isNull(), isNull(), any(Pageable.class));
     }
 
     @Test
     void staffWithoutSecondaryMarketViewStillHidesOwnLoans() throws Exception {
-        when(queryService.listBooks(any(), any(Pageable.class))).thenReturn(Page.empty());
+        when(queryService.listBooks(any(), any(), any(Pageable.class))).thenReturn(Page.empty());
 
         mockMvc.perform(get("/api/v1/investments/order-books")
                         .with(user("7", "ROLE_STAFF", OpsFunction.FUNDING.view())))
                 .andExpect(status().isOk());
 
-        verify(queryService).listBooks(eq("7"), any(Pageable.class));
+        verify(queryService).listBooks(eq("7"), isNull(), any(Pageable.class));
     }
 
     private static RequestPostProcessor user(String userId, String... authorities) {

@@ -16,6 +16,10 @@ public record PendingLoanActivationResponse(
         BigDecimal principalAmount,
         String currency,
         DisbursementSagaStatus status,
-        Instant updatedAt
+        Instant updatedAt,
+        /** Mã hiển thị {@code HS-...}; {@code applicationNumber} vẫn là khóa tra cứu. */
+        String applicationCode,
+        /** Mã hiển thị {@code HĐ-...}; {@code contractNumber} vẫn là khóa tra cứu. */
+        String contractCode
 ) {
 }

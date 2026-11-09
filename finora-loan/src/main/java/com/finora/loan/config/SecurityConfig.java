@@ -36,6 +36,17 @@ import java.util.stream.Stream;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
+    /**
+     * Quyền đọc hồ sơ vay: Xem "Hồ sơ vay" hoặc Xem một trong các chức năng xử lý khoản vay sau giải ngân (thu hồi, cơ
+     * cấu, đối soát), vì các việc đó nay nằm ở phần "Sau giải ngân" của trang hồ sơ.
+     */
+    static final String[] APPLICATION_READERS = Stream.of(
+                    OpsFunction.LOAN_APPLICATION, OpsFunction.COLLECTION, OpsFunction.RESCHEDULE,
+                    OpsFunction.RECONCILIATION)
+            .flatMap(function -> Arrays.stream(function.canView()))
+            .distinct()
+            .toArray(String[]::new);
+
     private final DualBearerTokenResolver dualBearerTokenResolver;
     private final KeycloakJwtAuthenticationConverter keycloakJwtAuthenticationConverter;
 
@@ -54,20 +65,18 @@ public class SecurityConfig {
                         // Metric vận hành (số sự cố, hàng đợi) chỉ cho quản trị viên (W3E).
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
                         // Phân quyền nhân viên theo chức năng; ADMIN luôn qua (canView/canAct có sẵn ROLE_ADMIN).
-                        // Tra mã hồ sơ theo ID: các bảng đối soát/sự cố và trang hồ sơ vay đều cần.
-                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/loan-applications/numbers")
-                        .hasAnyAuthority(Stream.concat(
-                                Arrays.stream(OpsFunction.LOAN_APPLICATION.canView()),
-                                Arrays.stream(OpsFunction.RECONCILIATION.canView()))
-                                .distinct().toArray(String[]::new))
-                        // Hồ sơ vay: xem danh sách, chi tiết duyệt, giải thích và các lần chấm điểm.
+                        // Hồ sơ vay: xem danh sách, chi tiết, giải thích, các lần chấm điểm và tra mã theo ID. Nhân viên
+                        // thu hồi, cơ cấu, đối soát xử lý việc sau giải ngân ngay trên trang hồ sơ nên cũng được xem;
+                        // duyệt/từ chối/chấm lại vẫn chỉ theo quyền Thao tác "Hồ sơ vay".
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/admin/loan-applications",
+                                "/api/v1/admin/loan-applications/numbers",
+                                "/api/v1/admin/loan-applications/lookup",
                                 "/api/v1/admin/loan-applications/*/review",
                                 "/api/v1/admin/loan-applications/*/explanation",
                                 "/api/v1/admin/loan-applications/*/assessments",
                                 "/api/v1/admin/loan-applications/*/assessments/*")
-                        .hasAnyAuthority(OpsFunction.LOAN_APPLICATION.canView())
+                        .hasAnyAuthority(APPLICATION_READERS)
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/admin/loan-applications/*/approve",
                                 "/api/v1/admin/loan-applications/*/reject",
@@ -102,7 +111,7 @@ public class SecurityConfig {
                         // Đối soát & sự cố: projection lệch, saga giải ngân, sự kiện trả nợ bị cách ly.
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/admin/loan-servicing-reconciliation",
-                                "/api/v1/admin/loan-servicing-reconciliation/incidents",
+                                "/api/v1/admin/loan-servicing-reconciliation/*",
                                 "/api/v1/admin/disbursement-sagas",
                                 "/api/v1/admin/repayment-event-quarantine")
                         .hasAnyAuthority(OpsFunction.RECONCILIATION.canView())

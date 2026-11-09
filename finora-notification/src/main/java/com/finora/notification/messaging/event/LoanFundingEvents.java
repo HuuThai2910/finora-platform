@@ -12,9 +12,12 @@ public final class LoanFundingEvents {
     private LoanFundingEvents() {
     }
 
-    /** {@code LoanFundingRequested.v1} (Loan). {@code borrowerId} optional từ 2026-10-11, producer cũ để null. */
+    /**
+     * {@code LoanFundingRequested.v1} (Loan). {@code borrowerId} optional từ 2026-10-11, producer cũ để null;
+     * {@code applicationCode} (mã hiển thị {@code HS-...}) optional.
+     */
     public record FundingRequested(Long loanApplicationId, String applicationNumber, Integer fundingRound,
-            String targetAmount, String borrowerId) {}
+            String targetAmount, String borrowerId, String applicationCode) {}
 
     /** {@code LoanFullyFunded.v2} (Investment): allocation bất biến, nguồn danh sách nhà đầu tư. */
     public record FullyFunded(Long loanApplicationId, String applicationNumber, Integer fundingRound,

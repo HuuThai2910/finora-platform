@@ -1,6 +1,7 @@
 package com.finora.loan.service.decision;
 
 import com.finora.loan.domain.application.enums.LoanApplicationStatus;
+import com.finora.loan.domain.servicing.enums.ApplicationServicingFlag;
 import com.finora.loan.dto.decision.request.ApproveLoanApplicationRequest;
 import com.finora.loan.dto.decision.request.RejectLoanApplicationRequest;
 import com.finora.loan.dto.decision.response.AdminAssessmentExplanationResponse;
@@ -21,6 +22,22 @@ public interface AdminLoanDecisionService {
     /** Như trên, lọc thêm theo người vay khi {@code borrowerId} có giá trị. */
     PageResponse<AdminLoanReviewSummaryResponse> listApplications(
             LoanApplicationStatus status, String borrowerId, int page, int size);
+
+    /**
+     * Như trên, thêm ô tìm {@code q}: mã hồ sơ ({@code HS-…}/{@code LA-…}), mã hợp đồng ({@code HĐ-…}/{@code HD-…}/
+     * {@code LC-…}, khớp một phần, không phân biệt hoa thường) hoặc đúng ID người vay. {@code q} rỗng thì như trên.
+     */
+    PageResponse<AdminLoanReviewSummaryResponse> listApplications(
+            LoanApplicationStatus status, String borrowerId, String q, int page, int size);
+
+    /**
+     * Như trên, lọc thêm theo việc vận hành của khoản vay ({@code servicing}): đang quá hạn, chờ duyệt cơ cấu hoặc có sự
+     * cố đối soát/giải ngân. {@code servicing} {@code null} thì như trên. Mỗi dòng kèm mã khoản vay và các cờ việc đang
+     * mở để danh sách gắn nhãn cảnh báo.
+     */
+    PageResponse<AdminLoanReviewSummaryResponse> listApplications(
+            LoanApplicationStatus status, String borrowerId, String q, ApplicationServicingFlag servicing,
+            int page, int size);
 
     /**
      * Detail dùng số query cố định và chỉ đọc snapshot local; không gọi User, AI hoặc Fineract.

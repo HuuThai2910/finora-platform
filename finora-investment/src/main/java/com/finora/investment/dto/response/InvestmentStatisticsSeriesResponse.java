@@ -7,7 +7,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * Chuỗi vốn góp, khớp lệnh chợ Notes và Auto-Invest theo cột thời gian (STATS-001).
+ * Chuỗi vốn góp và khớp lệnh chợ Notes theo cột thời gian (STATS-001).
  *
  * <p>{@code from}/{@code to} là khoảng đã nới cho tròn cột; {@code points} luôn đủ mọi cột kể cả cột 0.
  * Tiền là {@link BigDecimal} scale 2 ra JSON number theo hợp đồng STATS-001.</p>
@@ -39,8 +39,6 @@ public record InvestmentStatisticsSeriesResponse(
      * @param performingAveragePricePermille giá bình quân theo khối lượng chỉ của Note chưa nợ xấu, HALF_UP;
      *                             {@code null} khi cột không có lần khớp nào như vậy. Web tính trung bình
      *                             trượt 7 ngày bằng Σ(giá × khối lượng) / Σ khối lượng từ hai trường này
-     * @param autoInvestPlaced     số lần Auto-Invest đặt được lệnh ({@code MATCHED})
-     * @param autoInvestSkipped    số lần Auto-Invest bỏ qua ({@code SKIPPED})
      */
     public record Point(
             LocalDate bucketStart,
@@ -54,9 +52,7 @@ public record InvestmentStatisticsSeriesResponse(
             long tradedQuantity,
             long performingTrades,
             long performingQuantity,
-            Integer performingAveragePricePermille,
-            long autoInvestPlaced,
-            long autoInvestSkipped
+            Integer performingAveragePricePermille
     ) {
     }
 }

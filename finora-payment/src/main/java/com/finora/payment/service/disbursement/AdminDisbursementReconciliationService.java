@@ -17,6 +17,12 @@ public interface AdminDisbursementReconciliationService {
     PageResponse<DisbursementReconciliationResponse> list(int page, int size);
 
     /**
+     * Như trên, lọc theo một hồ sơ vay khi {@code loanApplicationId} có giá trị (phần "Sau giải ngân" của trang hồ sơ);
+     * {@code null} thì như trên.
+     */
+    PageResponse<DisbursementReconciliationResponse> list(Long loanApplicationId, int page, int size);
+
+    /**
      * Một lệnh giải ngân theo sagaId ở mọi trạng thái, kể cả đã xong: vận hành tra lại lệnh đã đóng sự cố, drill Q13
      * kiểm provider chỉ được gọi một lần sau khi Payment chết giữa chừng.
      */

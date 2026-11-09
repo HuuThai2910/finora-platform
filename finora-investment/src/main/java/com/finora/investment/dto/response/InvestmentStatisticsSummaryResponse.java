@@ -17,8 +17,7 @@ public record InvestmentStatisticsSummaryResponse(
         Instant asOf,
         Listings listings,
         OpenFunding openFunding,
-        Notes notes,
-        AutoInvest autoInvest
+        Notes notes
 ) {
 
     /** @param byStatus số listing theo trạng thái, đủ mọi giá trị {@code ListingStatus} kể cả 0 */
@@ -43,9 +42,5 @@ public record InvestmentStatisticsSummaryResponse(
      * @param activeOutstandingPrincipal tổng dư nợ gốc còn lại của Note đang {@code ACTIVE}
      */
     public record Notes(Map<String, Long> byStatus, BigDecimal activeOutstandingPrincipal) {
-    }
-
-    /** @param activeConfigs số cấu hình Auto-Invest đang bật */
-    public record AutoInvest(long activeConfigs) {
     }
 }

@@ -51,7 +51,6 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.kafka.listener.auto-startup=false",
         "finora.investment.payment.mode=stub",
         "finora.investment.user.mode=stub",
-        "finora.investment.auto-invest.enabled=false",
         "finora.investment.order-book.settlement.enabled=false",
         "finora.investment.transfer-document.enabled=false",
         "finora.investment.maintenance.enabled=false",

@@ -4,8 +4,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.loan.domain.application.entity.LoanApplication;
+import com.finora.loan.domain.contract.model.BorrowerIdentity;
 import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
 import com.finora.loan.service.contract.ContractDocumentRenderer;
+import com.finora.loan.service.contract.ContractHeading;
 import com.finora.loan.service.contract.FundedContractAllocation;
 import org.springframework.stereotype.Component;
 
@@ -23,6 +25,9 @@ import java.util.List;
 @Component
 public class ContractDocumentRendererImpl implements ContractDocumentRenderer {
 
+    static final String NOT_UPDATED_PROFILE = "Chưa cập nhật hồ sơ";
+    static final String NOT_UPDATED = "Chưa cập nhật";
+
     private final ObjectMapper objectMapper;
 
     public ContractDocumentRendererImpl(ObjectMapper objectMapper) {
@@ -31,7 +36,7 @@ public class ContractDocumentRendererImpl implements ContractDocumentRenderer {
 
     @Override
     public String render(
-            String contractNumber,
+            ContractHeading heading,
             LoanApplication application,
             ScheduleCalculationSnapshot schedule,
             String termsVersion,
@@ -42,9 +47,19 @@ public class ContractDocumentRendererImpl implements ContractDocumentRenderer {
         line(document, "HỢP ĐỒNG VAY FINORA");
         blankLine(document);
         line(document, "1. THÔNG TIN HỢP ĐỒNG");
-        line(document, "Mã hợp đồng: " + contractNumber);
-        line(document, "Mã hồ sơ vay: " + application.getApplicationNumber());
-        line(document, "Mã tham chiếu người vay: " + application.getBorrowerId());
+        line(document, "Mã hợp đồng: " + heading.contractLabel());
+        line(document, "Mã hồ sơ vay: " + heading.applicationLabel(application));
+        if (heading.legacy()) {
+            line(document, "Mã tham chiếu người vay: " + application.getBorrowerId());
+        } else {
+            // Danh tính chụp từ User lúc lập hợp đồng; chưa có thì ghi rõ, không điền tên thay người vay.
+            BorrowerIdentity borrower = heading.borrower();
+            line(document, "Bên vay: " + (borrower.fullName() == null ? NOT_UPDATED_PROFILE : borrower.fullName()));
+            line(document, "Số CCCD bên vay: "
+                    + (borrower.maskedIdNumber() == null ? NOT_UPDATED : borrower.maskedIdNumber()));
+            line(document, "Mã tra cứu hệ thống: " + heading.contractNumber() + " / "
+                    + application.getApplicationNumber());
+        }
         blankLine(document);
         line(document, "2. ĐIỀU KHOẢN KHOẢN VAY");
         line(document, "Số tiền vay: " + moneyText(application.getRequestedAmount()));
@@ -85,7 +100,7 @@ public class ContractDocumentRendererImpl implements ContractDocumentRenderer {
 
     @Override
     public String renderFunded(
-            String contractNumber,
+            ContractHeading heading,
             LoanApplication application,
             ScheduleCalculationSnapshot schedule,
             String termsVersion,
@@ -96,7 +111,7 @@ public class ContractDocumentRendererImpl implements ContractDocumentRenderer {
             String allocationHash
     ) {
         StringBuilder document = new StringBuilder(render(
-                contractNumber, application, schedule, termsVersion, documentVersion, expiresAt));
+                heading, application, schedule, termsVersion, documentVersion, expiresAt));
         blankLine(document);
         line(document, "7. DANH SÁCH BÊN CHO VAY VÀ PHÂN BỔ ĐÃ KHÓA");
         line(document, "Phiên bản phân bổ: " + allocationVersion);

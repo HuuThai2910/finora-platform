@@ -27,9 +27,11 @@ public class AdminDisbursementReconciliationController {
 
     @GetMapping
     public ResponseEntity<PageResponse<DisbursementReconciliationResponse>> list(
+            @RequestParam(required = false) @Min(1) Long loanApplicationId,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-        return ResponseEntity.ok(adminDisbursementReconciliationService.list(page, size));
+        // loanApplicationId: phần "Sau giải ngân" của trang hồ sơ vay chỉ đọc lệnh của đúng hồ sơ đó.
+        return ResponseEntity.ok(adminDisbursementReconciliationService.list(loanApplicationId, page, size));
     }
 
     @GetMapping("/{sagaId}")

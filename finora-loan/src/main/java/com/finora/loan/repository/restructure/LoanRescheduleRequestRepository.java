@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -29,6 +30,17 @@ public interface LoanRescheduleRequestRepository extends JpaRepository<LoanResch
     Page<LoanRescheduleRequest> findByBorrowerIdAndLoanNumberOrderByCreatedAtDesc(
             String borrowerId, String loanNumber, Pageable pageable);
     Page<LoanRescheduleRequest> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    /** Yêu cầu cơ cấu của một khoản vay (phần "Sau giải ngân" của trang hồ sơ), mới nhất trước. */
+    Page<LoanRescheduleRequest> findByLoanNumberOrderByCreatedAtDesc(String loanNumber, Pageable pageable);
+    Page<LoanRescheduleRequest> findByLoanNumberAndStatusOrderByCreatedAtDesc(
+            String loanNumber, LoanRescheduleStatus status, Pageable pageable);
+
+    /** Khoản vay (trong {@code loanIds}) có yêu cầu cơ cấu ở trạng thái {@code status}: nhãn trên danh sách hồ sơ. */
+    @Query("select distinct request.finoraLoanId from LoanRescheduleRequest request "
+            + "where request.status = :status and request.finoraLoanId in :loanIds")
+    List<Long> findLoanIdsWithStatus(@Param("status") LoanRescheduleStatus status,
+            @Param("loanIds") Collection<Long> loanIds);
     Page<LoanRescheduleRequest> findByStatusOrderByCreatedAtDesc(LoanRescheduleStatus status, Pageable pageable);
 
     @Query("""
@@ -49,5 +61,29 @@ public interface LoanRescheduleRequestRepository extends JpaRepository<LoanResch
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select request from LoanRescheduleRequest request where request.id = :id")
     Optional<LoanRescheduleRequest> findByIdForUpdate(@Param("id") Long id);
-}
 
+    /**
+     * Ô tìm của hàng đợi cơ cấu: như tìm hồ sơ thu hồi, khớp mã khoản vay {@code LN-}, mã hồ sơ hoặc mã hợp đồng;
+     * {@code status} {@code null} là mọi trạng thái. Mới nhất trước.
+     */
+    @Query("""
+            select request from LoanRescheduleRequest request
+            where (:status is null or request.status = :status)
+              and (request.loanNumber like :code escape '!'
+                   or request.finoraLoanId in (
+                       select loan.id from FinoraLoan loan
+                       where loan.applicationNumber like :code escape '!'
+                          or loan.contractNumber like :code escape '!'
+                          or loan.loanApplicationId in (
+                              select application.id from LoanApplication application
+                              where application.applicationCode like :code escape '!')
+                          or loan.contractNumber in (
+                              select contract.contractNumber from LoanContract contract
+                              where contract.contractCode like :code escape '!')))
+            order by request.createdAt desc
+            """)
+    Page<LoanRescheduleRequest> search(
+            @Param("status") LoanRescheduleStatus status,
+            @Param("code") String code,
+            Pageable pageable);
+}

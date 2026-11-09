@@ -119,7 +119,7 @@ finora:
     token-secret: ${FINORA_PIN_TOKEN_SECRET:dev-only-pin-token-secret-change-me-32b}
     token-ttl: ${FINORA_PIN_TOKEN_TTL:PT3M}
   investment:
-    # Chặn đặt lệnh/bật Auto-Invest khi token chưa có claim ekyc_status=VERIFIED. Realm đang chạy
+    # Chặn đặt lệnh khi token chưa có claim ekyc_status=VERIFIED. Realm đang chạy
     # phải có mapper ekyc-status (docker/keycloak/add-ekyc-claim-mapper.sh) rồi đăng nhập lại.
     require-ekyc: ${INVESTMENT_REQUIRE_EKYC:true}
     # D6/LEGAL-DISCLOSURE-02: version công bố rủi ro nhà đầu tư phải xác nhận trước lệnh sơ cấp; đổi nội dung thì tăng version.
@@ -133,8 +133,8 @@ finora:
     user:
       mode: ${INVESTMENT_USER_MODE:http}
       base-url: ${USER_SERVICE_URL:http://localhost:8085}
-    # Service account cho lời gọi Payment không có JWT người dùng (Auto-Invest giữ tiền thay
-    # nhà đầu tư). Client mang client role payment:hold:on_behalf.
+    # Service account cho lời gọi Payment/User không có JWT người dùng (worker đối soát, giấy
+    # chuyển nhượng). Client mang client role payment:hold:on_behalf.
     service-account:
       token-url: ${KEYCLOAK_TOKEN_URL:http://localhost:8180/realms/finora/protocol/openid-connect/token}
       client-id: ${KEYCLOAK_INVESTMENT_CLIENT_ID:finora-investment-client}
@@ -171,10 +171,6 @@ finora:
       delay: ${INVESTMENT_MAINTENANCE_DELAY:30000}
       batch-size: ${INVESTMENT_MAINTENANCE_BATCH_SIZE:50}
       pending-funds-timeout: ${INVESTMENT_PENDING_FUNDS_TIMEOUT:2m}
-    auto-invest:
-      enabled: ${INVESTMENT_AUTO_INVEST_ENABLED:true}
-      delay: ${INVESTMENT_AUTO_INVEST_DELAY:5000}
-      batch-size: ${INVESTMENT_AUTO_INVEST_BATCH_SIZE:20}
     kafka:
       funding-requested-topic: ${LOAN_FUNDING_REQUESTED_TOPIC:finora.loan.funding-requested}
       funding-cancelled-topic: ${LOAN_FUNDING_CANCELLED_TOPIC:finora.loan.funding-cancelled}

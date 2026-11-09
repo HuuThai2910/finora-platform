@@ -40,6 +40,8 @@ public record LoanApplicationResponse(
         String createdBy,
         String updatedBy,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        /** Mã hiển thị {@code HS-yyyyMMdd-XXXX} cho người dùng; {@code applicationNumber} vẫn là khóa tra cứu API. */
+        String applicationCode
 ) {
 }

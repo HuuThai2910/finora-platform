@@ -27,9 +27,15 @@ public class AdminCollectionController {
     public ResponseEntity<PageResponse<CollectionCaseResponse>> list(
             @RequestParam(required = false) CollectionCaseStatus status,
             @RequestParam(required = false) CollectionStage stage,
+            @RequestParam(required = false) @Size(max = 100) String q,
+            @RequestParam(required = false) @Size(max = 50) String loanNumber,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-        return ResponseEntity.ok(adminCollectionService.list(status, stage, page, size));
+        // loanNumber: phần "Sau giải ngân" của trang hồ sơ vay chỉ đọc hồ sơ thu hồi của đúng khoản vay đó.
+        if (loanNumber != null && !loanNumber.isBlank()) {
+            return ResponseEntity.ok(adminCollectionService.listByLoan(loanNumber, status, page, size));
+        }
+        return ResponseEntity.ok(adminCollectionService.list(status, stage, q, page, size));
     }
 
     @GetMapping("/{caseId}/actions")

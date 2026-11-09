@@ -1,5 +1,6 @@
 package com.finora.investment.service.orderbook.impl;
 
+import com.finora.investment.domain.listing.entity.MarketListing;
 import com.finora.investment.domain.orderbook.entity.BookOrder;
 import com.finora.investment.dto.response.BookOrderResponse;
 
@@ -9,11 +10,12 @@ final class OrderBookMapper {
     private OrderBookMapper() {
     }
 
-    static BookOrderResponse toResponse(BookOrder order, Long loanId) {
+    /** @param listing khoản vay gốc của sổ; null khi không còn tìm thấy (khi đó không có mã và mục đích) */
+    static BookOrderResponse toResponse(BookOrder order, MarketListing listing) {
         return new BookOrderResponse(
                 order.getOrderReference(),
                 order.getListingId(),
-                loanId,
+                listing == null ? null : listing.getLoanId(),
                 order.getSide().name(),
                 OrderBookPricing.toPercent(order.getPricePermille()),
                 order.getQuantity(),
@@ -27,6 +29,7 @@ final class OrderBookMapper {
                 order.getRejectReasonCode(),
                 order.getRejectReasonDetail(),
                 order.getCreatedAt(),
-                order.getUpdatedAt());
+                order.getUpdatedAt(),
+                listing == null ? null : listing.getPurpose());
     }
 }

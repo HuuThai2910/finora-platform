@@ -6,6 +6,7 @@ import com.finora.investment.dto.response.TransferDocumentAdminResponse;
 import com.finora.investment.service.transferdocument.TransferDocumentAdminService;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -37,9 +38,11 @@ public class TransferDocumentAdminController {
     @GetMapping
     public ResponseEntity<PageResponse<TransferDocumentAdminResponse>> list(
             @RequestParam(required = false) NoteTransferDocumentStatus status,
+            @RequestParam(required = false) @Size(max = 100) String q,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-        Page<TransferDocumentAdminResponse> result = transferDocumentAdminService.list(status, PageRequest.of(page, size));
+        Page<TransferDocumentAdminResponse> result =
+                transferDocumentAdminService.list(status, q, PageRequest.of(page, size));
         return ResponseEntity.ok(PageResponse.<TransferDocumentAdminResponse>builder()
                 .content(result.getContent())
                 .page(result.getNumber())

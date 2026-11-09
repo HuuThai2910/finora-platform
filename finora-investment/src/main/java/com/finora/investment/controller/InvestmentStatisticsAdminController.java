@@ -23,7 +23,7 @@ public class InvestmentStatisticsAdminController {
 
     private final InvestmentStatisticsService investmentStatisticsService;
 
-    /** Ảnh chụp hiện tại: listing theo trạng thái, vốn đang gom, Note và Auto-Invest đang bật. */
+    /** Ảnh chụp hiện tại: listing theo trạng thái, vốn đang gom và Note. */
     @GetMapping("/summary")
     public ResponseEntity<InvestmentStatisticsSummaryResponse> summary() {
         return ResponseEntity.ok(investmentStatisticsService.summary());

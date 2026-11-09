@@ -404,6 +404,8 @@ services:
       KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/finora/protocol/openid-connect/token
       # eKYC người vay đọc từ User khi nộp hồ sơ (W2-KYC).
       FINORA_BORROWER_PROFILE_PROVIDER: ${FINORA_BORROWER_PROFILE_PROVIDER:-user}
+      # Họ tên + CCCD đã che của bên vay in trên hợp đồng (service account, docker/keycloak/add-loan-identity-role.sh).
+      FINORA_BORROWER_IDENTITY_PROVIDER: ${FINORA_BORROWER_IDENTITY_PROVIDER:-user}
       USER_SERVICE_URL: http://user:8085
       FINERACT_BASE_URL: http://fineract:8443/fineract-provider/api/v1
       FINERACT_BOOKING_PROVIDER: ${FINERACT_BOOKING_PROVIDER:-mock}

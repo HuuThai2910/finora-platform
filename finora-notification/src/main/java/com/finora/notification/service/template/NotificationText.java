@@ -28,8 +28,9 @@ public interface NotificationText {
     String dateTime(Instant value);
 
     /**
-     * Nhãn khoản vay dễ nhận: mã khoản vay servicing → số hợp đồng → mã hồ sơ → "khoản vay #id". Giá trị từ event được
-     * ưu tiên hơn bảng tra vì là dữ liệu của chính lần thay đổi đó.
+     * Nhãn khoản vay dễ nhận: mã khoản vay servicing → số hợp đồng → mã hồ sơ → "khoản vay #id". Mã hiển thị
+     * ({@code HĐ-...}, {@code HS-...}) đã lưu ở bảng tra được ưu tiên hơn mã tra cứu {@code LC-}/{@code LA-}; giữa hai mã
+     * tra cứu, giá trị từ event được ưu tiên hơn bảng tra vì là dữ liệu của chính lần thay đổi đó.
      */
     String loanLabel(Long loanApplicationId, LoanReference reference, String loanNumber, String contractNumber,
             String applicationNumber);

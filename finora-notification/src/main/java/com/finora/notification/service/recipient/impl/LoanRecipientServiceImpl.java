@@ -62,6 +62,16 @@ public class LoanRecipientServiceImpl implements LoanRecipientService {
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
+    public void rememberDisplayCodes(Long loanApplicationId, String applicationCode, String contractCode) {
+        if ((applicationCode == null || applicationCode.isBlank()) && (contractCode == null || contractCode.isBlank())) {
+            return;
+        }
+        loanReferenceRepository.findForUpdate(loanApplicationId)
+                .ifPresent(reference -> reference.fillDisplayCodes(applicationCode, contractCode));
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
     public Optional<String> borrower(Long loanApplicationId, String borrowerFromEvent, String applicationNumber,
             String contractNumber, String loanNumber, UUID sourceEventId) {
         if (borrowerFromEvent != null && !borrowerFromEvent.isBlank()) {

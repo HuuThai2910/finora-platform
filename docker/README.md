@@ -57,8 +57,8 @@ docker compose --env-file docker/.env -f docker/docker-compose.yml --profile dem
 - Cần `FINERACT_DB_HOST`, hai tên DB Fineract, `BLOCKCHAIN_DB_URL`, username/password và SSL trong `docker/.env`.
   `*_POSTGRES_ADMIN_PASSWORD` chỉ dùng khi chủ động bật profile fallback `fineract-local-db`/`blockchain-local-db`.
 - **Mặc định giả lập để test UI (D85)**, ghi đè `.env` của module: Loan ký `MOCK` và coi người vay đã eKYC (`mock`),
-  Investment tắt kiểm eKYC nhà đầu tư và worker Auto-Invest. Đổi bằng `APPS_SIGNATURE_PROVIDER`,
-  `APPS_BORROWER_PROFILE_PROVIDER`, `APPS_INVESTMENT_REQUIRE_EKYC`, `APPS_INVESTMENT_AUTO_INVEST_ENABLED` trong `docker/.env`
+  Investment tắt kiểm eKYC nhà đầu tư. Đổi bằng `APPS_SIGNATURE_PROVIDER`,
+  `APPS_BORROWER_PROFILE_PROVIDER`, `APPS_INVESTMENT_REQUIRE_EKYC` trong `docker/.env`
   rồi `up -d loan investment` (tạo lại container; `restart` giữ biến cũ). Ký SmartCA UAT ngay trong container Loan:
   `APPS_SIGNATURE_PROVIDER=VNPT_SMART_CA`, thông tin `VNPT_SMARTCA_*` đọc từ `finora-loan/.env`; không cần IntelliJ vì
   SmartCA không gọi ngược vào Loan.

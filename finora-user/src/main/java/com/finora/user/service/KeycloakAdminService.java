@@ -65,6 +65,14 @@ public interface KeycloakAdminService {
     /** Đăng xuất mọi phiên của tài khoản để token sau mang quyền mới. Lỗi chỉ ghi log, không ném. */
     void logoutUser(String keycloakUserId);
 
+    /**
+     * Xóa đúng một phiên đăng nhập của tài khoản (đăng xuất một thiết bị). Chỉ xóa khi phiên đó thuộc chính tài khoản;
+     * phiên đã hết hạn hoặc không thuộc tài khoản thì không làm gì.
+     *
+     * @return {@code true} nếu đã xóa một phiên đang hoạt động
+     */
+    boolean deleteUserSession(String keycloakUserId, String sessionId);
+
     // ── Vai trò nhân viên (realm role STAFF_* gom client role finora-ops) ──
 
     /** Mọi realm role có attribute {@code finoraStaffRole=true}, kèm quyền trong composite. */
