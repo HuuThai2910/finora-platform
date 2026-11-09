@@ -70,6 +70,12 @@ public class UserProfileResponse {
     /** Thời điểm khóa gần nhất. */
     private Instant lockedAt;
 
+    /**
+     * Tài khoản đang dùng mật khẩu tạm do quản trị viên cấp: web quản trị chuyển tới màn đổi mật khẩu bắt buộc
+     * trước khi cho vào các trang khác.
+     */
+    private boolean mustChangePassword;
+
     /** Mã vai trò nhân viên ({@code STAFF_*}) — chỉ có với tài khoản {@code STAFF}. */
     private String staffRoleCode;
 

@@ -37,6 +37,14 @@ public interface MarketListingService {
     PageResponse<MarketListingResponse> search(String status, String creditGrade, BigDecimal minAnnualRate,
             Integer maxTermMonths, String hiddenBorrowerId, String q, String sort, int page, int size);
 
+    /**
+     * Như trên, thêm bộ lọc nâng cao của web quản trị (khoảng tiền, tiến độ, lãi, kỳ hạn, điểm, nhiều hạng, mục đích,
+     * hạn/ngày mở gọi vốn). Bộ lọc rỗng thì đi đúng truy vấn cũ; khoảng sai trả 400 {@code FILTER_RANGE_INVALID}.
+     */
+    PageResponse<MarketListingResponse> search(String status, String creditGrade, BigDecimal minAnnualRate,
+            Integer maxTermMonths, String hiddenBorrowerId, String q, String sort,
+            com.finora.investment.dto.request.ListingAdvancedFilter filter, int page, int size);
+
     PageResponse<MarketListingResponse> search(
             String status,
             String creditGrade,

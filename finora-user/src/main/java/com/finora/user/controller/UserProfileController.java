@@ -3,15 +3,19 @@ package com.finora.user.controller;
 import com.finora.common.dto.BaseResponse;
 import com.finora.common.security.SecurityUtils;
 import com.finora.common.security.ratelimit.RateLimited;
+import com.finora.user.dto.request.ChangePasswordRequest;
 import com.finora.user.dto.request.EkycConfirmRequest;
 import com.finora.user.dto.request.EkycVerifyRequest;
 import com.finora.user.dto.response.EkycResultResponse;
 import com.finora.user.dto.response.KycSummaryResponse;
 import com.finora.user.dto.response.MyEkycStatusResponse;
 import com.finora.user.dto.response.UserProfileResponse;
+import com.finora.user.service.AuthService;
 import com.finora.user.service.EkycVerificationService;
 import com.finora.user.service.KycSummaryService;
 import com.finora.user.service.UserProfileService;
+import com.finora.user.util.HttpRequestUtils;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -37,6 +41,7 @@ public class UserProfileController {
     private final UserProfileService userProfileService;
     private final EkycVerificationService ekycVerificationService;
     private final KycSummaryService kycSummaryService;
+    private final AuthService authService;
 
     /**
      * Hồ sơ của chính mình. Trường {@code permissions} là quyền {@code ops:*} trong JWT đang dùng (ADMIN nhận đủ
@@ -47,6 +52,20 @@ public class UserProfileController {
     public ResponseEntity<UserProfileResponse> getMyProfile() {
         UUID keycloakUserId = SecurityUtils.getCurrentKeycloakUserId();
         return ResponseEntity.ok(userProfileService.getMyProfile(keycloakUserId, SecurityUtils.getCurrentRoles()));
+    }
+
+    /**
+     * Tự đổi mật khẩu: body {@code {"currentPassword":"...","newPassword":"..."}}. Dùng cho màn đổi mật khẩu bắt buộc
+     * của nhân viên mới (mật khẩu tạm) và đổi mật khẩu thông thường; xong thì {@code mustChangePassword} về
+     * {@code false}. Mật khẩu hiện tại sai trả {@code 400 CURRENT_PASSWORD_INVALID}. Phiên đang dùng giữ nguyên.
+     */
+    @PostMapping("/me/change-password")
+    @PreAuthorize("hasAuthority('user:profile:read')")
+    public ResponseEntity<Void> changeMyPassword(@Valid @RequestBody ChangePasswordRequest request,
+                                                 HttpServletRequest httpRequest) {
+        authService.changePassword(SecurityUtils.getCurrentKeycloakUserId(), request,
+                HttpRequestUtils.extractIpAddress(httpRequest));
+        return ResponseEntity.noContent().build();
     }
 
     /**

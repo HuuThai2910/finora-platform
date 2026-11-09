@@ -1,6 +1,7 @@
 package com.finora.notification.controller;
 
 import com.finora.notification.dto.request.OtpEmailRequest;
+import com.finora.notification.dto.request.StaffAccountEmailRequest;
 import com.finora.notification.dto.request.SuspiciousActivityAlertRequest;
 import com.finora.notification.dto.request.WelcomeEmailRequest;
 import com.finora.notification.service.EmailService;
@@ -35,6 +36,14 @@ public class NotificationController {
     @PostMapping("/otp-email")
     public ResponseEntity<Void> sendOtpEmail(@Valid @RequestBody OtpEmailRequest request) {
         emailService.sendPasswordResetOtp(request.getEmail(), request.getOtp());
+        return ResponseEntity.ok().build();
+    }
+
+    /** Thông tin đăng nhập (email + mật khẩu tạm) cho tài khoản nhân viên mới — gọi từ finora-user. */
+    @PostMapping("/staff-account-email")
+    public ResponseEntity<Void> sendStaffAccountEmail(@Valid @RequestBody StaffAccountEmailRequest request) {
+        emailService.sendStaffAccountEmail(request.getEmail(), request.getFullName(), request.getRoleName(),
+                request.getTemporaryPassword());
         return ResponseEntity.ok().build();
     }
 

@@ -18,7 +18,9 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -36,6 +38,27 @@ class MarketListingServiceImplDetailTest {
         service = new MarketListingServiceImpl(marketListingRepository, mock(InvestmentCommitmentRepository.class),
                 new InvestmentMapper(), mock(FundingSettingsService.class), mock(InvestmentOutboxService.class),
                 mock(ListingCommitmentCanceller.class), userIdentityClient);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void appSearchKeepsTheOldQueryAndAdvancedFilterUsesOneSpecificationQuery() {
+        when(marketListingRepository.search(any(), any(), any(), any(), any(), any(), any(),
+                any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(org.springframework.data.domain.Page.empty());
+        when(marketListingRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class),
+                any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(org.springframework.data.domain.Page.empty());
+
+        service.search(null, "A", new BigDecimal("12"), 12, "42", null, null, 0, 20);
+        verify(marketListingRepository).search(any(), any(), any(), any(), any(), any(), any(),
+                any(org.springframework.data.domain.Pageable.class));
+
+        service.search("ALL", null, null, null, null, null, null, new com.finora.investment.dto.request.ListingAdvancedFilter(
+                new BigDecimal("1000000"), null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null), 0, 20);
+        verify(marketListingRepository).findAll(any(org.springframework.data.jpa.domain.Specification.class),
+                any(org.springframework.data.domain.Pageable.class));
     }
 
     @Test

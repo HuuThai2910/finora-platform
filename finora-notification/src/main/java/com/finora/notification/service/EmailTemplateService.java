@@ -19,6 +19,11 @@ public interface EmailTemplateService {
     String renderPasswordResetOtp(String otp);
 
     /**
+     * Render template thông tin đăng nhập cho tài khoản nhân viên mới.
+     */
+    String renderStaffAccountEmail(String fullName, String loginEmail, String roleName, String temporaryPassword);
+
+    /**
      * Render template cảnh báo hoạt động đăng nhập bất thường.
      */
     String renderSuspiciousActivityAlert(String ipAddress, String reason);

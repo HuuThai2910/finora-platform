@@ -19,6 +19,12 @@ public interface EmailService {
     void sendPasswordResetOtp(String toEmail, String otp);
 
     /**
+     * Gửi email thông tin đăng nhập cho tài khoản nhân viên mới: email đăng nhập, vai trò và mật khẩu tạm (phải đổi ở
+     * lần đăng nhập đầu).
+     */
+    void sendStaffAccountEmail(String toEmail, String fullName, String roleName, String temporaryPassword);
+
+    /**
      * Gửi email cảnh báo hoạt động đăng nhập bất thường.
      */
     void sendSuspiciousActivityAlert(String toEmail, String ipAddress, String reason);

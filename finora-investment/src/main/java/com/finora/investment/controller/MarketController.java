@@ -16,9 +16,14 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.finora.investment.dto.request.ListingAdvancedFilter;
+
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
 
 /**
  * Sàn khoản vay đang gọi vốn — phần đọc, dành cho nhà đầu tư.
@@ -46,6 +51,22 @@ public class MarketController {
             @RequestParam(required = false) @Min(1) @Max(60) Integer maxTermMonths,
             @RequestParam(required = false) @Size(max = 50) String q,
             @RequestParam(required = false) @Size(max = 20) String sort,
+            @RequestParam(required = false) BigDecimal amountMin,
+            @RequestParam(required = false) BigDecimal amountMax,
+            @RequestParam(required = false) BigDecimal fundedPercentMin,
+            @RequestParam(required = false) BigDecimal fundedPercentMax,
+            @RequestParam(required = false) BigDecimal rateMin,
+            @RequestParam(required = false) BigDecimal rateMax,
+            @RequestParam(required = false) Integer termMin,
+            @RequestParam(required = false) Integer termMax,
+            @RequestParam(required = false) @Size(max = 10) List<@Size(max = 5) String> grades,
+            @RequestParam(required = false) Integer scoreMin,
+            @RequestParam(required = false) Integer scoreMax,
+            @RequestParam(required = false) @Size(max = 40) String purposeCode,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate closesFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate closesTo,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate openedFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate openedTo,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
@@ -53,9 +74,14 @@ public class MarketController {
         // Xem Gọi vốn thấy hết.
         String hiddenBorrowerId = SecurityUtils.hasPermission(OpsFunction.FUNDING.view())
                 ? null : SecurityUtils.getCurrentUserId();
+        // Bảng lọc nâng cao của web quản trị; tham số cũ (grade, minRate, maxTermMonths) của app giữ nguyên nghĩa.
+        // grades là bản nhiều hạng (?grades=A,B); ngày theo giờ Việt Nam, gồm cả hai đầu.
+        ListingAdvancedFilter filter = new ListingAdvancedFilter(amountMin, amountMax, fundedPercentMin,
+                fundedPercentMax, rateMin, rateMax, termMin, termMax, grades, scoreMin, scoreMax, purposeCode,
+                closesFrom, closesTo, openedFrom, openedTo);
         return ResponseEntity.ok(
-                marketListingService.search(status, grade, minRate, maxTermMonths, hiddenBorrowerId, q, sort, page,
-                        size));
+                marketListingService.search(status, grade, minRate, maxTermMonths, hiddenBorrowerId, q, sort, filter,
+                        page, size));
     }
 
     @GetMapping("/{listingId}")

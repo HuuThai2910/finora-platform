@@ -4,6 +4,8 @@ import com.finora.common.exception.ResourceNotFoundException;
 import com.finora.common.security.SecurityUtils;
 import com.finora.common.security.ops.OpsFunction;
 import com.finora.loan.domain.application.entity.LoanApplication;
+import com.finora.loan.dto.decision.request.AdminApplicationFilter;
+import com.finora.loan.repository.application.LoanApplicationAdminSpecifications;
 import com.finora.loan.domain.application.enums.LoanApplicationStatus;
 import com.finora.loan.domain.core.entity.ScheduleCalculationSnapshot;
 import com.finora.loan.domain.core.enums.ScheduleCalculationPurpose;
@@ -47,6 +49,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -64,6 +67,9 @@ import java.util.stream.Collectors;
 public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
 
     private static final int HISTORY_LIMIT = 20;
+
+    /** Múi giờ nghiệp vụ (D7) để đổi ngày lọc "ngày nộp" sang mốc thời gian. */
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
     private final LoanApplicationRepository loanApplicationRepository;
     private final ScheduleCalculationSnapshotRepository scheduleCalculationSnapshotRepository;
@@ -123,6 +129,21 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
             int page,
             int size
     ) {
+        return listApplications(status, borrowerId, q, servicing, AdminApplicationFilter.NONE, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<AdminLoanReviewSummaryResponse> listApplications(
+            LoanApplicationStatus status,
+            String borrowerId,
+            String q,
+            ApplicationServicingFlag servicing,
+            AdminApplicationFilter filter,
+            int page,
+            int size
+    ) {
+        AdminApplicationFilter advanced = filter == null ? AdminApplicationFilter.NONE : filter.validate();
         String borrower = borrowerId == null || borrowerId.isBlank() ? null : borrowerId.trim();
         PageRequest pageable = PageRequest.of(
                 page,
@@ -131,7 +152,12 @@ public class AdminLoanDecisionServiceImpl implements AdminLoanDecisionService {
         );
         Page<LoanApplication> applications;
         String code = SearchPatterns.containsCode(q);
-        if (servicing != null) {
+        if (!advanced.isEmpty()) {
+            // Bảng lọc nâng cao: một Specification ghép mọi tiêu chí (kể cả ô tìm và cờ vận hành) để phân trang và tổng
+            // số đúng ở DB. Không lọc nâng cao thì giữ các truy vấn cũ bên dưới.
+            applications = loanApplicationRepository.findAll(LoanApplicationAdminSpecifications.matching(
+                    status, borrower, code, SearchPatterns.trimmed(q), servicing, advanced, BUSINESS_ZONE), pageable);
+        } else if (servicing != null) {
             // Không tìm thì "%" khớp mọi hồ sơ (mã tra cứu luôn có) và ID người vay rỗng không khớp ai.
             String trimmed = SearchPatterns.trimmed(q);
             applications = loanApplicationRepository.searchAdminByServicing(

@@ -63,24 +63,48 @@ class OwnLoanHiddenControllerTest {
 
     @Test
     void fundingListHidesViewersOwnLoans() throws Exception {
-        when(listingService.search(any(), any(), any(), any(), any(), any(), any(), any(Integer.class), any(Integer.class)))
+        when(listingService.search(any(), any(), any(), any(), any(), any(), any(), any(), any(Integer.class), any(Integer.class)))
                 .thenReturn(PageResponse.<MarketListingResponse>builder().content(List.of()).build());
 
         mockMvc.perform(get("/api/v1/market/listings").with(user("42", "ROLE_INVESTOR")))
                 .andExpect(status().isOk());
 
-        verify(listingService).search(isNull(), isNull(), isNull(), isNull(), eq("42"), isNull(), isNull(), eq(0), eq(20));
+        verify(listingService).search(isNull(), isNull(), isNull(), isNull(), eq("42"), isNull(), isNull(), any(), eq(0), eq(20));
+    }
+
+    @Test
+    void advancedFilterBindsAndLegacyAppParametersKeepTheirMeaning() throws Exception {
+        when(listingService.search(any(), any(), any(), any(), any(), any(), any(), any(), any(Integer.class), any(Integer.class)))
+                .thenReturn(PageResponse.<MarketListingResponse>builder().content(List.of()).build());
+
+        mockMvc.perform(get("/api/v1/market/listings").param("status", "ALL").param("grade", "A")
+                        .param("minRate", "12").param("maxTermMonths", "12")
+                        .param("amountMin", "10000000").param("fundedPercentMax", "80").param("grades", "A,B")
+                        .param("purposeCode", "education").param("closesFrom", "2026-11-01").param("openedTo", "2026-11-09")
+                        .with(user("1", "ROLE_ADMIN")))
+                .andExpect(status().isOk());
+
+        org.mockito.ArgumentCaptor<com.finora.investment.dto.request.ListingAdvancedFilter> filter =
+                org.mockito.ArgumentCaptor.forClass(com.finora.investment.dto.request.ListingAdvancedFilter.class);
+        verify(listingService).search(eq("ALL"), eq("A"), eq(new java.math.BigDecimal("12")), eq(12), isNull(), isNull(),
+                isNull(), filter.capture(), eq(0), eq(20));
+        org.assertj.core.api.Assertions.assertThat(filter.getValue().amountMin()).isEqualByComparingTo("10000000");
+        org.assertj.core.api.Assertions.assertThat(filter.getValue().fundedPercentMax()).isEqualByComparingTo("80");
+        org.assertj.core.api.Assertions.assertThat(filter.getValue().grades()).containsExactly("A", "B");
+        org.assertj.core.api.Assertions.assertThat(filter.getValue().purposeCode()).isEqualTo("EDUCATION");
+        org.assertj.core.api.Assertions.assertThat(filter.getValue().closesFrom()).isEqualTo(java.time.LocalDate.of(2026, 11, 1));
+        org.assertj.core.api.Assertions.assertThat(filter.getValue().openedTo()).isEqualTo(java.time.LocalDate.of(2026, 11, 9));
     }
 
     @Test
     void adminSeesEveryListing() throws Exception {
-        when(listingService.search(any(), any(), any(), any(), any(), any(), any(), any(Integer.class), any(Integer.class)))
+        when(listingService.search(any(), any(), any(), any(), any(), any(), any(), any(), any(Integer.class), any(Integer.class)))
                 .thenReturn(PageResponse.<MarketListingResponse>builder().content(List.of()).build());
 
         mockMvc.perform(get("/api/v1/market/listings").param("status", "ALL").with(user("1", "ROLE_ADMIN")))
                 .andExpect(status().isOk());
 
-        verify(listingService).search(eq("ALL"), isNull(), isNull(), isNull(), isNull(), isNull(), isNull(), eq(0), eq(20));
+        verify(listingService).search(eq("ALL"), isNull(), isNull(), isNull(), isNull(), isNull(), isNull(), any(), eq(0), eq(20));
     }
 
     @Test
@@ -95,19 +119,19 @@ class OwnLoanHiddenControllerTest {
 
     @Test
     void staffWithFundingViewSeesEveryListing() throws Exception {
-        when(listingService.search(any(), any(), any(), any(), any(), any(), any(), any(Integer.class), any(Integer.class)))
+        when(listingService.search(any(), any(), any(), any(), any(), any(), any(), any(), any(Integer.class), any(Integer.class)))
                 .thenReturn(PageResponse.<MarketListingResponse>builder().content(List.of()).build());
 
         mockMvc.perform(get("/api/v1/market/listings").param("status", "ALL")
                         .with(user("7", "ROLE_STAFF", OpsFunction.FUNDING.view())))
                 .andExpect(status().isOk());
 
-        verify(listingService).search(eq("ALL"), isNull(), isNull(), isNull(), isNull(), isNull(), isNull(), eq(0), eq(20));
+        verify(listingService).search(eq("ALL"), isNull(), isNull(), isNull(), isNull(), isNull(), isNull(), any(), eq(0), eq(20));
     }
 
     @Test
     void staffWithoutFundingViewStillHidesOwnLoans() throws Exception {
-        when(listingService.search(any(), any(), any(), any(), any(), any(), any(), any(Integer.class), any(Integer.class)))
+        when(listingService.search(any(), any(), any(), any(), any(), any(), any(), any(), any(Integer.class), any(Integer.class)))
                 .thenReturn(PageResponse.<MarketListingResponse>builder().content(List.of()).build());
 
         // Quyền Xem Chợ thứ cấp không mở danh sách Gọi vốn: mỗi màn kiểm quyền của chính nó.
@@ -115,7 +139,7 @@ class OwnLoanHiddenControllerTest {
                         .with(user("7", "ROLE_STAFF", OpsFunction.SECONDARY_MARKET.view())))
                 .andExpect(status().isOk());
 
-        verify(listingService).search(isNull(), isNull(), isNull(), isNull(), eq("7"), isNull(), isNull(), eq(0), eq(20));
+        verify(listingService).search(isNull(), isNull(), isNull(), isNull(), eq("7"), isNull(), isNull(), any(), eq(0), eq(20));
     }
 
     @Test

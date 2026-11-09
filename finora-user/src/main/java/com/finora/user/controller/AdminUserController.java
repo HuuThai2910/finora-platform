@@ -1,11 +1,13 @@
 package com.finora.user.controller;
 
 import com.finora.common.dto.PageResponse;
+import com.finora.common.enums.user.Gender;
 import com.finora.common.security.SecurityUtils;
 import com.finora.common.statistics.StatisticsBucket;
 import com.finora.common.statistics.StatisticsPeriod;
 import com.finora.user.dto.request.AssignRoleRequest;
 import com.finora.user.dto.request.LockUserRequest;
+import com.finora.user.dto.request.UserListFilter;
 import com.finora.user.dto.request.UserSearchCriteria;
 import com.finora.user.dto.response.UserProfileResponse;
 import com.finora.user.dto.response.UserStatsResponse;
@@ -15,9 +17,12 @@ import com.finora.user.service.UserStatisticsService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
 
 
 /**
@@ -43,6 +48,11 @@ public class AdminUserController {
      *
      * @param q             chuỗi tìm: một phần họ tên (không phân biệt dấu) hoặc email, hoặc đúng số điện thoại / CCCD
      * @param staffRoleCode mã vai trò nhân viên; có giá trị thì chỉ trả tài khoản nhân viên mang vai trò đó
+     * @param scope         nhóm tài khoản: {@code STAFF} (quản trị viên + nhân viên — trang Phân quyền) hoặc
+     *                      {@code CUSTOMER} (người vay + nhà đầu tư); bỏ trống là mọi tài khoản
+     * @param locked        {@code true}/{@code false}: chỉ tài khoản đang khóa / đang hoạt động
+     * @param ageMin        tuổi theo ngày sinh eKYC (cùng {@code ageMax}); {@code gender} theo eKYC
+     * @param lastLoginFrom lần đăng nhập gần nhất trên mọi thiết bị (cùng {@code lastLoginTo})
      */
     @GetMapping
     @PreAuthorize("hasAnyAuthority('user:admin:read_all','ops:customer:view','ROLE_ADMIN')")
@@ -52,10 +62,23 @@ public class AdminUserController {
             @RequestParam(required = false) String role,
             @RequestParam(required = false) String ekycStatus,
             @RequestParam(required = false) String staffRoleCode,
-            @RequestParam(required = false) String q) {
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String scope,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate createdFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate createdTo,
+            @RequestParam(required = false) Boolean locked,
+            @RequestParam(required = false) Integer ageMin,
+            @RequestParam(required = false) Integer ageMax,
+            @RequestParam(required = false) Gender gender,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate lastLoginFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate lastLoginTo) {
 
+        // Bảng lọc nâng cao: ngày theo giờ Việt Nam (gồm cả hai đầu); khoảng sai trả 400 FILTER_RANGE_INVALID.
+        UserListFilter filter = new UserListFilter(createdFrom, createdTo, locked, ageMin, ageMax, gender,
+                lastLoginFrom, lastLoginTo);
         return ResponseEntity.ok(userProfileService.searchUsers(
-                new UserSearchCriteria(role, ekycStatus, staffRoleCode, q), PageRequest.of(Math.max(page, 0), size)));
+                new UserSearchCriteria(role, ekycStatus, staffRoleCode, q, scope, filter),
+                PageRequest.of(Math.max(page, 0), size)));
     }
 
     /** Thống kê tổng số người dùng theo vai trò và trạng thái eKYC. */
@@ -114,6 +137,10 @@ public class AdminUserController {
 
     /**
      * Gán vai trò mới — chỉ ADMIN, không mở bằng quyền nhân viên để không ai tự nâng quyền.
+     * <p>
+     * Chỉ cho tài khoản nội bộ: đổi qua lại STAFF/ADMIN hoặc đổi vai trò nhân viên. Khách hàng không được biến thành
+     * nhân viên ({@code 409 CUSTOMER_ROLE_LOCKED}) và nhân viên không được hạ thành khách
+     * ({@code 400 ROLE_NOT_ASSIGNABLE}); nhân viên mới tạo qua {@code POST /api/v1/admin/users}.
      * <p>
      * Nhận vai trò qua body {@code {"role":"STAFF","staffRoleCode":"STAFF_VAN_HANH"}} — cũng chấp nhận query
      * param {@code ?role=ADMIN} cho các client đang gửi theo kiểu cũ. {@code staffRoleCode} bắt buộc khi

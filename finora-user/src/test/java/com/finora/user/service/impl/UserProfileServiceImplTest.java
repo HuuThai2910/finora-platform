@@ -42,7 +42,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Gán vai trò (thay cả bộ realm role, đăng xuất người dùng, ghi mã vai trò nhân viên) và {@code /users/me}
+ * Gán vai trò (thay cả bộ realm role, đăng xuất người dùng, ghi mã vai trò nhân viên; chỉ giữa tài khoản nội bộ),
+ * lọc theo nhóm tài khoản và {@code /users/me}
  * (quyền ops:* từ JWT, vai trò nhân viên).
  */
 @ExtendWith(MockitoExtension.class)
@@ -71,6 +72,7 @@ class UserProfileServiceImplTest {
 
     @Test
     void assignStaffReplacesOldRealmRolesThenLogsOut() {
+        target.setRole(UserRole.ADMIN);
         when(userProfileRepository.findById(42L)).thenReturn(Optional.of(target));
         when(keycloakAdminService.findStaffRole("STAFF_VAN_HANH")).thenReturn(Optional.of(new StaffRoleDefinition(
                 "STAFF_VAN_HANH", "Nhân viên vận hành", null, OpsFunction.defaultStaffPermissions())));
@@ -88,17 +90,46 @@ class UserProfileServiceImplTest {
     }
 
     @Test
-    void assignNonStaffClearsStaffRoleCode() {
+    void promotingStaffToAdminClearsStaffRoleCode() {
         target.setRole(UserRole.STAFF);
         target.setStaffRoleCode("STAFF_VAN_HANH");
         when(userProfileRepository.findById(42L)).thenReturn(Optional.of(target));
 
-        service.assignRole(42L, "INVESTOR", "  ", ADMIN_KC_ID);
+        service.assignRole(42L, "ADMIN", "  ", ADMIN_KC_ID);
 
-        verify(keycloakAdminService).replaceRealmRoles(TARGET_KC_ID.toString(), List.of("ROLE_INVESTOR"));
+        verify(keycloakAdminService).replaceRealmRoles(TARGET_KC_ID.toString(), List.of("ROLE_ADMIN"));
         verify(keycloakAdminService).logoutUser(TARGET_KC_ID.toString());
-        assertThat(target.getRole()).isEqualTo(UserRole.INVESTOR);
+        assertThat(target.getRole()).isEqualTo(UserRole.ADMIN);
         assertThat(target.getStaffRoleCode()).isNull();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"BORROWER", "INVESTOR"})
+    void staffCannotBeTurnedIntoCustomer(String customerRole) {
+        assertThatThrownBy(() -> service.assignRole(42L, customerRole, null, ADMIN_KC_ID))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getStatus()).isEqualTo(org.springframework.http.HttpStatus.BAD_REQUEST);
+                    assertThat(e.getCode()).isEqualTo("ROLE_NOT_ASSIGNABLE");
+                });
+        verify(userProfileRepository, never()).findById(any());
+        verify(keycloakAdminService, never()).replaceRealmRoles(anyString(), any());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = UserRole.class, names = {"BORROWER", "INVESTOR"})
+    void customerAccountCannotBecomeStaff(UserRole customerRole) {
+        target.setRole(customerRole);
+        when(userProfileRepository.findById(42L)).thenReturn(Optional.of(target));
+
+        assertThatThrownBy(() -> service.assignRole(42L, "ADMIN", null, ADMIN_KC_ID))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getStatus()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
+                    assertThat(e.getCode()).isEqualTo("CUSTOMER_ROLE_LOCKED");
+                });
+        verify(keycloakAdminService, never()).replaceRealmRoles(anyString(), any());
+        verify(keycloakAdminService, never()).findStaffRole(anyString());
+        verify(userProfileRepository, never()).save(any());
+        assertThat(target.getRole()).isEqualTo(customerRole);
     }
 
     @Test
@@ -119,6 +150,7 @@ class UserProfileServiceImplTest {
 
     @Test
     void unknownStaffRoleIsNotFoundAndNothingChanges() {
+        target.setRole(UserRole.ADMIN);
         when(userProfileRepository.findById(42L)).thenReturn(Optional.of(target));
         when(keycloakAdminService.findStaffRole("STAFF_KHONG_CO")).thenReturn(Optional.empty());
 
@@ -132,9 +164,10 @@ class UserProfileServiceImplTest {
     @Test
     void selfAssignmentIsStillBlocked() {
         target.setKeycloakUserId(ADMIN_KC_ID);
+        target.setRole(UserRole.ADMIN);
         when(userProfileRepository.findById(42L)).thenReturn(Optional.of(target));
 
-        assertThatThrownBy(() -> service.assignRole(42L, "BORROWER", null, ADMIN_KC_ID))
+        assertThatThrownBy(() -> service.assignRole(42L, "STAFF", "STAFF_VAN_HANH", ADMIN_KC_ID))
                 .isInstanceOf(BusinessException.class);
         verify(keycloakAdminService, never()).replaceRealmRoles(anyString(), any());
     }
@@ -252,6 +285,66 @@ class UserProfileServiceImplTest {
                 PageRequest.of(0, 20)))
                 .isInstanceOfSatisfying(BusinessException.class,
                         e -> assertThat(e.getCode()).isEqualTo("STAFF_ROLE_NOT_ALLOWED"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void staffScopeIsAcceptedAndCaseInsensitive() {
+        when(userProfileRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        var result = service.searchUsers(new UserSearchCriteria("ADMIN", null, null, null, "staff"),
+                PageRequest.of(0, 10));
+
+        assertThat(result.getTotalElements()).isZero();
+        verify(userProfileRepository).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
+    void invalidAdvancedFilterIsRejectedBeforeQuery() {
+        var filter = new com.finora.user.dto.request.UserListFilter(null, null, null, 40, 20, null, null, null);
+        assertThatThrownBy(() -> service.searchUsers(new UserSearchCriteria(null, null, null, null, null, filter),
+                PageRequest.of(0, 20)))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("FILTER_RANGE_INVALID"));
+        verify(userProfileRepository, never()).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void advancedFilterStillUsesOnePagedQuery() {
+        when(userProfileRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+        var filter = new com.finora.user.dto.request.UserListFilter(null, null, true, null, null, null, null, null);
+
+        service.searchUsers(new UserSearchCriteria(null, null, null, null, "CUSTOMER", filter), PageRequest.of(0, 20));
+
+        verify(userProfileRepository).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
+    void roleOutsideScopeIsRejected() {
+        assertThatThrownBy(() -> service.searchUsers(new UserSearchCriteria("BORROWER", null, null, null, "STAFF"),
+                PageRequest.of(0, 20)))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("ROLE_OUT_OF_SCOPE"));
+        verify(userProfileRepository, never()).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
+    void staffRoleFilterInCustomerScopeIsRejected() {
+        assertThatThrownBy(() -> service.searchUsers(
+                new UserSearchCriteria(null, null, "STAFF_VAN_HANH", null, "CUSTOMER"), PageRequest.of(0, 20)))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("STAFF_ROLE_NOT_ALLOWED"));
+    }
+
+    @Test
+    void unknownScopeIsRejected() {
+        assertThatThrownBy(() -> service.searchUsers(new UserSearchCriteria(null, null, null, null, "VIP"),
+                PageRequest.of(0, 20)))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("SCOPE_INVALID"));
     }
 
     @Test

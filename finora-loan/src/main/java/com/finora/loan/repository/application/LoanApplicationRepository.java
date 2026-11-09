@@ -6,6 +6,7 @@ import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -21,7 +22,8 @@ import java.util.Optional;
  * <p>Không cần {@code @Repository} vì Spring Data JPA tự tạo proxy cho interface
  * kế thừa {@link JpaRepository}.</p>
  */
-public interface LoanApplicationRepository extends JpaRepository<LoanApplication, Long> {
+public interface LoanApplicationRepository extends JpaRepository<LoanApplication, Long>,
+        JpaSpecificationExecutor<LoanApplication> {
 
     /**
      * Khóa advisory trong transaction theo người vay để hai lần kiểm hạn mức dư nợ không cùng đọc tổng cũ. Khóa tự nhả

@@ -21,6 +21,13 @@ public interface ProofQueryService {
      */
     PageResponse<ProofResponse> search(String referenceType, String referenceId, String status, int page, int size);
 
+    /**
+     * Như trên, thêm bộ lọc của trang Kiểm toán (loại bằng chứng, sổ cái, khoảng ngày tạo) và cho ghép trạng thái với
+     * tham chiếu (một câu truy vấn Specification). Bộ lọc rỗng và không ghép thì đúng như bản trên.
+     */
+    PageResponse<ProofResponse> search(String referenceType, String referenceId, String status,
+                                       com.finora.blockchain.dto.request.ProofSearchFilter filter, int page, int size);
+
     /** Chi tiết một proof; {@code proofId} sai định dạng trả 400, không có proof trả 404. */
     ProofResponse find(String proofId);
 

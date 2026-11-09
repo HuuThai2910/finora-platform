@@ -32,4 +32,16 @@ public class AuthResponse {
     /** Refresh token — chỉ trả cho mobile client */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String refreshToken;
+
+    /**
+     * Phải đổi mật khẩu tạm trước khi dùng tiếp (tài khoản nhân viên mới tạo). {@code null} ở phản hồi làm mới token.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Boolean mustChangePassword;
+
+    /** Phản hồi không mang cờ đổi mật khẩu (làm mới token, đăng ký khách hàng). */
+    public AuthResponse(Long userId, String email, String fullName, List<String> roles,
+                        String accessToken, String refreshToken) {
+        this(userId, email, fullName, roles, accessToken, refreshToken, null);
+    }
 }

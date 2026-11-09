@@ -19,7 +19,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-public interface ProofSubmissionRepository extends JpaRepository<ProofSubmission, Long>, ProofSubmissionInsert {
+public interface ProofSubmissionRepository extends JpaRepository<ProofSubmission, Long>, ProofSubmissionInsert,
+        org.springframework.data.jpa.repository.JpaSpecificationExecutor<ProofSubmission> {
 
     Optional<ProofSubmission> findBySourceServiceAndSourceEventId(String sourceService, UUID sourceEventId);
 

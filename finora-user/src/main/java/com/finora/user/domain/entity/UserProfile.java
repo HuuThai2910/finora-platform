@@ -110,6 +110,14 @@ public class UserProfile {
     @Column(name = "staff_role_code", length = 60)
     private String staffRoleCode;
 
+    /**
+     * Phải đổi mật khẩu trước khi dùng web quản trị — bật khi quản trị viên tạo tài khoản nhân viên với mật khẩu tạm,
+     * tắt khi người dùng tự đổi mật khẩu.
+     */
+    @Column(name = "must_change_password", nullable = false)
+    @Builder.Default
+    private boolean mustChangePassword = false;
+
     /** Trạng thái xác minh eKYC */
     @Enumerated(EnumType.STRING)
     @Column(name = "ekyc_status", nullable = false)

@@ -28,7 +28,8 @@ public interface UserProfileService {
     /**
      * Danh sách người dùng theo bộ lọc đầy đủ của màn quản trị: vai trò, trạng thái xác minh, vai trò nhân viên và
      * chuỗi tìm ({@code q}). Chuỗi tìm khớp chuỗi con của họ tên (không phân biệt dấu) hoặc email, hoặc khớp đúng số
-     * điện thoại / số CCCD. Mới tạo trước.
+     * điện thoại / số CCCD. {@code scope} giới hạn theo nhóm tài khoản (STAFF = quản trị viên + nhân viên,
+     * CUSTOMER = người vay + nhà đầu tư) ngay ở DB. Mới tạo trước.
      */
     PageResponse<UserProfileResponse> searchUsers(UserSearchCriteria criteria, Pageable pageable);
 
@@ -59,11 +60,15 @@ public interface UserProfileService {
     /**
      * Gán vai trò mới — nhận role dạng String, tự parse + kiểm tra admin không tự đổi role.
      * <p>
+     * Chỉ dùng cho tài khoản nội bộ: đổi qua lại STAFF/ADMIN hoặc đổi vai trò nhân viên. Vai trò mới là
+     * BORROWER/INVESTOR bị từ chối ({@code 400 ROLE_NOT_ASSIGNABLE}); tài khoản đích là khách hàng bị từ chối
+     * ({@code 409 CUSTOMER_ROLE_LOCKED}) — nhân viên mới phải tạo bằng thông tin riêng.
+     * <p>
      * Trên Keycloak, realm role tài khoản cũ (và vai trò nhân viên cũ) được gỡ khi gán role mới, rồi mọi phiên
      * của người dùng bị đăng xuất để token sau mang đúng quyền mới.
      *
      * @param userId            ID người dùng
-     * @param role              Tên vai trò dạng String (BORROWER, INVESTOR, STAFF, ADMIN)
+     * @param role              Tên vai trò dạng String (STAFF hoặc ADMIN)
      * @param staffRoleCode     mã vai trò nhân viên — bắt buộc khi {@code role=STAFF}, phải rỗng với vai trò khác
      * @param currentKeycloakId Keycloak ID của admin đang thao tác
      */
