@@ -1263,9 +1263,10 @@ class FinoraLoanApplicationIT {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.totalElements").value(3))
                     .andExpect(jsonPath("$.data.length()").value(3));
-            // Page content + count + batch assessment + một query fixed của projection liên quan.
-            // Giới hạn vẫn cố định theo page, không tăng theo số hồ sơ.
-            assertThat(statistics.getQueryExecutionCount()).isLessThanOrEqualTo(4L);
+            // Page content + count + batch assessment + một query fixed của projection liên quan, cộng tối đa sáu
+            // query tình trạng sau giải ngân của cả trang (AdminApplicationServicingService: khoản vay, saga, thu hồi
+            // mở, cơ cấu chờ duyệt, sai lệch mở, số liệu cũ). Giới hạn vẫn cố định theo page, không tăng theo số hồ sơ.
+            assertThat(statistics.getQueryExecutionCount()).isLessThanOrEqualTo(10L);
         } finally {
             statistics.setStatisticsEnabled(false);
         }
