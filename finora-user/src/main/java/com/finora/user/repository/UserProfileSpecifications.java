@@ -155,6 +155,11 @@ public final class UserProfileSpecifications {
         return decomposed.replace('đ', 'd').replace('Đ', 'D');
     }
 
+    /** Mẫu {@code LIKE '%…%'} (ký tự thoát {@code !}) cho chuỗi tìm đã chuẩn hoá. */
+    static String containsPattern(String normalized) {
+        return "%" + escapeLike(normalized) + "%";
+    }
+
     private static String escapeLike(String value) {
         return value.replace("!", "!!").replace("%", "!%").replace("_", "!_");
     }

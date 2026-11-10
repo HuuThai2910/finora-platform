@@ -47,6 +47,24 @@ public class SecurityConfig {
             .distinct()
             .toArray(String[]::new);
 
+    /**
+     * Quyền đọc hợp đồng và kỳ trả cho trang Gọi vốn: Xem "Gọi vốn" hoặc quyền đọc hồ sơ vay (hợp đồng là một phần của hồ
+     * sơ). Chỉ đọc; ký hay từ chối vẫn là việc của chính các bên.
+     */
+    static final String[] CONTRACT_READERS = Stream.concat(
+                    Arrays.stream(OpsFunction.FUNDING.canView()), Arrays.stream(APPLICATION_READERS))
+            .distinct()
+            .toArray(String[]::new);
+
+    /**
+     * Quyền đọc kỳ trả: như {@link #CONTRACT_READERS}, thêm Xem "Chợ chuyển nhượng" (cột Trả nợ của sổ lệnh). Không mở
+     * hợp đồng cho quyền đó.
+     */
+    static final String[] INSTALLMENT_READERS = Stream.concat(
+                    Arrays.stream(CONTRACT_READERS), Arrays.stream(OpsFunction.SECONDARY_MARKET.canView()))
+            .distinct()
+            .toArray(String[]::new);
+
     private final DualBearerTokenResolver dualBearerTokenResolver;
     private final KeycloakJwtAuthenticationConverter keycloakJwtAuthenticationConverter;
 
@@ -77,6 +95,14 @@ public class SecurityConfig {
                                 "/api/v1/admin/loan-applications/*/assessments",
                                 "/api/v1/admin/loan-applications/*/assessments/*")
                         .hasAnyAuthority(APPLICATION_READERS)
+                        // Hợp đồng và kỳ trả cho trang Gọi vốn (chỉ đọc).
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/admin/loan-contracts/*",
+                                "/api/v1/admin/loan-contracts/*/document")
+                        .hasAnyAuthority(CONTRACT_READERS)
+                        // Kỳ trả còn mở cho Chợ chuyển nhượng: giá phần vốn trên sổ lệnh phụ thuộc tình hình trả nợ.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/admin/loans/*/installments")
+                        .hasAnyAuthority(INSTALLMENT_READERS)
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/admin/loan-applications/*/approve",
                                 "/api/v1/admin/loan-applications/*/reject",

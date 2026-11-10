@@ -126,6 +126,13 @@ public class MarketListing {
     @Column(name = "committed_amount", nullable = false, precision = 18, scale = 2)
     private BigDecimal committedAmount;
 
+    /**
+     * Số tiền đã gọi được tại lúc listing đóng (hết hạn) hoặc bị hủy, chốt trước khi phần vốn được hoàn và trừ khỏi
+     * {@link #committedAmount}. Null khi listing chưa đóng/hủy.
+     */
+    @Column(name = "raised_amount", precision = 18, scale = 2)
+    private BigDecimal raisedAmount;
+
     @Column(name = "annual_interest_rate", nullable = false, precision = 7, scale = 4, updatable = false)
     private BigDecimal annualInterestRate;
 

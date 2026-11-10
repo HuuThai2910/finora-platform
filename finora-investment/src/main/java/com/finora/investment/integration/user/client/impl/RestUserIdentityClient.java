@@ -10,6 +10,13 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 /**
  * Đọc họ tên và CCCD đã che từ API nội bộ của finora-user. Token service account mang client role
  * {@code user:identity:read_internal}; User chỉ trả số CCCD đã che, Investment không bao giờ thấy số đầy đủ.
@@ -23,6 +30,9 @@ public class RestUserIdentityClient implements UserIdentityClient {
 
     /** Tên circuit breaker và time limiter trong {@code resilience4j.*.instances}. */
     static final String CIRCUIT_BREAKER_NAME = "user-identity";
+
+    /** Giới hạn {@code userIds} của {@code GET /internal/users/full-names}. */
+    static final int MAX_IDS_PER_CALL = 100;
 
     private final RestClient.Builder restClientBuilder;
     private final ServiceTokenProvider serviceTokenProvider;
@@ -65,10 +75,87 @@ public class RestUserIdentityClient implements UserIdentityClient {
         }
     }
 
+    @Override
+    public Map<String, String> fullNames(Collection<String> userIds) {
+        List<String> ids = userIds == null ? List.of()
+                : userIds.stream().filter(id -> id != null && !id.isBlank()).distinct().toList();
+        Map<String, String> names = new HashMap<>();
+        // User nhận tối đa 100 ID mỗi lần; trang danh sách tối đa 100 dòng nên thường chỉ một lời gọi.
+        for (int from = 0; from < ids.size(); from += MAX_IDS_PER_CALL) {
+            List<String> chunk = ids.subList(from, Math.min(from + MAX_IDS_PER_CALL, ids.size()));
+            for (FullNameBody body : fetchFullNames(chunk)) {
+                if (body != null && body.userId() != null) {
+                    names.put(body.userId(), blankToNull(body.fullName()));
+                }
+            }
+        }
+        return names;
+    }
+
+    private List<FullNameBody> fetchFullNames(List<String> userIds) {
+        try {
+            String bearerToken = serviceTokenProvider.accessToken();
+            FullNameBody[] body = CircuitBreakerCalls.run(circuitBreakerFactory, CIRCUIT_BREAKER_NAME,
+                    () -> restClientBuilder.baseUrl(baseUrl).build().get()
+                            .uri(uri -> uri.path("/api/v1/internal/users/full-names")
+                                    .queryParam("userIds", userIds.toArray()).build())
+                            .headers(headers -> headers.setBearerAuth(bearerToken))
+                            .retrieve().body(FullNameBody[].class));
+            return body == null ? List.of() : List.of(body);
+        } catch (RestClientResponseException exception) {
+            throw new UserIdentityUnavailableException("USER_IDENTITY_HTTP_" + exception.getStatusCode().value(),
+                    "User từ chối đọc họ tên theo lô", exception);
+        } catch (UserIdentityUnavailableException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw new UserIdentityUnavailableException("USER_IDENTITY_UNAVAILABLE",
+                    "Không kết nối được User Service", exception);
+        }
+    }
+
+    @Override
+    public Set<String> userIdsByName(String query) {
+        try {
+            String bearerToken = serviceTokenProvider.accessToken();
+            IdMatchBody[] body = CircuitBreakerCalls.run(circuitBreakerFactory, CIRCUIT_BREAKER_NAME,
+                    () -> restClientBuilder.baseUrl(baseUrl).build().get()
+                            .uri(uri -> uri.path("/api/v1/internal/users/ids-by-name").queryParam("q", query).build())
+                            .headers(headers -> headers.setBearerAuth(bearerToken))
+                            .retrieve().body(IdMatchBody[].class));
+            Set<String> ids = new LinkedHashSet<>();
+            for (IdMatchBody match : body == null ? new IdMatchBody[0] : body) {
+                if (match == null) {
+                    continue;
+                }
+                if (match.userId() != null && !match.userId().isBlank()) {
+                    ids.add(match.userId());
+                }
+                if (match.keycloakUserId() != null && !match.keycloakUserId().isBlank()) {
+                    ids.add(match.keycloakUserId());
+                }
+            }
+            return ids;
+        } catch (RestClientResponseException exception) {
+            throw new UserIdentityUnavailableException("USER_IDENTITY_HTTP_" + exception.getStatusCode().value(),
+                    "User từ chối tra người dùng theo họ tên", exception);
+        } catch (UserIdentityUnavailableException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw new UserIdentityUnavailableException("USER_IDENTITY_UNAVAILABLE",
+                    "Không kết nối được User Service", exception);
+        }
+    }
+
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
     private record IdentityBody(String userId, String fullName, String maskedIdNumber) {
+    }
+
+    private record FullNameBody(String userId, String fullName) {
+    }
+
+    private record IdMatchBody(String userId, String keycloakUserId) {
     }
 }

@@ -21,13 +21,17 @@ import java.math.BigDecimal;
 @Component
 public class InvestmentMapper {
 
-    /** Dòng danh sách sàn: không kèm họ tên người vay để khỏi gọi User cho từng dòng. */
+    /** Listing không kèm họ tên người vay và số nhà đầu tư (tạo listing từ event, không cần đọc thêm). */
     public MarketListingResponse toListingResponse(MarketListing listing) {
-        return toListingResponse(listing, null);
+        return toListingResponse(listing, null, null);
     }
 
-    /** @param borrowerFullName họ tên người vay theo hồ sơ User; null khi chưa có hoặc không đọc được */
-    public MarketListingResponse toListingResponse(MarketListing listing, String borrowerFullName) {
+    /**
+     * @param borrowerFullName họ tên người vay theo hồ sơ User; null khi chưa có hoặc không đọc được
+     * @param investorCount    số nhà đầu tư đã đếm sẵn theo lô; null khi nơi gọi không đọc số này
+     */
+    public MarketListingResponse toListingResponse(MarketListing listing, String borrowerFullName,
+            Integer investorCount) {
         BigDecimal remainingAmount = calculateRemainingAmount(listing);
         BigDecimal fundedPercent = calculateFundedPercent(listing);
         return new MarketListingResponse(
@@ -57,7 +61,10 @@ public class InvestmentMapper {
                 borrowerFullName,
                 listing.getApplicationCode(),
                 listing.getContractCode(),
-                listing.getPurposeCode()
+                listing.getPurposeCode(),
+                listing.getFundingOpenedAt(),
+                investorCount,
+                listing.getRaisedAmount() == null ? null : listing.getRaisedAmount().toPlainString()
         );
     }
 
@@ -124,7 +131,8 @@ public class InvestmentMapper {
                 note.getAnnualInterestRate().toPlainString(),
                 note.getTermMonths(),
                 note.getStatus().name(),
-                note.getIssuedAt()
+                note.getIssuedAt(),
+                note.getInvestorId()
         );
     }
 }

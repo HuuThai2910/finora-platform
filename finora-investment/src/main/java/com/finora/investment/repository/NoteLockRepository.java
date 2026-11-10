@@ -21,4 +21,12 @@ public interface NoteLockRepository extends JpaRepository<NoteLock, Long> {
     int deleteByNoteIdIn(@Param("noteIds") Collection<Long> noteIds);
 
     long countByAskOrderId(Long askOrderId);
+
+    /** Giá của lệnh bán đang khóa từng Note trong danh sách; Note không nằm trong lệnh bán nào thì không có dòng. */
+    @Query("""
+            SELECT new com.finora.investment.repository.NoteAskPriceView(l.noteId, o.pricePermille)
+            FROM NoteLock l, BookOrder o
+            WHERE o.id = l.askOrderId AND l.noteId IN :noteIds
+            """)
+    java.util.List<NoteAskPriceView> findAskPrices(@Param("noteIds") Collection<Long> noteIds);
 }

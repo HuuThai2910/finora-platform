@@ -150,6 +150,64 @@ public interface InvestmentNoteRepository extends JpaRepository<InvestmentNote, 
             @Param("code") String code,
             Pageable pageable);
 
+    /**
+     * Mọi đợt gọi vốn còn Note lưu hành, mỗi đợt một dòng: số Note, tổng dư nợ gốc, số Note nợ xấu. Danh sách sổ lệnh
+     * quản trị lọc và sắp xếp trên tập này (vài trăm khoản vay đang trả nợ), không đọc thêm theo từng dòng.
+     */
+    @Query("""
+            SELECT new com.finora.investment.repository.TradableListingView(
+                n.listingId, COUNT(n), SUM(n.outstandingPrincipal),
+                SUM(CASE WHEN n.status = 'DEFAULTED' THEN 1L ELSE 0L END))
+            FROM InvestmentNote n
+            WHERE n.status IN ('ACTIVE', 'DEFAULTED')
+            GROUP BY n.listingId
+            """)
+    List<TradableListingView> summarizeTradableListings();
+
+    /** Note của một đợt theo thứ tự phát hành (tab Phần vốn của sổ lệnh quản trị). */
+    Page<InvestmentNote> findByListingIdOrderByIdAsc(Long listingId, Pageable pageable);
+
+    /**
+     * Như {@link #findByListingIdOrderByIdAsc}, chỉ giữ Note có mã khớp {@code code} (đã viết hoa, dạng {@code %…%}) hoặc
+     * đang thuộc một trong {@code holderIds}. {@code holderIds} không được rỗng (JPQL không nhận {@code IN ()}): không
+     * tra theo tên thì truyền một giá trị không bao giờ là mã người dùng.
+     */
+    @Query(value = """
+            SELECT n FROM InvestmentNote n
+            WHERE n.listingId = :listingId
+              AND (UPPER(n.noteNumber) LIKE :code ESCAPE '!' OR n.investorId IN :holderIds)
+            ORDER BY n.id ASC
+            """,
+            countQuery = """
+            SELECT COUNT(n) FROM InvestmentNote n
+            WHERE n.listingId = :listingId
+              AND (UPPER(n.noteNumber) LIKE :code ESCAPE '!' OR n.investorId IN :holderIds)
+            """)
+    Page<InvestmentNote> searchByListing(
+            @Param("listingId") Long listingId,
+            @Param("code") String code,
+            @Param("holderIds") java.util.Collection<String> holderIds,
+            Pageable pageable);
+
+    long countByListingId(Long listingId);
+
+    @Query("""
+            SELECT COUNT(n) FROM InvestmentNote n
+            WHERE n.listingId = :listingId AND n.status IN ('ACTIVE', 'DEFAULTED')
+            """)
+    long countTradableByListing(@Param("listingId") Long listingId);
+
+    /** Số nhà đầu tư đang nắm giữ ít nhất một Note còn lưu hành của đợt. */
+    @Query("""
+            SELECT COUNT(DISTINCT n.investorId) FROM InvestmentNote n
+            WHERE n.listingId = :listingId AND n.status IN ('ACTIVE', 'DEFAULTED')
+            """)
+    long countHoldersByListing(@Param("listingId") Long listingId);
+
+    /** Lúc phát hành Note đầu tiên của đợt (backend phát hành theo lô); null khi đợt chưa có Note. */
+    @Query("SELECT MIN(n.issuedAt) FROM InvestmentNote n WHERE n.listingId = :listingId")
+    java.time.Instant findFirstIssuedAt(@Param("listingId") Long listingId);
+
     /** Các đợt gọi vốn trong danh sách có Note nợ xấu, một truy vấn cho cả trang. */
     @Query("""
             SELECT DISTINCT n.listingId FROM InvestmentNote n

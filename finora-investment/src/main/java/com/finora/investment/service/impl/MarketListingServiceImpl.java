@@ -15,9 +15,11 @@ import com.finora.investment.integration.user.client.UserIdentityClient;
 import com.finora.investment.mapper.InvestmentMapper;
 import com.finora.investment.messaging.event.LoanFundingExpiredEventData;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
+import com.finora.investment.repository.ListingInvestorCountView;
 import com.finora.investment.dto.request.ListingAdvancedFilter;
 import com.finora.investment.repository.MarketListingRepository;
 import com.finora.investment.repository.MarketListingSpecifications;
+import com.finora.investment.service.BorrowerNameLookup;
 import com.finora.investment.service.FundingSettingsService;
 import com.finora.investment.service.ListingCommitmentCanceller;
 import com.finora.investment.service.MarketListingService;
@@ -37,6 +39,7 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -73,6 +76,7 @@ public class MarketListingServiceImpl implements MarketListingService {
     private final InvestmentOutboxService investmentOutboxService;
     private final ListingCommitmentCanceller listingCommitmentCanceller;
     private final UserIdentityClient userIdentityClient;
+    private final BorrowerNameLookup borrowerNameLookup;
 
     @Override
     @Transactional
@@ -187,8 +191,6 @@ public class MarketListingServiceImpl implements MarketListingService {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
-    /** Danh sách khoản vay đang mở gọi vốn, có lọc và phân trang. */
-    @Transactional(readOnly = true)
     /**
      * Tìm khoản vay trên sàn.
      *
@@ -211,7 +213,6 @@ public class MarketListingServiceImpl implements MarketListingService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public PageResponse<MarketListingResponse> search(
             String status,
             String creditGrade,
@@ -227,8 +228,11 @@ public class MarketListingServiceImpl implements MarketListingService {
                 ListingAdvancedFilter.NONE, page, size);
     }
 
+    /**
+     * Không mở transaction bao cả hàm: mỗi truy vấn tự có transaction đọc của repository, còn lời gọi User lấy họ tên
+     * không được giữ kết nối DB trong lúc chờ.
+     */
     @Override
-    @Transactional(readOnly = true)
     public PageResponse<MarketListingResponse> search(
             String status,
             String creditGrade,
@@ -268,8 +272,18 @@ public class MarketListingServiceImpl implements MarketListingService {
                         resolveStatus(status), normalize(creditGrade), minAnnualRate, maxTermMonths, hiddenBorrowerId,
                         pattern, SearchPatterns.containsCode(q), advanced, BUSINESS_ZONE), pageable);
 
+        // Mỗi trang đọc thêm đúng hai lần cho mọi dòng: một câu GROUP BY đếm nhà đầu tư, một lời gọi User lấy họ tên
+        // theo lô (có bộ nhớ đệm), thay cho việc web gọi chi tiết và tiến độ của từng dòng.
+        List<MarketListing> listings = result.getContent();
+        Map<Long, Integer> investorCounts = investorCounts(listings.stream().map(MarketListing::getId).toList());
+        Map<String, String> borrowerNames = listings.isEmpty() ? Map.of()
+                : borrowerNameLookup.fullNamesOf(listings.stream().map(MarketListing::getBorrowerId).toList());
         return PageResponse.<MarketListingResponse>builder()
-                .content(result.getContent().stream().map(investmentMapper::toListingResponse).toList())
+                .content(listings.stream()
+                        .map(listing -> investmentMapper.toListingResponse(listing,
+                                listing.getBorrowerId() == null ? null : borrowerNames.get(listing.getBorrowerId()),
+                                investorCounts.getOrDefault(listing.getId(), 0)))
+                        .toList())
                 .page(result.getNumber())
                 .size(result.getSize())
                 .totalElements(result.getTotalElements())
@@ -282,7 +296,23 @@ public class MarketListingServiceImpl implements MarketListingService {
     @Override
     public MarketListingResponse detail(Long listingId) {
         MarketListing listing = requireListing(listingId);
-        return investmentMapper.toListingResponse(listing, borrowerFullName(listing.getBorrowerId()));
+        return investmentMapper.toListingResponse(listing, borrowerFullName(listing.getBorrowerId()),
+                investorCounts(List.of(listing.getId())).getOrDefault(listing.getId(), 0));
+    }
+
+    /**
+     * Số nhà đầu tư theo listing, một truy vấn cho cả trang. Khoản đã đóng/hủy đếm cả người được hoàn tiền khi đóng/hủy
+     * để khớp {@code raisedAmount}.
+     */
+    private Map<Long, Integer> investorCounts(List<Long> listingIds) {
+        if (listingIds.isEmpty()) {
+            return Map.of();
+        }
+        return investmentCommitmentRepository.countInvestorsByListingIds(listingIds,
+                        List.of(CommitmentStatus.ACTIVE, CommitmentStatus.FINALIZED), CommitmentStatus.CANCELLED,
+                        ListingCommitmentCanceller.LISTING_CLOSING_REASONS).stream()
+                .collect(Collectors.toMap(ListingInvestorCountView::listingId,
+                        row -> Math.toIntExact(row.investorCount())));
     }
 
     /**
@@ -379,7 +409,7 @@ public class MarketListingServiceImpl implements MarketListingService {
             }
             BigDecimal raised = listing.getCommittedAmount();
             ListingCommitmentCanceller.CancelledCommitments cancelled = listingCommitmentCanceller.cancelActive(listing,
-                    "LISTING_EXPIRED", "Khoản vay hết hạn gọi vốn mà chưa đủ vốn; tiền giữ được trả lại ví",
+                    ListingCommitmentCanceller.REASON_LISTING_EXPIRED, "Khoản vay hết hạn gọi vốn mà chưa đủ vốn; tiền giữ được trả lại ví",
                     SYSTEM_EXPIRY_ACTOR, now);
             listing.setStatus(ListingStatus.CLOSED);
             listing.setUpdatedBy(SYSTEM_EXPIRY_ACTOR);

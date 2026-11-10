@@ -93,8 +93,9 @@ public class FineractServicingHttpClient implements FineractServicingGateway {
         for (JsonNode period : periods) {
             LocalDate due = optionalDate(period.path("dueDate"));
             if (!period.hasNonNull("period") || due == null) continue;
-            installments.add(new LoanServicingHistory.Installment(due,
-                    optionalDate(period.path("obligationsMetOnDate"))));
+            installments.add(new LoanServicingHistory.Installment(period.path("period").asInt(), due,
+                    optionalDate(period.path("obligationsMetOnDate")), money(period, "totalDueForPeriod"),
+                    money(period, "totalPaidForPeriod")));
         }
         return installments;
     }

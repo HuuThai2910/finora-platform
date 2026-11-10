@@ -142,6 +142,20 @@ public interface BookOrderRepository extends JpaRepository<BookOrder, Long> {
     boolean existsByOrderBookIdAndSideAndStatusIn(
             Long orderBookId, OrderSide side, Collection<BookOrderStatus> statuses);
 
+    /**
+     * Lệnh còn nằm trong sổ, gộp theo đợt và chiều: số lệnh, số Note chờ khớp, giá cao nhất và thấp nhất. Một truy vấn
+     * cho cả danh sách sổ lệnh quản trị (giá tốt nhất, độ sâu, trạng thái có lệnh hay chưa).
+     */
+    @Query("""
+            SELECT new com.finora.investment.repository.RestingListingView(
+                o.listingId, o.side, COUNT(o), SUM(o.quantity - o.filledQuantity),
+                MAX(o.pricePermille), MIN(o.pricePermille))
+            FROM BookOrder o
+            WHERE o.status IN ('OPEN', 'PARTIALLY_FILLED')
+            GROUP BY o.listingId, o.side
+            """)
+    List<RestingListingView> sumRestingByListing();
+
     /** Lệnh còn nằm trong sổ của mọi sổ, gộp theo chiều: số lệnh và số Note chờ khớp. */
     @Query("""
             SELECT new com.finora.investment.repository.RestingTotalsView(

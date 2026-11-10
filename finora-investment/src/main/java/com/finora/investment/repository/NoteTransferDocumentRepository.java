@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -38,6 +39,17 @@ public interface NoteTransferDocumentRepository extends JpaRepository<NoteTransf
     Optional<NoteTransferDocument> findByIdForUpdate(@Param("id") Long id);
 
     Optional<NoteTransferDocument> findByTradeReference(String tradeReference);
+
+    /** Giấy xác nhận của các lần khớp trên một trang, không nạp bytes PDF. */
+    @Query("""
+            SELECT new com.finora.investment.repository.TradeDocumentView(
+                d.tradeReference, d.documentNumber, d.status, d.issuedAt)
+            FROM NoteTransferDocument d
+            WHERE d.tradeReference IN :tradeReferences
+            """)
+    List<TradeDocumentView> findViewsByTradeReferences(@Param("tradeReferences") Collection<String> tradeReferences);
+
+    long countByListingIdAndStatus(Long listingId, NoteTransferDocumentStatus status);
 
     /** Trang quản trị không nạp bytes PDF: chỉ lấy cột mô tả qua projection. */
     @Query(value = """

@@ -92,7 +92,21 @@ public record LoanServicingHistory(String externalId, List<PrincipalMovement> mo
     public record PrincipalMovement(LocalDate date, BigDecimal amount) {}
 
     /** @param obligationsMetOn ngày kỳ được trả đủ; {@code null} khi chưa trả đủ */
-    public record Installment(LocalDate dueDate, LocalDate obligationsMetOn) {}
+    /**
+     * Một kỳ trả trên lịch hiện hành của Fineract.
+     *
+     * @param number           số kỳ Fineract đánh ({@code period}); null với bản dựng chỉ có ngày (test thống kê cũ)
+     * @param obligationsMetOn ngày kỳ được trả đủ; null khi chưa trả đủ
+     * @param totalDue         số phải trả của kỳ; null khi không đọc
+     * @param totalPaid        số đã trả cho kỳ (có thể trả một phần); null khi không đọc
+     */
+    public record Installment(Integer number, LocalDate dueDate, LocalDate obligationsMetOn, BigDecimal totalDue,
+            BigDecimal totalPaid) {
+
+        public Installment(LocalDate dueDate, LocalDate obligationsMetOn) {
+            this(null, dueDate, obligationsMetOn, null, null);
+        }
+    }
 
     public record Position(BigDecimal principalOutstanding, int daysPastDue) {}
 }

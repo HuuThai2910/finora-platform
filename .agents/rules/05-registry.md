@@ -145,6 +145,10 @@ D34/D35); gateway chặn route này từ ngoài.
 `GET /api/v1/internal/users/{userId}/identity` của User (họ tên + CCCD chỉ giữ 4 số cuối, cho giấy chuyển nhượng Note)
 chỉ nhận token có client role `user:identity:read_internal` của `finora-user-client`, gán cho service account
 `finora-investment-client` (realm JSON + `docker/keycloak/add-investment-client.sh`); gateway chặn `/api/v1/internal/**`.
+`GET /api/v1/internal/users/full-names?userIds=…` (tối đa 100 ID, chỉ họ tên, không CCCD) dùng cùng client role đó cho
+danh sách gọi vốn của Investment (họ tên người vay theo lô, Investment đệm 5 phút).
+`GET /api/v1/internal/users/ids-by-name?q=…` (≥ 2 ký tự, tối đa 200 người, chỉ trả ID hồ sơ + Keycloak UUID) dùng cùng
+client role cho ô tìm theo tên của Chợ chuyển nhượng (Investment lọc lần khớp/phần vốn/người vay theo tập ID).
 
 ## Phân bổ managed hiện tại
 
