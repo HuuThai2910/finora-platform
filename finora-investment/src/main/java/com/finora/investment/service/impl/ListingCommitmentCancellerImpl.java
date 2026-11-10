@@ -38,6 +38,10 @@ public class ListingCommitmentCancellerImpl implements ListingCommitmentCancelle
     @Transactional(propagation = Propagation.MANDATORY)
     public CancelledCommitments cancelActive(MarketListing listing, String reasonCode, String reasonDetail, String actor,
             Instant now) {
+        // Chốt số đã gọi được trước khi trừ; listing hủy lặp lại (event trùng) giữ số của lần đầu.
+        if (listing.getRaisedAmount() == null) {
+            listing.setRaisedAmount(listing.getCommittedAmount());
+        }
         List<InvestmentCommitment> active =
                 investmentCommitmentRepository.findByListingIdAndStatus(listing.getId(), CommitmentStatus.ACTIVE);
         if (active.isEmpty()) {

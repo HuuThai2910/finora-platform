@@ -15,6 +15,9 @@ public record NoteResponse(
         String annualInterestRate,
         Integer termMonths,
         String status,
-        Instant issuedAt
+        Instant issuedAt,
+        // Người đang nắm giữ phần vốn: investorId hiện tại của Note, đã đổi theo các lần chuyển nhượng trên Chợ. API chỉ
+        // nằm dưới /investments/admin nên được trả ID người dùng.
+        String holderId
 ) {
 }

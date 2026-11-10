@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -77,4 +78,37 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, Long>,
     /** Keycloak ID của thành viên một vai trò nhân viên — đăng xuất họ khi vai trò đổi quyền. */
     @Query("select p.keycloakUserId from UserProfile p where p.staffRoleCode = :staffRoleCode")
     List<UUID> findKeycloakUserIdsByStaffRoleCode(@Param("staffRoleCode") String staffRoleCode);
+
+    /** Họ tên theo lô ID hồ sơ cho API nội bộ; chỉ chọn cột cần, không nạp cả hồ sơ. */
+    @Query("select new com.finora.user.repository.UserFullNameRow(p.id, p.keycloakUserId, p.fullName) "
+            + "from UserProfile p where p.id in :ids")
+    List<UserFullNameRow> findFullNamesByIdIn(@Param("ids") Collection<Long> ids);
+
+    /**
+     * Người dùng có họ tên chứa chuỗi tìm, không phân biệt dấu và hoa thường (cùng cách so với ô tìm trang Khách hàng),
+     * ID nhỏ trước. Gọi qua {@link #findFullNamesByNameContaining} để không phải tự truyền bảng chữ có dấu.
+     */
+    @Query("select new com.finora.user.repository.UserFullNameRow(p.id, p.keycloakUserId, p.fullName) "
+            + "from UserProfile p "
+            + "where function('translate', lower(p.fullName), :accented, :plain) like :pattern escape '!' "
+            + "order by p.id")
+    List<UserFullNameRow> findFullNamesByPlainNameLike(@Param("accented") String accented,
+                                                       @Param("plain") String plain,
+                                                       @Param("pattern") String pattern,
+                                                       Pageable pageable);
+
+    /**
+     * Họ tên chứa {@code normalizedName} (đã qua {@link UserProfileSpecifications#normalizeSearchText}), tối đa theo
+     * {@code pageable}. Chỉ chọn ba cột như bản tra theo lô, không nạp cột CCCD.
+     */
+    default List<UserFullNameRow> findFullNamesByNameContaining(String normalizedName, Pageable pageable) {
+        return findFullNamesByPlainNameLike(UserProfileSpecifications.VIETNAMESE_ACCENTED,
+                UserProfileSpecifications.VIETNAMESE_PLAIN, UserProfileSpecifications.containsPattern(normalizedName),
+                pageable);
+    }
+
+    /** Như trên cho tài khoản cũ mà service khác lưu bằng Keycloak UUID. */
+    @Query("select new com.finora.user.repository.UserFullNameRow(p.id, p.keycloakUserId, p.fullName) "
+            + "from UserProfile p where p.keycloakUserId in :keycloakUserIds")
+    List<UserFullNameRow> findFullNamesByKeycloakUserIdIn(@Param("keycloakUserIds") Collection<UUID> keycloakUserIds);
 }

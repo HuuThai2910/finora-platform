@@ -86,14 +86,13 @@ public class SecurityConfig {
                                 .hasAnyAuthority(OpsFunction.RECONCILIATION.canView())
                         .requestMatchers(HttpMethod.POST, "/api/v1/investments/admin/order-incidents/*/retry")
                                 .hasAnyAuthority(OpsFunction.RECONCILIATION.canAct())
-                        // Chợ thứ cấp: sổ lệnh, lịch sử khớp và giấy xác nhận chuyển nhượng.
-                        .requestMatchers(HttpMethod.GET, "/api/v1/investments/admin/order-books/summary",
-                                "/api/v1/investments/admin/order-books/trades",
+                        // Chợ thứ cấp: danh sách và chi tiết sổ lệnh, phần vốn, lần khớp và giấy xác nhận chuyển
+                        // nhượng (mọi GET dưới order-books đều là đọc).
+                        .requestMatchers(HttpMethod.GET, "/api/v1/investments/admin/order-books",
+                                "/api/v1/investments/admin/order-books/**",
                                 "/api/v1/investments/admin/transfer-documents",
                                 "/api/v1/investments/admin/transfer-documents/*",
                                 "/api/v1/investments/admin/transfer-documents/*/pdf")
-                                .hasAnyAuthority(OpsFunction.SECONDARY_MARKET.canView())
-                        .requestMatchers(HttpMethod.GET, "/api/v1/investments/admin/order-books/trades/*/notes")
                                 .hasAnyAuthority(OpsFunction.SECONDARY_MARKET.canView())
                         .requestMatchers(HttpMethod.POST, "/api/v1/investments/admin/order-books/trades/*/retry-settlement")
                                 .hasAnyAuthority(OpsFunction.SECONDARY_MARKET.canAct())

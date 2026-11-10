@@ -60,6 +60,8 @@ class InvestmentAdminPermissionTest {
     @MockBean
     private OrderBookAdminService orderBookAdminService;
     @MockBean
+    private com.finora.investment.service.orderbook.AdminOrderBookService adminOrderBookService;
+    @MockBean
     private TransferDocumentAdminService transferDocumentAdminService;
     @MockBean
     private InvestmentStatisticsService statisticsService;
@@ -122,6 +124,23 @@ class InvestmentAdminPermissionTest {
         perform(post(ADMIN + "/order-books/trades/TRD-1/retry-settlement"), staff, status().isForbidden());
         perform(post(ADMIN + "/order-books/trades/TRD-1/retry-settlement"),
                 staff(OpsFunction.SECONDARY_MARKET.view(), OpsFunction.SECONDARY_MARKET.action()), passesSecurity());
+        // Trang Chợ chuyển nhượng làm lại: danh sách, chi tiết sổ, phần vốn, một lần khớp.
+        perform(get(ADMIN + "/order-books"), staff, passesSecurity());
+        perform(get(ADMIN + "/order-books/7"), staff, passesSecurity());
+        perform(get(ADMIN + "/order-books/7/notes"), staff, passesSecurity());
+        perform(get(ADMIN + "/order-books/trades/TRD-1"), staff, passesSecurity());
+        perform(get(ADMIN + "/order-books/trades").param("listingId", "7").param("progress", "DONE"), staff,
+                passesSecurity());
+    }
+
+    @Test
+    void otherFunctionsCannotReadOrderBooks() throws Exception {
+        RequestPostProcessor funding = staff(OpsFunction.FUNDING.view(), OpsFunction.FUNDING.action());
+
+        perform(get(ADMIN + "/order-books"), funding, status().isForbidden());
+        perform(get(ADMIN + "/order-books/7"), funding, status().isForbidden());
+        perform(get(ADMIN + "/order-books/7/notes"), funding, status().isForbidden());
+        perform(get(ADMIN + "/order-books/trades/TRD-1"), funding, status().isForbidden());
     }
 
     @Test

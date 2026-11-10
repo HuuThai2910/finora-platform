@@ -1,6 +1,7 @@
 package com.finora.user.controller;
 
 import com.finora.user.domain.entity.UserProfile;
+import com.finora.user.repository.UserFullNameRow;
 import com.finora.user.repository.UserProfileRepository;
 import com.finora.user.service.UserIdentityService;
 import com.finora.user.service.impl.UserIdentityServiceImpl;
@@ -13,12 +14,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static com.finora.user.controller.ControllerTestSupport.authenticateWith;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -99,5 +102,57 @@ class InternalUserControllerTest {
         mockMvc.perform(get("/api/v1/internal/users/999/identity"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+    }
+
+    @Test
+    void serviceAccountGetsFullNamesInOneCall() throws Exception {
+        authenticateWith(AUTHORITY);
+        when(userProfileRepository.findFullNamesByIdIn(List.of(42L, 43L)))
+                .thenReturn(List.of(new UserFullNameRow(42L, UUID.randomUUID(), "Nguyễn Văn An")));
+
+        mockMvc.perform(get("/api/v1/internal/users/full-names").param("userIds", "42", "43"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].userId").value("42"))
+                .andExpect(jsonPath("$[0].fullName").value("Nguyễn Văn An"))
+                .andExpect(jsonPath("$[0].maskedIdNumber").doesNotExist());
+    }
+
+    @Test
+    void fullNamesNeedTheInternalAuthority() throws Exception {
+        authenticateWith("user:admin:read_all");
+
+        mockMvc.perform(get("/api/v1/internal/users/full-names").param("userIds", "42"))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(userProfileRepository);
+    }
+
+    @Test
+    void serviceAccountGetsIdsByName() throws Exception {
+        authenticateWith(AUTHORITY);
+        UUID keycloakId = UUID.randomUUID();
+        when(userProfileRepository.findFullNamesByNameContaining(any(), any())).thenCallRealMethod();
+        when(userProfileRepository.findFullNamesByPlainNameLike(any(), any(), any(), any()))
+                .thenReturn(List.of(new UserFullNameRow(42L, keycloakId, "Nguyễn Văn An")));
+
+        mockMvc.perform(get("/api/v1/internal/users/ids-by-name").param("q", "Văn An"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].userId").value("42"))
+                .andExpect(jsonPath("$[0].keycloakUserId").value(keycloakId.toString()))
+                .andExpect(jsonPath("$[0].fullName").doesNotExist());
+    }
+
+    @Test
+    void idsByNameNeedTheInternalAuthorityAndTwoCharacters() throws Exception {
+        authenticateWith("user:admin:read_all");
+        mockMvc.perform(get("/api/v1/internal/users/ids-by-name").param("q", "An"))
+                .andExpect(status().isForbidden());
+
+        // Một ký tự quá chung: không tra (Spring chặn 400 bằng @Size; service cũng tự bỏ qua khi gọi thẳng).
+        authenticateWith(AUTHORITY);
+        mockMvc.perform(get("/api/v1/internal/users/ids-by-name").param("q", " A "))
+                .andExpect(jsonPath("$.length()").value(0));
+        verifyNoInteractions(userProfileRepository);
     }
 }

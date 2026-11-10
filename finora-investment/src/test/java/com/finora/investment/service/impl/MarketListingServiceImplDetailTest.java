@@ -6,7 +6,9 @@ import com.finora.investment.dto.response.MarketListingResponse;
 import com.finora.investment.integration.user.client.UserIdentityClient;
 import com.finora.investment.mapper.InvestmentMapper;
 import com.finora.investment.repository.InvestmentCommitmentRepository;
+import com.finora.investment.repository.ListingInvestorCountView;
 import com.finora.investment.repository.MarketListingRepository;
+import com.finora.investment.service.BorrowerNameLookup;
 import com.finora.investment.service.FundingSettingsService;
 import com.finora.investment.service.ListingCommitmentCanceller;
 import com.finora.investment.service.outbox.InvestmentOutboxService;
@@ -15,11 +17,16 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -30,14 +37,17 @@ class MarketListingServiceImplDetailTest {
     private static final Instant NOW = Instant.parse("2026-11-09T03:00:00Z");
 
     private final MarketListingRepository marketListingRepository = mock(MarketListingRepository.class);
+    private final InvestmentCommitmentRepository investmentCommitmentRepository =
+            mock(InvestmentCommitmentRepository.class);
     private final UserIdentityClient userIdentityClient = mock(UserIdentityClient.class);
+    private final BorrowerNameLookup borrowerNameLookup = mock(BorrowerNameLookup.class);
     private MarketListingServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new MarketListingServiceImpl(marketListingRepository, mock(InvestmentCommitmentRepository.class),
+        service = new MarketListingServiceImpl(marketListingRepository, investmentCommitmentRepository,
                 new InvestmentMapper(), mock(FundingSettingsService.class), mock(InvestmentOutboxService.class),
-                mock(ListingCommitmentCanceller.class), userIdentityClient);
+                mock(ListingCommitmentCanceller.class), userIdentityClient, borrowerNameLookup);
     }
 
     @Test
@@ -51,6 +61,8 @@ class MarketListingServiceImplDetailTest {
                 .thenReturn(org.springframework.data.domain.Page.empty());
 
         service.search(null, "A", new BigDecimal("12"), 12, "42", null, null, 0, 20);
+        // Trang rỗng: không đếm, không gọi User.
+        verifyNoInteractions(borrowerNameLookup, investmentCommitmentRepository);
         verify(marketListingRepository).search(any(), any(), any(), any(), any(), any(), any(),
                 any(org.springframework.data.domain.Pageable.class));
 
@@ -106,6 +118,41 @@ class MarketListingServiceImplDetailTest {
 
         assertThat(service.detail(5L).borrowerFullName()).isNull();
         verifyNoInteractions(userIdentityClient);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void listRowsCarryNameAndInvestorCountFromOneBatchEach() {
+        MarketListing open = listing("42");
+        MarketListing other = listing("43");
+        other.setId(6L);
+        when(marketListingRepository.search(any(), any(), any(), any(), any(), any(), any(),
+                any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(open, other)));
+        when(investmentCommitmentRepository.countInvestorsByListingIds(eq(List.of(5L, 6L)), anyCollection(), any(),
+                eq(ListingCommitmentCanceller.LISTING_CLOSING_REASONS)))
+                .thenReturn(List.of(new ListingInvestorCountView(5L, 3L)));
+        when(borrowerNameLookup.fullNamesOf(List.of("42", "43"))).thenReturn(Map.of("42", "Nguyễn Văn An"));
+
+        List<MarketListingResponse> rows = service.search("ALL", null, null, null, null, null, "newest", 0, 20)
+                .getContent();
+
+        assertThat(rows).extracting(MarketListingResponse::borrowerFullName).containsExactly("Nguyễn Văn An", null);
+        assertThat(rows).extracting(MarketListingResponse::investorCount).containsExactly(3, 0);
+        assertThat(rows.get(0).fundingOpenedAt()).isEqualTo(NOW);
+        verify(borrowerNameLookup, times(1)).fullNamesOf(anyCollection());
+        verify(investmentCommitmentRepository, times(1))
+                .countInvestorsByListingIds(anyCollection(), anyCollection(), any(), anyCollection());
+        verifyNoInteractions(userIdentityClient);
+    }
+
+    @Test
+    void detailCarriesInvestorCount() {
+        when(marketListingRepository.findById(5L)).thenReturn(Optional.of(listing(null)));
+        when(investmentCommitmentRepository.countInvestorsByListingIds(eq(List.of(5L)), anyCollection(), any(),
+                anyCollection())).thenReturn(List.of(new ListingInvestorCountView(5L, 2L)));
+
+        assertThat(service.detail(5L).investorCount()).isEqualTo(2);
     }
 
     private static MarketListing listing(String borrowerId) {

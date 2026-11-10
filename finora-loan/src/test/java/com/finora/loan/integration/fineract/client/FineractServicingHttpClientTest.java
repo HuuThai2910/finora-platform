@@ -76,8 +76,9 @@ class FineractServicingHttpClientTest {
                           "externalId":"LC-020",
                           "repaymentSchedule":{"periods":[
                             {"dueDate":[2026,5,19],"principalDisbursed":100000000},
-                            {"period":1,"dueDate":[2026,6,19],"obligationsMetOnDate":[2026,6,19]},
-                            {"period":2,"dueDate":[2026,7,19]}
+                            {"period":1,"dueDate":[2026,6,19],"obligationsMetOnDate":[2026,6,19],
+                              "totalDueForPeriod":8955000,"totalPaidForPeriod":8955000},
+                            {"period":2,"dueDate":[2026,7,19],"totalDueForPeriod":8955000,"totalPaidForPeriod":1000}
                           ]},
                           "transactions":[
                             {"type":{"disbursement":true},"date":[2026,5,19],"amount":100000000,
@@ -98,8 +99,10 @@ class FineractServicingHttpClientTest {
                 .usingElementComparator(BigDecimal::compareTo)
                 .containsExactly(new BigDecimal("100000000"), new BigDecimal("-7830000"));
         assertThat(history.installments()).containsExactly(
-                new LoanServicingHistory.Installment(LocalDate.of(2026, 6, 19), LocalDate.of(2026, 6, 19)),
-                new LoanServicingHistory.Installment(LocalDate.of(2026, 7, 19), null));
+                new LoanServicingHistory.Installment(1, LocalDate.of(2026, 6, 19), LocalDate.of(2026, 6, 19),
+                        new BigDecimal("8955000.00"), new BigDecimal("8955000.00")),
+                new LoanServicingHistory.Installment(2, LocalDate.of(2026, 7, 19), null,
+                        new BigDecimal("8955000.00"), new BigDecimal("1000.00")));
         server.verify();
     }
 }

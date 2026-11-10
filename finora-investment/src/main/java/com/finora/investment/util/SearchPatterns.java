@@ -19,8 +19,17 @@ public final class SearchPatterns {
      * số giấy xác nhận): viết hoa và đổi {@code HD-} gõ không dấu thành {@code HĐ-}. {@code null} khi chuỗi tìm rỗng.
      */
     public static String containsCode(String q) {
+        String value = normalizedCode(q);
+        return value == null ? null : "%" + escape(value) + "%";
+    }
+
+    /**
+     * Chuỗi tìm theo mã để so trong bộ nhớ (như {@link #containsCode} nhưng không thành mẫu LIKE): viết hoa, đổi
+     * {@code HD-} thành {@code HĐ-}. {@code null} khi chuỗi tìm rỗng.
+     */
+    public static String normalizedCode(String q) {
         String value = trimmed(q);
-        return value == null ? null : "%" + escape(value.toUpperCase(Locale.ROOT).replace("HD-", "HĐ-")) + "%";
+        return value == null ? null : value.toUpperCase(Locale.ROOT).replace("HD-", "HĐ-");
     }
 
     /** Chuỗi tìm đã bỏ khoảng trắng hai đầu và cắt ở {@link #MAX_LENGTH}; {@code null} khi rỗng. */

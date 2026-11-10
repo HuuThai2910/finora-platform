@@ -7,15 +7,19 @@ import com.finora.common.security.ops.OpsFunction;
 import com.finora.loan.config.SecurityConfig;
 import com.finora.loan.service.application.ApplicationNumberLookupService;
 import com.finora.loan.service.collection.AdminCollectionService;
+import com.finora.loan.service.contract.AdminLoanContractService;
+import com.finora.loan.service.contract.LoanContractPdfContent;
 import com.finora.loan.service.core.CoreProductSyncService;
 import com.finora.loan.service.decision.AdminLoanDecisionService;
 import com.finora.loan.service.disbursement.AdminDisbursementSagaService;
 import com.finora.loan.service.product.LoanProductService;
 import com.finora.loan.service.restructure.LoanRescheduleService;
 import com.finora.loan.service.scoring.CreditScoringAssessmentService;
+import com.finora.loan.service.servicing.AdminLoanInstallmentService;
 import com.finora.loan.service.servicing.AdminLoanServicingReconciliationService;
 import com.finora.loan.service.servicing.AdminRepaymentEventQuarantineService;
 import com.finora.loan.service.statistics.AdminLoanStatisticsService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -56,7 +60,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         AdminLoanServicingReconciliationController.class,
         AdminDisbursementSagaController.class,
         AdminRepaymentEventQuarantineController.class,
-        AdminLoanStatisticsController.class})
+        AdminLoanStatisticsController.class,
+        AdminLoanContractController.class,
+        AdminLoanInstallmentController.class})
 @Import({SecurityConfig.class, DualBearerTokenResolver.class, KeycloakJwtAuthenticationConverter.class})
 class AdminOpsPermissionSecurityTest {
 
@@ -88,6 +94,11 @@ class AdminOpsPermissionSecurityTest {
     @MockBean
     private ApplicationNumberLookupService applicationNumberLookupService;
 
+    @MockBean
+    private AdminLoanContractService contractService;
+    @MockBean
+    private AdminLoanInstallmentService installmentService;
+
     /** Không gọi Keycloak: token giả dựng bằng {@code jwt()} nên decoder không bao giờ được dùng. */
     @MockBean
     private JwtDecoder jwtDecoder;
@@ -118,6 +129,14 @@ class AdminOpsPermissionSecurityTest {
         public String toString() {
             return method + " " + path;
         }
+    }
+
+    /** Controller PDF đọc nội dung tệp: mock trả một tệp nhỏ để request qua lớp bảo mật không lỗi ở controller. */
+    @BeforeEach
+    void stubContractDocument() {
+        org.mockito.Mockito.when(contractService.document(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new LoanContractPdfContent("HĐ-20261110-K7QM.pdf", "application/pdf", "a".repeat(64),
+                        new byte[]{1}));
     }
 
     static List<Endpoint> endpoints() {
@@ -169,7 +188,11 @@ class AdminOpsPermissionSecurityTest {
                 act(HttpMethod.POST, "/api/v1/admin/repayment-event-quarantine/" + UUID_1 + "/replay",
                         OpsFunction.RECONCILIATION),
                 view(HttpMethod.GET, "/api/v1/admin/loan-statistics/summary", OpsFunction.DASHBOARD),
-                view(HttpMethod.GET, "/api/v1/admin/loan-statistics/series", OpsFunction.DASHBOARD));
+                view(HttpMethod.GET, "/api/v1/admin/loan-statistics/series", OpsFunction.DASHBOARD),
+                contractRead("/api/v1/admin/loan-contracts/LC-1"),
+                contractRead("/api/v1/admin/loan-contracts/LC-1/document"),
+                contractRead("/api/v1/admin/loan-contracts/signing-policy"),
+                installmentRead("/api/v1/admin/loans/LN-1/installments"));
     }
 
     static Stream<Endpoint> actionEndpoints() {
@@ -280,6 +303,15 @@ class AdminOpsPermissionSecurityTest {
     }
 
     @Test
+    void secondaryMarketViewerReadsInstallmentsButNotContracts() throws Exception {
+        RequestPostProcessor viewer = staff(OpsFunction.SECONDARY_MARKET.view());
+
+        assertThat(perform(installmentRead("/api/v1/admin/loans/LN-1/installments"), viewer)).isNotIn(401, 403);
+        assertThat(perform(contractRead("/api/v1/admin/loan-contracts/LC-1"), viewer)).isEqualTo(403);
+        assertThat(perform(contractRead("/api/v1/admin/loan-contracts/LC-1/document"), viewer)).isEqualTo(403);
+    }
+
+    @Test
     void anonymousGets401() throws Exception {
         mockMvc.perform(request(HttpMethod.GET, "/api/v1/admin/loan-applications"))
                 .andExpect(status().isUnauthorized());
@@ -305,6 +337,18 @@ class AdminOpsPermissionSecurityTest {
     private static Endpoint applicationRead(String path) {
         return new Endpoint(HttpMethod.GET, path, OpsFunction.LOAN_APPLICATION, false,
                 APPLICATION_READERS.subList(1, APPLICATION_READERS.size()));
+    }
+
+    /** API đọc hợp đồng/kỳ trả của trang Gọi vốn: quyền Xem "Gọi vốn" hoặc quyền đọc hồ sơ vay. */
+    private static Endpoint contractRead(String path) {
+        return new Endpoint(HttpMethod.GET, path, OpsFunction.FUNDING, false, APPLICATION_READERS);
+    }
+
+    /** API kỳ trả: như {@link #contractRead}, thêm quyền Xem "Chợ chuyển nhượng" (cột Trả nợ của sổ lệnh). */
+    private static Endpoint installmentRead(String path) {
+        List<OpsFunction> also = new ArrayList<>(APPLICATION_READERS);
+        also.add(OpsFunction.SECONDARY_MARKET);
+        return new Endpoint(HttpMethod.GET, path, OpsFunction.FUNDING, false, also);
     }
 
     private static Endpoint view(HttpMethod method, String path, OpsFunction function) {

@@ -35,7 +35,7 @@ import java.util.UUID;
 public class LoanFundingCancelledHandlerImpl implements LoanFundingCancelledHandler {
 
     private static final String ACTOR = "SYSTEM-LOAN-FUNDING-CANCELLED";
-    private static final String ORDER_REASON = "LOAN_FUNDING_CANCELLED";
+    private static final String ORDER_REASON = ListingCommitmentCanceller.REASON_LOAN_FUNDING_CANCELLED;
     private static final Map<String, String> REASON_DETAIL = Map.of(
             "BORROWER_WITHDREW", "Người vay đã rút hồ sơ trước khi ký; tiền giữ được trả lại ví",
             "CONTRACT_DECLINED", "Người vay từ chối hợp đồng; khoản vay không giải ngân, tiền giữ được trả lại ví",
