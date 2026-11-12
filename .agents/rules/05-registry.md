@@ -18,7 +18,7 @@ Thay đổi giá trị trong bảng MUST cập nhật cấu hình, tài liệu l
 | Payment PostgreSQL offline    |        15434 host local; 5432 nội bộ | PostgreSQL 17, `payment-postgres`, volume/user riêng                                                                                                          |
 | Blockchain PostgreSQL offline |        15435 host local; 5432 nội bộ | PostgreSQL 17, `blockchain-postgres`, volume/user riêng                                                                                                       |
 | User PostgreSQL               |                       5432 host local | PostgreSQL cài trên máy host, DB `finora_user` (không còn container `user-postgres`)                                                                          |
-| User Redis                    |         6381 host local; 6379 nội bộ | Redis 7, `user-redis`, volume riêng; OTP reset password + rate limit đăng nhập; eKYC: bản nháp mã hoá, thử thách liveness, bộ đếm, chống phát lại (EKYC-002) |
+| User kho tạm                  |              (trong User PostgreSQL) | Bảng `user_temporary_entries`, `user_rate_counters` (V9, `TemporaryStore`): OTP đăng ký/quên mật khẩu, đăng ký chờ, rate limit đăng nhập; eKYC: bản nháp mã hoá, thử thách liveness, bộ đếm, chống phát lại (EKYC-002). Không còn Redis/`user-redis` |
 | eKYC evidence S3 (SeaweedFS, dev) | 9100 host local (`127.0.0.1`); 8333 nội bộ | `chrislusf/seaweedfs:4.48`, profile `ekyc`, volume `seaweedfs-data`, bucket `finora-ekyc`, object `ekyc/{env}/{userProfileId}/{attemptId}/…`; chỉ finora-user ghi/đọc. Deploy dùng Amazon S3 (chưa bật: `EKYC_EVIDENCE_ENABLED=false`) |
 | Investment PostgreSQL offline |        15437 host local; 5432 nội bộ | PostgreSQL 17, `investment-postgres`, volume/user riêng                                                                                                       |
 | Notification PostgreSQL offline |      15438 host local; 5432 nội bộ | PostgreSQL 17, `notification-postgres`, volume/user riêng                                                                                                     |
@@ -130,9 +130,9 @@ khóa này (B26 đã sửa ở `CicMappingWorker`, trước đó gửi `keycloak
 worker mapping User cũng chỉ bật khi CIC đích có kho riêng tư/bền vững (N03, B70).
 
 CURRENT STATE: Keycloak và `finora-user` dùng PostgreSQL cài trực tiếp trên máy host
-(`localhost:5432`, database `keycloak` và `finora_user`); Docker chỉ còn chạy Keycloak và
-`user-redis` cho luồng auth. Đăng ký / đăng nhập / quên mật khẩu đã smoke pass end-to-end
-ngày 2026-08-20.
+(`localhost:5432`, database `keycloak` và `finora_user`); Docker chỉ còn chạy Keycloak cho luồng auth
+(OTP, rate limit nằm trong kho tạm PostgreSQL của User, không còn `user-redis`). Đăng ký / đăng nhập / quên mật khẩu
+đã smoke pass end-to-end ngày 2026-08-20.
 
 CURRENT STATE: Fineract 1.15.0/PostgreSQL 18.3 local đã healthy và tenant authentication
 smoke pass ngày 2026-08-03; Product V2 `PROGRESSIVE` + advanced allocation đã được Fineract local chấp
@@ -160,4 +160,4 @@ Fineract 1.15 dùng PostgreSQL; fixture release 1.15.0 được pin PostgreSQL 1
 
 Port host local có thể override bằng environment để tránh xung đột máy cá nhân; port nội bộ/service contract trong Docker không đổi. Mọi override dùng chung phải được ghi trong `docker/.env` và không commit file này.
 
-Mỗi service MUST chỉ đọc/ghi database thuộc storage của mình (`loan-postgres`, `payment-postgres`, `blockchain-postgres`, `user-postgres`, `investment-postgres`, `user-redis`). Không được đổi tên DB trong URL để truy cập dữ liệu service khác. Môi trường demo khóa luận MAY đặt nhiều database tách biệt trong cùng Neon Project/default role khi được owner chấp thuận rõ; trước production thật MUST tách project hoặc runtime role giới hạn quyền theo service. Docker fallback và Keycloak PostgreSQL vẫn MUST dùng runtime role không có superuser.
+Mỗi service MUST chỉ đọc/ghi database thuộc storage của mình (`loan-postgres`, `payment-postgres`, `blockchain-postgres`, `user-postgres`, `investment-postgres`). Không được đổi tên DB trong URL để truy cập dữ liệu service khác. Môi trường demo khóa luận MAY đặt nhiều database tách biệt trong cùng Neon Project/default role khi được owner chấp thuận rõ; trước production thật MUST tách project hoặc runtime role giới hạn quyền theo service. Docker fallback và Keycloak PostgreSQL vẫn MUST dùng runtime role không có superuser.

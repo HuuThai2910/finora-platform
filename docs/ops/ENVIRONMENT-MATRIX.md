@@ -26,8 +26,8 @@ provider tiền `mock`, chữ ký `MOCK`, đồng hồ/điểm dừng E2E.
 | PostgreSQL User và Keycloak | PostgreSQL cài trên máy host (`5432`) | Như `local` | Testcontainers (User) | Như `local` (host hoặc Neon qua `KEYCLOAK_DB_URL`) |
 | Keycloak 23 | Docker, profile `core`/`demo` | Docker | Không chạy: test dùng `jwt()` của spring-security-test | Docker |
 | Kafka 3.9 (KRaft) | Docker, profile `kafka`/`demo` | Docker | Không chạy: listener tắt; health test trỏ `localhost:1` | Docker |
-| Redis của User | Docker `user-redis`, profile `user`/`demo` | Docker (harness đọc OTP ở đây) | Testcontainers `redis:7-alpine` (`UserHealthProbesIT`) | Docker |
-| Redis của Payment | **Không có** (B23: Payment không dùng Redis) | — | — | — |
+| Kho tạm của User (OTP, đăng ký chờ, rate limit, eKYC) | Bảng `user_temporary_entries`, `user_rate_counters` trong PostgreSQL User (V9) | Như `local` (harness đọc OTP ở đây bằng psql qua container User) | Testcontainers PostgreSQL (`UserHealthProbesIT`) | Như `local` |
+| Redis | **Không có**: User dùng kho tạm PostgreSQL (V9), Payment đã gỡ Redis (B23) | — | — | — |
 | Apache Fineract 1.15 + PostgreSQL 18.3 | Docker, profile `fineract`; Loan mặc định `FINERACT_BOOKING_PROVIDER=mock` | Docker, `FINERACT_BOOKING_PROVIDER=fineract`, Product namespace `E2E` | Mock (`MockRestServiceServer`, gateway giả) | Docker (`docker-compose.app.yml`, PostgreSQL host) |
 | Job cuối ngày Fineract (`LA_RINT`, `LA_ARAG`) | Fixture local không bảo đảm cron đang bật; health `fineractEndOfDay` (khi booking `fineract`) cho biết, chạy tay theo runbook mục 5 | Harness chạy khi dời đồng hồ (D25) | — | Phải bật cron 00:01 hoặc chạy tay mỗi ngày; theo dõi health `fineractEndOfDay` |
 | AI v17 (FastAPI) | Docker, profile `ai`/`demo`, hoặc `uvicorn` | Docker | pytest trong venv/CI; CIC và Keycloak được giả lập trong test | Docker |
@@ -37,7 +37,7 @@ provider tiền `mock`, chữ ký `MOCK`, đồng hồ/điểm dừng E2E.
 | Giải ngân ra ngoài | `PAYMENT_DISBURSEMENT_PROVIDER=mock` (ZaloPay disbursement fail-closed) | `mock` | Mock | `mock` |
 | Rút tiền (W3B) | `PAYMENT_PAYOUT_PROVIDER=mock`, callback HMAC thật tới Payment | `mock` | Mock | `mock` |
 | Blockchain ledger | `BLOCKCHAIN_PROOF_PROVIDER=MOCK` | `MOCK` (listener + worker bật) | Mock | `MOCK`; Fabric local chỉ khi bật theo D14/Q10 |
-| Email | Mailpit (profile `mail`) hoặc Gmail SMTP | Không cần (OTP đọc từ Redis) | `@MockBean` | Gmail SMTP hoặc Mailpit |
+| Email | Mailpit (profile `mail`) hoặc Gmail SMTP | Không cần (OTP đọc từ kho tạm PostgreSQL của User) | `@MockBean` | Gmail SMTP hoặc Mailpit |
 | Fault injection | — | Toxiproxy (profile `e2e-faults`, Q13) | — | Không bật |
 
 ## 3. Biến môi trường theo service (chỉ tên)
@@ -53,7 +53,7 @@ git-ignore của module hoặc `docker/.env`.
 | Payment | `PAYMENT_DB_PASSWORD` | `FINORA_PIN_TOKEN_SECRET`, `PAYMENT_ACCOUNT_ENCRYPTION_KEY` (W3B), `PAYMENT_MOCK_PAYOUT_CALLBACK_SECRET` (W3B), `ZALOPAY_KEY1`, `ZALOPAY_KEY2` | `PAYMENT_DB_URL`, `PAYMENT_DB_USERNAME`, `FINERACT_BASE_URL`, `FINERACT_API_USERNAME`, `FINERACT_API_PASSWORD`, `PAYMENT_TOPUP_PROVIDER`, `PAYMENT_DISBURSEMENT_PROVIDER`, `PAYMENT_PAYOUT_PROVIDER`, `PAYMENT_WITHDRAWAL_*`, `ZALOPAY_APP_ID`, `ZALOPAY_CALLBACK_URL`, `PAYMENT_CORE_REPOST_SAFE_AFTER`, `KAFKA_BOOTSTRAP_SERVERS`, `PAYMENT_KAFKA_RETRY_*`/`PAYMENT_KAFKA_DLT_SUFFIX` (B58, mặc định 1s–30s trong 3m, `.payment.DLT`), `PAYMENT_REPAYMENT_COLLECTED_TOPIC`/`PAYMENT_REPAYMENT_CANCELLED_TOPIC` (P5) |
 | Investment | `INVESTMENT_DB_URL`, `INVESTMENT_DB_USERNAME`, `INVESTMENT_DB_PASSWORD` | `FINORA_PIN_TOKEN_SECRET`, `KEYCLOAK_INVESTMENT_CLIENT_SECRET` | `PAYMENT_SERVICE_URL`, `INVESTMENT_PAYMENT_MODE`, `INVESTMENT_REQUIRE_EKYC`, `INVESTMENT_AUTO_INVEST_ENABLED`, `INVESTMENT_RISK_DISCLOSURE_VERSION`, `KEYCLOAK_TOKEN_URL`, `KAFKA_BOOTSTRAP_SERVERS` |
 | Blockchain | `BLOCKCHAIN_DB_PASSWORD` | — | `BLOCKCHAIN_DB_URL`, `BLOCKCHAIN_DB_USERNAME`, `BLOCKCHAIN_KAFKA_LISTENER_ENABLED`, `BLOCKCHAIN_PROOF_WORKER_ENABLED`, `BLOCKCHAIN_PROOF_PROVIDER`, `FABRIC_*`, `KAFKA_BOOTSTRAP_SERVERS` |
-| User | `USER_DB_PASSWORD` | `FINORA_PIN_TOKEN_SECRET`, `FINORA_HMAC_SECRET`, `FINORA_AES_SECRET`, `KEYCLOAK_CLIENT_SECRET` | `USER_DB_URL`, `USER_DB_USERNAME`, `USER_REDIS_HOST`, `USER_REDIS_PORT`, `USER_REDIS_PASSWORD`, `KEYCLOAK_SERVER_URL`, `KEYCLOAK_REALM`, `AI_SERVICE_URL`, `NOTIFICATION_SERVICE_URL`, `CIC_SERVICE_URL`, `CIC_INTERNAL_API_KEY`, `USER_CIC_MAPPING_ENABLED`, `AUTH_COOKIE_DOMAIN`, `AUTH_COOKIE_SECURE` |
+| User | `USER_DB_PASSWORD` | `FINORA_PIN_TOKEN_SECRET`, `FINORA_HMAC_SECRET`, `FINORA_AES_SECRET`, `KEYCLOAK_CLIENT_SECRET` | `USER_DB_URL`, `USER_DB_USERNAME`, `KEYCLOAK_SERVER_URL`, `KEYCLOAK_REALM`, `AI_SERVICE_URL`, `NOTIFICATION_SERVICE_URL`, `CIC_SERVICE_URL`, `CIC_INTERNAL_API_KEY`, `USER_CIC_MAPPING_ENABLED`, `AUTH_COOKIE_DOMAIN`, `AUTH_COOKIE_SECURE` |
 | Notification | `NOTIFICATION_DB_URL`, `NOTIFICATION_DB_USERNAME`, `NOTIFICATION_DB_PASSWORD` | `MAIL_PASSWORD` (khi dùng Gmail) | `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_SMTP_AUTH`, `MAIL_SMTP_STARTTLS`, `KAFKA_BOOTSTRAP_SERVERS` |
 | Gateway | — | — | Profile `docker` (`SPRING_PROFILES_ACTIVE=docker`) đổi URI route sang tên service Compose |
 | AI | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` (chỉ OCR eKYC; Claude là dự phòng khi Gemini lỗi) | `KEYCLOAK_CLIENT_SECRET` (client `finora-ai-client`) | `CIC_SERVICE_URL`, `USER_SERVICE_URL`, `KEYCLOAK_TOKEN_URL`, `KEYCLOAK_ISSUER_URI`, `KEYCLOAK_JWK_SET_URI`, `FINORA_ENVIRONMENT` |
@@ -90,7 +90,7 @@ khỏi traffic (D56, D57). Compose healthcheck dùng readiness, không chỉ ki�
 | Payment | 8082 | `readinessState`, `db` | `kafka` | Không còn `redis` (B23) |
 | Blockchain | 8083 | `readinessState`, `db` | — | `kafka` chỉ có khi `BLOCKCHAIN_KAFKA_LISTENER_ENABLED=true`; không hiện chi tiết vì đường health bỏ qua chain bảo mật (sau W3D có JWT thì chuyển sang `permitAll()` + `when-authorized` như service khác) |
 | Investment | 8084 | `readinessState`, `db` | `kafka` | |
-| User | 8085 | `readinessState`, `db`, `redis` | — | Keycloak không vào readiness (dùng chung mọi service) |
+| User | 8085 | `readinessState`, `db` | — | Không còn `redis` (kho tạm nằm trong `db`); Keycloak không vào readiness (dùng chung mọi service) |
 | Notification | 8086 | `readinessState`, `db` | `kafka` | Health `mail` tắt: không mở kết nối SMTP mỗi lần health |
 | AI | 8000 | `GET /health` (tĩnh) | — | Không kiểm Gemini/CIC; lỗi CIC hiện ở hồ sơ `PENDING_REVIEW` |
 | Keycloak | 8180 | `GET /health/ready` (cổng nội bộ 8080) | — | |

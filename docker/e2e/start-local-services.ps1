@@ -45,7 +45,7 @@ param(
 
 # Dựng/dừng các service Java của vertical slice từ jar với cấu hình E2E cố định (task R1A).
 #
-# Hạ tầng (Kafka, Keycloak, Redis User, User, AI, Fineract) chạy bằng docker/docker-compose.yml như hằng ngày;
+# Hạ tầng (Kafka, Keycloak, User, AI, Fineract) chạy bằng docker/docker-compose.yml như hằng ngày;
 # script chỉ bật thêm các container PostgreSQL của stack E2E nếu thiếu (blockchain, và với -Database local cả loan/
 # payment/investment/notification) và không tạo lại container đang chạy. Mỗi service vẫn đọc file .env trong thư mục
 # module như khi chạy IntelliJ; biến môi trường của tiến trình con ghi đè đúng các cờ E2E dưới đây (gồm URL DB local)
@@ -312,7 +312,7 @@ function Start-LocalPostgres {
 }
 
 function Assert-Infrastructure {
-    foreach ($container in @('finora-kafka', 'finora-keycloak', 'finora-user-redis', 'finora-user', 'finora-ai', 'finora-fineract')) {
+    foreach ($container in @('finora-kafka', 'finora-keycloak', 'finora-user', 'finora-ai', 'finora-fineract')) {
         if (-not (Test-E2EContainerRunning -Name $container)) {
             throw "Container $container chưa chạy. Bật hạ tầng theo docs/testing/E2E-VERTICAL-SLICE.md mục 2."
         }

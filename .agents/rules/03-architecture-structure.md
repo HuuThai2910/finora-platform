@@ -54,7 +54,7 @@ Quy ước "mỗi việc một cách":
 
 ### Trách nhiệm từng layer
 
-- `controller/`: nhận HTTP request, validate DTO, lấy identity từ security context, gọi service và trả response. MUST NOT gọi repository/integration trực tiếp hoặc chứa business logic.
+- `controller/`: nhận HTTP request, validate DTO, lấy identity từ security context, gọi service và trả response. MUST NOT gọi repository/integration trực tiếp hoặc chứa business logic. WebSocket handler và `HandshakeInterceptor` (biên vào của kênh thời gian thực, ví dụ sổ lệnh Investment) cũng đặt ở `controller/`, cùng ràng buộc; kênh thời gian thực dùng WebSocket thuần của Spring, không dùng SSE.
 - `service/`: triển khai use case, transaction boundary, authorization nghiệp vụ, state transition và phối hợp repository/integration/outbox.
 - `domain/`: JPA entity/Mongo document, value object, domain enum và invariant. Domain MUST NOT phụ thuộc controller, DTO HTTP hoặc integration client.
 - `repository/`: truy cập database của chính service; MUST NOT chứa business decision, gọi REST/Kafka hoặc bị controller gọi trực tiếp.

@@ -6,7 +6,7 @@ import java.time.LocalDate;
 /**
  * Chi tiết một sổ lệnh cho Chợ chuyển nhượng quản trị: khoản vay và phần vốn, tình hình trả nợ theo bản chiếu của
  * Investment, số liệu chuyển nhượng và số lần khớp theo chặng. Độ sâu sổ lấy từ ảnh chụp công khai
- * ({@code GET /investments/order-books/{listingId}} và luồng SSE), không lặp ở đây.
+ * ({@code GET /investments/order-books/{listingId}} và kênh WebSocket), không lặp ở đây.
  *
  * @param borrowerId         mã người vay ở finora-user, chỉ để web mở hồ sơ khách hàng (không hiển thị)
  * @param borrowerFullName   họ tên người vay; null khi User chưa đọc được

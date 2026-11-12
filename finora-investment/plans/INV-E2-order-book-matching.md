@@ -227,7 +227,7 @@ Tất cả dưới `/api/v1/investments/order-books`, **yêu cầu đăng nhập
 |---|---|---|
 | GET | `?page&size` | Danh sách khoản vay còn Note lưu hành, kèm giá mua/bán tốt nhất, giá khớp gần nhất, cờ nợ xấu |
 | GET | `/{listingId}` | Ảnh chụp sổ, kèm `referenceOutstanding` (dư nợ lớn nhất của một Note) để client hiện số tạm tính |
-| GET | `/{listingId}/stream` | SSE: sự kiện `snapshot` ngay khi mở và mỗi lần sổ đổi; chú thích `keepalive` mỗi 20 giây |
+| POST | `/{listingId}/stream-ticket` | Vé dùng một lần (30 giây) để mở WebSocket `/ws/order-books/{listingId}?ticket=` (từ 10/11/2026, thay SSE `/{listingId}/stream`): tin `{"type":"snapshot","data":<ảnh sổ>}` ngay khi mở và mỗi lần sổ đổi; khung ping mỗi 20 giây |
 | GET | `/{listingId}/me` | Số Note rảnh, số Note đang khóa, lệnh còn hiệu lực của tôi |
 | POST | `/{listingId}/orders` + header `Idempotency-Key` | Đặt lệnh `{side, pricePercent, quantity, acknowledgeDefault}` → 201 |
 | GET | `/orders/mine?active&page&size` | Lệnh của tôi |
@@ -237,10 +237,13 @@ Tất cả dưới `/api/v1/investments/order-books`, **yêu cầu đăng nhập
 
 Lệnh trả về (`BookOrderResponse`) có `loanId` để danh sách lệnh trên nhiều sổ gọi đúng tên khoản vay. API bảng tin cũ `/api/v1/investments/secondary/**` đã **gỡ**.
 
-**Vì sao SSE (Server-Sent Events) thay vì WebSocket:** dữ liệu chỉ chảy một chiều server → client; đặt và
-huỷ lệnh vẫn đi REST có idempotency. SSE là HTTP thường nên dùng lại xác thực bằng cookie/header, CORS và
-route Gateway sẵn có. Mỗi lần đẩy là cả ảnh chụp chứ không phải phần chênh lệch: sổ P2P nhỏ, gửi cả ảnh
-rẻ hơn cái giá phải bảo đảm thứ tự và bù gói mất. Client giữ ảnh có `sequence` lớn nhất.
+**Kênh thời gian thực (cập nhật 10/11/2026: WebSocket thay SSE).** Bản đầu dùng SSE vì dữ liệu chỉ chảy một
+chiều; từ 10/11 chuyển sang WebSocket thuần của Spring (không STOMP), vẫn một chiều server → client, đặt và huỷ
+lệnh vẫn đi REST có idempotency. WebSocket đi Caddy → thẳng investment (Gateway MVC không chuyển tiếp WebSocket),
+nên không có cookie phiên: client đã đăng nhập lấy vé dùng một lần qua REST rồi bắt tay với `?ticket=`; investment
+kiểm Origin theo cấu hình, gửi ping mỗi 20 giây, đóng phiên im lặng quá 65 giây và phiên mở quá 30 phút (mã 4000,
+client lấy vé mới). Mỗi lần đẩy là cả ảnh chụp chứ không phải phần chênh lệch: sổ P2P nhỏ, gửi cả ảnh rẻ hơn cái
+giá phải bảo đảm thứ tự và bù gói mất. Client giữ ảnh có `sequence` lớn nhất.
 
 ---
 
@@ -267,10 +270,10 @@ instance cùng xử lý một dòng đều không chuyển tiền hai lần.
 |---|---|
 | Payment `POST /transactions/holds/{holdReference}/settlements` | **Đã có 2026-10-02** (Hải viết trong module Payment theo yêu cầu, chờ Thái review) — [`docs/integrations/INVESTMENT-PAYMENT-ORDER-BOOK.md`](../../docs/integrations/INVESTMENT-PAYMENT-ORDER-BOOK.md) |
 | Payment `release` sau khi đã thanh toán một phần | **Đã sửa**: nhả `amount − settled_amount` |
-| Mobile | **Xong 2026-10-02** (`finora-mobile/src/features/secondary-market`): danh sách sổ, sổ lệnh có thang giá và SSE (rơi về hỏi lại 5 giây khi luồng đứt), đặt lệnh, lệnh của tôi, huỷ lệnh. Lối vào: Ví › Danh mục, và Sàn › Chợ Notes |
-| Web quản trị | **Xong 2026-10-02**: dải số liệu (phí đã thu, chờ thanh toán, cần đối soát, Note đang chờ khớp), bảng sổ lệnh có hộp thoại thang giá tự cập nhật (SSE qua cookie), bảng giao dịch lọc theo trạng thái thanh toán kèm tên hai bên. API quản trị mới: `GET /investments/admin/order-books/summary`, `GET /investments/admin/order-books/trades?settlement=` |
-| SSE qua Gateway MVC | Chưa kiểm. Gateway MVC có thể đệm response; nếu ảnh bị dồn thì cho client gọi thẳng service hoặc chuyển sang hỏi định kỳ |
-| Nhiều instance | Danh sách người nghe stream nằm trong bộ nhớ từng instance; cần kênh phát chung khi mở rộng |
+| Mobile | **Xong 2026-10-02** (`finora-mobile/src/features/secondary-market`): danh sách sổ, sổ lệnh có thang giá và kênh thời gian thực (SSE, từ 10/11 là WebSocket; rơi về hỏi lại 5 giây khi kênh đứt), đặt lệnh, lệnh của tôi, huỷ lệnh. Lối vào: Ví › Danh mục, và Sàn › Chợ Notes |
+| Web quản trị | **Xong 2026-10-02**: dải số liệu (phí đã thu, chờ thanh toán, cần đối soát, Note đang chờ khớp), bảng sổ lệnh có hộp thoại thang giá tự cập nhật (SSE qua cookie, từ 10/11 là WebSocket có vé), bảng giao dịch lọc theo trạng thái thanh toán kèm tên hai bên. API quản trị mới: `GET /investments/admin/order-books/summary`, `GET /investments/admin/order-books/trades?settlement=` |
+| Kênh qua Gateway MVC | Không đi qua: từ 10/11 WebSocket đi Caddy thẳng investment (route `/ws/order-books/*`) |
+| Nhiều instance | Danh sách phiên WebSocket và kho vé nằm trong bộ nhớ từng instance; cần kênh phát chung và kho vé dùng chung khi mở rộng |
 | Tự huỷ lệnh khi khoản vay tất toán | Chưa có luồng tất toán; khi khớp, Note đã tất toán làm lệnh bán bị huỷ `NOTE_UNAVAILABLE` |
 | Lệnh mua kẹt `PENDING_FUNDS` khi Payment không phản hồi | Như đặt vốn sơ cấp: người dùng gửi lại cùng khóa; chưa có worker đối soát |
 | eKYC người mua, trần dư nợ 100tr/400tr | Chưa kiểm — giữ nguyên INV-E1 mục 8.1, 8.4 (`LEGAL-OPEN-02`) |
@@ -293,11 +296,11 @@ Phí 5% là policy demo, không phải quy định pháp luật (INV-E1 mục 3)
 | Transaction ngắn | `service/orderbook/OrderBookTransactionService`: `createPendingBid`, `activateBid`, `rejectBid`, `placeAsk`, `cancel` |
 | Điều phối ba bước lệnh mua | `service/orderbook/OrderBookCommandService` |
 | Đọc sổ | `service/orderbook/OrderBookQueryService` |
-| Stream SSE | `service/orderbook/OrderBookStreamService` (`@TransactionalEventListener(AFTER_COMMIT)`, một luồng đẩy) |
+| Kênh WebSocket | `service/orderbook/OrderBookStreamService` (`@TransactionalEventListener(AFTER_COMMIT)`, một luồng đẩy, ping/dọn phiên), `OrderBookStreamTicketService` (vé), `controller/OrderBookWebSocketHandler`, `controller/OrderBookHandshakeInterceptor`, `config/OrderBookWebSocketConfig` |
 | Thanh toán, nhả tiền | `service/orderbook/OrderBookSettlementService`, `OrderBookSettlementWorker` |
 | API | `controller/OrderBookController` |
 | Cổng Payment | `client/PaymentClient#settleFromHold` (thay `transfer`), `RestPaymentClient`, `StubPaymentClient` |
-| Bảo mật | `config/SecurityConfig` cho phép async dispatch để SSE không bị cắt |
+| Bảo mật | `config/SecurityConfig` mở `GET /ws/order-books/*` (xác thực bằng vé), bỏ qua token ở `/ws/*`, CORS riêng cho `/ws/**` |
 | Đã gỡ | `SecondaryMarketController`, `SecondaryMarketService(Impl)`, `SecondaryMarketTransactionService(Impl)`, `NoteListing`, `NoteListingRepository`, DTO bảng tin |
 
 ### Kiểm chứng đã chạy
@@ -312,6 +315,7 @@ test, tất cả đạt.
 | `BookOrderTest` | Chuyển trạng thái whitelist, không chi quá tiền giữ |
 | `StubPaymentClientTest` | Thanh toán từ tiền giữ idempotent, không vượt phần giữ |
 | `OrderBookFlowIT` | Khớp + thanh toán + nhả tiền với số dư cụ thể; giá tốt hơn và nhả phần thừa; ưu tiên giá–thời gian; chặn tự khớp; quy tắc huỷ; Note không nằm hai lệnh; idempotency; nợ xấu bắt buộc xác nhận; 4 lệnh mua tranh 1 Note |
-| `OrderBookStreamIT` | SSE qua HTTP thật và Spring Security: ảnh đầu tiên, đặt lệnh qua REST rồi nhận ảnh mới, ảnh không lộ mã nhà đầu tư, không token thì 401 |
+| `OrderBookStreamIT` | WebSocket qua HTTP thật, Spring Security và PostgreSQL: lấy vé, ảnh đầu tiên, đặt lệnh qua REST rồi nhận ảnh mới, ảnh không lộ mã nhà đầu tư, không token thì không lấy được vé, không vé thì 401 |
+| `OrderBookWebSocketHandshakeTest` | Bắt tay thật trên Tomcat nhúng không cần DB: vé hợp lệ/dùng lại/sai sổ/thiếu, Origin lạ 403 trước khi tốn vé, cookie hỏng không chặn, quyền API vé |
 
-Chưa kiểm: nâng cấp migration từ database đã có tin bảng tin đang mở; SSE qua Gateway.
+Chưa kiểm: nâng cấp migration từ database đã có tin bảng tin đang mở.

@@ -9,10 +9,11 @@ import com.finora.investment.dto.request.PlaceBookOrderRequest;
 import com.finora.investment.dto.response.BookOrderResponse;
 import com.finora.investment.dto.response.OrderBookPositionResponse;
 import com.finora.investment.dto.response.OrderBookSnapshotResponse;
+import com.finora.investment.dto.response.OrderBookStreamTicketResponse;
 import com.finora.investment.dto.response.OrderBookSummaryResponse;
 import com.finora.investment.service.orderbook.OrderBookCommandService;
 import com.finora.investment.service.orderbook.OrderBookQueryService;
-import com.finora.investment.service.orderbook.OrderBookStreamService;
+import com.finora.investment.service.orderbook.OrderBookStreamTicketService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -22,7 +23,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -34,7 +34,6 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * Sổ lệnh Ask/Bid của chợ thứ cấp Notes (thay bảng tin {@code /investments/secondary}).
@@ -51,7 +50,7 @@ public class OrderBookController {
 
     private final OrderBookCommandService orderBookCommandService;
     private final OrderBookQueryService orderBookQueryService;
-    private final OrderBookStreamService orderBookStreamService;
+    private final OrderBookStreamTicketService orderBookStreamTicketService;
 
     /** Các khoản vay còn Note lưu hành, kèm giá mua/bán tốt nhất. */
     @GetMapping
@@ -73,12 +72,13 @@ public class OrderBookController {
     }
 
     /**
-     * Stream Server-Sent Events: sự kiện {@code snapshot} gửi ngay khi mở và mỗi lần sổ đổi; dòng
-     * chú thích {@code keepalive} định kỳ giữ kết nối. Client giữ ảnh có {@code sequence} lớn nhất.
+     * Vé mở kênh WebSocket {@code /ws/order-books/{listingId}} (dùng một lần, hết hạn sau khoảng 30 giây). Kênh
+     * WebSocket đi thẳng Investment, không qua Gateway nên không có cookie phiên; client lấy vé ở đây bằng phiên đăng
+     * nhập thường rồi gắn {@code ?ticket=} lúc bắt tay. Mỗi lần nối lại phải lấy vé mới.
      */
-    @GetMapping(path = "/{listingId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter stream(@PathVariable Long listingId) {
-        return orderBookStreamService.subscribe(listingId);
+    @PostMapping("/{listingId}/stream-ticket")
+    public ResponseEntity<OrderBookStreamTicketResponse> streamTicket(@PathVariable Long listingId) {
+        return ResponseEntity.ok(orderBookStreamTicketService.issue(listingId));
     }
 
     /** Số Note còn đặt bán được, số đang nằm trong lệnh bán, và lệnh còn hiệu lực của tôi. */

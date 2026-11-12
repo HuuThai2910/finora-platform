@@ -34,20 +34,23 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.WebSocket;
+import java.net.http.WebSocketHandshakeException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Stream SSE qua HTTP thật, đi qua đúng chuỗi Spring Security: mở stream nhận ảnh đầu tiên, đặt
- * lệnh qua REST, và nhận ảnh mới có lệnh đó mà không phải hỏi lại.
+ * Kênh WebSocket sổ lệnh qua HTTP thật, đi qua đúng chuỗi Spring Security và PostgreSQL thật: lấy vé qua REST, bắt
+ * tay nhận ảnh đầu tiên, đặt lệnh qua REST, và nhận ảnh mới có lệnh đó mà không phải hỏi lại.
  *
  * <p>Thay bộ giải mã JWT bằng bản chấp nhận mọi token và lấy chính chuỗi token làm mã người dùng:
  * bài này kiểm luồng đẩy dữ liệu, còn kiểm chữ ký token là việc của Keycloak và Spring Security.</p>
@@ -104,24 +107,39 @@ class OrderBookStreamIT {
     private final HttpClient http = HttpClient.newHttpClient();
 
     @Test
-    @DisplayName("Mở stream nhận ảnh hiện tại; đặt lệnh bán qua REST thì stream đẩy ảnh mới có mức giá đó")
+    @DisplayName("Lấy vé, mở WebSocket nhận ảnh hiện tại; đặt lệnh bán qua REST thì kênh đẩy ảnh mới có mức giá đó")
     void pushesSnapshotAfterOrder() throws Exception {
         Long listingId = issuedListing();
 
-        BlockingQueue<JsonNode> snapshots = new LinkedBlockingQueue<>();
-        HttpRequest streamRequest = HttpRequest.newBuilder(uri("/api/v1/investments/order-books/" + listingId + "/stream"))
+        HttpResponse<String> ticketResponse = http.send(HttpRequest.newBuilder(
+                        uri("/api/v1/investments/order-books/" + listingId + "/stream-ticket"))
                 .header("Authorization", "Bearer OBS-WATCHER")
-                .header("Accept", "text/event-stream")
-                .GET()
-                .build();
-        var streamFuture = http.sendAsync(streamRequest, HttpResponse.BodyHandlers.ofLines())
-                .thenAccept(response -> {
-                    assertThat(response.statusCode()).isEqualTo(200);
-                    try (Stream<String> lines = response.body()) {
-                        lines.filter(line -> line.startsWith("data:"))
-                                .forEach(line -> snapshots.add(readJson(line.substring(5))));
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(ticketResponse.statusCode()).as(ticketResponse.body()).isEqualTo(200);
+        JsonNode ticket = objectMapper.readTree(ticketResponse.body());
+
+        BlockingQueue<JsonNode> snapshots = new LinkedBlockingQueue<>();
+        WebSocket socket = http.newWebSocketBuilder()
+                .buildAsync(URI.create("ws://localhost:" + port + ticket.get("path").asText()
+                        + "?ticket=" + ticket.get("ticket").asText()), new WebSocket.Listener() {
+                    private final StringBuilder partial = new StringBuilder();
+
+                    @Override
+                    public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+                        partial.append(data);
+                        if (last) {
+                            JsonNode message = readJson(partial.toString());
+                            partial.setLength(0);
+                            if ("snapshot".equals(message.get("type").asText())) {
+                                snapshots.add(message.get("data"));
+                            }
+                        }
+                        webSocket.request(1);
+                        return null;
                     }
-                });
+                })
+                .get(10, TimeUnit.SECONDS);
 
         try {
             JsonNode initial = snapshots.poll(10, TimeUnit.SECONDS);
@@ -150,17 +168,26 @@ class OrderBookStreamIT {
             assertThat(pushed.get("asks").get(0).get("quantity").asLong()).isEqualTo(2);
             assertThat(pushed.toString()).doesNotContain("OBS-SELLER");
         } finally {
-            streamFuture.cancel(true);
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "xong").join();
         }
     }
 
     @Test
-    @DisplayName("Không có token thì không mở được stream")
+    @DisplayName("Không có token thì không lấy được vé; không có vé thì không bắt tay được")
     void streamRequiresAuthentication() throws Exception {
-        HttpResponse<Void> response = http.send(HttpRequest.newBuilder(uri("/api/v1/investments/order-books/1/stream"))
+        HttpResponse<Void> response = http.send(HttpRequest.newBuilder(
+                        uri("/api/v1/investments/order-books/1/stream-ticket"))
                 .timeout(Duration.ofSeconds(10))
-                .GET().build(), HttpResponse.BodyHandlers.discarding());
+                .POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.discarding());
         assertThat(response.statusCode()).isEqualTo(401);
+
+        assertThatThrownBy(() -> http.newWebSocketBuilder()
+                .buildAsync(URI.create("ws://localhost:" + port + "/ws/order-books/1"), new WebSocket.Listener() {
+                })
+                .join())
+                .cause()
+                .isInstanceOfSatisfying(WebSocketHandshakeException.class,
+                        e -> assertThat(e.getResponse().statusCode()).isEqualTo(401));
     }
 
     private Long issuedListing() {

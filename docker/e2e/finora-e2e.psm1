@@ -2,8 +2,8 @@
 #
 # Module chỉ gọi API công khai của service sở hữu dữ liệu. Các ngoại lệ chỉ đọc được gom tại đây để dễ
 # review: REST Fineract (nguồn chuẩn core), topic Kafka (consumer console không dùng group của service),
-# Redis User local (OTP đăng ký dạng plaintext, thay cho hộp thư) và bảng proof của chính Blockchain khi DB là
-# container local. Evidence chỉ chứa mã nghiệp vụ, trạng thái và số tiền; token, PIN, PIN token, OTP và mật
+# kho tạm của User trên PostgreSQL của finora-user (bảng user_temporary_entries, OTP đăng ký dạng plaintext, thay
+# cho hộp thư) và bảng proof của chính Blockchain khi DB là container local. Evidence chỉ chứa mã nghiệp vụ, trạng thái và số tiền; token, PIN, PIN token, OTP và mật
 # khẩu không bao giờ được ghi ra file hay console.
 
 Set-StrictMode -Version Latest
@@ -446,16 +446,83 @@ function Send-E2EKafkaRecord {
     if ($result.ExitCode -ne 0) { throw "Không phát lại được record lên $($Record.Topic) (exit $($result.ExitCode))." }
 }
 
-function Get-E2ERedisValue {
-    <# Đọc một key từ Redis User local (OTP đăng ký) bằng biến môi trường có sẵn trong container. #>
+# Image chỉ để mượn psql khi đọc kho tạm của User; cùng image PostgreSQL local của docker-compose.yml.
+$script:UserDbClientImage = 'postgres:17.5-alpine'
+
+function Find-E2EUserContainer {
+    <#
+      Tên container finora-user đang chạy: `finora-user` (profile demo của docker/docker-compose.yml) hoặc
+      `finora-app-user-1` (docker/docker-compose.app.yml). Không có thì trả $null.
+    #>
+    param([string[]]$Candidates = @('finora-user', 'finora-app-user-1'))
+    foreach ($name in $Candidates) {
+        if (Test-E2EContainerRunning -Name $name) { return $name }
+    }
+    return $null
+}
+
+function Get-E2EUserTemporaryValue {
+    <#
+      Đọc một giá trị còn hạn trong kho tạm của User (bảng user_temporary_entries trên PostgreSQL của finora-user,
+      migration V9), ví dụ OTP đăng ký key reg_otp:<email> (plaintext, thay cho hộp thư). Chỉ SELECT.
+      Thông tin kết nối lấy từ USER_DB_URL/USER_DB_USERNAME/USER_DB_PASSWORD của chính container User đang chạy
+      (mặc định như application.yml của finora-user khi thiếu); psql chạy trong một container postgres tạm dùng chung
+      mạng với container đó nên phân giải host (Neon, host.docker.internal, tên service) đúng như service. Mật khẩu chỉ
+      đi qua biến môi trường của tiến trình docker, không nằm trên dòng lệnh và không được in ra.
+    #>
     param(
         [Parameter(Mandatory)][string]$Container,
-        [Parameter(Mandatory)][string]$Key
+        # Key nội bộ (reg_otp:<email>, reset_otp:<userId>…) được nhúng thẳng vào SQL nên chỉ nhận ký tự an toàn.
+        [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9_:@.+\-]+$')][string]$Key
     )
-    # Không đặt dấu nháy kép trong script sh vì Windows PowerShell 5.1 không escape chúng khi truyền
-    # tham số cho chương trình ngoài; ${VAR:+x} xử lý trường hợp Redis không đặt mật khẩu.
-    $shell = 'if [ -z ${USER_REDIS_PASSWORD:+x} ]; then redis-cli --raw GET $0; else REDISCLI_AUTH=$USER_REDIS_PASSWORD redis-cli --raw GET $0; fi'
-    $result = Invoke-E2ENative -FilePath 'docker' -Arguments @('exec', $Container, 'sh', '-c', $shell, $Key)
+    $inspect = Invoke-E2ENative -FilePath 'docker' -Arguments @('inspect', '--format', '{{json .Config.Env}}', $Container)
+    if ($inspect.ExitCode -ne 0) { throw "Không đọc được cấu hình container $Container (exit $($inspect.ExitCode))." }
+    $containerEnv = @{}
+    # Windows PowerShell 5.1 trả mảng JSON thành một object duy nhất; gán vào biến rồi foreach mới duyệt từng phần tử.
+    $envEntries = ConvertFrom-Json -InputObject ($inspect.Lines -join '')
+    foreach ($entry in $envEntries) {
+        $entry = [string]$entry
+        $separator = $entry.IndexOf('=')
+        if ($separator -gt 0) { $containerEnv[$entry.Substring(0, $separator)] = $entry.Substring($separator + 1) }
+    }
+    $url = if ($containerEnv['USER_DB_URL']) { $containerEnv['USER_DB_URL'] } else { 'jdbc:postgresql://localhost:15436/finora_user' }
+    if ($url -notmatch '^jdbc:postgresql://([^/:?]+)(?::(\d+))?/([^?]+)(?:\?(.*))?$') {
+        throw "USER_DB_URL của $Container không phải dạng jdbc:postgresql://host[:port]/db."
+    }
+    $query = @{}
+    if ($Matches[4]) {
+        foreach ($pair in $Matches[4].Split('&')) {
+            $kv = $pair.Split('=', 2)
+            if ($kv.Count -eq 2) { $query[$kv[0].ToLowerInvariant()] = [Uri]::UnescapeDataString($kv[1]) }
+        }
+    }
+    $settings = [ordered]@{
+        PGHOST = $Matches[1]
+        PGPORT = if ($Matches[2]) { $Matches[2] } else { '5432' }
+        PGDATABASE = [Uri]::UnescapeDataString($Matches[3])
+        PGUSER = if ($containerEnv['USER_DB_USERNAME']) { $containerEnv['USER_DB_USERNAME'] } else { 'finora_user' }
+        PGPASSWORD = [string]$containerEnv['USER_DB_PASSWORD']
+        PGSSLMODE = if ($query['sslmode']) { $query['sslmode'] } else { 'prefer' }
+        PGCHANNELBINDING = if ($query['channelbinding']) { $query['channelbinding'] } elseif ($query['channel_binding']) { $query['channel_binding'] } else { 'prefer' }
+        PGCONNECT_TIMEOUT = '10'
+    }
+    $sql = "SELECT entry_value FROM user_temporary_entries WHERE entry_key = '$Key' AND expires_at > now()"
+    $arguments = @('run', '--rm', '--network', "container:$Container")
+    foreach ($name in $settings.Keys) { $arguments += @('-e', $name) }
+    $arguments += @($script:UserDbClientImage, 'psql', '-X', '-tA', '-v', 'ON_ERROR_STOP=1', '-c', $sql)
+    $previous = @{}
+    foreach ($name in $settings.Keys) {
+        $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+        [Environment]::SetEnvironmentVariable($name, $settings[$name], 'Process')
+    }
+    try {
+        $result = Invoke-E2ENative -FilePath 'docker' -Arguments $arguments
+    } finally {
+        foreach ($name in $previous.Keys) { [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process') }
+    }
+    if ($result.ExitCode -ne 0) {
+        throw "Không đọc được kho tạm của User qua psql (exit $($result.ExitCode)): kiểm USER_DB_* của $Container và image $script:UserDbClientImage."
+    }
     $value = ($result.Lines | Where-Object { $_ -and $_.Trim().Length -gt 0 } | Select-Object -Last 1)
     if ($null -eq $value) { return $null }
     return $value.Trim()
@@ -564,5 +631,5 @@ Export-ModuleMember -Function Initialize-E2EContext, Get-E2EContext, Read-E2EDot
     Add-E2ECheck, Add-E2EDefect, Set-E2EEvidence, Save-E2EEvidence, Get-E2EField, ConvertTo-E2EMoney,
     Format-E2EMoney, ConvertTo-E2ERequestMoney, New-E2ETraceId, New-E2EKey, Invoke-E2EHttp, Assert-E2EStatus, Get-E2EErrorCode,
     Wait-E2ECondition, Get-E2ESha256Hex, New-E2ESecret, Invoke-E2ENative, Get-E2EKafkaRecords,
-    Send-E2EKafkaRecord, Get-E2ERedisValue, Invoke-E2EContainerSql, Invoke-E2EFineractGet, Invoke-E2EFineractWrite,
+    Send-E2EKafkaRecord, Find-E2EUserContainer, Get-E2EUserTemporaryValue, Invoke-E2EContainerSql, Invoke-E2EFineractGet, Invoke-E2EFineractWrite,
     Test-E2EContainerRunning, Test-E2ETcpPort

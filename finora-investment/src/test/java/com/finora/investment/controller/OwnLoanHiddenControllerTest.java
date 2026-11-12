@@ -9,7 +9,7 @@ import com.finora.investment.dto.response.MarketListingResponse;
 import com.finora.investment.service.MarketListingService;
 import com.finora.investment.service.orderbook.OrderBookCommandService;
 import com.finora.investment.service.orderbook.OrderBookQueryService;
-import com.finora.investment.service.orderbook.OrderBookStreamService;
+import com.finora.investment.service.orderbook.OrderBookStreamTicketService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -56,7 +56,7 @@ class OwnLoanHiddenControllerTest {
     private OrderBookCommandService commandService;
 
     @MockBean
-    private OrderBookStreamService streamService;
+    private OrderBookStreamTicketService streamTicketService;
 
     @MockBean
     private JwtDecoder jwtDecoder;

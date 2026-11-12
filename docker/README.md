@@ -21,15 +21,18 @@ Docker Compose giữ PostgreSQL riêng từng service để làm việc khi mấ
 | `payment` | `finora-payment-postgres` | `15434` | `payment-postgres-data` (Payment không dùng Redis, B23) |
 | `blockchain-local-db` | `finora-blockchain-postgres` | `15435` | `blockchain-postgres-data` |
 | `fabric` | `finora-fabric-orderer`, `finora-fabric-peer0-org1/org2`, `finora-fabric-ccaas-org1/org2` | `7051` (gateway peer0.org1) | `fabric-orderer-data`, `fabric-peer0-org1-data`, `fabric-peer0-org2-data`; dựng bằng [`fabric-network/`](fabric-network/README.md) |
-| `user` | `finora-user-redis` | `6381` | `user-redis-data` |
 | `investment` | `finora-investment-postgres` | `15437` | `investment-postgres-data` |
 | `core` | `finora-keycloak` | `8180` | `keycloak-import` (file realm đã render) |
-| `demo` | Kafka + `finora-user` + Keycloak + Redis + AI | `9092`, `8085`, `8180`, `6381`, `8000` | Database User/Keycloak nằm ngoài Compose; CIC là Node đã deploy qua `CIC_SERVICE_URL` |
+| `demo` | Kafka + `finora-user` + Keycloak + AI | `9092`, `8085`, `8180`, `8000` | Database User/Keycloak nằm ngoài Compose; CIC là Node đã deploy qua `CIC_SERVICE_URL` |
 | `mail` | `finora-mailpit` | `8025` UI, `1025` SMTP | không lưu trữ lâu dài (tối đa 500 thư) |
 | `ekyc` | `finora-seaweedfs` + `finora-seaweedfs-init` | `9100` (S3 API) | `seaweedfs-data` — ảnh CCCD/video liveness thử nghiệm (mục 4.3) |
 
 Database PostgreSQL của Keycloak và `finora-user` không nằm trong Compose; chúng có thể
 chạy trên máy host hoặc Neon. Container Keycloak vẫn chạy trong Docker. Xem mục 4.0 và 4.1.
+Không service nào dùng Redis: `finora-user` giữ OTP, phiên đăng ký tạm, giới hạn đăng nhập và trạng thái eKYC trong
+kho tạm trên chính PostgreSQL của nó (bảng `user_temporary_entries`, `user_rate_counters`, migration V9); Payment đã gỡ
+Redis từ B23. Volume `user-redis-data`/`payment-redis-data` cũ trên máy (nếu còn) xóa tay được bằng
+`docker volume ls` rồi `docker volume rm <tên>`.
 
 ## 1b. Chạy toàn bộ service trong Docker với DB Neon (profile `apps`)
 
@@ -228,9 +231,6 @@ powershell -ExecutionPolicy Bypass -File docker/smoke-infra.ps1 -Scope Payment -
 # Blockchain PostgreSQL
 powershell -ExecutionPolicy Bypass -File docker/smoke-infra.ps1 -Scope Blockchain -KeepRunning
 
-# Hải phát triển User
-powershell -ExecutionPolicy Bypass -File docker/smoke-infra.ps1 -Scope User -KeepRunning
-
 # Hải phát triển Investment
 powershell -ExecutionPolicy Bypass -File docker/smoke-infra.ps1 -Scope Investment -KeepRunning
 
@@ -255,13 +255,12 @@ Không có `-KeepRunning`, script sẽ dừng và xóa container của đúng sc
 
 ## 4.1. Đăng nhập / đăng ký / quên mật khẩu (finora-user)
 
-Luồng auth cần 4 thành phần. Chỉ 2 thành phần đầu chạy trong Docker:
+Luồng auth cần 3 thành phần. Chỉ Keycloak chạy trong Docker:
 
 | Thành phần | Chạy ở đâu | Ghi chú |
 |---|---|---|
 | Keycloak `8180` | Docker, profile `core` | Realm `finora`, client `finora-user-client` |
-| Redis `6381` | Docker, profile `user` | OTP quên mật khẩu (TTL 5 phút) + rate limit đăng nhập |
-| PostgreSQL `5432` | **Máy host** | Database `finora_user`; Flyway tự migrate khi app khởi động |
+| PostgreSQL `5432` | **Máy host** | Database `finora_user`; Flyway tự migrate khi app khởi động. Kho tạm (OTP TTL 5 phút, phiên đăng ký, rate limit đăng nhập, eKYC) cũng nằm ở đây |
 | `finora-user` `8085`, `finora-notification` `8086` | IntelliJ / `java -jar` | Đọc cấu hình từ `finora-user/.env` |
 
 ### Bước 1 — Chuẩn bị PostgreSQL trên máy
@@ -289,8 +288,6 @@ KEYCLOAK_DB_NAME=keycloak
 KEYCLOAK_DB_USERNAME=postgres
 KEYCLOAK_DB_PASSWORD=<mật khẩu postgres trên máy>
 KEYCLOAK_CLIENT_SECRET=<chuỗi ngẫu nhiên>
-USER_REDIS_HOST_PORT=6381
-USER_REDIS_PASSWORD=
 ```
 
 Sau đó `Copy-Item finora-user/.env.example finora-user/.env` và điền tiếp. Giá trị
@@ -300,7 +297,7 @@ vào realm Keycloak, `finora-user/.env` để service tự xác thực với rea
 ### Bước 3 — Bật hạ tầng
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File docker/smoke-infra.ps1 -Scope User -KeepRunning
+powershell -ExecutionPolicy Bypass -File docker/smoke-infra.ps1 -Scope Core -KeepRunning
 ```
 
 Container `finora-keycloak-realm-init` chạy một lần: nó đọc
@@ -331,7 +328,7 @@ Realm đã tạo từ trước khi có phân quyền nhân viên: chạy `bash d
 import. Muốn nạp lại realm sau khi sửa template, phải xoá realm cũ:
 
 ```powershell
-docker compose --env-file docker/.env -f docker/docker-compose.yml --profile core --profile user down
+docker compose --env-file docker/.env -f docker/docker-compose.yml --profile core down
 psql -h localhost -U postgres -c "DROP DATABASE keycloak;"
 psql -h localhost -U postgres -c "CREATE DATABASE keycloak;"
 ```
@@ -345,11 +342,11 @@ Cấu hình SMTP cho notification: `Copy-Item finora-notification/.env.example f
 rồi chọn một trong hai chế độ ở mục 4.2.
 
 Không chạy notification thì đăng ký và quên mật khẩu **vẫn thành công** vì gọi best-effort — chỉ là
-không có email gửi đi; khi đó đọc OTP trực tiếp trong Redis:
+không có email gửi đi; khi đó đọc OTP trực tiếp trong kho tạm trên PostgreSQL của User (key `reset_otp:<userId>`,
+đăng ký là `reg_otp:<email>`):
 
 ```powershell
-docker exec finora-user-redis redis-cli KEYS "reset_otp:*"
-docker exec finora-user-redis redis-cli GET "reset_otp:<userId>"
+psql -h localhost -U postgres -d finora_user -c "SELECT entry_key, entry_value, expires_at FROM user_temporary_entries WHERE entry_key LIKE 'reset_otp:%' AND expires_at > now();"
 ```
 
 ### Endpoint

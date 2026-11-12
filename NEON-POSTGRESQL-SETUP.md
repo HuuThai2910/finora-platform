@@ -285,7 +285,7 @@ User:       jdbc:postgresql://localhost:15436/finora_user
 Investment: jdbc:postgresql://localhost:15437/finora_investment
 ```
 
-Docker vẫn cần cho PostgreSQL Testcontainers, Fineract local, Kafka, Redis, Keycloak hoặc Fabric khi các task đó được triển khai.
+Docker vẫn cần cho PostgreSQL Testcontainers, Fineract local, Kafka, Keycloak hoặc Fabric khi các task đó được triển khai (không còn Redis: User dùng kho tạm trên PostgreSQL của nó).
 
 ## 12. Chuyển dữ liệu engine cũ
 

@@ -1,6 +1,6 @@
 # =============================================================================
 # FINORA — chạy 6 service bằng một lệnh: gateway, user, ai, loan, payment, investment
-# kèm hạ tầng chúng cần: Kafka, Keycloak, Redis, Fineract.
+# kèm hạ tầng chúng cần: Kafka, Keycloak, Fineract.
 #
 # Chạy từ thư mục finora-platform:
 #   docker compose -f docker/docker-compose.app.yml up -d --build
@@ -17,16 +17,17 @@
 # - Keycloak lấy thông tin database từ docker/.env (Compose tự nạp vì file này nằm
 #   cùng thư mục). Realm `finora` đã có sẵn trong database Neon nên không import.
 # - Database của 6 service và hai database Fineract đều ở Neon; không cần PostgreSQL local.
-# - Redis chỉ phục vụ User (OTP, giới hạn đăng nhập); Payment không dùng Redis (B23).
-# - Healthcheck của service Java gọi /actuator/health/readiness (DB, Redis User), không chỉ kiểm cổng mở (W3E).
+# - Không có Redis: User giữ OTP, giới hạn đăng nhập, trạng thái eKYC trong kho tạm trên PostgreSQL của nó
+#   (user_temporary_entries, user_rate_counters); Payment cũng không dùng Redis (B23).
+# - Healthcheck của service Java gọi /actuator/health/readiness (DB của service), không chỉ kiểm cổng mở (W3E).
 #
 # Trước khi chạy: tắt các service đang chạy trong IntelliJ/terminal và các container
-# cũ (finora-kafka, finora-keycloak, finora-user-redis, finora-fineract) vì trùng cổng.
+# cũ (finora-kafka, finora-keycloak, finora-fineract) vì trùng cổng.
 #
 # Cổng trên máy:
 #   gateway 8080, loan 8081, payment 8082, investment 8084, user 8085, ai 8000
 #   (mở ra mọi địa chỉ để mobile trong LAN gọi được qua 192.168.x.x)
-#   keycloak 8180, kafka 9092, redis 6381, fineract 18443 (chỉ 127.0.0.1)
+#   keycloak 8180, kafka 9092, fineract 18443 (chỉ 127.0.0.1)
 #   seaweedfs S3 9100 (chỉ 127.0.0.1, tuỳ chọn: --profile ekyc)
 # =============================================================================
 name: finora-app
@@ -111,22 +112,6 @@ services:
       timeout: 5s
       retries: 30
       start_period: 40s
-    networks:
-      - finora
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "127.0.0.1:6381:6379"
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
     networks:
       - finora
 
@@ -297,8 +282,6 @@ services:
     environment:
       <<: *keycloak-jwt
       KEYCLOAK_SERVER_URL: http://keycloak:8080
-      USER_REDIS_HOST: redis
-      USER_REDIS_PORT: "6379"
       AI_SERVICE_URL: http://ai:8000
       # finora-user/.env trỏ localhost:9100 cho IntelliJ; trong mạng Docker phải gọi tên service.
       # Các khoá EKYC_* còn lại (bật/tắt, access key) lấy từ finora-user/.env.
@@ -313,8 +296,6 @@ services:
       - "8085:8085"
     depends_on:
       keycloak:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     healthcheck:
       <<: *readiness-check
@@ -492,7 +473,6 @@ services:
 
 volumes:
   kafka-data:
-  redis-data:
   seaweedfs-data:
 
 networks:
