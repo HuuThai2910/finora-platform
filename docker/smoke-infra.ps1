@@ -1,6 +1,8 @@
 ﻿[CmdletBinding()]
 param(
-    [ValidateSet('Core', 'Loan', 'Payment', 'Blockchain', 'User', 'Investment', 'All')]
+    # Khong con scope User: finora-user khong co ha tang rieng trong Docker (PostgreSQL o host/Neon, OTP va gioi han
+    # dang nhap nam trong kho tam tren chinh PostgreSQL do).
+    [ValidateSet('Core', 'Loan', 'Payment', 'Blockchain', 'Investment', 'All')]
     [string]$Scope = 'Loan',
     [string]$EnvFile,
     [int]$TimeoutSeconds = 240,
@@ -46,12 +48,6 @@ switch ($Scope) {
         $healthServices += 'blockchain-postgres'
         $requiredSecrets += @('BLOCKCHAIN_POSTGRES_ADMIN_PASSWORD', 'BLOCKCHAIN_DB_PASSWORD')
     }
-    'User' {
-        # PostgreSQL cua finora-user nam tren may host; Docker chi con Redis.
-        $profiles += 'user'
-        $infraServices += 'user-redis'
-        $healthServices += 'user-redis'
-    }
     'Investment' {
         $profiles += 'investment'
         $infraServices += 'investment-postgres'
@@ -59,9 +55,9 @@ switch ($Scope) {
         $requiredSecrets += @('INVESTMENT_POSTGRES_ADMIN_PASSWORD', 'INVESTMENT_DB_PASSWORD')
     }
     'All' {
-        $profiles += @('loan', 'payment', 'blockchain-local-db', 'user', 'investment')
-        $infraServices += @('loan-postgres', 'payment-postgres', 'blockchain-postgres', 'user-redis', 'investment-postgres')
-        $healthServices += @('loan-postgres', 'payment-postgres', 'blockchain-postgres', 'user-redis', 'investment-postgres')
+        $profiles += @('loan', 'payment', 'blockchain-local-db', 'investment')
+        $infraServices += @('loan-postgres', 'payment-postgres', 'blockchain-postgres', 'investment-postgres')
+        $healthServices += @('loan-postgres', 'payment-postgres', 'blockchain-postgres', 'investment-postgres')
         $requiredSecrets += @(
             'LOAN_POSTGRES_ADMIN_PASSWORD', 'LOAN_DB_PASSWORD',
             'PAYMENT_POSTGRES_ADMIN_PASSWORD', 'PAYMENT_DB_PASSWORD',

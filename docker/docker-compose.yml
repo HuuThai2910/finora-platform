@@ -435,8 +435,7 @@ services:
       - finora-network
 
   # ============ PAYMENT OWNED DATABASE ============
-  # Payment không dùng Redis (B23, W3E): đã gỡ container payment-redis. Khai báo volume `payment-redis-data` ở cuối file
-  # không còn service nào dùng (Compose không tạo volume không được tham chiếu); xóa được ở lần sửa danh sách volume sau.
+  # Payment không dùng Redis (B23, W3E): đã gỡ container payment-redis và khai báo volume payment-redis-data.
   payment-postgres:
     profiles: ["payment"]
     image: postgres:17.5-alpine
@@ -687,35 +686,10 @@ services:
     networks:
       - finora-network
 
-  # ============ USER OWNED CACHE (PostgreSQL nam tren host) ============
-  user-redis:
-    profiles: ["user", "demo"]
-    image: redis:7-alpine
-    restart: unless-stopped
-    container_name: finora-user-redis
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${USER_REDIS_PASSWORD:-}"]
-    environment:
-      USER_REDIS_PASSWORD: "${USER_REDIS_PASSWORD:-}"
-    ports:
-      - "127.0.0.1:${USER_REDIS_HOST_PORT:-6381}:6379"
-    volumes:
-      - user-redis-data:/data
-    healthcheck:
-      # Chay duoc ca khi USER_REDIS_PASSWORD rong (dev) lan khi da dat password.
-      test:
-        - CMD-SHELL
-        - if [ -n "$$USER_REDIS_PASSWORD" ]; then REDISCLI_AUTH="$$USER_REDIS_PASSWORD" redis-cli ping; else redis-cli ping; fi | grep -q PONG
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
-    networks:
-      - finora-network
-
   # ============ USER APPLICATION (DEMO INTEGRATION) ============
-  # Database nam ngoai Compose (Neon hoac PostgreSQL host). Profile `user` van
-  # chi bat Redis de khong thay doi workflow IntelliJ cu; profile `demo` moi
-  # dong goi va chay ca finora-user.
+  # Database nam ngoai Compose (Neon hoac PostgreSQL host); OTP, phien dang ky tam,
+  # gioi han dang nhap va trang thai eKYC nam trong kho tam tren chinh database do
+  # (user_temporary_entries, user_rate_counters). Profile `demo` dong goi va chay finora-user.
   user:
     profiles: ["demo"]
     build:
@@ -730,9 +704,6 @@ services:
       USER_DB_URL: "${USER_DB_URL}"
       USER_DB_USERNAME: "${USER_DB_USERNAME}"
       USER_DB_PASSWORD: "${USER_DB_PASSWORD}"
-      USER_REDIS_HOST: user-redis
-      USER_REDIS_PORT: "6379"
-      USER_REDIS_PASSWORD: "${USER_REDIS_PASSWORD:-}"
       KEYCLOAK_SERVER_URL: http://keycloak:8080
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-finora}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-finora-user-client}
@@ -766,10 +737,8 @@ services:
     depends_on:
       keycloak:
         condition: service_healthy
-      user-redis:
-        condition: service_healthy
     healthcheck:
-      # Readiness của actuator (PostgreSQL + Redis User), không chỉ kiểm cổng mở (W3E, D56). Image JRE không có curl
+      # Readiness của actuator (PostgreSQL của User), không chỉ kiểm cổng mở (W3E, D56). Image JRE không có curl
       # nên gửi HTTP bằng /dev/tcp của bash (eclipse-temurin jammy có bash). Tomcat trả "HTTP/1.1 200 " không reason.
       test:
         - CMD-SHELL
@@ -1031,8 +1000,6 @@ volumes:
   fabric-orderer-data:
   fabric-peer0-org1-data:
   fabric-peer0-org2-data:
-  payment-redis-data:
-  user-redis-data:
   investment-postgres-data:
   notification-postgres-data:
   seaweedfs-data:

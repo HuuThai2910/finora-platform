@@ -78,22 +78,33 @@ Mọi lệnh compose trên VM đi qua `sudo finora-compose …` (nạp đúng fi
 - Log container gửi sang Azure Monitor Logs (mục "Log trên Azure").
 
 Caddy chuyển `/api/v1/*` vào gateway. Có hai ngoại lệ:
-- SSE sổ lệnh đi thẳng investment.
+- WebSocket sổ lệnh `/ws/order-books/<id>` (từ 10/11, thay SSE) đi thẳng investment vì Gateway MVC không chuyển
+  tiếp WebSocket. Kênh không mang cookie/token: client lấy vé dùng một lần (30 giây) qua
+  `POST /api/v1/investments/order-books/<id>/stream-ticket` (đi gateway như thường) rồi bắt tay với `?ticket=`.
 - `/api/v1/repayments` và đối soát trả nợ đi thẳng payment (từ bản 15/10, khi gateway chưa có route; nay giữ nguyên).
 
 Từ 02/11 `/api/v1/notifications` đi qua gateway: gọi thẳng thì notification tự chặn CORS với origin `localhost`
 của bản web Expo dùng khi kiểm thử.
 
 Trang đánh thức đọc `_status.json` do `finora-status.sh` ghi; danh sách service trong script phải khớp compose
-(02/11: bỏ `fineract-db`, thêm `blockchain-db`, `blockchain`; 08/11 thêm 5 container Fabric), nếu không web kẹt ở màn
-"Đang khởi động".
+(02/11: bỏ `fineract-db`, thêm `blockchain-db`, `blockchain`; 08/11 thêm 5 container Fabric; 11/11 bỏ `redis`), nếu
+không web kẹt ở màn "Đang khởi động".
+
+Từ 11/11 cụm không còn `redis`: finora-user giữ OTP, phiên đăng ký, giới hạn đăng nhập và trạng thái eKYC trong kho
+tạm trên database Neon của nó (bảng `user_temporary_entries`, `user_rate_counters`, migration V9). Lần deploy đầu sau
+thay đổi này, `cd-deploy.sh` chạy `up -d --remove-orphans` nên container `finora-redis-1` cũ tự bị dừng và gỡ
+(container thuộc profile như `fineract-db`, `fabric-tools` vẫn được giữ). Volume `finora_redis-data` không bị xóa;
+dọn tay nếu muốn: `sudo docker volume rm finora_redis-data`.
 
 Caddy còn bỏ header `Origin` khi nó đúng bằng `https://<WEB_DOMAIN>`. Lý do:
 - Rewrite của Vercel đổi Host sang domain VM, nên Spring thấy Origin khác Host và coi là gọi chéo origin.
 - Nếu không bỏ, mọi POST từ trình duyệt (kể cả đăng nhập) bị trả 403 "Invalid CORS request".
 - Origin lạ vẫn bị CORS của gateway/service chặn như cũ.
+- Riêng `/ws/*` giữ nguyên Origin: web mở WebSocket thẳng tới domain VM (rewrite của Vercel không chuyển tiếp
+  WebSocket), investment kiểm Origin theo `INVESTMENT_WS_ALLOWED_ORIGINS` (compose đặt `https://<WEB_DOMAIN>`,
+  `https://<FINORA_DOMAIN>` cho WebSocket của React Native vốn tự gửi Origin bằng domain đích, và localhost).
 
-Đổi domain web thì phải sửa `WEB_DOMAIN` rồi tạo lại cả `caddy` lẫn `user`.
+Đổi domain web thì phải sửa `WEB_DOMAIN` rồi tạo lại cả `caddy`, `user` lẫn `investment`.
 
 Từ 02/11 Fineract dùng hai database trên Neon (`fineract_tenants`, `fineract_default`) như máy dev, thông tin
 kết nối lấy từ `docker/.env`. PostgreSQL cũ trong VM (`fineract-db`, dữ liệu `pg_dump` ngày 15/10) không chạy nữa,

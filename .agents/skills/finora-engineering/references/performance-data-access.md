@@ -19,10 +19,13 @@
 - Đếm statement bằng datasource proxy/Hibernate statistics khi phù hợp; số query phải gần như cố định theo kích thước trang.
 - Kiểm tra query plan cho query tài chính hoặc báo cáo lớn; lưu bằng chứng trong PR khi thêm query phức tạp.
 
-## MongoDB, Redis và API
+## MongoDB, trạng thái tạm và API
 
 - Mongo query có filter/sort phải có index; dùng projection, cursor/pagination và bulk operation.
-- Redis chỉ là cache/lock hỗ trợ, không phải nguồn sự thật của số dư.
+- FINORA không dùng Redis. Trạng thái tạm có thời hạn (OTP, rate limit, bản nháp ngắn hạn) đặt trong kho tạm trên
+  PostgreSQL của service sở hữu, như `TemporaryStore` của `finora-user`: mỗi thao tác là một câu lệnh nguyên tử
+  (`INSERT … ON CONFLICT`, `DELETE … RETURNING`), có `expires_at` + index và worker dọn bản hết hạn. Kho tạm không
+  phải nguồn sự thật của số dư.
 - Mọi cache phải định nghĩa key, TTL, owner và invalidation. Không cache số dư nếu chưa chứng minh tính nhất quán.
 - Giới hạn `size` bằng cấu hình; mặc định 20, tối đa 100 nếu use case không yêu cầu khác.
 - External call luôn có connect/read timeout. Không giữ DB transaction trong lúc gọi mạng nếu có thể tách an toàn.

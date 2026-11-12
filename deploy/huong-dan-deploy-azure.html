@@ -394,7 +394,7 @@ footer { color: var(--muted); font-size: .85rem; border-top: 1px solid var(--lin
         <span class="chip">Azure for Students</span>
         <span class="chip">malaysiawest</span>
         <span class="chip">VM Standard_B2as_v2</span>
-        <span class="chip">Docker Compose · 14 container</span>
+        <span class="chip">Docker Compose · 13 container</span>
         <span class="chip">Vercel + Neon</span>
         <span class="chip">Theo thư mục deploy ngày 03/11/2026</span>
       </div>
@@ -435,7 +435,7 @@ footer { color: var(--muted); font-size: .85rem; border-top: 1px solid var(--lin
 <section id="tong-quan">
   <h2>1. Tổng quan</h2>
   <p class="lead">
-    Toàn bộ backend FINORA (gateway, 7 service nghiệp vụ, Keycloak, Fineract, Kafka, Redis…) chạy bằng Docker Compose
+    Toàn bộ backend FINORA (gateway, 7 service nghiệp vụ, Keycloak, Fineract, Kafka…) chạy bằng Docker Compose
     trên <b>một máy ảo Linux</b> ở Azure, vùng Malaysia West. Web React nằm trên <b>Vercel</b> và chuyển mọi lời gọi
     <code>/api/v1/*</code> sang máy ảo, nên trình duyệt chỉ thấy một domain. Dữ liệu nghiệp vụ nằm ở <b>Neon Postgres</b>
     (AWS Singapore). Máy ảo <b>không chạy suốt ngày</b>: khi có người mở web, trang web nhờ một hàm nhỏ trên Vercel bật máy;
@@ -447,7 +447,7 @@ footer { color: var(--muted); font-size: .85rem; border-top: 1px solid var(--lin
     <div class="stat"><b>Vẫn có một địa chỉ cố định</b><span>IP tĩnh và tên miền <code>finora-api.malaysiawest.cloudapp.azure.com</code> giữ nguyên khi VM tắt, web và mobile không phải đổi cấu hình.</span></div>
   </div>
   <div class="note">
-    <p><b>Vì sao không chọn App Service hay Container Apps?</b> Cụm có 14 container phụ thuộc nhau (Kafka, Keycloak, Fineract…)
+    <p><b>Vì sao không chọn App Service hay Container Apps?</b> Cụm có 13 container phụ thuộc nhau (Kafka, Keycloak, Fineract…)
     và cần khoảng 4,5 GB RAM khi chạy đủ. Một VM 8 GB chạy đúng file compose như máy dev là cách rẻ và dễ hiểu nhất;
     việc còn lại chỉ là bật/tắt VM đúng lúc. Gói sinh viên chỉ cho 5 vùng và không có Singapore, nên chọn Malaysia West vì gần Neon nhất.</p>
   </div>
@@ -532,7 +532,7 @@ footer { color: var(--muted); font-size: .85rem; border-top: 1px solid var(--lin
 
       <rect class="d-box" x="645" y="340" width="305" height="74" rx="10"/>
       <text class="d-t" x="797" y="360" text-anchor="middle">Hạ tầng trong VM</text>
-      <text class="d-s" x="797" y="379" text-anchor="middle">Kafka · Redis · Keycloak</text>
+      <text class="d-s" x="797" y="379" text-anchor="middle">Kafka · Keycloak</text>
       <text class="d-s" x="797" y="396" text-anchor="middle">Fineract · blockchain-db (Postgres)</text>
 
       <rect class="d-box" x="645" y="430" width="305" height="74" rx="10"/>
@@ -584,7 +584,7 @@ footer { color: var(--muted); font-size: .85rem; border-top: 1px solid var(--lin
       <path class="ln ln-dash" d="M24,668 H64"/>
       <text class="d-s" x="74" y="672">đọc /_status.json (file tĩnh Caddy phục vụ)</text>
       <path class="ln ln-dot" d="M24,692 H64"/>
-      <text class="d-s" x="74" y="696">Caddy chuyển thẳng: SSE sổ lệnh, trả nợ</text>
+      <text class="d-s" x="74" y="696">Caddy chuyển thẳng: WebSocket sổ lệnh, trả nợ</text>
     </svg>
     </div>
     <p class="caption">Đường liền màu teal là dữ liệu người dùng; màu cam là lệnh bật/tắt máy ảo. Mobile không đi qua Vercel nên không có màn đánh thức: VM phải được bật trước (qua web hoặc <code>finora-azure.ps1 up</code>).</p>
@@ -610,8 +610,8 @@ footer { color: var(--muted); font-size: .85rem; border-top: 1px solid var(--lin
       <tr><td>Subscription Azure for Students</td><td>"Tài khoản tính tiền" của Azure. Gói sinh viên có credit miễn phí, không cần thẻ, nhưng chỉ cho tạo tài nguyên ở 5 vùng.</td><td>Mọi chi phí (VM, ổ, IP, log) trừ vào credit. Vì giới hạn vùng nên chọn <code>malaysiawest</code> (không có Singapore).</td></tr>
       <tr><td>Resource group <code>finora-rg</code></td><td>Thư mục logic gom các tài nguyên cùng vòng đời.</td><td>Chứa VM, IP, NSG, ổ, NIC, workspace log. Role tùy chỉnh chỉ "nhìn thấy" bên trong nhóm này. Xóa nhóm là dọn sạch.</td></tr>
       <tr><td>VM <code>finora-vm</code> (Standard_B2as_v2)</td><td>Máy ảo dòng B "burstable": 2 vCPU AMD, 8 GB RAM, giá rẻ, hợp tải lúc có lúc không.</td><td>Chạy cả cụm Docker Compose. Đo ngày 15/10: cụm dùng khoảng 4,5/7,9 GB RAM.</td></tr>
-      <tr><td>Managed Disk (Standard SSD 32 GB)</td><td>Ổ đĩa gắn vào VM, tồn tại độc lập với VM, tính tiền cả khi VM tắt.</td><td>Chứa Ubuntu, image Docker (image AI khoảng 3 GB), volume Kafka/Redis/blockchain-db, log Caddy. Ổ nhỏ nên phải dọn cache build.</td></tr>
-      <tr><td>Swap 4 GB</td><td>Một file trên ổ dùng làm RAM dự phòng.</td><td>Đỡ lúc build Maven và lúc 14 container cùng khởi động. <code>vm.swappiness=10</code> để JVM đang chạy không bị đẩy ra swap. <span class="badge gray">setup-vm.sh làm</span></td></tr>
+      <tr><td>Managed Disk (Standard SSD 32 GB)</td><td>Ổ đĩa gắn vào VM, tồn tại độc lập với VM, tính tiền cả khi VM tắt.</td><td>Chứa Ubuntu, image Docker (image AI khoảng 3 GB), volume Kafka/blockchain-db, log Caddy. Ổ nhỏ nên phải dọn cache build.</td></tr>
+      <tr><td>Swap 4 GB</td><td>Một file trên ổ dùng làm RAM dự phòng.</td><td>Đỡ lúc build Maven và lúc 13 container cùng khởi động. <code>vm.swappiness=10</code> để JVM đang chạy không bị đẩy ra swap. <span class="badge gray">setup-vm.sh làm</span></td></tr>
       <tr><td>Public IP tĩnh <code>finora-ip</code> + DNS label</td><td>Địa chỉ IPv4 cố định (SKU Standard) kèm tên miền miễn phí dạng <code>&lt;label&gt;.&lt;vùng&gt;.cloudapp.azure.com</code>.</td><td>Giữ nguyên khi VM deallocate, nên rewrite của Vercel, mobile và chứng chỉ HTTPS không phải đổi. Tính tiền cả khi VM tắt (khoảng 3,65 USD/tháng).</td></tr>
       <tr><td>VNet + NSG <code>finora-nsg</code></td><td>Mạng ảo của VM và "tường lửa" theo luật (cổng, nguồn).</td><td>Mở 80/443 cho Caddy; cổng 22 chỉ mở cho IP máy dev. Luật SSH tên <code>default-allow-ssh</code>, <code>finora-azure.ps1 ssh</code> tự sửa nguồn theo IP hiện tại.</td></tr>
       <tr><td>Custom role <code>FINORA VM Power</code></td><td>Vai trò RBAC tự định nghĩa, chỉ gồm 4 quyền: đọc VM, đọc instanceView, start, deallocate.</td><td>Ai cầm role này chỉ bật/tắt được VM, không xóa, không đổi cấu hình được. Định nghĩa ở <code>vm-power-role.json</code>.</td></tr>
@@ -620,15 +620,15 @@ footer { color: var(--muted); font-size: .85rem; border-top: 1px solid var(--lin
       <tr><td>Azure Resource Manager API</td><td>REST API điều khiển mọi tài nguyên Azure (<code>management.azure.com</code>); Portal và <code>az</code> CLI cũng gọi API này.</td><td>Hai lời gọi FINORA dùng: <code>…/virtualMachines/finora-vm/start</code> (từ Vercel) và <code>…/deallocate</code> (từ VM), cùng <code>instanceView</code> để đọc trạng thái.</td></tr>
       <tr><td>Log Analytics <code>finora-logs</code> + DCR + Azure Monitor Agent</td><td>Kho log có truy vấn KQL; DCR là luật gom log; agent chạy trong VM đẩy log lên.</td><td>Giữ log container 30 ngày kể cả khi VM tắt, trần 0,15 GB/ngày. Trang "Nhật ký hoạt động" của web quản trị đọc từ đây. <span class="badge gray">tùy chọn</span></td></tr>
       <tr class="tbl-group"><td colspan="3">TRONG VM</td></tr>
-      <tr><td>Docker + Docker Compose</td><td>Chạy ứng dụng trong container; Compose khai báo cả cụm trong một file YAML.</td><td><code>docker-compose.azure.yml</code> chạy 14 container, mỗi container có <code>mem_limit</code> cho vừa 8 GB và <code>restart: unless-stopped</code> nên VM bật là cụm tự chạy lại. <span class="badge gray">setup-vm.sh cài Docker</span></td></tr>
+      <tr><td>Docker + Docker Compose</td><td>Chạy ứng dụng trong container; Compose khai báo cả cụm trong một file YAML.</td><td><code>docker-compose.azure.yml</code> chạy 13 container, mỗi container có <code>mem_limit</code> cho vừa 8 GB và <code>restart: unless-stopped</code> nên VM bật là cụm tự chạy lại. <span class="badge gray">setup-vm.sh cài Docker</span></td></tr>
       <tr><td>Caddy + Let's Encrypt</td><td>Web server/reverse proxy tự xin và gia hạn chứng chỉ HTTPS miễn phí.</td><td>Cổng vào duy nhất: HTTPS cho domain VM; chuyển <code>/api/v1/*</code> vào gateway; bỏ header <code>Origin</code> của web (bẫy CORS) và <code>X-Internal-Token</code>; ghi <code>api-access.log</code> để biết lúc nào rảnh; phục vụ <code>/_status.json</code>.</td></tr>
       <tr><td>finora-gateway</td><td>Spring Boot gateway của FINORA.</td><td>Định tuyến tới user, loan, payment, investment, ai, notification, blockchain; in một dòng log JSON <code>finora.api</code> cho mỗi lượt gọi.</td></tr>
       <tr><td>Keycloak 23</td><td>Máy chủ đăng nhập (OAuth2/OIDC).</td><td>Cấp JWT cho người dùng và token client credentials giữa các service. DB trên Neon; chỉ mở ở 127.0.0.1:8180, issuer giữ <code>http://localhost:8180/realms/finora</code> như máy dev.</td></tr>
-      <tr><td>Kafka 3.9 (KRaft) + Redis 7</td><td>Kafka: hàng đợi sự kiện; Redis: bộ nhớ đệm khóa-giá trị.</td><td>Kafka chở event outbox giữa các service (heap 256 MB). Redis giữ OTP, phiên của finora-user. Cả hai chạy trong VM, dữ liệu ở volume.</td></tr>
+      <tr><td>Kafka 3.9 (KRaft)</td><td>Hàng đợi sự kiện.</td><td>Kafka chở event outbox giữa các service (heap 256 MB), chạy trong VM, dữ liệu ở volume. Không có Redis: OTP, phiên đăng ký, giới hạn đăng nhập của finora-user nằm trong kho tạm trên database Neon của User.</td></tr>
       <tr><td>Fineract 1.15</td><td>Core ngân hàng mã nguồn mở (Apache).</td><td>Sổ khoản vay và lịch trả nợ. Từ 02/11 dùng hai DB trên Neon (<code>fineract_tenants</code>, <code>fineract_default</code>); cần <code>mem_limit</code> 1700m.</td></tr>
       <tr><td>blockchain + blockchain-db</td><td>Service ghi bằng chứng (proof) và một PostgreSQL nhỏ trong VM.</td><td>Ledger chế độ MOCK (không chạy mạng Fabric trên VM); lưu hash các mốc nghiệp vụ và giấy chuyển nhượng Note.</td></tr>
       <tr><td>systemd service + timer</td><td>Trình quản lý dịch vụ của Ubuntu; timer giống cron nhưng gắn với service.</td><td><code>finora-status.service</code> ghi trạng thái mỗi 10 s; <code>finora-idle-stop.timer</code> kiểm rảnh mỗi 5 phút; <code>finora-nightly-stop.timer</code> tắt lúc 00:00 giờ VN. <span class="badge gray">setup-vm.sh cài</span></td></tr>
-      <tr><td><code>finora-status.sh</code></td><td>Script bash đọc <code>docker ps</code> và ghi <code>/opt/finora/state/public/_status.json</code>.</td><td>Trang đánh thức biết hệ thống đã sẵn sàng khi <code>ready: true</code>, tức cả 14 service đều <code>healthy</code> hoặc <code>running</code>. Danh sách service trong script phải khớp compose.</td></tr>
+      <tr><td><code>finora-status.sh</code></td><td>Script bash đọc <code>docker ps</code> và ghi <code>/opt/finora/state/public/_status.json</code>.</td><td>Trang đánh thức biết hệ thống đã sẵn sàng khi <code>ready: true</code>, tức cả 13 service đều <code>healthy</code> hoặc <code>running</code>. Danh sách service trong script phải khớp compose.</td></tr>
       <tr class="tbl-group"><td colspan="3">BÊN NGOÀI AZURE</td></tr>
       <tr><td>Vercel: static hosting</td><td>Nơi đặt file build của web React, phát qua CDN.</td><td>Domain <code>finora-web-delta.vercel.app</code>; đây cũng là <code>WEB_DOMAIN</code> dùng làm domain cookie.</td></tr>
       <tr><td>Vercel: rewrite (<code>vercel.json</code>)</td><td>Luật chuyển tiếp URL phía máy chủ, trình duyệt không thấy.</td><td><code>/api/v1/:path*</code> → domain VM; mọi đường khác (trừ <code>/api/</code>) → <code>index.html</code> cho router React.</td></tr>
@@ -653,7 +653,7 @@ footer { color: var(--muted); font-size: .85rem; border-top: 1px solid var(--lin
     <li><b class="where">api/wake.js.</b> Lấy token từ Microsoft Entra ID bằng client id/secret của <code>finora-vercel-wake</code>, gọi <code>instanceView</code> của VM, thấy <code>deallocated</code>, trả <code>{ vm, ready: false, codeRequired: true }</code>.</li>
     <li><b class="where">Màn "Hệ thống đang tắt".</b> Hỏi mã bật hệ thống. Nếu trình duyệt đã nhập đúng một lần (lưu ở localStorage <code>finora.systemWakeCode</code>) thì bỏ qua bước này và tự gửi.</li>
     <li><b class="where">POST /api/wake.</b> Hàm so mã với <code>WAKE_CODE</code> trước mọi lời gọi Azure (người dò mã không làm tốn lượt gọi), rồi gọi <code>…/finora-vm/start</code> và trả 202. Nếu VM đang tắt dở (<code>deallocating</code>) thì không gọi start; web tự gửi lại sau ít nhất 30 giây.</li>
-    <li><b class="where">VM khởi động.</b> Docker chạy lại 14 container nhờ <code>restart: unless-stopped</code>. <code>finora-status.service</code> xóa <code>_status.json</code> cũ rồi ghi mới mỗi 10 giây.</li>
+    <li><b class="where">VM khởi động.</b> Docker chạy lại 13 container nhờ <code>restart: unless-stopped</code>. <code>finora-status.service</code> xóa <code>_status.json</code> cũ rồi ghi mới mỗi 10 giây.</li>
     <li><b class="where">Màn "Đang khởi động".</b> Web hỏi <code>/api/wake</code> mỗi 5 giây. Hàm đọc <code>https://finora-api…/_status.json</code> (bỏ qua nếu cũ hơn 60 giây) và hiện từng service đang ở trạng thái nào. Quá 12 phút thì dừng hỏi và cho bấm thử lại.</li>
     <li><b class="where">Sẵn sàng.</b> Khi <code>ready: true</code>, web dựng App và hiện màn đăng nhập. Thường mất khoảng 5 phút từ lúc nhập mã.</li>
   </ol>
@@ -672,7 +672,7 @@ footer { color: var(--muted); font-size: .85rem; border-top: 1px solid var(--lin
     <li><b class="where">Service.</b> Kiểm JWT (issuer <code>http://localhost:8180/realms/finora</code>, khóa ký tải từ <code>keycloak:8080</code>), đọc/ghi Neon, đẩy event qua Kafka, gọi Fineract nếu cần, rồi trả kết quả theo đường cũ.</li>
   </ol>
   <div class="note">
-    <p><b>Ngoại lệ trong Caddyfile:</b> luồng SSE sổ lệnh (<code>/api/v1/investments/order-books/&lt;id&gt;/stream</code>) đi thẳng <code>investment:8084</code>; <code>/api/v1/repayments</code> và <code>/api/v1/admin/repayment-reconciliation</code> đi thẳng <code>payment:8082</code>. <code>/_status.json</code> là file tĩnh, không qua gateway. Mọi đường khác ngoài <code>/api/v1/*</code> trả 404 "FINORA API".</p>
+    <p><b>Ngoại lệ trong Caddyfile:</b> WebSocket sổ lệnh (<code>/ws/order-books/&lt;id&gt;?ticket=…</code>, vé lấy qua <code>POST /api/v1/investments/order-books/&lt;id&gt;/stream-ticket</code>) đi thẳng <code>investment:8084</code> vì gateway không chuyển tiếp WebSocket, và giữ nguyên header Origin; <code>/api/v1/repayments</code> và <code>/api/v1/admin/repayment-reconciliation</code> đi thẳng <code>payment:8082</code>. <code>/_status.json</code> là file tĩnh, không qua gateway. Mọi đường khác ngoài <code>/api/v1/*</code> và <code>/ws/order-books/*</code> trả 404 "FINORA API".</p>
     <p><b>Mobile</b> bỏ qua bước 1–2: gọi thẳng <code>https://finora-api…/api/v1</code>.</p>
   </div>
 
@@ -951,7 +951,7 @@ chmod 600 .env</code></pre></div>
 
   <div class="step" id="b12">
     <h3><span class="step-no">Bước 12</span> Build image <span class="badge">build-images.sh làm bước này</span></h3>
-    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Kéo image có sẵn (caddy, kafka, keycloak, redis, postgres) và build lần lượt 9 image FINORA: fineract, ai, gateway, user, notification, payment, investment, loan, blockchain. Build tuần tự vì mỗi lượt Maven tốn 1–1,5 GB RAM.</p></div></div>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Kéo image có sẵn (caddy, kafka, keycloak, postgres) và build lần lượt 9 image FINORA: fineract, ai, gateway, user, notification, payment, investment, loan, blockchain. Build tuần tự vì mỗi lượt Maven tốn 1–1,5 GB RAM.</p></div></div>
     <div class="row"><div class="k">Cách làm</div><div class="v">
       <div class="code"><span class="lbl">Trên VM</span><pre><code>cd /opt/finora/src/finora-platform/deploy
 nohup bash build-images.sh &gt; ~/build.log 2&gt;&amp;1 &amp;     # chạy nền, rớt SSH vẫn build tiếp
@@ -966,7 +966,7 @@ df -h /</code></pre></div></div></div>
 
   <div class="step" id="b13">
     <h3><span class="step-no">Bước 13</span> Chạy cả cụm lần đầu</h3>
-    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Tạo 14 container. Từ đây về sau, mỗi lần VM bật cụm tự chạy lại, không cần lệnh này nữa.</p></div></div>
+    <div class="row"><div class="k">Mục đích</div><div class="v"><p>Tạo 13 container. Từ đây về sau, mỗi lần VM bật cụm tự chạy lại, không cần lệnh này nữa.</p></div></div>
     <div class="row"><div class="k">Cách làm</div><div class="v">
       <div class="warn"><p>Trước khi chạy: <b>tắt hẳn cụm ở máy dev</b> (Docker Desktop, service chạy trong IntelliJ). Hai cụm cùng đọc outbox trên Neon sẽ đẩy event vào hai Kafka khác nhau; event rơi vào Kafka máy dev thì VM không bao giờ nhận. Mã mới còn chạy migration Flyway lên Neon dùng chung.</p></div>
       <div class="code"><span class="lbl">Trên VM</span><pre><code>cd /opt/finora/src/finora-platform/deploy
@@ -975,7 +975,7 @@ watch -n 10 docker compose -f docker-compose.azure.yml ps     # chờ cột STAT
       <p class="small muted">Fineract khởi động lâu nhất (healthcheck cho tới 300 s đầu). Cứ giữ phiên SSH tới khi cả cụm healthy: còn SSH thì VM không tự tắt.</p>
     </div></div>
     <div class="row"><div class="k">Kiểm tra</div><div class="v">
-      <div class="code"><span class="lbl">Trên VM</span><pre><code>jq . /opt/finora/state/public/_status.json         # "ready": true, 14 service healthy/running
+      <div class="code"><span class="lbl">Trên VM</span><pre><code>jq . /opt/finora/state/public/_status.json         # "ready": true, 13 service healthy/running
 free -h                                            # khoảng 4,5 GB dùng</code></pre></div>
       <div class="code"><span class="lbl">Máy dev</span><pre><code>curl -s https://$DOMAIN/_status.json | jq .ready                    # true; chứng chỉ Let's Encrypt hợp lệ
 curl -s -o /dev/null -w "%{http_code}\n" https://$DOMAIN/api/v1/users/me   # 401 là đúng: đã tới service, chỉ thiếu đăng nhập
@@ -1333,14 +1333,14 @@ curl -s https://finora-api.malaysiawest.cloudapp.azure.com/_status.json | jq .re
       </dl>
     </li>
     <li class="chk" data-id="ext-compose">
-      <div class="chk-head"><input type="checkbox" id="chk-ext-compose"><label for="chk-ext-compose"><span class="chk-no">21.</span>SSH vào VM: đủ 14 container</label></div>
+      <div class="chk-head"><input type="checkbox" id="chk-ext-compose"><label for="chk-ext-compose"><span class="chk-no">21.</span>SSH vào VM: đủ 13 container</label></div>
       <dl>
         <dt>Vào đâu</dt><dd>PowerShell trong <code>Đồ Án/deploy</code>: <code>.\finora-azure.ps1 ssh</code>.</dd>
         <dt>Nhìn ô</dt><dd>Cột SERVICE và STATUS.</dd>
-        <dt>Giá trị đúng</dt><dd>14 dòng: caddy, kafka, keycloak, redis, fineract, ai, user, notification, payment, investment, loan, blockchain-db, blockchain, gateway. 13 dòng <b>Up … (healthy)</b>; riêng <b>caddy</b> chỉ "Up" vì không khai healthcheck. Không có <code>fineract-db</code>.</dd>
+        <dt>Giá trị đúng</dt><dd>13 dòng: caddy, kafka, keycloak, fineract, ai, user, notification, payment, investment, loan, blockchain-db, blockchain, gateway. 12 dòng <b>Up … (healthy)</b>; riêng <b>caddy</b> chỉ "Up" vì không khai healthcheck. Không có <code>fineract-db</code>.</dd>
         <dt>Lệnh</dt><dd><div class="code"><span class="lbl">Trên VM</span><pre><code>cd /opt/finora/src/finora-platform/deploy
 docker compose -f docker-compose.azure.yml ps --format "table {{.Service}}\t{{.Status}}"
-docker compose -f docker-compose.azure.yml ps --services --status running | wc -l    # 14
+docker compose -f docker-compose.azure.yml ps --services --status running | wc -l    # 13
 cat /opt/finora/src/finora-platform/.deployed-commit                                  # mã đang chạy
 free -h; df -h /</code></pre></div></dd>
         <dt>Nếu sai</dt><dd>Service unhealthy hay Restarting: <code>docker compose -f docker-compose.azure.yml logs --tail 100 &lt;service&gt;</code>; thiếu container: <code>docker compose -f docker-compose.azure.yml up -d</code> (bước 13). Ổ trên 85%: dọn như mục 7.</dd>
@@ -1365,7 +1365,7 @@ journalctl -t finora-idle-stop -n 10 --no-pager                                 
       <dl>
         <dt>Vào đâu</dt><dd>Trong phiên SSH.</dd>
         <dt>Nhìn ô</dt><dd><code>ready</code>, <code>updatedAt</code>, số service trong <code>_status.json</code>; kết quả so danh sách.</dd>
-        <dt>Giá trị đúng</dt><dd><code>ready: true</code>, <code>updatedAt</code> cách giờ hiện tại dưới 10–20 giây, 14 service. Lệnh so danh sách không in gì (hai danh sách trùng nhau).</dd>
+        <dt>Giá trị đúng</dt><dd><code>ready: true</code>, <code>updatedAt</code> cách giờ hiện tại dưới 10–20 giây, 13 service. Lệnh so danh sách không in gì (hai danh sách trùng nhau).</dd>
         <dt>Lệnh</dt><dd><div class="code"><span class="lbl">Trên VM, trong thư mục deploy</span><pre><code>jq '{ready, updatedAt, soService: (.services | length), services}' /opt/finora/state/public/_status.json
 date -u +%FT%TZ
 diff &lt;(grep -oP '^SERVICES=\(\K[^)]*' /opt/finora/bin/finora-status.sh | tr ' ' '\n' | sort) \
@@ -1557,7 +1557,7 @@ rm -rf /opt/finora/src/finora-platform.&lt;commit-cu&gt;   # mã cũ khi bản m
   </table>
   </div>
 
-  <h3>14 container trong <code>docker-compose.azure.yml</code></h3>
+  <h3>13 container trong <code>docker-compose.azure.yml</code></h3>
   <div class="table-wrap">
   <table>
     <thead><tr><th>Service</th><th>Image</th><th>RAM giới hạn</th><th>Ghi chú</th></tr></thead>
@@ -1565,13 +1565,12 @@ rm -rf /opt/finora/src/finora-platform.&lt;commit-cu&gt;   # mã cũ khi bản m
       <tr><td>caddy</td><td>caddy:2</td><td>128m</td><td>Cổng 80, 443, 443/udp</td></tr>
       <tr><td>kafka</td><td>apache/kafka:3.9.1</td><td>640m</td><td>KRaft một node, heap 256 MB</td></tr>
       <tr><td>keycloak</td><td>keycloak:23.0</td><td>900m</td><td>127.0.0.1:8180, DB Neon</td></tr>
-      <tr><td>redis</td><td>redis:7-alpine</td><td>128m</td><td>appendonly</td></tr>
       <tr><td>fineract</td><td>finora/fineract:1.15.0 (build)</td><td>1700m</td><td>127.0.0.1:18443, DB Neon</td></tr>
       <tr><td>ai</td><td>finora/ai:azure (build)</td><td>1g</td><td>FastAPI :8000, eKYC OpenCV/Tesseract</td></tr>
       <tr><td>user</td><td>finora/user:azure</td><td>700m</td><td>:8085, cookie domain = WEB_DOMAIN</td></tr>
       <tr><td>notification</td><td>finora/notification:azure</td><td>550m</td><td>:8086, gửi OTP email</td></tr>
       <tr><td>payment</td><td>finora/payment:azure</td><td>700m</td><td>:8082</td></tr>
-      <tr><td>investment</td><td>finora/investment:azure</td><td>700m</td><td>:8084, SSE sổ lệnh</td></tr>
+      <tr><td>investment</td><td>finora/investment:azure</td><td>700m</td><td>:8084, WebSocket sổ lệnh</td></tr>
       <tr><td>loan</td><td>finora/loan:azure</td><td>800m</td><td>:8081, profile local</td></tr>
       <tr><td>blockchain-db</td><td>postgres:18</td><td>256m</td><td>DB proof trong VM</td></tr>
       <tr><td>blockchain</td><td>finora/blockchain:azure</td><td>450m</td><td>:8083, ledger MOCK</td></tr>

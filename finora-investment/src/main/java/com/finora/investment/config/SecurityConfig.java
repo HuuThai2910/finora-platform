@@ -3,8 +3,10 @@ package com.finora.investment.config;
 import com.finora.common.security.DualBearerTokenResolver;
 import com.finora.common.security.KeycloakJwtAuthenticationConverter;
 import com.finora.common.security.ops.OpsFunction;
-import jakarta.servlet.DispatcherType;
+import com.finora.investment.service.orderbook.OrderBookStreamTicketService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -36,11 +38,15 @@ import java.util.List;
  */
 @Configuration
 @EnableWebSecurity
+@EnableConfigurationProperties(OrderBookWebSocketProperties.class)
 @RequiredArgsConstructor
 public class SecurityConfig {
 
+    private static final String WEBSOCKET_PREFIX = "/ws/";
+
     private final DualBearerTokenResolver dualBearerTokenResolver;
     private final KeycloakJwtAuthenticationConverter keycloakJwtAuthenticationConverter;
+    private final OrderBookWebSocketProperties orderBookWebSocketProperties;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -55,10 +61,9 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         // Metric vận hành (sự cố lệnh góp vốn, outbox) chỉ cho quản trị viên (W3E).
                         .requestMatchers("/actuator/**").hasRole("ADMIN")
-                        // Stream sổ lệnh (SSE) gửi dữ liệu qua async dispatch sau khi request gốc đã
-                        // qua xác thực. Không mở thì Spring Security chặn lại lượt dispatch đó khi
-                        // response đã commit và stream bị cắt.
-                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
+                        // Bắt tay WebSocket sổ lệnh không mang token: kênh đi thẳng Investment, xác thực bằng vé
+                        // dùng một lần do OrderBookHandshakeInterceptor kiểm (vé lấy qua POST .../stream-ticket).
+                        .requestMatchers(HttpMethod.GET, OrderBookStreamTicketService.PATH_PATTERN).permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // Swagger để đối chiếu hợp đồng API khi phát triển.
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
@@ -116,10 +121,21 @@ public class SecurityConfig {
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(keycloakJwtAuthenticationConverter))
-                        .bearerTokenResolver(dualBearerTokenResolver)
+                        .bearerTokenResolver(this::resolveBearerToken)
                 );
 
         return http.build();
+    }
+
+    /**
+     * Bắt tay WebSocket bỏ qua token: trên máy dev, proxy của Vite chuyển cả cookie {@code access_token} của
+     * localhost; token đó hết hạn thì Spring Security trả 401 trước khi kịp kiểm vé, dù đường dẫn đã permitAll.
+     */
+    private String resolveBearerToken(HttpServletRequest request) {
+        if (request.getRequestURI().startsWith(WEBSOCKET_PREFIX)) {
+            return null;
+        }
+        return dualBearerTokenResolver.resolve(request);
     }
 
     /**
@@ -138,7 +154,15 @@ public class SecurityConfig {
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
 
+        // Bắt tay WebSocket từ web trên Vercel mang Origin domain Vercel (Caddy không gỡ Origin ở /ws/*). Không khai
+        // riêng thì bộ lọc CORS trả 403 trước khi tới bộ kiểm Origin của WebSocket. Đăng ký trước "/**" vì nguồn
+        // cấu hình lấy mẫu khớp đầu tiên.
+        CorsConfiguration websocket = new CorsConfiguration();
+        websocket.setAllowedOriginPatterns(orderBookWebSocketProperties.allowedOriginPatterns());
+        websocket.setAllowedMethods(List.of("GET"));
+
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration(WEBSOCKET_PREFIX + "**", websocket);
         source.registerCorsConfiguration("/**", configuration);
         return source;
     }

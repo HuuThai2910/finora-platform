@@ -34,7 +34,7 @@ param(
 #
 # Script chỉ đi qua REST công khai của service sở hữu dữ liệu: Gateway cho auth/user và trả nợ (kiểm route),
 # cổng trực tiếp cho Loan/Investment/Payment giống cấu hình mobile hiện hành. Đọc thêm read-only: Fineract REST
-# (nguồn chuẩn core), Kafka console (consumer tạm, không chạm offset service), Redis User (OTP) và bảng proof
+# (nguồn chuẩn core), Kafka console (consumer tạm, không chạm offset service), kho tạm của User trên PostgreSQL (OTP) và bảng proof
 # của container Blockchain local. Evidence ghi mã nghiệp vụ, trạng thái, số tiền và event ID vào
 # out/<RunId>.json; không ghi token, PIN, OTP hay mật khẩu. Tài khoản admin là tài khoản demo đã có
 # (FINORA_E2E_ADMIN_EMAIL/FINORA_E2E_ADMIN_PASSWORD hoặc DemoAccounts.tsx của finora-web); không tự đăng ký ADMIN.
@@ -50,7 +50,7 @@ $dockerEnv = Read-E2EDotEnv -Path $EnvFile
 $loanEnv = Read-E2EDotEnv -Path (Join-Path $platformRoot 'finora-loan\.env')
 
 $KafkaContainer = 'finora-kafka'
-$RedisContainer = 'finora-user-redis'
+$UserContainer = 'finora-user'
 $BlockchainDbContainer = 'finora-blockchain-postgres'
 $PricingDisclosureVersion = 'RATE_DISCLOSURE_V2'
 $ProductRate = [decimal]'12.0000'
@@ -188,7 +188,7 @@ function New-SafePin {
 
 function Register-E2EUser {
     <#
-      Đăng ký hai bước như mobile: /register tạo challenge OTP, OTP đọc từ Redis User local (thay hộp thư),
+      Đăng ký hai bước như mobile: /register tạo challenge OTP, OTP đọc từ kho tạm của User (bảng user_temporary_entries, thay hộp thư),
       /verify-registration tạo tài khoản Keycloak + hồ sơ và trả token cho client mobile.
     #>
     param([ValidateSet('BORROWER', 'INVESTOR')][string]$Role, [string]$Label, [string]$Variant = '')
@@ -200,8 +200,8 @@ function Register-E2EUser {
         -Body @{ email = $email; password = $password; fullName = "E2E $Label $suffix"; role = $Role }
     Assert-E2EStatus -Response $register -Expected 202 -Step "Đăng ký $Role"
     $otpKey = "reg_otp:$email"
-    $otp = Wait-Step -Description "OTP đăng ký $Role trong Redis" -TimeoutSeconds 30 -IntervalSeconds 1 -Probe {
-        $value = Get-E2ERedisValue -Container $RedisContainer -Key $otpKey
+    $otp = Wait-Step -Description "OTP đăng ký $Role trong kho tạm User" -TimeoutSeconds 30 -IntervalSeconds 1 -Probe {
+        $value = Get-E2EUserTemporaryValue -Container $UserContainer -Key $otpKey
         if ($value -match '^\d{6}$') { return @{ Done = $true; Value = $value } }
         return @{ State = 'chưa có OTP' }
     }
@@ -670,7 +670,7 @@ function Assert-Preflight {
             @{ Name = 'kafka'; Port = 9092 })) {
         if (-not (Test-E2ETcpPort -Port $check.Port)) { throw "Service $($check.Name) chưa nghe cổng $($check.Port)." }
     }
-    foreach ($container in @($KafkaContainer, $RedisContainer, $BlockchainDbContainer, 'finora-user', 'finora-ai', 'finora-fineract')) {
+    foreach ($container in @($KafkaContainer, $BlockchainDbContainer, $UserContainer, 'finora-ai', 'finora-fineract')) {
         if (-not (Test-E2EContainerRunning -Name $container)) { throw "Container $container chưa chạy." }
     }
     if (-not $FineractUser -or -not $FineractPassword) { throw 'Thiếu FINERACT_API_USERNAME/FINERACT_API_PASSWORD trong docker/.env hoặc finora-loan/.env.' }

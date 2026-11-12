@@ -7,7 +7,7 @@ set -uo pipefail
 OUT_DIR=/opt/finora/state/public
 OUT_FILE="$OUT_DIR/_status.json"
 # Hệ thống chỉ "sẵn sàng" khi mọi service dưới đây đang chạy và healthy (nếu có healthcheck).
-SERVICES=(caddy kafka keycloak redis fineract ai user notification payment investment loan blockchain-db blockchain gateway
+SERVICES=(caddy kafka keycloak fineract ai user notification payment investment loan blockchain-db blockchain gateway
           fabric-orderer fabric-peer0-org1 fabric-peer0-org2 fabric-ccaas-org1 fabric-ccaas-org2)
 
 mkdir -p "$OUT_DIR"

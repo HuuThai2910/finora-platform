@@ -43,10 +43,10 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
    AI đọc QR → MRZ (check digit) → cấu trúc số, AI (Gemini) chỉ điền chỗ trống trên crop đã che chân dung, trả
    `AUTO_OK|NEEDS_REVIEW|RETAKE` + nguồn từng trường + embedding chân dung. User áp luật nghiệp vụ (CMND/không nhận
    diện, hết hạn và dưới 18 tuổi theo ngày Việt Nam, khác số hồ sơ, số thuộc tài khoản khác), mở `ekyc_attempts`
-   `IN_PROGRESS` (bỏ lượt cũ), đẩy hai ảnh lên S3 (`stage=pending`) và cất **bản nháp Redis mã hoá (15 phút)** —
+   `IN_PROGRESS` (bỏ lượt cũ), đẩy hai ảnh lên S3 (`stage=pending`) và cất **bản nháp mã hoá (15 phút) trong kho tạm PostgreSQL của User** —
    hồ sơ chưa được ghi. `RETAKE` tăng bộ đếm chụp lại (1 giờ) gửi kèm lần sau.
 2. **Liveness:** `POST …/ekyc/liveness/challenge` cấp 3 hành động ngẫu nhiên xen FRONTAL (90 giây, một lần, gắn
-   lượt). `POST …/ekyc/liveness` (multipart video hoặc ảnh tĩnh) → `GETDEL` thử thách → chống phát lại SHA-256
+   lượt). `POST …/ekyc/liveness` (multipart video hoặc ảnh tĩnh) → lấy-và-xoá thử thách (`TemporaryStore#take`) → chống phát lại SHA-256
    (30 ngày) → nội bộ `POST /api/v1/ai/ekyc/liveness` (YuNet/SFace, khớp chặt chuỗi + nhịp, so mặt với embedding
    chân dung) → lưu video + khung bằng chứng → `PASS`/`REVIEW` đi tiếp, `RETAKE` quay lại, `FAIL`/`FACE_MISMATCH`
    tính lần trượt; trượt 3 lần trong 24 giờ → lượt + hồ sơ `MANUAL_REVIEW` (kèm bản nháp mã hoá).
@@ -54,7 +54,7 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
    `result.json` được ghi **trước** transaction. Giấy tờ `AUTO_OK` + liveness `PASS` → một transaction ghi định danh
    vào hồ sơ, hồ sơ + lượt `VERIFIED` (`documentVerified`, `livenessVerified`, `faceMatchScore`) và tạo
    `user_cic_mapping_tasks`; còn lại → lượt + hồ sơ `MANUAL_REVIEW` (bản nháp mã hoá trong lượt, định danh chưa ghi).
-   Claim Keycloak `ekyc_status` và dọn Redis chỉ chạy sau commit.
+   Claim Keycloak `ekyc_status` và dọn kho tạm chỉ chạy sau commit.
 4. **Duyệt tay (web admin):** `/api/v1/admin/users/ekyc-attempts…` xem danh sách/chi tiết, stream bằng chứng qua User
    (ghi `ekyc_evidence_access_log` mỗi lần mở), duyệt → `VERIFIED` + task CIC, từ chối → `FAILED`; `@Version` chặn
    hai người duyệt cùng lúc (`409 ATTEMPT_ALREADY_DECIDED`).
@@ -65,7 +65,8 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
    hạn lưu (`EKYC_EVIDENCE_RETENTION_DAYS`) và object tạo trước lần rút đồng ý. Vòng đời bucket chỉ là lớp phòng thủ thêm.
 
 **State authority:** AI không giữ trạng thái và không quyết luật nghiệp vụ; User quyết `VERIFIED`/`MANUAL_REVIEW`/
-`FAILED`. Rate limit, bản nháp, thử thách, bộ đếm nằm ở Redis của User. Gateway trả 404 cho mọi
+`FAILED`. Rate limit, bản nháp, thử thách, bộ đếm nằm ở kho tạm trên PostgreSQL của User
+(`user_temporary_entries`, `user_rate_counters`). Gateway trả 404 cho mọi
 `/api/v1/ai/ekyc/**` từ ngoài; `/api/v1/ai/credit/**` vẫn đi qua.
 
 **Chống lạm dụng:** rate limit quét thẻ 10 giây (thêm giới hạn chung 5 lần/10 phút của D40, `429 RATE_LIMITED`),

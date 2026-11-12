@@ -17,14 +17,14 @@ là R1B sau R2/R3. Task plan: [`R1A-e2e-vertical-slice-baseline.md`](../../.agen
 | Blockchain | Proof store thật, ledger `MOCK` mặc định; `-WithFabric` ghi lên mạng Hyperledger Fabric local thật (W3D) | Fabric production (CA, nhiều orderer) |
 | KYC người vay trong Loan | Profile mock VERIFIED (profile `local`) | eKYC thật (adapter thuộc Wave 2) |
 | eKYC nhà đầu tư | Tắt bằng `INVESTMENT_REQUIRE_EKYC=false` chỉ trong stack E2E | Bỏ kiểm tra eKYC ở môi trường khác |
-| OTP đăng ký | Đọc `reg_otp:<email>` trong Redis User local | Email OTP |
+| OTP đăng ký | Đọc `reg_otp:<email>` trong bảng `user_temporary_entries` (PostgreSQL của User) bằng psql trong container tạm dùng mạng của `finora-user` | Email OTP |
 | Rút tiền về ngân hàng (W3B) | Provider payout `mock`: nhận lệnh, gọi callback HTTP thật có chữ ký HMAC tới Payment; tài khoản kết thúc `0000` mô phỏng tài khoản sai | Chuyển khoản ngân hàng, tiền thật |
 | Xác thực giữa service (W3A) | Client credentials Keycloak thật: `finora-loan-client` → AI, `finora-user-client` → AI OCR và Notification, `finora-ai-client` → User | — |
 
 ## 2. Hạ tầng Docker
 
 ```powershell
-# Kafka, Keycloak, Redis User, User, AI (profile demo) và Fineract
+# Kafka, Keycloak, User, AI (profile demo) và Fineract
 docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract up -d
 # Khi finora-user hoặc finora-common đổi code: build lại container User (launcher sẽ chặn nếu image cũ hơn commit)
 docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo up -d --build --no-deps user
@@ -242,7 +242,8 @@ của JVM bị drill tắt vẫn còn.
 | `blockchain-postgres không healthy` | Script init có CRLF trong working copy; `.gitattributes` yêu cầu LF cho `*.sh` |
 | `Cổng 808x đang bị tiến trình khác dùng` | Dừng service chạy từ IntelliJ trước khi chạy launcher |
 | Lệnh gọi launcher không bao giờ kết thúc | Không pipe output của launcher (`\| Select-Object`, `\| Tee-Object`): JVM con giữ handle stdout nên pipeline không nhận EOF; chạy launcher trực tiếp |
-| `OTP đăng ký … hết 30 giây` | Redis User không phải `finora-user-redis` hoặc User không ghi OTP |
+| `OTP đăng ký … hết 30 giây` | Container `finora-user` không phải User đang nhận request qua Gateway hoặc User không ghi OTP |
+| `Không đọc được kho tạm của User qua psql` | Kiểm `USER_DB_URL`/`USER_DB_USERNAME`/`USER_DB_PASSWORD` của container `finora-user` và image `postgres:17.5-alpine` (kéo được khi có mạng) |
 | Lượt trước bị ngắt khi đang dời đồng hồ (Fineract còn business date, `Status` hiện `clock=P31D`) | Lượt chạy kế tiếp tự trả về ngày thật ở preflight. Làm tay: `-Action Restart -Services payment` rồi `PUT /configurations/<id của enable-business-date>` với `{"enabled": false}` trên Fineract local |
 | Payment dừng ngay khi khởi động với `finora.e2e.clock-offset chỉ dùng khi provider…` | Đang bật đồng hồ E2E cùng provider tiền khác `mock`; bỏ `-PaymentClockOffset` hoặc dùng provider mock |
 | Trả kỳ trả `409 INSTALLMENT_ALREADY_PAID_PENDING` | Đã có khoản trả kỳ trước hạn đang giữ; hủy (`POST /repayments/{id}/cancel`) hoặc chờ ngày đến hạn |

@@ -78,7 +78,7 @@ thuộc tên màn hình hay lệnh.
 | eKYC nhà đầu tư | Tắt (`INVESTMENT_REQUIRE_EKYC=false`) chỉ trong stack E2E | Bỏ kiểm eKYC ở môi trường khác |
 | Auto-Invest | Worker tắt (`INVESTMENT_AUTO_INVEST_ENABLED=false`): lưu được quy tắc, không có lệnh tự động | Auto-Invest chạy thật |
 | CIC | Mặc định: bản Node deploy trên Vercel (mock công khai, chỉ tra điểm, không nhận Kafka). Với `-WithLocalCic`: CIC Node local cổng 9000, kho tệp `docker/e2e/out/cic/du-lieu.json`, consumer Kafka nhận quá hạn | Báo cáo CIC thật |
-| OTP đăng ký | Đọc key `reg_otp:<email>` trong Redis `finora-user-redis` | Email OTP |
+| OTP đăng ký | Đọc key `reg_otp:<email>` trong bảng `user_temporary_entries` (kho tạm trên PostgreSQL của User) | Email OTP |
 | Đồng hồ | Chỉ Loan và Payment dời được ngày (launcher `-LoanClockOffset`/`-PaymentClockOffset`) cùng business date của Fineract | Tính năng của demo/production (không có API đổi ngày) |
 
 Cách A (profile `apps`, mục 2.1a) mặc định dùng cùng các giả lập trên (D85): chữ ký `MOCK`, KYC người vay mock, tắt eKYC
@@ -176,7 +176,7 @@ hạ tầng): `docker compose --env-file docker/.env -f docker/docker-compose.ym
 PowerShell:
 
 ```powershell
-# Kafka, Keycloak, Redis User, User, AI (profile demo) và Fineract
+# Kafka, Keycloak, User, AI (profile demo) và Fineract
 docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo --profile fineract up -d
 # Khi finora-user hoặc finora-common đổi code (launcher chặn nếu container User cũ hơn commit)
 docker compose --env-file docker/.env -f docker/docker-compose.yml --profile demo up -d --build --no-deps user
@@ -296,25 +296,28 @@ Import-Module .\docker\e2e\finora-e2e.psm1 -Force -DisableNameChecking
 $inv = Get-Credential -Message 'Email (@finora.test) và mật khẩu cho nhà đầu tư mới'
 $r = Invoke-E2EHttp -Method POST -Uri 'http://localhost:8080/api/v1/auth/register' -Body @{ email = $inv.UserName; password = $inv.GetNetworkCredential().Password; fullName = 'QA Nha dau tu'; role = 'INVESTOR' }
 $r.Status                                       # 202: đã tạo challenge OTP
-$otp = Get-E2ERedisValue -Container finora-user-redis -Key "reg_otp:$($inv.UserName)"
+$otp = Get-E2EUserTemporaryValue -Container (Find-E2EUserContainer) -Key "reg_otp:$($inv.UserName)"
 $v = Invoke-E2EHttp -Method POST -Uri 'http://localhost:8080/api/v1/auth/verify-registration' -Headers @{ 'X-Client-Type' = 'mobile' } -Body @{ email = $inv.UserName; otp = $otp }
 $v.Status                                       # 201: tài khoản đã tạo; đăng nhập mobile bằng email/mật khẩu này rồi tạo PIN
 ```
 
-Lấy OTP đăng ký (key hết hạn sau 5 phút; đọc ngay sau khi bấm gửi):
+Lấy OTP đăng ký (key hết hạn sau 5 phút; đọc ngay sau khi bấm gửi). OTP nằm trong kho tạm trên PostgreSQL của User
+(bảng `user_temporary_entries`, không còn Redis). Hàm của module đọc cấu hình DB từ container User đang chạy
+(`finora-user` hoặc `finora-app-user-1`) và chạy psql trong một container `postgres:17.5-alpine` tạm cùng mạng với nó:
 
 PowerShell:
 
 ```powershell
+Import-Module .\docker\e2e\finora-e2e.psm1 -Force -DisableNameChecking
 $email = 'qa.lan.borrower.202610171030@finora.test'
-docker exec finora-user-redis sh -c 'if [ -z ${USER_REDIS_PASSWORD:+x} ]; then redis-cli --raw GET $0; else REDISCLI_AUTH=$USER_REDIS_PASSWORD redis-cli --raw GET $0; fi' "reg_otp:$email"
+Get-E2EUserTemporaryValue -Container (Find-E2EUserContainer) -Key "reg_otp:$email"
 ```
 
-Git Bash:
+Công cụ SQL bất kỳ đã nối vào DB của User (DBeaver, psql, Neon SQL Editor):
 
-```bash
-email='qa.lan.borrower.202610171030@finora.test'
-docker exec finora-user-redis sh -c 'if [ -z "${USER_REDIS_PASSWORD:+x}" ]; then redis-cli --raw GET "$0"; else REDISCLI_AUTH="$USER_REDIS_PASSWORD" redis-cli --raw GET "$0"; fi' "reg_otp:$email"
+```sql
+SELECT entry_value FROM user_temporary_entries
+WHERE entry_key = 'reg_otp:qa.lan.borrower.202610171030@finora.test' AND expires_at > now();
 ```
 
 Lệnh trả 6 chữ số; rỗng là OTP chưa được ghi, đã hết hạn hoặc đã dùng. PIN giao dịch: 6 chữ số, tránh dãy lặp, tăng, giảm và
@@ -322,10 +325,10 @@ PIN phổ biến (User từ chối; harness sinh PIN có ít nhất 4 chữ số
 
 #### Tạo tài khoản bằng script `new-test-accounts.ps1`
 
-Script đi lại đúng luồng API của harness (đăng ký → OTP trong Redis → xác minh → tạo PIN), đăng nhập lại qua Gateway bằng
+Script đi lại đúng luồng API của harness (đăng ký → OTP trong kho tạm User → xác minh → tạo PIN), đăng nhập lại qua Gateway bằng
 mật khẩu vừa lưu rồi nạp ví mock. Mặc định tạo 2 người vay và 2 nhà đầu tư (đủ cho ca nhiều bên cho vay và mục 4.16), nạp
-mỗi nhà đầu tư tới 100.000.000 đ, người vay không nạp. Cần Gateway, User, container `finora-user-redis` và Payment (khi có
-nạp). Dữ liệu giả: email `qa.<borrower|investor>.<yyyyMMddHHmmss>.<n>@finora.test`, họ tên `QA Người vay …`/`QA Nhà đầu
+mỗi nhà đầu tư tới 100.000.000 đ, người vay không nạp. Cần Gateway, User chạy trong Docker (container `finora-user` hoặc
+`finora-app-user-1`, để đọc OTP) và Payment (khi có nạp). Dữ liệu giả: email `qa.<borrower|investor>.<yyyyMMddHHmmss>.<n>@finora.test`, họ tên `QA Người vay …`/`QA Nhà đầu
 tư …`, mật khẩu và PIN ngẫu nhiên riêng từng tài khoản; không có số điện thoại, không eKYC.
 
 PowerShell:
@@ -342,7 +345,7 @@ powershell -ExecutionPolicy Bypass -File docker/e2e/new-test-accounts.ps1 -Borro
   bằng editor để lấy mật khẩu và PIN; không dán nội dung file vào báo cáo hay chat (mục 2.1). Đổi đường dẫn bằng `-OutFile`;
   script từ chối file nằm trong repo mà không bị git-ignore.
 - Console chỉ in email, vai trò, userId, kết quả đăng nhập và nạp ví; không in mật khẩu, PIN, OTP hay token.
-- Thiếu phụ thuộc thì script dừng kèm lý do: Gateway/User/Payment không phản hồi, container Redis chưa chạy, Payment không
+- Thiếu phụ thuộc thì script dừng kèm lý do: Gateway/User/Payment không phản hồi, không có container User đang chạy, Payment không
   cho nạp giả lập (D37, mục 2.8). Tài khoản tạo xong trước chỗ lỗi vẫn nằm trong file.
 - Gateway hoặc Payment ở địa chỉ khác: `-GatewayUrl`, `-PaymentUrl` (mặc định `http://localhost:8080`, `http://localhost:8082`).
 
@@ -572,10 +575,10 @@ không có trong code). Ca lỗi gom theo khối; chi tiết ở mục 4. "NĐT"
 |---|---|---|---|---|---|---|
 | AUTH-01 | Đăng ký + OTP | Người vay | Mobile | Email, số điện thoại mới | Tài khoản người vay, vào app ngay | D11 |
 | AUTH-02 | Tạo PIN | Mọi vai trò | Mobile | AUTH-01 | PIN 6 số | D38 |
-| AUTH-03 | Tạo nhà đầu tư | NĐT | API + mobile | Redis OTP | Vai trò "Nhà đầu tư" | D11 |
+| AUTH-03 | Tạo nhà đầu tư | NĐT | API + mobile | OTP trong kho tạm User | Vai trò "Nhà đầu tư" | D11 |
 | AUTH-04 | Đăng nhập/đăng xuất | Mọi vai trò | Mobile | Có tài khoản | Đăng xuất gỡ thiết bị push | D62 |
 | AUTH-05 | Đăng nhập quản trị | Admin | Web | Tài khoản demo | "Tổng quan", đủ menu | D20 |
-| AUTH-06 | Quên mật khẩu | Người vay | Mobile + công cụ | Redis | Đổi mật khẩu | — |
+| AUTH-06 | Quên mật khẩu | Người vay | Mobile + công cụ | Kho tạm User (PostgreSQL) | Đổi mật khẩu | — |
 | AUTH-N01–N14 | OTP sai/hết hạn/quá lượt, khóa đăng nhập, PIN yếu/sai/khóa, token PIN hết hạn, phiên hết hạn, người dùng vào web | Mọi vai trò | Mobile, web, API | — | Câu lỗi đúng, không có tiền di chuyển | D38, D40, D20 |
 | LOAN-01 | Xem trước lịch | Người vay | Mobile | Product `ACTIVE` 12% | Kỳ đầu 1.726.000, tổng 10.354.000 | `LEGAL-DISCLOSURE-01` |
 | LOAN-02 | Nộp hồ sơ, AI chấm | Người vay | Mobile | LOAN-01 | "Chờ duyệt", assessment `SUCCEEDED` | D4, D11 |
@@ -717,9 +720,9 @@ quyền"), "Kiểm toán" ("Bằng chứng blockchain"), "Cấu hình" ("Chính 
 tự làm mới dữ liệu: sau mỗi việc chạy nền (chấm lại, đồng bộ, proof) bấm "Làm mới" hoặc tải lại trang.
 
 **AUTH-06 [UI + công cụ] Quên mật khẩu (mobile).** "Quên mật khẩu?" → nhập email → "Gửi mã xác thực" (luôn báo đã gửi, kể cả
-email không tồn tại) → đọc mã: Git Bash
-`docker exec finora-user-redis sh -c 'if [ -z "${USER_REDIS_PASSWORD:+x}" ]; then redis-cli --raw KEYS "reset_otp:*"; else REDISCLI_AUTH="$USER_REDIS_PASSWORD" redis-cli --raw KEYS "reset_otp:*"; fi'`
-rồi `GET` đúng key (`reset_otp:<userId>`, sống 5 phút) bằng lệnh mục 2.6 → "Nhập mã xác thực" → "Tiếp tục" → "Mật khẩu mới",
+email không tồn tại) → đọc mã: key `reset_otp:<userId>` (sống 5 phút) trong kho tạm User, bằng
+`Get-E2EUserTemporaryValue -Container (Find-E2EUserContainer) -Key "reset_otp:<userId>"` hoặc SQL
+`SELECT entry_key, entry_value FROM user_temporary_entries WHERE entry_key LIKE 'reset_otp:%' AND expires_at > now();` (mục 2.6) → "Nhập mã xác thực" → "Tiếp tục" → "Mật khẩu mới",
 "Nhập lại mật khẩu mới" → "Đổi mật khẩu" → hộp thoại "Đã đổi mật khẩu" / "Đăng nhập lại bằng mật khẩu mới.".
 
 **Ca lỗi và ca biên**
@@ -731,7 +734,7 @@ rồi `GET` đúng key (`reset_otp:<userId>`, sống 5 phút) bằng lệnh mụ
 | AUTH-N03 | [UI] | Bấm "Gửi lại mã" (chỉ bật sau 60 giây, đếm trên máy); lần gửi thứ 4 trong một giờ cho cùng email | "Bạn đã yêu cầu mã quá nhiều lần, vui lòng thử lại sau một giờ" (`429`); giới hạn dùng chung với quên mật khẩu |
 | AUTH-N04 | [UI] | Đăng ký lại email hoặc số điện thoại đã có | "Email đã được sử dụng" / "Số điện thoại này đã được đăng ký trong hệ thống" |
 | AUTH-N05 | [UI] | Form đăng ký sai | "Email chưa đúng định dạng.", "Mật khẩu tối thiểu 8 ký tự.", "Hai lần nhập mật khẩu chưa khớp.", "Số điện thoại gồm 10 chữ số và bắt đầu bằng 0.", "Cần đồng ý điều khoản trước khi tạo tài khoản." |
-| AUTH-N06 | [UI] | Sai mật khẩu (dùng tài khoản thử, không dùng admin demo); lặp 6 lần trong 5 phút; rồi nhập đúng | Lần 1–5: "Email hoặc mật khẩu không đúng" (`401`); từ lần 6, kể cả mật khẩu đúng: "Tài khoản tạm khóa, vui lòng thử lại sau 15 phút" (`429`, đếm theo email trong Redis User). Keycloak còn chống dò riêng (5 lần, chờ tăng từ 60 giây, tối đa 15 phút, D40): mã HTTP Keycloak trả khi khóa chưa được kiểm, ghi lại câu thực tế. Web hiện nguyên câu backend; body rỗng thì "Lỗi hệ thống (429)" |
+| AUTH-N06 | [UI] | Sai mật khẩu (dùng tài khoản thử, không dùng admin demo); lặp 6 lần trong 5 phút; rồi nhập đúng | Lần 1–5: "Email hoặc mật khẩu không đúng" (`401`); từ lần 6, kể cả mật khẩu đúng: "Tài khoản tạm khóa, vui lòng thử lại sau 15 phút" (`429`, đếm theo email trong kho tạm User). Keycloak còn chống dò riêng (5 lần, chờ tăng từ 60 giây, tối đa 15 phút, D40): mã HTTP Keycloak trả khi khóa chưa được kiểm, ghi lại câu thực tế. Web hiện nguyên câu backend; body rỗng thì "Lỗi hệ thống (429)" |
 | AUTH-N07 | [UI] | Tạo PIN `111111`, `123456`; rồi `123123` | Trên máy: "Mã PIN quá dễ đoán. Tránh các số giống nhau hoặc dãy liên tiếp như 123456."; `123123` chỉ bị chặn sau bước nhập lại: "Mã PIN quá dễ đoán, tránh dãy số liên tiếp hoặc lặp lại"; nhập lại khác: "Mã PIN nhập lại không khớp. Vui lòng tạo lại." |
 | AUTH-N08 | [UI] | Nhập sai PIN ở một thao tác cần PIN; sai 5 lần | "Mã PIN không đúng, bạn còn {N} lần thử"; lần 5: "Mã PIN tạm khoá do nhập sai nhiều lần. Thử lại sau {M} phút hoặc chọn Quên mã PIN" (`423`, khóa 15 phút); mở lại bảng: "Mã PIN đang tạm khóa đến {ngày giờ}…"; dòng PIN ở "Hồ sơ": "Đang tạm khóa do nhập sai nhiều lần". Không có tiền di chuyển |
 | AUTH-N09 | [UI] | "Quên mã PIN?" → nhập sai mật khẩu; đổi PIN trùng PIN cũ | "Mật khẩu không đúng"; "Mã PIN mới phải khác mã PIN hiện tại" |
@@ -1783,7 +1786,7 @@ thứ vận hành phải xem nhưng không rút service khỏi traffic (D56).
 | Payment | `http://localhost:8082/actuator/health/readiness` | `readinessState`, `db` (không còn `redis`, B23) | `kafka` |
 | Blockchain | `http://localhost:8083/actuator/health/readiness` | `readinessState`, `db` | `kafka` khi listener bật |
 | Investment | `http://localhost:8084/actuator/health/readiness` | `readinessState`, `db` | `kafka` |
-| User | `http://localhost:8085/actuator/health/readiness` | `readinessState`, `db`, `redis` | — |
+| User | `http://localhost:8085/actuator/health/readiness` | `readinessState`, `db` (không còn `redis`) | — |
 | Notification | `http://localhost:8086/actuator/health/readiness` | `readinessState`, `db` | `kafka` |
 | AI | `http://localhost:8000/health` | tĩnh | — |
 | Fineract | `http://localhost:18443/fineract-provider/actuator/health` (chỉ tiến trình) | — | — |

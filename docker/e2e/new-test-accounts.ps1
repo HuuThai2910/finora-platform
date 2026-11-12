@@ -21,7 +21,7 @@ param(
 # Tạo tài khoản test cho kiểm thử thủ công giao diện (docs/testing/UI-MANUAL-TEST-GUIDE.md mục 2.6 và 2.8). Form đăng ký
 # mobile không có lựa chọn vai trò nên người kiểm không tự tạo được nhà đầu tư trên app. Script đi lại đúng luồng API đã
 # chạy xanh của harness run-vertical-slice.ps1 (Register-E2EUser, Invoke-Login, bước nạp mock của Fund-Listing) và không
-# sửa harness: /auth/register → OTP đọc từ key reg_otp:<email> của Redis finora-user-redis (thay hộp thư) →
+# sửa harness: /auth/register → OTP đọc từ key reg_otp:<email> trong kho tạm của User (bảng user_temporary_entries, thay hộp thư) →
 # /auth/verify-registration → tạo PIN → đăng nhập lại qua Gateway bằng mật khẩu vừa lưu → nạp ví mock (tạo lệnh nạp rồi
 # mock-complete, chỉ có khi Payment chạy provider mock ở môi trường local/e2e/demo, D37).
 #
@@ -43,7 +43,8 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot 'finora-e2e.psm1') -Force -DisableNameChecking
 
-$RedisContainer = 'finora-user-redis'
+# Container finora-user đang chạy (finora-user hoặc finora-app-user-1), tìm ở bước kiểm tra môi trường.
+$script:UserContainer = $null
 # Giới hạn một lệnh nạp của Payment (CreateTopUpRequest): số nguyên đồng, 10.000–100.000.000 đ.
 $TopUpMinimum = [long]10000
 $TopUpMaximum = [long]100000000
@@ -207,7 +208,7 @@ function Invoke-Login {
 
 function New-TestAccount {
     <#
-      Đăng ký hai bước như mobile và harness (Register-E2EUser): /register tạo challenge OTP, OTP đọc từ Redis User local,
+      Đăng ký hai bước như mobile và harness (Register-E2EUser): /register tạo challenge OTP, OTP đọc từ kho tạm của User,
       /verify-registration tạo tài khoản và trả token mobile, rồi tạo PIN. Tài khoản được ghi vào file ngay khi Keycloak đã
       có nó, kể cả khi bước PIN lỗi (pin = null), để không mất mật khẩu của tài khoản đã tạo.
     #>
@@ -227,10 +228,10 @@ function New-TestAccount {
     $otp = $null
     $deadline = (Get-Date).AddSeconds(30)
     while (-not $otp) {
-        $value = Get-E2ERedisValue -Container $RedisContainer -Key $otpKey
+        $value = Get-E2EUserTemporaryValue -Container $script:UserContainer -Key $otpKey
         if ($value -match '^\d{6}$') { $otp = $value; break }
         if ((Get-Date) -ge $deadline) {
-            throw "Không thấy OTP đăng ký của $email trong Redis $RedisContainer sau 30 giây: User Service có dùng Redis này không?"
+            throw "Không thấy OTP đăng ký của $email trong kho tạm User sau 30 giây: container $($script:UserContainer) có đúng là User Service đang nhận request không?"
         }
         Start-Sleep -Seconds 1
     }
@@ -364,11 +365,12 @@ try {
         Assert-Reachable -Name 'Payment' -Uri "$PaymentUrl/api/v1/wallets/me" -Expected 401, 403 -Hint 'Kiểm Payment (cổng 8082) hoặc -PaymentUrl.'
     }
     if (-not $TopUpOnly) {
-        if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'Không có lệnh docker: OTP đăng ký được đọc từ container Redis User.' }
-        if (-not (Test-E2EContainerRunning -Name $RedisContainer)) {
-            throw "Container $RedisContainer chưa chạy (hoặc Docker Desktop chưa bật): OTP đăng ký được đọc từ Redis User local."
+        if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'Không có lệnh docker: OTP đăng ký được đọc qua container User.' }
+        $script:UserContainer = Find-E2EUserContainer
+        if (-not $script:UserContainer) {
+            throw 'Không thấy container finora-user hoặc finora-app-user-1 đang chạy (hoặc Docker Desktop chưa bật): OTP đăng ký được đọc từ kho tạm trên PostgreSQL của User bằng cấu hình DB của container đó.'
         }
-        Write-E2EInfo "Redis User: container $RedisContainer đang chạy"
+        Write-E2EInfo "User: container $($script:UserContainer) đang chạy, OTP đọc từ bảng user_temporary_entries"
     }
 
     if ($TopUpOnly) {

@@ -41,7 +41,7 @@ x-java-service: &java-service
     - finora
 
 # Biến chung cho các service Spring có database và kiểm JWT.
-# Healthcheck service Java gọi /actuator/health/readiness (DB, Redis của User), như docker-compose.app.yml.
+# Healthcheck service Java gọi /actuator/health/readiness (DB của service), như docker-compose.app.yml.
 x-readiness-check: &readiness-check
   interval: 10s
   timeout: 5s
@@ -151,22 +151,6 @@ services:
     networks:
       - finora
 
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    logging: *logging
-    mem_limit: 128m
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks:
-      - finora
-
   # PostgreSQL cũ của Fineract (pg_dump 15/10). Từ 02/11 Fineract dùng Neon như máy dev, nên
   # container này không chạy; giữ để còn volume nếu cần quay lại (`--profile legacy`).
   fineract-db:
@@ -271,8 +255,6 @@ services:
     environment:
       <<: *spring-env
       KEYCLOAK_SERVER_URL: http://keycloak:8080
-      USER_REDIS_HOST: redis
-      USER_REDIS_PORT: "6379"
       AI_SERVICE_URL: http://ai:8000
       # Không lưu ảnh/video bằng chứng eKYC (như máy dev, không có kho S3).
       EKYC_EVIDENCE_ENABLED: "false"
@@ -289,8 +271,6 @@ services:
       AUTH_COOKIE_SECURE: "true"
     depends_on:
       keycloak:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     healthcheck:
       <<: *readiness-check
@@ -377,6 +357,12 @@ services:
       KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/finora/protocol/openid-connect/token
       INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC: ${INVESTMENT_NOTE_OWNERSHIP_CHANGED_TOPIC:-finora.investment.note-ownership-changed}
       PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC: ${PAYMENT_REPAYMENT_DISTRIBUTED_TOPIC:-finora.payment.repayment-distributed}
+      # WebSocket sổ lệnh: web trên Vercel nối thẳng wss://<FINORA_DOMAIN>/ws/order-books/<id>, Caddy giữ nguyên Origin
+      # ở /ws/* nên investment phải cho phép domain web; localhost cho `npm run dev:deploy` của web (proxy Vite giữ
+      # Origin localhost). WebSocket của React Native (Android/iOS) tự gửi Origin bằng chính domain API, mà investment
+      # sau Caddy thấy request là http nên không coi là cùng origin: phải liệt kê https://<FINORA_DOMAIN>. Kênh vẫn
+      # cần vé dùng một lần, Origin chỉ là lớp chặn thêm.
+      INVESTMENT_WS_ALLOWED_ORIGINS: "https://${WEB_DOMAIN:?Thiếu WEB_DOMAIN (domain Vercel của web) trong deploy/.env},https://${FINORA_DOMAIN:?Thiếu FINORA_DOMAIN trong deploy/.env},http://localhost:*,http://127.0.0.1:*"
     depends_on:
       kafka:
         condition: service_healthy
@@ -707,7 +693,6 @@ services:
 
 volumes:
   kafka-data:
-  redis-data:
   fineract-db-data:
   blockchain-db-data:
   caddy-data:

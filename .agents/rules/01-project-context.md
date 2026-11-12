@@ -10,8 +10,9 @@ là hai repository riêng nằm cùng workspace.
 - Thư viện Java dùng chung: `finora-common`.
 - FastAPI: `finora-ai` cho credit scoring, eKYC/OCR và explainability.
 - Frontend: `finora-web` cho quản trị; `finora-mobile` cho người vay và nhà đầu tư.
-- Core/identity/integration: Apache Fineract 1.15, Keycloak, Kafka, Redis, PostgreSQL,
-  SmartCA UAT, ZaloPay sandbox/mock và CIC Node deploy ngoài Compose.
+- Core/identity/integration: Apache Fineract 1.15, Keycloak, Kafka, PostgreSQL,
+  SmartCA UAT, ZaloPay sandbox/mock và CIC Node deploy ngoài Compose. Không dùng Redis: trạng thái tạm của
+  `finora-user` (OTP, đăng ký chờ, giới hạn đăng nhập, eKYC) nằm trong kho tạm trên PostgreSQL của service (V9).
 
 ## CURRENT STATE — cập nhật 2026-10-17
 

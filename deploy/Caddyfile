@@ -12,7 +12,12 @@
 	# Host sang domain VM, nên Spring thấy Origin (domain Vercel) khác Host và coi là gọi chéo
 	# origin, rồi chặn bằng 403 "Invalid CORS request" (mọi POST và các GET có Origin). Bỏ Origin
 	# của chính web; origin lạ vẫn để CORS của gateway/service kiểm như cũ.
-	@fromWeb header Origin https://{$WEB_DOMAIN}
+	# Không gỡ ở /ws/*: web mở WebSocket thẳng tới domain này (không qua rewrite của Vercel), Origin thật được
+	# investment kiểm theo INVESTMENT_WS_ALLOWED_ORIGINS.
+	@fromWeb {
+		header Origin https://{$WEB_DOMAIN}
+		not path /ws/*
+	}
 	request_header @fromWeb -Origin
 
 	# Chỉ ghi log các request /api/v1 (lượt chuyển http→https ở cổng 80 vẫn bị Caddy ghi vào
@@ -36,10 +41,14 @@
 		file_server
 	}
 
-	# Luồng SSE sổ lệnh đi thẳng tới investment. Trên máy dev, web và mobile cũng gọi thẳng
-	# investment, nên luồng này chưa từng chạy qua gateway.
-	@orderBookStream path_regexp ^/api/v1/investments/order-books/[^/]+/stream$
-	handle @orderBookStream {
+	# WebSocket sổ lệnh (/ws/order-books/<id>?ticket=...) đi thẳng tới investment: Gateway (Spring Cloud
+	# Gateway MVC) không chuyển tiếp WebSocket. Không có cookie hay token ở đây; investment kiểm vé dùng
+	# một lần (lấy qua POST /api/v1/investments/order-books/<id>/stream-ticket, đi gateway như thường) và
+	# Origin. reverse_proxy của Caddy tự chuyển tiếp Upgrade; kết nối dài không bị cắt vì investment gửi ping
+	# mỗi 20 giây. Đường này nằm ngoài /api/v1 nên không vào log truy cập (script tự tắt VM chỉ nhìn /api/v1;
+	# client vẫn gọi API vé mỗi lần nối lại).
+	@orderBookWebSocket path_regexp ^/ws/order-books/[0-9]+$
+	handle @orderBookWebSocket {
 		reverse_proxy investment:8084
 	}
 

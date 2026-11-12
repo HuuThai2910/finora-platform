@@ -142,8 +142,23 @@ finora:
     # Sổ lệnh Ask/Bid chợ thứ cấp (INV-E2). Worker thanh toán gọi Payment chuyển tiền từ phần
     # đang giữ của lệnh mua sang người bán, rồi nhả phần giữ thừa khi lệnh mua kết thúc.
     order-book:
-      stream-timeout-ms: ${INVESTMENT_ORDER_BOOK_STREAM_TIMEOUT_MS:1800000}
-      heartbeat-ms: ${INVESTMENT_ORDER_BOOK_HEARTBEAT_MS:20000}
+      # Sổ lệnh thời gian thực qua WebSocket /ws/order-books/{listingId} (Caddy chuyển thẳng, không qua Gateway).
+      # Bắt tay bằng vé dùng một lần lấy ở POST /api/v1/investments/order-books/{listingId}/stream-ticket. Kho vé và
+      # danh sách phiên nằm trong bộ nhớ: chỉ đúng khi Investment chạy MỘT instance.
+      websocket:
+        # Origin được mở kênh, cách nhau dấu phẩy. Request không có Origin hoặc Origin trùng chính host thì luôn qua.
+        # Deploy (compose Azure) đặt thêm https://<domain Vercel của web> và https://<domain API> (WebSocket của React
+        # Native tự gửi Origin bằng domain đích, sau Caddy không còn được coi là cùng origin).
+        allowed-origin-patterns: ${INVESTMENT_WS_ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*,http://192.168.*.*:*}
+        ticket-ttl: ${INVESTMENT_WS_TICKET_TTL:PT30S}
+        max-tickets: ${INVESTMENT_WS_MAX_TICKETS:10000}
+        # Nhịp gửi khung ping; quá idle-timeout không nhận pong thì đóng phiên chết. Viết dạng ISO-8601 (PT20S).
+        heartbeat-interval: ${INVESTMENT_WS_HEARTBEAT_INTERVAL:PT20S}
+        idle-timeout: ${INVESTMENT_WS_IDLE_TIMEOUT:PT65S}
+        # Phiên mở quá lâu bị đóng (mã 4000) để client lấy vé mới, tức là kiểm lại quyền.
+        max-session-duration: ${INVESTMENT_WS_MAX_SESSION_DURATION:PT30M}
+        send-time-limit: ${INVESTMENT_WS_SEND_TIME_LIMIT:PT10S}
+        send-buffer-size-limit: ${INVESTMENT_WS_SEND_BUFFER_SIZE_LIMIT:524288}
       settlement:
         enabled: ${INVESTMENT_ORDER_BOOK_SETTLEMENT_ENABLED:true}
         delay: ${INVESTMENT_ORDER_BOOK_SETTLEMENT_DELAY:2000}
