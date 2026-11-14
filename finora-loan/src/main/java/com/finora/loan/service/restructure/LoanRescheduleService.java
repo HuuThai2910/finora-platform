@@ -1,6 +1,7 @@
 package com.finora.loan.service.restructure;
 
 import com.finora.loan.domain.restructure.enums.LoanRescheduleStatus;
+import com.finora.loan.domain.restructure.enums.LoanRescheduleType;
 import com.finora.loan.dto.response.PageResponse;
 import com.finora.loan.dto.restructure.request.AdminLoanRescheduleDecisionRequest;
 import com.finora.loan.dto.restructure.request.CreateLoanRescheduleRequest;
@@ -8,6 +9,7 @@ import com.finora.loan.dto.restructure.response.LoanReschedulePolicyResponse;
 import com.finora.loan.dto.restructure.response.LoanRescheduleEligibilityResponse;
 import com.finora.loan.dto.restructure.response.LoanRescheduleResponse;
 
+import java.util.Collection;
 import java.util.UUID;
 
 /**
@@ -37,6 +39,18 @@ public interface LoanRescheduleService {
      * rỗng thì như trên.
      */
     PageResponse<LoanRescheduleResponse> listAdmin(LoanRescheduleStatus status, String q, int page, int size);
+
+    /**
+     * Hàng đợi quản trị tổng hợp: lọc một hoặc nhiều trạng thái, loại cơ cấu, mã tra cứu và khoản vay cụ thể.
+     * Danh sách trạng thái rỗng nghĩa là lấy mọi trạng thái.
+     */
+    PageResponse<LoanRescheduleResponse> listAdmin(
+            Collection<LoanRescheduleStatus> statuses,
+            LoanRescheduleType requestType,
+            String q,
+            String loanNumber,
+            int page,
+            int size);
 
     /**
      * Yêu cầu cơ cấu của đúng một khoản vay cho quản trị (phần "Sau giải ngân" của trang hồ sơ vay), mới nhất trước.

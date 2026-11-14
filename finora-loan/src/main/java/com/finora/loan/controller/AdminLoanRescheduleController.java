@@ -1,6 +1,7 @@
 package com.finora.loan.controller;
 
 import com.finora.loan.domain.restructure.enums.LoanRescheduleStatus;
+import com.finora.loan.domain.restructure.enums.LoanRescheduleType;
 import com.finora.loan.dto.response.PageResponse;
 import com.finora.loan.dto.restructure.request.AdminLoanRescheduleDecisionRequest;
 import com.finora.loan.dto.restructure.response.LoanRescheduleResponse;
@@ -15,6 +16,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -27,15 +30,20 @@ public class AdminLoanRescheduleController {
     @GetMapping
     public ResponseEntity<PageResponse<LoanRescheduleResponse>> list(
             @RequestParam(required = false) LoanRescheduleStatus status,
+            @RequestParam(required = false) List<LoanRescheduleStatus> statuses,
+            @RequestParam(required = false) LoanRescheduleType requestType,
             @RequestParam(required = false) @Size(max = 100) String q,
             @RequestParam(required = false) @Size(max = 50) String loanNumber,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-        // loanNumber: phần "Sau giải ngân" của trang hồ sơ vay chỉ đọc yêu cầu của đúng khoản vay đó.
-        if (loanNumber != null && !loanNumber.isBlank()) {
-            return ResponseEntity.ok(loanRescheduleService.listAdminByLoan(loanNumber, status, page, size));
+        List<LoanRescheduleStatus> requestedStatuses = statuses == null
+                ? new ArrayList<>() : new ArrayList<>(statuses);
+        // `status` là contract cũ của card chi tiết; `statuses` phục vụ hàng đợi quản trị theo nhóm trạng thái.
+        if (status != null && !requestedStatuses.contains(status)) {
+            requestedStatuses.add(status);
         }
-        return ResponseEntity.ok(loanRescheduleService.listAdmin(status, q, page, size));
+        return ResponseEntity.ok(loanRescheduleService.listAdmin(
+                requestedStatuses, requestType, q, loanNumber, page, size));
     }
 
     @PostMapping("/{requestId}/approve")

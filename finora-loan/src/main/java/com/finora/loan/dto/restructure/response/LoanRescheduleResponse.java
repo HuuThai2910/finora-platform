@@ -10,6 +10,9 @@ import java.util.UUID;
 public record LoanRescheduleResponse(
         UUID requestId,
         String loanNumber,
+        Long loanApplicationId,
+        String applicationNumber,
+        String borrowerId,
         LoanRescheduleType requestType,
         LocalDate rescheduleFromDate,
         LocalDate adjustedDueDate,

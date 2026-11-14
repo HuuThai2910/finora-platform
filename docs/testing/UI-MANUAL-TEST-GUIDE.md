@@ -714,9 +714,9 @@ push và thu hồi refresh token, best effort).
 
 **AUTH-05 [UI] Đăng nhập web quản trị.** `http://localhost:5173/login`: "Đăng nhập" / "Dùng tài khoản quản trị viên được cấp.",
 "Email", "Mật khẩu"; khối "Tài khoản dùng thử" (bấm chip chỉ điền sẵn, không gửi) → "Đăng nhập" → `/dashboard` "Tổng quan";
-góc phải ghi "Quản trị viên"; sidebar: "Tổng quan", "Tín dụng" ("Quản lý khoản vay", "Vận hành khoản vay"), "Đầu tư" ("Gọi
-vốn & Notes", "Chợ thứ cấp Notes"), "Sản phẩm" ("Sản phẩm vay"), "Người dùng" ("Khách hàng eKYC", "Người dùng & phân
-quyền"), "Kiểm toán" ("Bằng chứng blockchain"), "Cấu hình" ("Chính sách đánh giá AI", "Chấm điểm & giải thích AI"). Web không
+góc phải ghi "Quản trị viên"; sidebar: "Tổng quan", "Tín dụng" ("Quản lý khoản vay", "Cơ cấu khoản vay", "Sản phẩm vay",
+"Kiểm toán"), "Đầu tư" ("Gọi vốn", "Chợ chuyển nhượng"), "Người dùng" ("Khách hàng", "Phân quyền") và "Hệ thống"
+("Chính sách đánh giá AI", "Nhật ký hoạt động"). Mục "Cơ cấu khoản vay" chỉ hiện khi tài khoản có quyền xem cơ cấu. Web không
 tự làm mới dữ liệu: sau mỗi việc chạy nền (chấm lại, đồng bộ, proof) bấm "Làm mới" hoặc tải lại trang.
 
 **AUTH-06 [UI + công cụ] Quên mật khẩu (mobile).** "Quên mật khẩu?" → nhập email → "Gửi mã xác thực" (luôn báo đã gửi, kể cả
@@ -1321,8 +1321,9 @@ vay":
    nắm Note phải đồng ý rồi Fineract mới áp dụng lịch mới. Trong thời gian chờ, lịch trả hiện tại vẫn có hiệu lực."; lịch sử
    ghi "Chờ thẩm định".
 
-**RSC-02 [UI] Admin thẩm định (web).** "Vận hành khoản vay" → tab "Yêu cầu cơ cấu": dòng có "Khoản vay", "Đề nghị" = "Gia hạn
-thêm kỳ", "Thay đổi", "Ngày đáo hạn", "Lý do người vay nêu", "Gửi lúc". Menu "⋯" → "Thẩm định đạt" → modal "Xác nhận thẩm định
+**RSC-02 [UI] Admin thẩm định (web).** Sidebar "Tín dụng" → "Cơ cấu khoản vay" (`/loans/reschedules`) → tab "Chờ thẩm định":
+dòng có mã hồ sơ, khoản vay, người vay, đề nghị, ngày đáo hạn dự kiến, tình trạng và thời điểm cập nhật. Có thể bấm mã hồ sơ
+để mở thẳng tab "Sau giải ngân" của đúng khoản vay. Menu "⋯" → "Thẩm định đạt" → modal "Xác nhận thẩm định
 đạt" ("FINORA chỉ xác nhận đề nghị đạt điều kiện. Lịch cũ vẫn có hiệu lực; hệ thống chỉ gửi sang Fineract sau khi toàn bộ nhà
 đầu tư còn nắm dư nợ đồng ý."), "Ghi chú (không bắt buộc)" → "Chuyển nhà đầu tư đồng ý" → toast "Đã thẩm định đạt yêu cầu của
 khoản vay {x}. Đang chờ toàn bộ nhà đầu tư đồng ý." Mobile người vay: "Chờ nhà đầu tư đồng ý". Chưa gọi Fineract ở bước này.
@@ -1432,11 +1433,11 @@ stack E2E (WDR-N11).
 | WDR-N11 | [UI + công cụ] | Tắt Payment (T5) ngay sau khi lệnh "Đã nhận lệnh", bật lại sau 1 phút | Màn trạng thái có thể dừng tự cập nhật ("Đã dừng tự cập nhật. Bấm “Kiểm tra lại”…"); "Kiểm tra lại" sau khi bật lại thấy "Hoàn tất" hoặc "Đang đối soát" ("Đang xác minh kết quả lệnh rút"…) | Hết lease → tra cứu provider theo `withdrawalId`, không gửi lệnh chi thứ hai khi chưa rõ (D42). Provider giả lập giữ kết quả trong bộ nhớ nên sau restart có thể gửi lại đúng mã. Ví chỉ trừ một lần |
 | WDR-N12 | [API] | Gọi `POST :8082/api/v1/wallets/callbacks/mock-payout` với `X-Payout-Signature` sai | — | `401`, không đổi trạng thái lệnh hay ví |
 
-### 4.12 Regression nâng cao — web "Vận hành khoản vay": sự cố, đối soát, thu hồi
+### 4.12 Regression nâng cao — web xử lý sau giải ngân: sự cố, đối soát, thu hồi
 
-Điều kiện: admin web. Trang "Vận hành khoản vay" (`/loans/operations`) có tab "Quá hạn & thu hồi", "Yêu cầu cơ cấu", "Đối
-soát", "Sự kiện trả nợ chờ ghép", "Sự cố giao dịch"; nút "Làm mới" làm mới cả hàng đợi Loan, Payment, Investment. Mọi thao tác
-sự cố chỉ tra cứu hoặc chạy lại đúng bước còn dở theo mã đã gửi; không trừ hay chuyển tiền lần hai.
+Điều kiện: admin web. Hàng đợi cơ cấu nằm riêng ở `/loans/reschedules`; thu hồi và sự cố được mở từ bộ lọc sau giải ngân trên
+`/loans`, sau đó xử lý trong tab "Sau giải ngân" của từng hồ sơ. `/loans/operations` là đường dẫn cũ và chỉ chuyển hướng.
+Mọi thao tác sự cố chỉ tra cứu hoặc chạy lại đúng bước còn dở theo mã đã gửi; không trừ hay chuyển tiền lần hai.
 
 **INC-01 [UI] Tab "Sự cố giao dịch" khi không có sự cố.** Câu dẫn "Tiền đã đi nhưng một bên chưa ghi xong…"; năm bảng: "Trả nợ
 chưa ghi xong vào hệ thống lõi", "Giải ngân chưa có kết quả chuyển tiền", "Lệnh rút tiền chờ đối soát", "Đã giải ngân, hệ thống
@@ -1751,7 +1752,7 @@ xử lý; gửi lại `k1` → trả kết quả cũ, không trừ tiền lần 
 IDEMPOTENCY_KEY_REQUIRED`.
 
 **SEC-06 [UI] Người vay/nhà đầu tư mở web quản trị.** Như AUTH-N13: mọi URL quản trị (kể cả gõ thẳng
-`http://localhost:5173/loans/operations?tab=incidents` hay `/blockchain/proofs`) chỉ hiện "Không có quyền truy cập"; không có
+`http://localhost:5173/loans/reschedules` hay `/blockchain/proofs`) chỉ hiện "Không có quyền truy cập"; không có
 dữ liệu nào tải về (DevTools: các lời gọi admin trả `403`).
 
 **SEC-07 [UI] Người vay đặt lệnh đầu tư** (FUND-N18): bị backend chặn `403`, không có lệnh; app hiện "Bạn không có quyền thực
