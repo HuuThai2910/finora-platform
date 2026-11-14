@@ -2,6 +2,7 @@ package com.finora.loan.repository.restructure;
 
 import com.finora.loan.domain.restructure.entity.LoanRescheduleRequest;
 import com.finora.loan.domain.restructure.enums.LoanRescheduleStatus;
+import com.finora.loan.domain.restructure.enums.LoanRescheduleType;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -84,6 +85,32 @@ public interface LoanRescheduleRequestRepository extends JpaRepository<LoanResch
             """)
     Page<LoanRescheduleRequest> search(
             @Param("status") LoanRescheduleStatus status,
+            @Param("code") String code,
+            Pageable pageable);
+
+    /** Một truy vấn phân trang cho hàng đợi quản trị, tránh ghép nhiều trang kết quả ở web. */
+    @Query("""
+            select request from LoanRescheduleRequest request
+            where request.status in :statuses
+              and (:requestType is null or request.requestType = :requestType)
+              and (:loanNumber is null or request.loanNumber = :loanNumber)
+              and (request.loanNumber like :code escape '!'
+                   or request.finoraLoanId in (
+                       select loan.id from FinoraLoan loan
+                       where loan.applicationNumber like :code escape '!'
+                          or loan.contractNumber like :code escape '!'
+                          or loan.loanApplicationId in (
+                              select application.id from LoanApplication application
+                              where application.applicationCode like :code escape '!')
+                          or loan.contractNumber in (
+                              select contract.contractNumber from LoanContract contract
+                              where contract.contractCode like :code escape '!')))
+            order by request.createdAt desc
+            """)
+    Page<LoanRescheduleRequest> searchAdmin(
+            @Param("statuses") Collection<LoanRescheduleStatus> statuses,
+            @Param("requestType") LoanRescheduleType requestType,
+            @Param("loanNumber") String loanNumber,
             @Param("code") String code,
             Pageable pageable);
 }

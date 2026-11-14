@@ -42,9 +42,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Yêu cầu cơ cấu khoản vay: người vay đọc điều khoản, gửi và xem yêu cầu của mình; quản trị duyệt (chuyển sang chờ nhà
@@ -148,7 +152,7 @@ public class LoanRescheduleServiceImpl implements LoanRescheduleService {
         Page<LoanRescheduleResponse> result = loanRescheduleRequestRepository
                 .findByBorrowerIdAndLoanNumberOrderByCreatedAtDesc(
                         borrowerId, loanNumber, PageRequest.of(page, size))
-                .map(this::toResponse);
+                .map(request -> toResponse(request, loan));
         return PageResponse.from(result);
     }
 
@@ -161,27 +165,34 @@ public class LoanRescheduleServiceImpl implements LoanRescheduleService {
     @Override
     @Transactional(readOnly = true)
     public PageResponse<LoanRescheduleResponse> listAdmin(LoanRescheduleStatus status, String q, int page, int size) {
+        return listAdmin(status == null ? List.of() : List.of(status), null, q, null, page, size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<LoanRescheduleResponse> listAdmin(
+            Collection<LoanRescheduleStatus> statuses,
+            LoanRescheduleType requestType,
+            String q,
+            String loanNumber,
+            int page,
+            int size) {
+        List<LoanRescheduleStatus> effectiveStatuses = statuses == null || statuses.isEmpty()
+                ? List.of(LoanRescheduleStatus.values())
+                : statuses.stream().distinct().toList();
         String code = SearchPatterns.containsCode(q);
-        if (code != null) {
-            return PageResponse.from(loanRescheduleRequestRepository.search(status, code, PageRequest.of(page, size))
-                    .map(this::toResponse));
-        }
-        Page<LoanRescheduleRequest> requests = status == null
-                ? loanRescheduleRequestRepository.findAllByOrderByCreatedAtDesc(PageRequest.of(page, size))
-                : loanRescheduleRequestRepository.findByStatusOrderByCreatedAtDesc(status, PageRequest.of(page, size));
-        return PageResponse.from(requests.map(this::toResponse));
+        String exactLoanNumber = loanNumber == null || loanNumber.isBlank() ? null : loanNumber.trim();
+        Page<LoanRescheduleRequest> requests = loanRescheduleRequestRepository.searchAdmin(
+                effectiveStatuses, requestType, exactLoanNumber, code == null ? "%" : code,
+                PageRequest.of(page, size));
+        return toResponsePage(requests);
     }
 
     @Override
     @Transactional(readOnly = true)
     public PageResponse<LoanRescheduleResponse> listAdminByLoan(String loanNumber, LoanRescheduleStatus status,
             int page, int size) {
-        String value = loanNumber.trim();
-        PageRequest pageable = PageRequest.of(page, size);
-        Page<LoanRescheduleRequest> requests = status == null
-                ? loanRescheduleRequestRepository.findByLoanNumberOrderByCreatedAtDesc(value, pageable)
-                : loanRescheduleRequestRepository.findByLoanNumberAndStatusOrderByCreatedAtDesc(value, status, pageable);
-        return PageResponse.from(requests.map(this::toResponse));
+        return listAdmin(status == null ? List.of() : List.of(status), null, null, loanNumber, page, size);
     }
 
     @Override
@@ -385,8 +396,26 @@ public class LoanRescheduleServiceImpl implements LoanRescheduleService {
         return new LoanBusinessException(HttpStatus.NOT_FOUND, "LOAN_NOT_FOUND", "Không tìm thấy khoản vay");
     }
 
+    private PageResponse<LoanRescheduleResponse> toResponsePage(Page<LoanRescheduleRequest> requests) {
+        List<Long> loanIds = requests.getContent().stream()
+                .map(LoanRescheduleRequest::getFinoraLoanId)
+                .distinct()
+                .toList();
+        Map<Long, FinoraLoan> loans = finoraLoanRepository.findAllById(loanIds).stream()
+                .collect(Collectors.toMap(FinoraLoan::getId, Function.identity()));
+        return PageResponse.from(requests.map(request -> toResponse(request, loans.get(request.getFinoraLoanId()))));
+    }
+
     private LoanRescheduleResponse toResponse(LoanRescheduleRequest request) {
-        return new LoanRescheduleResponse(request.getRequestId(), request.getLoanNumber(), request.getRequestType(),
+        FinoraLoan loan = finoraLoanRepository.findById(request.getFinoraLoanId()).orElse(null);
+        return toResponse(request, loan);
+    }
+
+    private LoanRescheduleResponse toResponse(LoanRescheduleRequest request, FinoraLoan loan) {
+        return new LoanRescheduleResponse(request.getRequestId(), request.getLoanNumber(),
+                loan == null ? null : loan.getLoanApplicationId(),
+                loan == null ? null : loan.getApplicationNumber(),
+                request.getBorrowerId(), request.getRequestType(),
                 request.getRescheduleFromDate(), request.getAdjustedDueDate(), request.getExtraTerms(),
                 request.getReasonComment(), request.getTermsVersion(), request.getStatus(),
                 request.getOriginalMaturityDate(), request.getNewMaturityDate(), request.getDecisionComment(),
