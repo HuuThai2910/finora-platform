@@ -13,6 +13,10 @@ import java.util.UUID;
  * @param submittedAt   thời điểm gửi duyệt hoặc tự xác minh; {@code null} khi lượt chưa kết thúc
  * @param decidedAt     thời điểm nhân viên duyệt hoặc từ chối; {@code null} khi chưa có quyết định của người
  * @param reviewNote    ghi chú của người duyệt; với lượt bị từ chối đây là lý do khách thấy trên app
+ * @param aiUnavailable hồ sơ chuyển duyệt tay vì finora-ai gặp sự cố (có mã {@code AI_UNAVAILABLE} ở bước thẻ hoặc
+ *                      liveness): nhân viên phải tự đọc thẻ và/hoặc so mặt
+ * @param userReportedIncorrect người dùng chụp lại nhiều lần mà vẫn báo thông tin đọc từ thẻ chưa đúng (mã
+ *                      {@code USER_REPORTED_INCORRECT}): nhân viên đối chiếu ảnh thẻ và được sửa mọi trường
  */
 public record EkycAttemptSummaryResponse(
         UUID attemptId,
@@ -28,6 +32,8 @@ public record EkycAttemptSummaryResponse(
         Instant createdAt,
         Instant submittedAt,
         Instant decidedAt,
-        String reviewNote
+        String reviewNote,
+        boolean aiUnavailable,
+        boolean userReportedIncorrect
 ) {
 }

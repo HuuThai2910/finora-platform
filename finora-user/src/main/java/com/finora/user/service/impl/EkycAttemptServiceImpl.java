@@ -104,6 +104,13 @@ public class EkycAttemptServiceImpl implements EkycAttemptService {
 
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
+    public void recordLivenessWithoutAi(EkycAttempt attempt, Collection<StoredEvidence> evidence, Instant now) {
+        attempt.recordLivenessWithoutAi(toJson(List.of(EkycIdentityDraft.AI_UNAVAILABLE_REASON)), now);
+        recordEvidence(attempt.getId(), evidence, now);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
     public void completeVerified(UserProfile profile, EkycAttempt attempt, EkycIdentityDraft draft,
                                  StoredEvidence result, Instant now) {
         ekycIdentityService.applyIdentity(profile, draft);
@@ -121,6 +128,14 @@ public class EkycAttemptServiceImpl implements EkycAttemptService {
     public void submitForReview(UserProfile profile, EkycAttempt attempt, EkycIdentityDraft draft,
                                 StoredEvidence result, Instant now) {
         profile.markEkycManualReview();
+        if (draft.userReportedIncorrect()) {
+            // Cột lý do được ghi lúc mở lượt; mã báo sai có sau đó nên phải ghi thêm để web quản trị thấy cờ.
+            List<String> codes = new ArrayList<>(readCodes(attempt.getDocumentReasons()));
+            if (!codes.contains(EkycIdentityDraft.USER_REPORTED_INCORRECT_REASON)) {
+                codes.add(EkycIdentityDraft.USER_REPORTED_INCORRECT_REASON);
+            }
+            attempt.replaceDocumentReasons(toJson(codes), now);
+        }
         attempt.submitForReview(draftJson(draft.withoutBiometrics()), now);
         finalizeEvidence(attempt.getId(), now);
         if (result != null) {

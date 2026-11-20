@@ -74,4 +74,13 @@ class EkycConfigurationBindingTest {
         assertThat(binder.bind("finora.ekyc.sweeper.enabled", Boolean.class).get()).isTrue();
         assertThat(binder.bind("finora.ekyc.sweeper.interval-ms", Long.class).get()).isEqualTo(3_600_000L);
     }
+
+    @Test
+    void manualReviewOpensAfterThreeConsecutiveAiFailuresWithinOneHour() throws IOException {
+        EkycManualReviewProperties manualReview = binder()
+                .bind("finora.ekyc.manual-review", EkycManualReviewProperties.class).get();
+
+        assertThat(manualReview.getAiFailureThreshold()).isEqualTo(3);
+        assertThat(manualReview.getAiFailureWindow()).isEqualTo(Duration.ofHours(1));
+    }
 }

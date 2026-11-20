@@ -66,6 +66,35 @@ class EkycAttemptTest {
     }
 
     @Test
+    void userWithdrawsOnlyFromPendingReview() {
+        EkycAttempt open = open();
+        assertThatThrownBy(() -> open.withdrawFromReview(NOW)).isInstanceOf(IllegalStateException.class);
+
+        EkycAttempt pending = open();
+        pending.submitForReview("{\"draft\":true}", NOW);
+        pending.withdrawFromReview(NOW);
+
+        assertThat(pending.getStatus()).isEqualTo(EkycAttemptStatus.WITHDRAWN);
+        assertThat(pending.isWithdrawn()).isTrue();
+        assertThat(pending.getDraftEncrypted()).isNull();
+        assertThat(pending.getDecidedAt()).isEqualTo(NOW);
+        assertThatThrownBy(() -> pending.approve(REVIEWER, null, NOW)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> pending.withdrawFromReview(NOW)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void livenessWithoutAiClearsPreviousConclusion() {
+        EkycAttempt attempt = open();
+        attempt.recordLiveness(EkycLivenessResult.FAIL, "[\"FACE_MISMATCH\"]", 0.1, "doc-v,live-v", NOW);
+
+        attempt.recordLivenessWithoutAi("[\"AI_UNAVAILABLE\"]", NOW);
+
+        assertThat(attempt.getLivenessResult()).isNull();
+        assertThat(attempt.getFaceMatchScore()).isNull();
+        assertThat(attempt.getLivenessReasons()).isEqualTo("[\"AI_UNAVAILABLE\"]");
+    }
+
+    @Test
     void longTextsAreTruncatedToColumnSizes() {
         EkycAttempt attempt = EkycAttempt.start(UUID.randomUUID(), 7L, null, null, EkycDocumentDecision.AUTO_OK,
                 null, "v".repeat(100), NOW);

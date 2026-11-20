@@ -4,7 +4,7 @@
     .\finora-azure.ps1 status   # trạng thái VM và từng container
     .\finora-azure.ps1 up       # bật VM, chờ tới khi mọi dịch vụ sẵn sàng
     .\finora-azure.ps1 down     # tắt hẳn (deallocate) để Azure ngừng tính tiền giờ
-    .\finora-azure.ps1 ssh      # mở SSH; tự cập nhật luật SSH theo IP hiện tại của máy
+    .\finora-azure.ps1 ssh      # mở SSH (cổng 22 mở cho mọi IP)
 
   Trang web trên Vercel cũng tự bật VM khi có người vào (xem README.md cùng thư mục).
 #>
@@ -76,12 +76,7 @@ switch ($Action) {
   }
 
   'ssh' {
-    # IP nhà mạng thay đổi thường xuyên; luật SSH chỉ mở cho IP hiện tại của máy này.
-    $ip = (Invoke-RestMethod -Uri 'https://api.ipify.org').Trim()
-    $env:MSYS_NO_PATHCONV = '1'
-    az network nsg rule update -g $ResourceGroup --nsg-name finora-nsg -n default-allow-ssh `
-      --source-address-prefixes $ip -o none
-    Write-Host "Đã mở SSH cho $ip"
+    # Từ 15/11/2026 luật SSH mở cho mọi IP (cổng 22, nguồn *), nên không cần sửa NSG trước khi vào.
     ssh -i $SshKey "azureuser@$Domain"
   }
 }

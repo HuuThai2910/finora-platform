@@ -27,6 +27,7 @@ import com.finora.user.mapper.EkycResultMapper;
 import com.finora.user.repository.EkycAttemptRepository;
 import com.finora.user.repository.EkycEvidenceRepository;
 import com.finora.user.repository.UserProfileRepository;
+import com.finora.user.service.EkycAiOutageService;
 import com.finora.user.service.EkycAttemptService.StartedAttempt;
 import com.finora.user.service.EkycAttemptService;
 import com.finora.user.service.EkycClaimPublisher;
@@ -77,6 +78,10 @@ import java.util.regex.Pattern;
  * và {@code result.json} được ghi <b>trước</b> transaction: không bao giờ chuyển VERIFIED khi chưa lưu đủ
  * bằng chứng. Kho tạm và claim Keycloak chỉ được đụng tới sau khi transaction đã commit.
  * <p>
+ * <b>AI lỗi</b>: trả {@code AI_UNAVAILABLE} (không tính lượt, trả suất rate limit) và đếm lỗi liên tiếp; đủ ngưỡng
+ * thì cờ {@code manualReviewAvailable} bật và {@link #startManualReview} nhận lại đúng hai ảnh để lưu làm bằng
+ * chứng, mở lượt với bản nháp rỗng — nhân viên sẽ đọc thẻ khi duyệt.
+ * <p>
  * Không có hàm nào giữ transaction trong lúc gọi AI hay kho lưu trữ; database chỉ được ghi trong các
  * khối {@link TransactionTemplate} ngắn giữa các lời gọi mạng.
  */
@@ -107,6 +112,7 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
     private final EkycResultFile ekycResultFile;
     private final EkycSessionCleanup ekycSessionCleanup;
     private final EkycClaimPublisher ekycClaimPublisher;
+    private final EkycAiOutageService ekycAiOutageService;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
 
@@ -144,6 +150,7 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
         } catch (AiEkycException e) {
             if (e.getStatus() == 400 || e.getStatus() == 422) {
                 // AI không giải mã được ảnh (không phải lỗi hệ thống): người dùng chụp lại, không trả suất.
+                ekycAiOutageService.recordSuccess(keycloakUserId);
                 log.info("AI từ chối ảnh thẻ: userProfileId={}, status={}", profile.getId(), e.getStatus());
                 return EkycResultMapper.simple(status, EkycResultCode.OCR_FAILED);
             }
@@ -154,6 +161,7 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
         if (document == null || document.decision() == null) {
             return aiUnavailable(keycloakUserId, profile, status, "empty-response");
         }
+        ekycAiOutageService.recordSuccess(keycloakUserId);
 
         if ("RETAKE".equals(document.decision()) || !hasPortraitEmbedding(document)) {
             ekycCounterStore.incrementRetakeCount(keycloakUserId);
@@ -196,10 +204,62 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
         return EkycResultMapper.draftReady(status, draft, warnings);
     }
 
+    // ── Bước thẻ chuyển duyệt tay khi AI lỗi ────────────────────────
+
+    @Override
+    public EkycResultResponse startManualReview(UUID keycloakUserId, EkycVerifyRequest request) {
+        UserProfile profile = findProfileOrThrow(keycloakUserId);
+        EkycStatus status = profile.getEkycStatus();
+        if (status == EkycStatus.VERIFIED) {
+            return EkycResultMapper.alreadyVerified();
+        }
+        if (status == EkycStatus.MANUAL_REVIEW) {
+            return EkycResultMapper.reviewPending();
+        }
+        Optional<EkycConsent> consent = ekycConsentService.findActiveConsent(profile.getId());
+        if (consent.isEmpty()) {
+            return EkycResultMapper.simple(status, EkycResultCode.CONSENT_REQUIRED);
+        }
+        // Không có kho thì không có bằng chứng: không bao giờ gửi duyệt khi thiếu ảnh thẻ.
+        if (!ekycEvidenceService.isEnabled()) {
+            return EkycResultMapper.simple(status, EkycResultCode.STORAGE_UNAVAILABLE);
+        }
+        BinaryFile front = decodeCardImage(request.cccdFrontBase64());
+        BinaryFile back = decodeCardImage(request.cccdBackBase64());
+        if (!ekycAiOutageService.isManualReviewAvailable(keycloakUserId)) {
+            throw manualReviewUnavailable();
+        }
+        if (!ekycRateLimitService.tryAcquireVerifySlot(keycloakUserId)) {
+            return EkycResultMapper.simple(status, EkycResultCode.RATE_LIMITED);
+        }
+
+        EkycIdentityDraft draft = EkycIdentityDraft.withoutAiReading(UUID.randomUUID());
+        Instant now = clock.instant();
+        StartedAttempt started = transactionTemplate.execute(
+                tx -> ekycAttemptService.start(profile.getId(), consent.get().getId(), draft, now));
+        discardObjects(started.staleObjectKeys(), now);
+
+        List<StoredEvidence> stored;
+        try {
+            stored = ekycEvidenceService.storeCardImages(profile.getId(), draft.attemptId(), front, back);
+        } catch (EkycStorageException e) {
+            log.warn("Không lưu được ảnh thẻ (duyệt tay vì AI lỗi), bỏ lượt: userProfileId={}, attemptId={}, cause={}",
+                    profile.getId(), draft.attemptId(), e.getMessage());
+            transactionTemplate.executeWithoutResult(tx -> ekycAttemptService.abandon(started.attemptId(), now));
+            return EkycResultMapper.simple(status, EkycResultCode.STORAGE_UNAVAILABLE);
+        }
+        transactionTemplate.executeWithoutResult(tx -> ekycAttemptService.recordEvidence(started.attemptId(), stored, now));
+        ekycDraftStore.save(keycloakUserId, draft);
+        ekycCounterStore.resetRetakeCount(keycloakUserId);
+        log.info("Bước thẻ chuyển duyệt tay vì AI lỗi, chờ video: userProfileId={}, attemptId={}",
+                profile.getId(), draft.attemptId());
+        return EkycResultMapper.manualDraftReady(status);
+    }
+
     // ── Bước xác nhận ───────────────────────────────────────────────
 
     @Override
-    public EkycResultResponse confirm(UUID keycloakUserId, Map<String, String> edits) {
+    public EkycResultResponse confirm(UUID keycloakUserId, Map<String, String> edits, boolean reportIncorrect) {
         UserProfile profile = findProfileOrThrow(keycloakUserId);
         EkycStatus status = profile.getEkycStatus();
         if (status == EkycStatus.VERIFIED) {
@@ -215,7 +275,8 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
         if (stored.livenessResult() == null || !stored.livenessResult().allowsConfirmation()) {
             return EkycResultMapper.simple(status, EkycResultCode.LIVENESS_REQUIRED, EkycNextStep.LIVENESS);
         }
-        EkycIdentityDraft draft = applyEdits(stored, edits);
+        // Báo sai: không nhận chỗ sửa nào, gắn mã để hồ sơ luôn đi duyệt tay.
+        EkycIdentityDraft draft = reportIncorrect ? stored.withUserReportedIncorrect() : applyEdits(stored, edits);
 
         Instant now = clock.instant();
         Optional<EkycResultCode> idProblem = ekycIdentityService.checkIdNumber(
@@ -233,7 +294,8 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
             return EkycResultMapper.simple(status, EkycResultCode.DRAFT_EXPIRED);
         }
 
-        boolean automatic = draft.documentDecision() == EkycDocumentDecision.AUTO_OK
+        boolean automatic = !reportIncorrect
+                && draft.documentDecision() == EkycDocumentDecision.AUTO_OK
                 && draft.livenessResult() == EkycLivenessResult.PASS;
         List<EkycEvidence> liveEvidence = ekycEvidenceRepository.findByAttemptIdOrderByIdAsc(attempt.getId()).stream()
                 .filter(evidence -> !evidence.isDeleted())
@@ -288,8 +350,8 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
             case SUBMITTED -> {
                 ekycSessionCleanup.clearAll(keycloakUserId);
                 ekycClaimPublisher.publish(keycloakUserId, EkycStatus.MANUAL_REVIEW);
-                log.info("eKYC chuyển duyệt tay: userProfileId={}, attemptId={}, decision={}, liveness={}",
-                        profile.getId(), draft.attemptId(), draft.documentDecision(), draft.livenessResult());
+                log.info("eKYC chuyển duyệt tay: userProfileId={}, attemptId={}, decision={}, liveness={}, reportIncorrect={}",
+                        profile.getId(), draft.attemptId(), draft.documentDecision(), draft.livenessResult(), reportIncorrect);
                 return EkycResultMapper.reviewPending();
             }
             case ALREADY_VERIFIED -> {
@@ -415,8 +477,15 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
     private EkycResultResponse aiUnavailable(UUID keycloakUserId, UserProfile profile, EkycStatus status, String cause) {
         // AI lỗi không phải lỗi của người dùng: trả suất rate limit và giữ nguyên trạng thái hồ sơ.
         ekycRateLimitService.releaseVerifySlot(keycloakUserId);
-        log.warn("Không gọi được AI đọc thẻ: userProfileId={}, cause={}", profile.getId(), cause);
-        return EkycResultMapper.simple(status, EkycResultCode.AI_UNAVAILABLE);
+        boolean manualReviewAvailable = ekycAiOutageService.recordFailure(keycloakUserId);
+        log.warn("Không gọi được AI đọc thẻ: userProfileId={}, cause={}, manualReviewAvailable={}",
+                profile.getId(), cause, manualReviewAvailable);
+        return EkycResultMapper.aiUnavailable(status, EkycNextStep.NONE, manualReviewAvailable);
+    }
+
+    static BusinessException manualReviewUnavailable() {
+        return new BusinessException(HttpStatus.CONFLICT, "MANUAL_REVIEW_UNAVAILABLE",
+                EkycMessages.MANUAL_REVIEW_UNAVAILABLE);
     }
 
     /** Ngoài kết quả cuối: bỏ lượt và xoá object để không giữ ảnh thẻ của lượt không thể hoàn tất. */

@@ -37,6 +37,23 @@ public final class EkycResultMapper {
         return simple(status, code, EkycNextStep.NONE);
     }
 
+    /**
+     * AI không phục vụ được: hồ sơ giữ nguyên, lượt không bị tính. {@code manualReviewAvailable} bật khi AI đã lỗi
+     * đủ số lần liên tiếp — client hiện nút gửi nhân viên duyệt.
+     */
+    public static EkycResultResponse aiUnavailable(EkycStatus status, EkycNextStep nextStep,
+                                                   boolean manualReviewAvailable) {
+        return new EkycResultResponse(status, EkycResultCode.AI_UNAVAILABLE,
+                EkycMessages.result(EkycResultCode.AI_UNAVAILABLE), List.of(), null, false, List.of(), null,
+                nextStep, null, null, manualReviewAvailable, false);
+    }
+
+    /** Bước thẻ chuyển duyệt tay vì AI lỗi: ảnh đã lưu, không có trường đọc được; tiếp theo quay video. */
+    public static EkycResultResponse manualDraftReady(EkycStatus status) {
+        return new EkycResultResponse(status, EkycResultCode.DRAFT_READY, EkycMessages.MANUAL_DRAFT_READY,
+                List.of(), null, true, List.of(), null, EkycNextStep.LIVENESS, null, null, false, true);
+    }
+
     public static EkycResultResponse alreadyVerified() {
         return new EkycResultResponse(EkycStatus.VERIFIED, EkycResultCode.VERIFIED, EkycMessages.ALREADY_VERIFIED,
                 List.of(), null, false, List.of(), null, EkycNextStep.NONE, null, null);

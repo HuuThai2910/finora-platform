@@ -2,6 +2,7 @@ package com.finora.user.controller;
 
 import com.finora.user.dto.request.ChangePasswordRequest;
 import com.finora.user.service.AuthService;
+import com.finora.user.service.EkycReviewWithdrawalService;
 import com.finora.user.service.EkycVerificationService;
 import com.finora.user.service.KycSummaryService;
 import com.finora.user.service.UserProfileService;
@@ -35,6 +36,7 @@ class UserProfileControllerChangePasswordTest {
 
     @Mock private UserProfileService userProfileService;
     @Mock private EkycVerificationService ekycVerificationService;
+    @Mock private EkycReviewWithdrawalService ekycReviewWithdrawalService;
     @Mock private KycSummaryService kycSummaryService;
     @Mock private AuthService authService;
 
@@ -42,7 +44,7 @@ class UserProfileControllerChangePasswordTest {
 
     @BeforeEach
     void setUp() {
-        mockMvc = ControllerTestSupport.mockMvc(new UserProfileController(userProfileService, ekycVerificationService,
+        mockMvc = ControllerTestSupport.mockMvc(new UserProfileController(userProfileService, ekycVerificationService, ekycReviewWithdrawalService,
                 kycSummaryService, authService));
     }
 

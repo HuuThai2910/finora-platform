@@ -247,6 +247,92 @@ services:
     networks:
       - finora
 
+  # Kho S3 cho bằng chứng eKYC (ảnh hai mặt thẻ, video liveness, result.json) — SeaweedFS chạy ngay trên VM (19/11/2026,
+  # thay Amazon S3 của kế hoạch 16/10). Không mở cổng ra ngoài; chỉ `user` gọi qua mạng nội bộ. Khoá lấy từ deploy.env:
+  #   ekyc-admin   (SEAWEEDFS_ADMIN_*): toàn quyền, chỉ seaweedfs-init dùng để tạo bucket;
+  #   finora-user  (EKYC_STORAGE_*): chỉ Read/Write/List/Tagging trên bucket eKYC.
+  # Mã hoá khi lưu bằng -s3.encryptVolumeData; truy cập ẩn danh bị từ chối vì đã khai báo identities.
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 384m
+    environment:
+      SEAWEEDFS_ADMIN_ACCESS_KEY: "${SEAWEEDFS_ADMIN_ACCESS_KEY:?Thiếu SEAWEEDFS_ADMIN_ACCESS_KEY trong deploy.env}"
+      SEAWEEDFS_ADMIN_SECRET_KEY: "${SEAWEEDFS_ADMIN_SECRET_KEY:?Thiếu SEAWEEDFS_ADMIN_SECRET_KEY trong deploy.env}"
+      EKYC_STORAGE_ACCESS_KEY: "${EKYC_STORAGE_ACCESS_KEY:?Thiếu EKYC_STORAGE_ACCESS_KEY trong deploy.env}"
+      EKYC_STORAGE_SECRET_KEY: "${EKYC_STORAGE_SECRET_KEY:?Thiếu EKYC_STORAGE_SECRET_KEY trong deploy.env}"
+      EKYC_STORAGE_BUCKET: "${EKYC_STORAGE_BUCKET:-finora-ekyc}"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        for v in "$$SEAWEEDFS_ADMIN_ACCESS_KEY" "$$SEAWEEDFS_ADMIN_SECRET_KEY" "$$EKYC_STORAGE_ACCESS_KEY" "$$EKYC_STORAGE_SECRET_KEY"; do
+          case "$$v" in
+            ""|*[!A-Za-z0-9._~+/=-]*)
+              echo "Khoa SEAWEEDFS_ADMIN_* hoac EKYC_STORAGE_* trong deploy.env sai (chi chu, so va . _ ~ + / = -)" >&2
+              exit 1;;
+          esac
+        done
+        umask 077
+        printf '{"identities":[{"name":"ekyc-admin","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]},{"name":"finora-user","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:%s","Write:%s","List:%s","Tagging:%s"]}]}\n' \
+          "$$SEAWEEDFS_ADMIN_ACCESS_KEY" "$$SEAWEEDFS_ADMIN_SECRET_KEY" "$$EKYC_STORAGE_ACCESS_KEY" "$$EKYC_STORAGE_SECRET_KEY" \
+          "$$EKYC_STORAGE_BUCKET" "$$EKYC_STORAGE_BUCKET" "$$EKYC_STORAGE_BUCKET" "$$EKYC_STORAGE_BUCKET" > /etc/seaweedfs/s3.json
+        chown seaweed:seaweed /etc/seaweedfs/s3.json
+        # entrypoint gốc của image tự sửa quyền /data rồi hạ xuống user seaweed trước khi chạy weed.
+        exec /entrypoint.sh server -dir=/data -ip.bind=0.0.0.0 -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -s3.encryptVolumeData -master.volumeSizeLimitMB=64
+    volumes:
+      - seaweedfs-data:/data
+    healthcheck:
+      # GET / không kèm chữ ký trả 403 nhưng chứng tỏ cổng S3 đã nhận request.
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://127.0.0.1:8333/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks:
+      - finora
+
+  # Chạy một lần: tạo bucket bằng tài khoản admin và đặt vòng đời theo tag (pending 1 ngày, final
+  # EKYC_EVIDENCE_RETENTION_DAYS ngày). Worker quét dọn của finora-user mới là nguồn chuẩn cho hạn lưu.
+  seaweedfs-init:
+    image: amazon/aws-cli:2.38.1
+    logging: *logging
+    mem_limit: 256m
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: "${SEAWEEDFS_ADMIN_ACCESS_KEY:?Thiếu SEAWEEDFS_ADMIN_ACCESS_KEY trong deploy.env}"
+      AWS_SECRET_ACCESS_KEY: "${SEAWEEDFS_ADMIN_SECRET_KEY:?Thiếu SEAWEEDFS_ADMIN_SECRET_KEY trong deploy.env}"
+      AWS_DEFAULT_REGION: "${EKYC_STORAGE_REGION:-us-east-1}"
+      AWS_EC2_METADATA_DISABLED: "true"
+      EKYC_STORAGE_BUCKET: "${EKYC_STORAGE_BUCKET:-finora-ekyc}"
+      EKYC_EVIDENCE_RETENTION_DAYS: "${EKYC_EVIDENCE_RETENTION_DAYS:-30}"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        aws configure set default.s3.addressing_style path
+        S3="--endpoint-url http://seaweedfs:8333"
+        i=0
+        until aws $$S3 s3api list-buckets >/dev/null 2>&1; do
+          i=$$((i + 1))
+          if [ "$$i" -ge 60 ]; then echo "SeaweedFS chua san sang sau 2 phut" >&2; exit 1; fi
+          sleep 2
+        done
+        # Bucket đã có (chạy lại init) thì create báo lỗi; head-bucket thành công nghĩa là dùng tiếp.
+        aws $$S3 s3api create-bucket --bucket "$$EKYC_STORAGE_BUCKET" >/dev/null 2>&1 \
+          || aws $$S3 s3api head-bucket --bucket "$$EKYC_STORAGE_BUCKET"
+        printf '{"Rules":[{"ID":"ekyc-pending","Status":"Enabled","Filter":{"Tag":{"Key":"stage","Value":"pending"}},"Expiration":{"Days":1}},{"ID":"ekyc-final","Status":"Enabled","Filter":{"Tag":{"Key":"stage","Value":"final"}},"Expiration":{"Days":%s}}]}' \
+          "$$EKYC_EVIDENCE_RETENTION_DAYS" > /tmp/lifecycle.json
+        aws $$S3 s3api put-bucket-lifecycle-configuration --bucket "$$EKYC_STORAGE_BUCKET" \
+          --lifecycle-configuration file:///tmp/lifecycle.json \
+          || echo "Canh bao: khong dat duoc lifecycle theo tag; worker quet don cua finora-user van xoa dung han" >&2
+        echo "San sang: bucket $$EKYC_STORAGE_BUCKET"
+    networks:
+      - finora
+
   user:
     <<: *java-service
     image: ${FINORA_REGISTRY:-ghcr.io/huuthai2910}/finora-user:${USER_TAG:?Thiếu USER_TAG trong images.env}
@@ -256,15 +342,24 @@ services:
       <<: *spring-env
       KEYCLOAK_SERVER_URL: http://keycloak:8080
       AI_SERVICE_URL: http://ai:8000
-      # Không lưu ảnh/video bằng chứng eKYC (như máy dev, không có kho S3).
-      EKYC_EVIDENCE_ENABLED: "false"
+      # Kho bằng chứng eKYC: SeaweedFS trên VM (service seaweedfs). Đổi chữ "nơi lưu" làm mọi đồng ý điều khoản eKYC cũ
+      # hết hiệu lực (người dùng đồng ý lại) — đúng thiết kế của EkycConsentProperties.
+      EKYC_EVIDENCE_ENABLED: "true"
+      EKYC_STORAGE_ENDPOINT: http://seaweedfs:8333
+      EKYC_STORAGE_PATH_STYLE: "true"
+      EKYC_STORAGE_BUCKET: "${EKYC_STORAGE_BUCKET:-finora-ekyc}"
+      EKYC_STORAGE_ACCESS_KEY: "${EKYC_STORAGE_ACCESS_KEY:?Thiếu EKYC_STORAGE_ACCESS_KEY trong deploy.env}"
+      EKYC_STORAGE_SECRET_KEY: "${EKYC_STORAGE_SECRET_KEY:?Thiếu EKYC_STORAGE_SECRET_KEY trong deploy.env}"
+      EKYC_STORAGE_ENV: azure
+      EKYC_STORAGE_LOCATION_TEXT: "máy chủ của FINORA tại Malaysia (Microsoft Azure)"
       NOTIFICATION_SERVICE_URL: http://notification:8086
       # Nhật ký hoạt động của web quản trị: đọc Log Analytics finora-logs bằng managed identity của VM
       # (role "Log Analytics Reader" trên workspace).
       ACTIVITY_LOG_WORKSPACE_ID: e4914452-f027-426c-8315-6e8fa9ff614f
       CIC_SERVICE_URL: ${CIC_SERVICE_URL:-https://cic-service-node.vercel.app}
-      USER_CIC_MAPPING_ENABLED: "${USER_CIC_MAPPING_ENABLED:-false}"
-      CIC_INTERNAL_API_KEY: "${CIC_INTERNAL_API_KEY:-}"
+      # Sau eKYC, User đăng ký mapping borrowerId ↔ CCCD vào CIC để CIC gắn nợ quá hạn từ Loan vào đúng hồ sơ.
+      USER_CIC_MAPPING_ENABLED: "${USER_CIC_MAPPING_ENABLED:-true}"
+      CIC_INTERNAL_API_KEY: "${CIC_INTERNAL_API_KEY:?Thiếu CIC_INTERNAL_API_KEY (trùng biến cùng tên trên Vercel của CIC) trong deploy.env}"
       # Web chạy trên Vercel và gọi API qua rewrite của Vercel, nên cookie phải mang domain
       # của web; domain mặc định `localhost` sẽ bị trình duyệt bỏ.
       AUTH_COOKIE_DOMAIN: "${WEB_DOMAIN:?Thiếu WEB_DOMAIN (domain Vercel của web) trong deploy/.env}"
@@ -272,6 +367,8 @@ services:
     depends_on:
       keycloak:
         condition: service_healthy
+      seaweedfs-init:
+        condition: service_completed_successfully
     healthcheck:
       <<: *readiness-check
       test:
@@ -399,6 +496,10 @@ services:
       FINERACT_DISBURSEMENT_PAYMENT_TYPE_ID: ${FINERACT_DISBURSEMENT_PAYMENT_TYPE_ID:-1}
       FINERACT_CLIENT_LEGAL_FORM_ID: ${FINERACT_CLIENT_LEGAL_FORM_ID:-1}
       LOAN_DELINQUENCY_CHANGED_TOPIC: ${LOAN_DELINQUENCY_CHANGED_TOPIC:-finora.loan.delinquency-changed}
+      # Relay LoanDelinquencyChanged sang CIC (Vercel không consume Kafka): nhóm nợ 3–5 thành nợ xấu trên CIC.
+      LOAN_CIC_DELINQUENCY_RELAY_ENABLED: "${LOAN_CIC_DELINQUENCY_RELAY_ENABLED:-true}"
+      CIC_SERVICE_URL: ${CIC_SERVICE_URL:-https://cic-service-node.vercel.app}
+      CIC_INTERNAL_API_KEY: "${CIC_INTERNAL_API_KEY:?Thiếu CIC_INTERNAL_API_KEY (trùng biến cùng tên trên Vercel của CIC) trong deploy.env}"
       LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC: ${LOAN_RESCHEDULE_CONSENT_REQUESTED_TOPIC:-finora.loan.reschedule-consent-requested}
       INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC: ${INVESTMENT_RESCHEDULE_CONSENT_COMPLETED_TOPIC:-finora.investment.reschedule-consent-completed}
       LOAN_SERVICING_SYNC_ENABLED: ${LOAN_SERVICING_SYNC_ENABLED:-true}
@@ -700,6 +801,7 @@ volumes:
   fabric-orderer-data:
   fabric-peer0-org1-data:
   fabric-peer0-org2-data:
+  seaweedfs-data:
 
 networks:
   finora:

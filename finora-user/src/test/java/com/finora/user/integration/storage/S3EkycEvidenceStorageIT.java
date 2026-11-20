@@ -21,12 +21,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * Chạy thật với kho S3-compatible (SeaweedFS local). Mặc định bị bỏ qua; bật bằng biến môi trường:
  * <pre>
- * EKYC_S3_IT_ENDPOINT=http://127.0.0.1:9100 EKYC_S3_IT_ACCESS_KEY=… EKYC_S3_IT_SECRET_KEY=…
- * [EKYC_S3_IT_BUCKET=finora-ekyc] mvn -pl finora-user verify -Dit.test=S3EkycEvidenceStorageIT
+ * EKYC_STORAGE_IT_ENDPOINT=http://127.0.0.1:9100 EKYC_STORAGE_IT_ACCESS_KEY=… EKYC_STORAGE_IT_SECRET_KEY=…
+ * [EKYC_STORAGE_IT_BUCKET=finora-ekyc] mvn -pl finora-user verify -Dit.test=S3EkycEvidenceStorageIT
  * </pre>
  * Test chỉ ghi dưới tiền tố {@code ekyc/it-<ngẫu nhiên>/} và tự xoá sạch khi xong.
  */
-@EnabledIfEnvironmentVariable(named = "EKYC_S3_IT_ENDPOINT", matches = ".+")
+@EnabledIfEnvironmentVariable(named = "EKYC_STORAGE_IT_ENDPOINT", matches = ".+")
 class S3EkycEvidenceStorageIT {
 
     private S3Client client;
@@ -38,12 +38,12 @@ class S3EkycEvidenceStorageIT {
     void setUp() {
         EkycStorageProperties properties = new EkycStorageProperties();
         properties.setEnabled(true);
-        properties.setEndpoint(System.getenv("EKYC_S3_IT_ENDPOINT"));
+        properties.setEndpoint(System.getenv("EKYC_STORAGE_IT_ENDPOINT"));
         properties.setPathStyle(true);
         properties.setRegion("us-east-1");
-        properties.setAccessKey(System.getenv("EKYC_S3_IT_ACCESS_KEY"));
-        properties.setSecretKey(System.getenv("EKYC_S3_IT_SECRET_KEY"));
-        bucket = System.getenv().getOrDefault("EKYC_S3_IT_BUCKET", "finora-ekyc");
+        properties.setAccessKey(System.getenv("EKYC_STORAGE_IT_ACCESS_KEY"));
+        properties.setSecretKey(System.getenv("EKYC_STORAGE_IT_SECRET_KEY"));
+        bucket = System.getenv().getOrDefault("EKYC_STORAGE_IT_BUCKET", "finora-ekyc");
         client = S3EkycEvidenceStorage.buildClient(properties);
         storage = new S3EkycEvidenceStorage(client, bucket);
         prefix = "ekyc/it-" + UUID.randomUUID() + "/";

@@ -444,9 +444,9 @@ image/binary. Khi deploy dùng Amazon S3: cùng một code, chỉ đổi biến 
 ```properties
 SEAWEEDFS_ADMIN_ACCESS_KEY=<tự sinh>     # tài khoản quản trị, chỉ seaweedfs-init dùng
 SEAWEEDFS_ADMIN_SECRET_KEY=<tự sinh>
-EKYC_S3_ACCESS_KEY=<tự sinh>             # tài khoản của finora-user: chỉ Read/Write/List/Tagging trên bucket
-EKYC_S3_SECRET_KEY=<tự sinh>
-EKYC_S3_BUCKET=finora-ekyc
+EKYC_STORAGE_ACCESS_KEY=<tự sinh>             # tài khoản của finora-user: chỉ Read/Write/List/Tagging trên bucket
+EKYC_STORAGE_SECRET_KEY=<tự sinh>
+EKYC_STORAGE_BUCKET=finora-ekyc
 ```
 
 Khoá chỉ gồm chữ, số và `. _ ~ + / = -` (container sinh `s3.json` từ các biến này lúc khởi động; ký tự
@@ -474,26 +474,26 @@ Chạy trong IntelliJ, đặt trong `finora-user/.env` (xem `.env.example`):
 
 ```properties
 EKYC_EVIDENCE_ENABLED=true
-EKYC_S3_ENDPOINT=http://localhost:9100
-EKYC_S3_PATH_STYLE=true
-EKYC_S3_REGION=us-east-1
-EKYC_S3_BUCKET=finora-ekyc
-EKYC_S3_ACCESS_KEY=<giống docker/.env>
-EKYC_S3_SECRET_KEY=<giống docker/.env>
+EKYC_STORAGE_ENDPOINT=http://localhost:9100
+EKYC_STORAGE_PATH_STYLE=true
+EKYC_STORAGE_REGION=us-east-1
+EKYC_STORAGE_BUCKET=finora-ekyc
+EKYC_STORAGE_ACCESS_KEY=<giống docker/.env>
+EKYC_STORAGE_SECRET_KEY=<giống docker/.env>
 ```
 
 User gọi `/api/v1/ai/ekyc/*` bằng service account `finora-user-client` (client role `ai:ekyc:ocr`, D34/D35): cần
 `KEYCLOAK_CLIENT_SECRET` đúng trong `finora-user/.env`, không có token nội bộ riêng.
 
 Chạy trong Docker (profile `demo` hoặc `docker-compose.app.yml --profile ekyc`), compose tự trỏ
-`EKYC_S3_ENDPOINT=http://seaweedfs:8333`. Object key có dạng
-`ekyc/{EKYC_S3_ENV}/{userProfileId}/{attemptId}/{file}`, không chứa số định danh hay họ tên.
+`EKYC_STORAGE_ENDPOINT=http://seaweedfs:8333`. Object key có dạng
+`ekyc/{EKYC_STORAGE_ENV}/{userProfileId}/{attemptId}/{file}`, không chứa số định danh hay họ tên.
 
 Kiểm tra nhanh bằng AWS CLI trên máy (nếu có): `aws --endpoint-url http://localhost:9100 s3 ls s3://finora-ekyc --recursive`
 với khoá của tài khoản `finora-user`. Test tích hợp tuỳ chọn của finora-user:
 
 ```powershell
-$env:EKYC_S3_IT_ENDPOINT="http://127.0.0.1:9100"; $env:EKYC_S3_IT_ACCESS_KEY="<EKYC_S3_ACCESS_KEY>"; $env:EKYC_S3_IT_SECRET_KEY="<EKYC_S3_SECRET_KEY>"
+$env:EKYC_STORAGE_IT_ENDPOINT="http://127.0.0.1:9100"; $env:EKYC_STORAGE_IT_ACCESS_KEY="<EKYC_STORAGE_ACCESS_KEY>"; $env:EKYC_STORAGE_IT_SECRET_KEY="<EKYC_STORAGE_SECRET_KEY>"
 mvn -pl finora-user verify "-Dit.test=S3EkycEvidenceStorageIT" "-Dtest=NoSuchTest" "-Dsurefire.failIfNoSpecifiedTests=false"
 ```
 

@@ -10,11 +10,11 @@ import jakarta.validation.constraints.Size;
  * <p>
  * Server tự kiểm đồng ý điều khoản trong database; {@code consentVersion} chỉ để đối chiếu nhật ký,
  * không được tin như bằng chứng đồng ý. {@code frontSource}/{@code backSource} do client tự khai nên
- * chỉ ảnh hưởng quyết định theo hướng chặt hơn (ảnh thư viện tối đa là chờ duyệt).
+ * chỉ ghi nhật ký. Không nhận ảnh chọn từ thư viện ({@code GALLERY} → 400): chỉ ảnh chụp trực tiếp.
  *
  * @param cccdFrontBase64 ảnh mặt trước JPEG/PNG, base64 (cho phép tiền tố {@code data:image/...;base64,})
  * @param cccdBackBase64  ảnh mặt sau JPEG/PNG, base64
- * @param frontSource     {@code IN_APP_CAMERA} (mặc định) | {@code SYSTEM_CAMERA} | {@code GALLERY}
+ * @param frontSource     {@code IN_APP_CAMERA} (mặc định) | {@code SYSTEM_CAMERA}
  * @param backSource      như trên cho mặt sau
  * @param qr              mã QR mobile quét được khi ngắm, có thể {@code null}
  * @param consentVersion  phiên bản điều khoản client đang hiển thị
@@ -29,10 +29,10 @@ public record EkycVerifyRequest(
         @Size(max = 6_000_000)
         String cccdBackBase64,
 
-        @Pattern(regexp = "IN_APP_CAMERA|SYSTEM_CAMERA|GALLERY")
+        @Pattern(regexp = "IN_APP_CAMERA|SYSTEM_CAMERA", message = "Chỉ nhận ảnh chụp trực tiếp bằng camera.")
         String frontSource,
 
-        @Pattern(regexp = "IN_APP_CAMERA|SYSTEM_CAMERA|GALLERY")
+        @Pattern(regexp = "IN_APP_CAMERA|SYSTEM_CAMERA", message = "Chỉ nhận ảnh chụp trực tiếp bằng camera.")
         String backSource,
 
         @Valid

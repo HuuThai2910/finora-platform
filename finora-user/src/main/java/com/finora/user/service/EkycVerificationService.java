@@ -17,5 +17,21 @@ public interface EkycVerificationService {
 
     EkycResultResponse verify(UUID keycloakUserId, EkycVerifyRequest request);
 
-    EkycResultResponse confirm(UUID keycloakUserId, Map<String, String> edits);
+    /** Như {@link #confirm(UUID, Map, boolean)} với {@code reportIncorrect = false}. */
+    default EkycResultResponse confirm(UUID keycloakUserId, Map<String, String> edits) {
+        return confirm(keycloakUserId, edits, false);
+    }
+
+    /**
+     * Bước xác nhận bản nháp. {@code reportIncorrect}: người dùng báo thông tin đọc từ thẻ chưa đúng — bỏ qua
+     * {@code edits}, hồ sơ luôn chuyển duyệt tay kèm mã {@code USER_REPORTED_INCORRECT}.
+     */
+    EkycResultResponse confirm(UUID keycloakUserId, Map<String, String> edits, boolean reportIncorrect);
+
+    /**
+     * AI lỗi đủ số lần liên tiếp ở bước thẻ: nhận lại hai ảnh, lưu làm bằng chứng và mở lượt với bản nháp rỗng
+     * (không gọi AI). Trả {@code DRAFT_READY} + {@code manualReviewMode}; bước liveness sau đó gửi thẳng nhân viên.
+     * Chưa đủ ngưỡng → {@code 409 MANUAL_REVIEW_UNAVAILABLE}.
+     */
+    EkycResultResponse startManualReview(UUID keycloakUserId, EkycVerifyRequest request);
 }

@@ -3,6 +3,7 @@ package com.finora.user.service.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.finora.common.dto.PageResponse;
 import com.finora.common.enums.user.EkycStatus;
+import com.finora.common.enums.user.Gender;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.exception.ResourceNotFoundException;
 import com.finora.user.domain.entity.CicMappingTask;
@@ -16,6 +17,8 @@ import com.finora.user.domain.enums.EkycDocumentDecision;
 import com.finora.user.domain.enums.EkycEvidenceKind;
 import com.finora.user.domain.enums.EkycEvidenceStage;
 import com.finora.user.domain.enums.EkycLivenessResult;
+import com.finora.user.domain.model.EkycIdentityDraft;
+import com.finora.user.dto.request.EkycApproveRequest;
 import com.finora.user.dto.response.EkycAttemptDetailResponse;
 import com.finora.user.dto.response.EkycAttemptSummaryResponse;
 import com.finora.user.integration.storage.EkycStorageException;
@@ -42,6 +45,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.ByteArrayInputStream;
 import java.time.Clock;
@@ -301,5 +305,221 @@ class EkycAdminReviewServiceImplTest {
         assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.FAILED);
         assertThat(profile.getEkycCompletedAt()).isEqualTo(NOW);
         verify(claimPublisher).publish(USER_ID, EkycStatus.FAILED);
+    }
+
+    // ── Hồ sơ chuyển duyệt tay vì AI gặp sự cố ──────────────────────
+
+    /** Lượt AI lỗi ngay ở bước thẻ: bản nháp rỗng trường, không có kết quả liveness. */
+    private EkycAttempt aiUnavailableAttempt(UUID publicId) {
+        EkycAttempt aiAttempt = EkycAttempt.start(publicId, PROFILE_ID, 5L, null, EkycDocumentDecision.NEEDS_REVIEW,
+                "[\"AI_UNAVAILABLE\"]", null, NOW);
+        ReflectionTestUtils.setField(aiAttempt, "id", 102L);
+        ReflectionTestUtils.setField(aiAttempt, "version", 0L);
+        aiAttempt.recordLivenessWithoutAi("[\"AI_UNAVAILABLE\"]", NOW);
+        aiAttempt.submitForReview(attemptService.draftJson(
+                EkycIdentityDraft.withoutAiReading(publicId).withLivenessWithoutAi("VIDEO", 1)), NOW);
+        when(attemptRepository.findByPublicId(publicId)).thenReturn(Optional.of(aiAttempt));
+        lenient().when(evidenceRepository.findByAttemptIdOrderByIdAsc(102L)).thenReturn(List.of());
+        return aiAttempt;
+    }
+
+    private static EkycApproveRequest.Identity staffIdentity(String dateOfBirth) {
+        return new EkycApproveRequest.Identity("CAN_CUOC_2024", EkycTestData.ID_NUMBER, "NGUYỄN VĂN A", dateOfBirth,
+                "Nam", "Phường 1, Quận 3, TP. Hồ Chí Minh", null, "UBND Phường 1", "01/07/2024", null, true);
+    }
+
+    @Test
+    void aiUnavailableAttemptCannotBeApprovedWithoutIdentity() {
+        UUID publicId = UUID.randomUUID();
+        EkycAttempt aiAttempt = aiUnavailableAttempt(publicId);
+
+        assertThatThrownBy(() -> service.approve(publicId.toString(), ADMIN_ID, null, null))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+                    assertThat(e.getCode()).isEqualTo("IDENTITY_REQUIRED");
+                    assertThat(e.getMessage()).contains("Loại thẻ", "Số định danh", "Họ và tên");
+                });
+        assertThat(aiAttempt.getStatus()).isEqualTo(EkycAttemptStatus.MANUAL_REVIEW);
+        assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.MANUAL_REVIEW);
+        verify(claimPublisher, never()).publish(any(), any());
+    }
+
+    @Test
+    void aiUnavailableAttemptApprovedWithStaffIdentityWritesProfile() {
+        UUID publicId = UUID.randomUUID();
+        EkycAttempt aiAttempt = aiUnavailableAttempt(publicId);
+        when(cicMappingTaskRepository.findByUserProfileId(PROFILE_ID)).thenReturn(Optional.empty());
+
+        EkycAttemptDetailResponse detail = service.approve(publicId.toString(), ADMIN_ID, "đã so mặt",
+                staffIdentity("15/03/1995"));
+
+        assertThat(aiAttempt.getStatus()).isEqualTo(EkycAttemptStatus.APPROVED);
+        assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.VERIFIED);
+        assertThat(profile.getIdNumberHash()).isEqualTo(EkycTestData.hash(EkycTestData.ID_NUMBER));
+        assertThat(profile.getFullName()).isEqualTo("NGUYỄN VĂN A");
+        assertThat(profile.getGender()).isEqualTo(Gender.MALE);
+        assertThat(profile.getIdCardType()).isEqualTo("CAN_CUOC_2024");
+        assertThat(profile.getIdExpiryDate()).as("thẻ không thời hạn").isNull();
+        assertThat(profile.isLivenessVerified()).as("nhân viên đã tự so mặt trên video").isTrue();
+        assertThat(profile.getFaceMatchScore()).isNull();
+        assertThat(detail.aiUnavailable()).isTrue();
+        assertThat(detail.requiredIdentityFields()).as("đã duyệt thì không còn trường phải nhập").isEmpty();
+        assertThat(detail.draft().idNumber().sources()).containsExactly("STAFF");
+        assertThat(detail.draft().expiryDate().value()).isEqualTo("Không thời hạn");
+        verify(claimPublisher).publish(USER_ID, EkycStatus.VERIFIED);
+    }
+
+    @Test
+    void staffIdentityStillFollowsBusinessRules() {
+        UUID publicId = UUID.randomUUID();
+        EkycAttempt aiAttempt = aiUnavailableAttempt(publicId);
+
+        assertThatThrownBy(() -> service.approve(publicId.toString(), ADMIN_ID, null, staffIdentity("01/01/2010")))
+                .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getCode()).isEqualTo("UNDERAGE"));
+
+        when(userProfileRepository.existsByIdNumberHash(EkycTestData.hash(EkycTestData.ID_NUMBER))).thenReturn(true);
+        assertThatThrownBy(() -> service.approve(publicId.toString(), ADMIN_ID, null, staffIdentity("15/03/1995")))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+                    assertThat(e.getCode()).isEqualTo("ID_TAKEN");
+                });
+        assertThat(aiAttempt.getStatus()).isEqualTo(EkycAttemptStatus.MANUAL_REVIEW);
+    }
+
+    @Test
+    void identityIsRefusedForOrdinaryManualReview() {
+        assertThatThrownBy(() -> service.approve(ATTEMPT_ID.toString(), ADMIN_ID, null, staffIdentity("15/03/1995")))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("IDENTITY_NOT_ALLOWED"));
+        assertThat(attempt.getStatus()).isEqualTo(EkycAttemptStatus.MANUAL_REVIEW);
+    }
+
+    @Test
+    void livenessOnlyOutageApprovesWithoutIdentityAndCountsStaffFaceCheck() {
+        // AI đọc thẻ được, chỉ lỗi ở bước so mặt: bản nháp đủ trường, nhân viên chỉ cần so mặt.
+        EkycAttempt faceOnly = EkycTestData.attempt(103L, UUID.randomUUID(), PROFILE_ID, EkycDocumentDecision.AUTO_OK, NOW);
+        faceOnly.recordLivenessWithoutAi("[\"AI_UNAVAILABLE\"]", NOW);
+        faceOnly.submitForReview(attemptService.draftJson(EkycTestData.draft(faceOnly.getPublicId(),
+                EkycDocumentDecision.AUTO_OK, null).withLivenessWithoutAi("VIDEO", 1).withoutBiometrics()), NOW);
+        when(attemptRepository.findByPublicId(faceOnly.getPublicId())).thenReturn(Optional.of(faceOnly));
+        when(evidenceRepository.findByAttemptIdOrderByIdAsc(103L)).thenReturn(List.of());
+        when(cicMappingTaskRepository.findByUserProfileId(PROFILE_ID)).thenReturn(Optional.empty());
+
+        EkycAttemptDetailResponse before = service.detail(faceOnly.getPublicId().toString(), ADMIN_ID);
+        assertThat(before.aiUnavailable()).isTrue();
+        assertThat(before.requiredIdentityFields()).isEmpty();
+
+        EkycAttemptDetailResponse detail = service.approve(faceOnly.getPublicId().toString(), ADMIN_ID, null, null);
+
+        assertThat(detail.status()).isEqualTo("APPROVED");
+        assertThat(profile.isLivenessVerified()).isTrue();
+        assertThat(profile.getIdNumberHash()).isEqualTo(EkycTestData.hash(EkycTestData.ID_NUMBER));
+    }
+
+    @Test
+    void detailAndListFlagAiOutageAndRequiredFields() {
+        UUID publicId = UUID.randomUUID();
+        EkycAttempt aiAttempt = aiUnavailableAttempt(publicId);
+        when(attemptRepository.findSummariesByStatus(eq(EkycAttemptStatus.MANUAL_REVIEW), any())).thenAnswer(invocation ->
+                new PageImpl<>(List.of(new EkycAttemptSummaryRow(aiAttempt, "nguoidung@example.test"),
+                        new EkycAttemptSummaryRow(attempt, "khac@example.test")), invocation.getArgument(1), 2));
+
+        EkycAttemptDetailResponse detail = service.detail(publicId.toString(), ADMIN_ID);
+        PageResponse<EkycAttemptSummaryResponse> page = service.list(null, 0, 20);
+
+        assertThat(detail.aiUnavailable()).isTrue();
+        assertThat(detail.requiredIdentityFields()).containsExactly(
+                "cardType", "idNumber", "fullName", "dateOfBirth", "gender", "issueDate", "expiryDate");
+        assertThat(detail.faceMatchScore()).isNull();
+        assertThat(page.getContent()).extracting(EkycAttemptSummaryResponse::aiUnavailable).containsExactly(true, false);
+    }
+
+    @Test
+    void withdrawnAttemptShowsStatusAndCannotBeDecided() {
+        attempt.withdrawFromReview(NOW);
+        profile.resetEkycAfterReviewWithdrawal();
+
+        EkycAttemptDetailResponse detail = service.detail(ATTEMPT_ID.toString(), ADMIN_ID);
+        assertThat(detail.status()).isEqualTo("WITHDRAWN");
+        assertThat(detail.draft()).as("bản nháp bị xoá khi rút lại").isNull();
+
+        assertThatThrownBy(() -> service.approve(ATTEMPT_ID.toString(), ADMIN_ID, null))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+                    assertThat(e.getCode()).isEqualTo("ATTEMPT_WITHDRAWN");
+                    assertThat(e.getMessage()).isEqualTo("Người dùng đã rút lại hồ sơ này.");
+                });
+        assertThatThrownBy(() -> service.reject(ATTEMPT_ID.toString(), ADMIN_ID, "sai"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("ATTEMPT_WITHDRAWN"));
+        verify(claimPublisher, never()).publish(any(), any());
+    }
+
+    // ── Hồ sơ người dùng báo thông tin đọc từ thẻ chưa đúng ─────────
+
+    /** Lượt người dùng báo sai: đọc thẻ AUTO_OK, liveness đạt, đã gửi duyệt kèm mã USER_REPORTED_INCORRECT. */
+    private EkycAttempt userReportedAttempt(UUID publicId) {
+        EkycAttempt reported = EkycTestData.attempt(104L, publicId, PROFILE_ID, EkycDocumentDecision.AUTO_OK, NOW);
+        reported.recordLiveness(EkycLivenessResult.PASS, "[\"ACTIONS_MATCH\",\"FACE_MATCH_HIGH\"]", 0.52,
+                "doc,liveness", NOW);
+        reported.replaceDocumentReasons("[\"QR_MRZ_AGREE\",\"USER_REPORTED_INCORRECT\"]", NOW);
+        reported.submitForReview(attemptService.draftJson(EkycTestData.draft(publicId, EkycDocumentDecision.AUTO_OK,
+                EkycLivenessResult.PASS).withUserReportedIncorrect().withoutBiometrics()), NOW);
+        when(attemptRepository.findByPublicId(publicId)).thenReturn(Optional.of(reported));
+        lenient().when(evidenceRepository.findByAttemptIdOrderByIdAsc(104L)).thenReturn(List.of());
+        return reported;
+    }
+
+    @Test
+    void userReportedAttemptApprovedWithCorrectionsWritesProfile() {
+        UUID publicId = UUID.randomUUID();
+        EkycAttempt reported = userReportedAttempt(publicId);
+        when(cicMappingTaskRepository.findByUserProfileId(PROFILE_ID)).thenReturn(Optional.empty());
+        EkycApproveRequest.Identity corrections = new EkycApproveRequest.Identity(null, null, "NGUYỄN VĂN AN",
+                null, null, "Số 9 Lê Lợi, Quận 1, TP. Hồ Chí Minh", null, null, null, null, null);
+
+        EkycAttemptDetailResponse detail = service.approve(publicId.toString(), ADMIN_ID, "sửa họ tên", corrections);
+
+        assertThat(reported.getStatus()).isEqualTo(EkycAttemptStatus.APPROVED);
+        assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.VERIFIED);
+        assertThat(profile.getFullName()).isEqualTo("NGUYỄN VĂN AN");
+        assertThat(profile.getAddress()).isEqualTo("Số 9 Lê Lợi, Quận 1, TP. Hồ Chí Minh");
+        assertThat(profile.getIdNumberHash()).isEqualTo(EkycTestData.hash(EkycTestData.ID_NUMBER));
+        assertThat(profile.isLivenessVerified()).as("giữ kết quả so mặt của AI").isTrue();
+        assertThat(profile.getFaceMatchScore()).isEqualTo(0.52);
+        assertThat(detail.userReportedIncorrect()).isTrue();
+        assertThat(detail.draft().fullName().sources()).containsExactly("STAFF");
+        assertThat(detail.draft().idNumber().sources()).containsExactly("QR", "MRZ");
+        verify(claimPublisher).publish(USER_ID, EkycStatus.VERIFIED);
+    }
+
+    @Test
+    void userReportedAttemptCanBeApprovedWithoutChanges() {
+        UUID publicId = UUID.randomUUID();
+        EkycAttempt reported = userReportedAttempt(publicId);
+        when(cicMappingTaskRepository.findByUserProfileId(PROFILE_ID)).thenReturn(Optional.empty());
+
+        service.approve(publicId.toString(), ADMIN_ID, "thông tin đúng như thẻ", null);
+
+        assertThat(reported.getStatus()).isEqualTo(EkycAttemptStatus.APPROVED);
+        assertThat(profile.getFullName()).isEqualTo("NGUYỄN VĂN A");
+    }
+
+    @Test
+    void detailAndListFlagUserReportedIncorrect() {
+        UUID publicId = UUID.randomUUID();
+        EkycAttempt reported = userReportedAttempt(publicId);
+        when(attemptRepository.findSummariesByStatus(eq(EkycAttemptStatus.MANUAL_REVIEW), any())).thenAnswer(invocation ->
+                new PageImpl<>(List.of(new EkycAttemptSummaryRow(reported, "nguoidung@example.test"),
+                        new EkycAttemptSummaryRow(attempt, "khac@example.test")), invocation.getArgument(1), 2));
+
+        EkycAttemptDetailResponse detail = service.detail(publicId.toString(), ADMIN_ID);
+        PageResponse<EkycAttemptSummaryResponse> page = service.list(null, 0, 20);
+
+        assertThat(detail.userReportedIncorrect()).isTrue();
+        assertThat(detail.aiUnavailable()).isFalse();
+        assertThat(detail.requiredIdentityFields()).as("bản nháp đã đủ trường").isEmpty();
+        assertThat(page.getContent()).extracting(EkycAttemptSummaryResponse::userReportedIncorrect)
+                .containsExactly(true, false);
     }
 }

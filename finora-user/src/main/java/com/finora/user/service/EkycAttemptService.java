@@ -39,6 +39,11 @@ public interface EkycAttemptService {
                         Collection<StoredEvidence> evidence, Instant now);
 
     /**
+     * Video gửi ở chế độ duyệt tay vì AI lỗi: lưu bằng chứng, xoá kết luận AI cũ của lượt, lý do {@code AI_UNAVAILABLE}.
+     */
+    void recordLivenessWithoutAi(EkycAttempt attempt, Collection<StoredEvidence> evidence, Instant now);
+
+    /**
      * Xác minh tự động: ghi định danh vào hồ sơ, hồ sơ + lượt VERIFIED, bằng chứng sang {@code final},
      * thêm {@code result.json} và task ánh xạ CIC — cùng một transaction.
      */

@@ -58,10 +58,20 @@ eKYC là chức năng tuỳ chọn mở từ tab Hồ sơ (không ép sau đăng
 4. **Duyệt tay (web admin):** `/api/v1/admin/users/ekyc-attempts…` xem danh sách/chi tiết, stream bằng chứng qua User
    (ghi `ekyc_evidence_access_log` mỗi lần mở), duyệt → `VERIFIED` + task CIC, từ chối → `FAILED`; `@Version` chặn
    hai người duyệt cùng lúc (`409 ATTEMPT_ALREADY_DECIDED`).
+   **AI gặp sự cố (17/11, EKYC-002 mục 11):** User đếm lỗi AI liên tiếp (kho tạm, mặc định 3 lần/1 giờ, gộp bước thẻ và
+   liveness, AI trả lời được thì xoá). Đủ ngưỡng thì `AI_UNAVAILABLE` kèm `manualReviewAvailable`; người dùng gửi lại ảnh
+   (`POST …/ekyc-manual-review`) hoặc video (`reviewMode=MANUAL`) — User lưu bằng chứng **không gọi AI** và chuyển
+   `MANUAL_REVIEW` (lý do `AI_UNAVAILABLE`); kho lỗi vẫn `STORAGE_UNAVAILABLE`, không gửi duyệt khi thiếu bằng chứng. Nhân
+   viên duyệt phải nhập trường định danh còn trống (`approve.identity`). Hợp đồng finora-ai không đổi.
+   **Rút lại (17/11):** `POST …/ekyc-withdraw` khi lượt mới nhất còn `MANUAL_REVIEW` → lượt `WITHDRAWN`, hồ sơ `PENDING`,
+   claim sau commit, xoá bằng chứng như lượt bỏ dở; tranh chấp với nhân viên giải bằng `@Version` (bên sau `409`).
+   **Báo sai (19/11, EKYC-002 mục 12):** từ lần soát thứ 3 người dùng bấm "Sai thông tin" thì app gửi `ekyc-confirm` với
+   `reportIncorrect=true` (số lần đếm trên app) → bỏ qua `edits`, lượt + hồ sơ `MANUAL_REVIEW`, mã `USER_REPORTED_INCORRECT`;
+   nhân viên duyệt được sửa mọi trường (`approve.identity`, nguồn `STAFF`). Ảnh nguồn `GALLERY` bị từ chối (400).
 5. **Ánh xạ CIC:** worker User lấy task bằng lease, giải mã CCCD just-in-time rồi gọi API nội bộ CIC với
    ID hồ sơ `user_profiles.id` (claim `user_id`, B26) làm `borrowerId`. CIC tắt không rollback eKYC; task retry lũy tiến và request lặp được CIC xử lý
    idempotent. CCCD không đi qua Kafka/log/bảng task.
-6. **Quét dọn (mỗi giờ):** lượt `IN_PROGRESS` quá 24 giờ → `ABANDONED`; xoá object của lượt bỏ, object `final` quá
+6. **Quét dọn (mỗi giờ):** lượt `IN_PROGRESS` quá 24 giờ → `ABANDONED`; xoá object của lượt bỏ (và lượt người dùng rút lại `WITHDRAWN`), object `final` quá
    hạn lưu (`EKYC_EVIDENCE_RETENTION_DAYS`) và object tạo trước lần rút đồng ý. Vòng đời bucket chỉ là lớp phòng thủ thêm.
 
 **State authority:** AI không giữ trạng thái và không quyết luật nghiệp vụ; User quyết `VERIFIED`/`MANUAL_REVIEW`/
@@ -349,6 +359,10 @@ consumer group riêng `loan-cic-delinquency-relay` đọc cùng topic và gửi 
 vào DLT ngay; timeout/408/429/5xx retry lũy tiến tối đa theo cấu hình rồi vào
 `finora.loan.delinquency-changed.cic.DLT`. Cờ `LOAN_CIC_DELINQUENCY_RELAY_ENABLED` mặc định `false`;
 chưa coi là đã vận hành trên deploy cho tới khi Hải review/deploy CIC và N03 bảo đảm kho bền, riêng tư.
+
+**Cập nhật 2026-11-16:** theo yêu cầu của Hải, `deploy/docker-compose.azure.yml` bật mặc định
+`LOAN_CIC_DELINQUENCY_RELAY_ENABLED` và `USER_CIC_MAPPING_ENABLED` cho bản Azure, `CIC_INTERNAL_API_KEY`
+bắt buộc trong `deploy.env`. Máy dev và `application.yml` vẫn mặc định tắt. Chưa deploy.
 
 **Đính chính 2026-10-17 (B28, B29):** với sản phẩm core V1–V3 (tắt `isInterestRecalculationEnabled`), báo giá tất
 toán (`prepayLoan`) gồm toàn bộ lãi các kỳ còn lại và khoản trả thêm theo `NEXT_INSTALLMENT` trả trọn kỳ tương lai kể

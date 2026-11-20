@@ -11,6 +11,7 @@ import com.finora.user.dto.response.KycSummaryResponse;
 import com.finora.user.dto.response.MyEkycStatusResponse;
 import com.finora.user.dto.response.UserProfileResponse;
 import com.finora.user.service.AuthService;
+import com.finora.user.service.EkycReviewWithdrawalService;
 import com.finora.user.service.EkycVerificationService;
 import com.finora.user.service.KycSummaryService;
 import com.finora.user.service.UserProfileService;
@@ -40,6 +41,7 @@ public class UserProfileController {
 
     private final UserProfileService userProfileService;
     private final EkycVerificationService ekycVerificationService;
+    private final EkycReviewWithdrawalService ekycReviewWithdrawalService;
     private final KycSummaryService kycSummaryService;
     private final AuthService authService;
 
@@ -109,9 +111,36 @@ public class UserProfileController {
     }
 
     /**
+     * AI gặp sự cố đủ số lần liên tiếp ở bước quét thẻ: gửi lại đúng hai ảnh để lưu làm bằng chứng và chuyển nhân
+     * viên duyệt (không gọi AI). Trả {@code DRAFT_READY} + {@code manualReviewMode=true}; bước kiểm tra khuôn mặt
+     * sau đó gửi thẳng nhân viên. AI chưa lỗi đủ số lần → {@code 409 MANUAL_REVIEW_UNAVAILABLE}.
+     */
+    @PostMapping("/profile/ekyc-manual-review")
+    @PreAuthorize("hasAuthority('user:cccd:scan')")
+    // Dùng chung giới hạn với ekyc-verify: cùng là gửi ảnh giấy tờ, không mở thêm đường spam.
+    @RateLimited(value = "ekyc.ocr", limit = 5, window = "PT10M")
+    public BaseResponse<EkycResultResponse> startEkycManualReview(@Valid @RequestBody EkycVerifyRequest request) {
+        return BaseResponse.success(ekycVerificationService.startManualReview(
+                SecurityUtils.getCurrentKeycloakUserId(), request));
+    }
+
+    /**
+     * Rút lại hồ sơ đang chờ nhân viên duyệt (nhân viên chưa duyệt/từ chối) để gửi hồ sơ mới. Hồ sơ về chưa xác minh;
+     * nhân viên vừa xử lý xong → {@code 409 ATTEMPT_ALREADY_DECIDED}, không có hồ sơ chờ duyệt →
+     * {@code 409 EKYC_NOT_WITHDRAWABLE}.
+     */
+    @PostMapping("/profile/ekyc-withdraw")
+    @PreAuthorize("hasAuthority('user:cccd:scan')")
+    @RateLimited(value = "ekyc.withdraw", limit = 5, window = "PT10M")
+    public BaseResponse<MyEkycStatusResponse> withdrawEkycReview() {
+        return BaseResponse.success(ekycReviewWithdrawalService.withdraw(SecurityUtils.getCurrentKeycloakUserId()));
+    }
+
+    /**
      * Bước xác nhận: cần đã qua kiểm tra khuôn mặt. Body tuỳ chọn {@code {"edits": {...}}} chỉ sửa được
      * trường {@code editable}; dữ liệu còn lại đọc từ bản nháp phía server để client không sửa được
-     * thông tin đã đọc từ thẻ.
+     * thông tin đã đọc từ thẻ. {@code {"reportIncorrect": true}}: người dùng báo thông tin đọc từ thẻ chưa đúng
+     * (lần soát thứ 3) — bỏ qua {@code edits}, hồ sơ chuyển nhân viên duyệt.
      */
     @PostMapping("/profile/ekyc-confirm")
     @PreAuthorize("hasAuthority('user:cccd:scan')")
@@ -119,6 +148,6 @@ public class UserProfileController {
             @Valid @RequestBody(required = false) EkycConfirmRequest request) {
         UUID keycloakUserId = SecurityUtils.getCurrentKeycloakUserId();
         return BaseResponse.success(ekycVerificationService.confirm(
-                keycloakUserId, request == null ? null : request.edits()));
+                keycloakUserId, request == null ? null : request.edits(), request != null && request.reportsIncorrect()));
     }
 }
