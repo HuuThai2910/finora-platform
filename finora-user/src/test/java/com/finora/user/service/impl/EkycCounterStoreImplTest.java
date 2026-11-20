@@ -80,4 +80,20 @@ class EkycCounterStoreImplTest {
         assertThat(store.registerMedia("abc")).as("gửi lại đúng file là phát lại").isFalse();
         verify(temporaryStore, never()).put(anyString(), anyString(), any(Duration.class));
     }
+
+    @Test
+    void aiFailureCounterRefreshesTtlAndResets() {
+        when(temporaryStore.incrementRefreshingTtl("ekyc_ai_failure:" + USER_ID, Duration.ofHours(1)))
+                .thenReturn(1L, 2L);
+        when(temporaryStore.findCounter("ekyc_ai_failure:" + USER_ID)).thenReturn(2L);
+
+        assertThat(store.recordAiFailure(USER_ID, Duration.ofHours(1))).isEqualTo(1);
+        assertThat(store.recordAiFailure(USER_ID, Duration.ofHours(1))).isEqualTo(2);
+        assertThat(store.currentAiFailures(USER_ID)).isEqualTo(2);
+        store.resetAiFailures(USER_ID);
+
+        // Lỗi liên tiếp: TTL tính từ lần lỗi gần nhất, không phải cửa sổ cố định từ lần đầu.
+        verify(temporaryStore, never()).incrementWithinWindow(anyString(), any(Duration.class));
+        verify(temporaryStore).deleteCounter("ekyc_ai_failure:" + USER_ID);
+    }
 }

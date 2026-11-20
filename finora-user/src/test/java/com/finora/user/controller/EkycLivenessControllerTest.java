@@ -107,6 +107,28 @@ class EkycLivenessControllerTest {
         assertThat(upload.getValue().video().bytes()).isEqualTo(video);
         assertThat(upload.getValue().video().contentType()).isEqualTo("video/mp4");
         assertThat(upload.getValue().frames()).isEmpty();
+        assertThat(upload.getValue().reviewMode()).isNull();
+    }
+
+    @Test
+    void manualReviewModeIsPassedToService() throws Exception {
+        authenticateWith("user:cccd:scan");
+        when(livenessService.submit(eq(USER_ID), any())).thenReturn(new EkycResultResponse(EkycStatus.MANUAL_REVIEW,
+                EkycResultCode.REVIEW_PENDING, "m", List.of(), null, true, List.of(), null, EkycNextStep.NONE,
+                null, null));
+        byte[] video = {0, 0, 0, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'};
+
+        mockMvc.perform(multipart(BASE)
+                        .file(new MockMultipartFile("video", "liveness.mp4", "video/mp4", video))
+                        .param("sessionId", "99999999-8888-7777-6666-555555555555")
+                        .param("captureMode", "VIDEO")
+                        .param("reviewMode", "MANUAL"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.resultCode").value("REVIEW_PENDING"));
+
+        ArgumentCaptor<LivenessUpload> upload = ArgumentCaptor.forClass(LivenessUpload.class);
+        verify(livenessService).submit(eq(USER_ID), upload.capture());
+        assertThat(upload.getValue().reviewMode()).isEqualTo("MANUAL");
     }
 
     @Test

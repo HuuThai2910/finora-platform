@@ -117,14 +117,18 @@ finora:
     # Deploy: Amazon S3 — bỏ trống endpoint và path-style, đặt region của bucket.
     storage:
       enabled: ${EKYC_EVIDENCE_ENABLED:false}
-      endpoint: ${EKYC_S3_ENDPOINT:}
-      region: ${EKYC_S3_REGION:us-east-1}
-      bucket: ${EKYC_S3_BUCKET:finora-ekyc}
-      path-style: ${EKYC_S3_PATH_STYLE:false}
-      access-key: ${EKYC_S3_ACCESS_KEY:}
-      secret-key: ${EKYC_S3_SECRET_KEY:}
-      env: ${EKYC_S3_ENV:dev}
+      endpoint: ${EKYC_STORAGE_ENDPOINT:}
+      region: ${EKYC_STORAGE_REGION:us-east-1}
+      bucket: ${EKYC_STORAGE_BUCKET:finora-ekyc}
+      path-style: ${EKYC_STORAGE_PATH_STYLE:false}
+      access-key: ${EKYC_STORAGE_ACCESS_KEY:}
+      secret-key: ${EKYC_STORAGE_SECRET_KEY:}
+      env: ${EKYC_STORAGE_ENV:dev}
       retention-days: ${EKYC_EVIDENCE_RETENTION_DAYS:30}
+    # AI lỗi liên tiếp đủ ngưỡng (gộp bước đọc thẻ và liveness) thì người dùng được gửi hồ sơ cho nhân viên duyệt tay.
+    manual-review:
+      ai-failure-threshold: ${EKYC_AI_FAILURE_THRESHOLD:3}
+      ai-failure-window: ${EKYC_AI_FAILURE_WINDOW:PT1H}
     sweeper:
       enabled: ${EKYC_SWEEPER_ENABLED:true}
       interval-ms: ${EKYC_SWEEPER_INTERVAL_MS:3600000}

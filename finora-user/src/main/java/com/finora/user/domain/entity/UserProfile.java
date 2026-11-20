@@ -218,6 +218,20 @@ public class UserProfile {
         this.faceMatchScore = null;
     }
 
+    /**
+     * Người dùng rút lại hồ sơ đang chờ duyệt: hồ sơ về chưa xác minh để làm lại từ đầu. Số định danh (nếu có từ lần
+     * xác minh trước) giữ nguyên như khi rút đồng ý.
+     */
+    public void resetEkycAfterReviewWithdrawal() {
+        if (ekycStatus == EkycStatus.MANUAL_REVIEW) {
+            this.ekycStatus = EkycStatus.PENDING;
+            this.ekycCompletedAt = null;
+        }
+        this.documentVerified = false;
+        this.livenessVerified = false;
+        this.faceMatchScore = null;
+    }
+
     /** Ghi lý do khóa; lý do đã được kiểm không rỗng ở tầng service. */
     public void markLocked(String reason, UUID lockedBy, Instant now) {
         this.lockReason = reason.length() <= 500 ? reason : reason.substring(0, 500);

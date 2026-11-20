@@ -11,6 +11,7 @@ import com.finora.common.util.Sha256;
 import com.finora.user.domain.entity.EkycAttempt;
 import com.finora.user.domain.entity.EkycEvidence;
 import com.finora.user.domain.entity.UserProfile;
+import com.finora.user.domain.enums.EkycEvidenceKind;
 import com.finora.user.domain.enums.EkycLivenessResult;
 import com.finora.user.domain.model.EkycIdentityDraft;
 import com.finora.user.domain.model.LivenessStep;
@@ -28,6 +29,7 @@ import com.finora.user.mapper.EkycResultMapper;
 import com.finora.user.repository.EkycAttemptRepository;
 import com.finora.user.repository.EkycEvidenceRepository;
 import com.finora.user.repository.UserProfileRepository;
+import com.finora.user.service.EkycAiOutageService;
 import com.finora.user.service.EkycAttemptService;
 import com.finora.user.service.EkycChallengeStore.StoredChallenge;
 import com.finora.user.service.EkycChallengeStore;
@@ -70,6 +72,11 @@ import java.util.UUID;
  * kiểm kích thước/kiểu → chống phát lại bằng SHA-256 → AI chấm → lưu video và khung bằng chứng → ghi
  * kết quả vào lượt và bản nháp → ánh xạ mã. Trượt 3 lần trong 24 giờ thì lượt và hồ sơ chuyển duyệt
  * tay kèm bản nháp mã hoá để nhân viên duyệt được. Không giữ transaction trong lúc gọi AI hay kho lưu.
+ * <p>
+ * <b>AI gặp sự cố</b>: trả {@code AI_UNAVAILABLE} (không tính lượt, trả suất) và đếm lỗi liên tiếp; đủ ngưỡng thì
+ * người dùng gửi lại với {@code reviewMode=MANUAL}. Bản nháp tạo ở bước thẻ khi AI lỗi (không có embedding chân
+ * dung) luôn đi chế độ này. Chế độ duyệt tay giữ nguyên rate limit, thử thách, chống phát lại và lưu video, nhưng
+ * không gọi AI: lượt chuyển {@code MANUAL_REVIEW} với lý do {@code AI_UNAVAILABLE}, điểm so mặt rỗng.
  */
 @Service
 @Slf4j
@@ -84,6 +91,7 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
     static final String MODE_VIDEO = "VIDEO";
     static final String MODE_STILLS = "STILLS";
     static final String MEDIA_REPLAYED = "MEDIA_REPLAYED";
+    static final String REVIEW_MODE_MANUAL = "MANUAL";
 
     private static final TypeReference<List<Long>> LONG_LIST = new TypeReference<>() {
     };
@@ -102,6 +110,7 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
     private final EkycResultFile ekycResultFile;
     private final EkycSessionCleanup ekycSessionCleanup;
     private final EkycClaimPublisher ekycClaimPublisher;
+    private final EkycAiOutageService ekycAiOutageService;
     private final LivenessChallengeGenerator livenessChallengeGenerator;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
@@ -150,6 +159,13 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
         if (!ekycRateLimitService.tryAcquireLivenessSlot(keycloakUserId)) {
             return EkycResultMapper.simple(status, EkycResultCode.RATE_LIMITED, EkycNextStep.LIVENESS);
         }
+        // 1b. Xin duyệt tay: server tự kiểm ngưỡng lỗi AI trước khi tiêu thử thách (không tin cờ của client).
+        boolean manualRequested = REVIEW_MODE_MANUAL.equalsIgnoreCase(
+                upload.reviewMode() == null ? "" : upload.reviewMode().trim());
+        if (manualRequested && !ekycAiOutageService.isManualReviewAvailable(keycloakUserId)
+                && ekycDraftStore.find(keycloakUserId).filter(EkycIdentityDraft::cardReadWithoutAi).isEmpty()) {
+            throw EkycVerificationServiceImpl.manualReviewUnavailable();
+        }
         // 2. Thử thách dùng một lần (lấy và xoá trong một câu lệnh), đúng phiên và còn hạn
         Optional<StoredChallenge> challenge = ekycChallengeStore.consume(keycloakUserId);
         if (challenge.isEmpty() || !matchesSession(challenge.get(), upload.sessionId())
@@ -179,6 +195,10 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
             return recordFailure(keycloakUserId, profile, attempt, draft, List.of(MEDIA_REPLAYED), null,
                     draft.livenessThresholdsVersion(), media.captureMode(), draft.livenessRound(), List.of(), now);
         }
+        // 5b. AI đang lỗi (người dùng xin duyệt tay) hoặc thẻ chưa được AI đọc (không có embedding để so mặt)
+        if (manualRequested || draft.cardReadWithoutAi()) {
+            return submitWithoutAi(keycloakUserId, profile, attempt, draft, media, now);
+        }
         // 6. AI chấm
         LivenessResult result;
         try {
@@ -188,15 +208,19 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
                     media.toClientMedia());
         } catch (AiLivenessException e) {
             if (e.isInvalidInput()) {
+                ekycAiOutageService.recordSuccess(keycloakUserId);
                 log.info("AI không đọc được video liveness: userProfileId={}, status={}", profile.getId(), e.getStatus());
                 return EkycResultMapper.liveness(status, EkycResultCode.RETAKE,
                         EkycMessages.livenessReason("VIDEO_UNREADABLE").orElse(EkycMessages.LIVENESS_RETAKE),
                         draft, EkycNextStep.LIVENESS, null, "RETAKE", null, List.of("VIDEO_UNREADABLE"), false);
             }
             ekycRateLimitService.releaseLivenessSlot(keycloakUserId);
-            log.warn("Không gọi được AI chấm liveness: userProfileId={}, status={}", profile.getId(), e.getStatus());
-            return EkycResultMapper.simple(status, EkycResultCode.AI_UNAVAILABLE, EkycNextStep.LIVENESS);
+            boolean manualReviewAvailable = ekycAiOutageService.recordFailure(keycloakUserId);
+            log.warn("Không gọi được AI chấm liveness: userProfileId={}, status={}, manualReviewAvailable={}",
+                    profile.getId(), e.getStatus(), manualReviewAvailable);
+            return EkycResultMapper.aiUnavailable(status, EkycNextStep.LIVENESS, manualReviewAvailable);
         }
+        ekycAiOutageService.recordSuccess(keycloakUserId);
         // 7. Lưu video/ảnh và khung bằng chứng
         int round = draft.livenessRound() + 1;
         List<StoredEvidence> stored;
@@ -331,6 +355,91 @@ public class EkycLivenessServiceImpl implements EkycLivenessService {
         return EkycResultMapper.liveness(EkycStatus.MANUAL_REVIEW, EkycResultCode.REVIEW_PENDING,
                 EkycMessages.result(EkycResultCode.REVIEW_PENDING), draft, EkycNextStep.NONE, 0, "FAILED",
                 score, reasons, false);
+    }
+
+    /**
+     * Chế độ duyệt tay khi AI gặp sự cố: lưu video/ảnh làm bằng chứng (không gọi AI), kiểm còn đủ ảnh hai mặt thẻ,
+     * ghi {@code result.json} rồi chuyển lượt + hồ sơ {@code MANUAL_REVIEW}. Kho lỗi ở bất kỳ bước nào → giữ nguyên
+     * trạng thái và trả {@code STORAGE_UNAVAILABLE}: không bao giờ gửi duyệt khi thiếu bằng chứng.
+     */
+    private EkycResultResponse submitWithoutAi(UUID keycloakUserId, UserProfile profile, EkycAttempt attempt,
+                                               EkycIdentityDraft draft, PreparedMedia media, Instant now) {
+        EkycStatus status = profile.getEkycStatus();
+        int round = draft.livenessRound() + 1;
+        List<StoredEvidence> stored;
+        try {
+            stored = ekycEvidenceService.storeLiveness(profile.getId(), draft.attemptId(), round,
+                    media.video(), media.stills(), List.of());
+        } catch (EkycStorageException e) {
+            log.warn("Không lưu được video liveness (duyệt tay vì AI lỗi): userProfileId={}, attemptId={}, cause={}",
+                    profile.getId(), draft.attemptId(), e.getMessage());
+            return EkycResultMapper.simple(status, EkycResultCode.STORAGE_UNAVAILABLE, EkycNextStep.LIVENESS);
+        }
+        EkycIdentityDraft updated = draft.withLivenessWithoutAi(media.captureMode(), round);
+        Boolean persisted = transactionTemplate.execute(tx -> {
+            EkycAttempt current = ekycAttemptRepository.findById(attempt.getId()).orElse(null);
+            if (current == null || !current.isInProgress()) {
+                return false;
+            }
+            ekycAttemptService.recordLivenessWithoutAi(current, stored, now);
+            return true;
+        });
+        if (!Boolean.TRUE.equals(persisted)) {
+            ekycDraftStore.remove(keycloakUserId);
+            return EkycResultMapper.simple(status, EkycResultCode.DRAFT_EXPIRED);
+        }
+
+        List<EkycEvidence> liveEvidence = ekycEvidenceRepository.findByAttemptIdOrderByIdAsc(attempt.getId()).stream()
+                .filter(evidence -> !evidence.isDeleted())
+                .toList();
+        if (!hasCompleteEvidence(liveEvidence)) {
+            // Ảnh thẻ đã mất (rút đồng ý ở thiết bị khác, worker dọn…): lượt không thể duyệt, phải làm lại từ đầu.
+            log.warn("Thiếu bằng chứng khi gửi duyệt tay, bỏ lượt: userProfileId={}, attemptId={}",
+                    profile.getId(), draft.attemptId());
+            transactionTemplate.executeWithoutResult(tx -> ekycAttemptService.abandon(attempt.getId(), now));
+            ekycSessionCleanup.clearAll(keycloakUserId);
+            return EkycResultMapper.simple(status, EkycResultCode.DRAFT_EXPIRED);
+        }
+        // Lưu số lần quay mới để lần gửi lại (khi kho lỗi ở bước dưới) không ghi đè object của lần này.
+        ekycDraftStore.save(keycloakUserId, updated);
+        ekycEvidenceService.markFinal(liveEvidence.stream().map(EkycEvidence::getObjectKey).toList());
+        StoredEvidence result;
+        try {
+            result = ekycEvidenceService.storeResult(profile.getId(), draft.attemptId(),
+                    ekycResultFile.build(attempt, updated, "MANUAL_REVIEW", liveEvidence, now));
+        } catch (EkycStorageException e) {
+            log.warn("Không ghi được result.json khi gửi duyệt tay vì AI lỗi, giữ nguyên trạng thái: attemptId={}",
+                    draft.attemptId());
+            return EkycResultMapper.simple(status, EkycResultCode.STORAGE_UNAVAILABLE, EkycNextStep.LIVENESS);
+        }
+        Boolean submitted = transactionTemplate.execute(tx -> {
+            UserProfile fresh = userProfileRepository.findById(profile.getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Hồ sơ người dùng", "id", profile.getId()));
+            EkycAttempt current = ekycAttemptRepository.findById(attempt.getId()).orElse(null);
+            if (current == null || !current.isInProgress()
+                    || fresh.getEkycStatus() == EkycStatus.VERIFIED || fresh.getEkycStatus() == EkycStatus.MANUAL_REVIEW) {
+                return false;
+            }
+            ekycAttemptService.submitForReview(fresh, current, updated, result, now);
+            return true;
+        });
+        ekycSessionCleanup.clearAll(keycloakUserId);
+        if (!Boolean.TRUE.equals(submitted)) {
+            ekycEvidenceService.deleteObjects(List.of(result.objectKey()));
+            return EkycResultMapper.simple(status, EkycResultCode.DRAFT_EXPIRED);
+        }
+        ekycClaimPublisher.publish(keycloakUserId, EkycStatus.MANUAL_REVIEW);
+        log.info("Gửi nhân viên duyệt vì AI gặp sự cố: userProfileId={}, attemptId={}, cardReadWithoutAi={}",
+                profile.getId(), draft.attemptId(), draft.cardReadWithoutAi());
+        return EkycResultMapper.reviewPending();
+    }
+
+    /** Đủ để nhân viên duyệt khi không có kết quả AI: hai mặt thẻ và ít nhất một video/ảnh khuôn mặt. */
+    private static boolean hasCompleteEvidence(List<EkycEvidence> evidence) {
+        return evidence.stream().anyMatch(item -> item.getKind() == EkycEvidenceKind.CCCD_FRONT)
+                && evidence.stream().anyMatch(item -> item.getKind() == EkycEvidenceKind.CCCD_BACK)
+                && evidence.stream().anyMatch(item -> item.getKind() == EkycEvidenceKind.LIVENESS_VIDEO
+                        || item.getKind() == EkycEvidenceKind.LIVENESS_FRAME);
     }
 
     /** Ghi bằng chứng mới và (nếu có) kết luận vào lượt; {@code false} nếu lượt đã đóng trong lúc chờ AI. */

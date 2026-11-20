@@ -17,6 +17,11 @@ import java.util.UUID;
  *                        {@code null} khi chưa có người duyệt hoặc tài khoản admin không có hồ sơ FINORA
  *                        (tạo thẳng trên Keycloak) — khi đó chỉ còn {@code reviewerKeycloakId}
  * @param reviewerName    họ tên người duyệt theo cùng cách tra; {@code null} nếu hồ sơ chưa có họ tên
+ * @param aiUnavailable   hồ sơ chuyển duyệt tay vì finora-ai gặp sự cố — nhân viên phải đọc thẻ và so mặt
+ * @param requiredIdentityFields trường nhân viên phải nhập khi duyệt (tên trường của bản nháp, thêm {@code cardType});
+ *                        chỉ có với hồ sơ AI gặp sự cố hoặc người dùng báo sai đang chờ duyệt, còn lại là danh sách rỗng
+ * @param userReportedIncorrect người dùng chụp lại nhiều lần mà vẫn báo thông tin đọc từ thẻ chưa đúng (mã
+ *                        {@code USER_REPORTED_INCORRECT}): nhân viên đối chiếu ảnh thẻ và được sửa mọi trường
  */
 public record EkycAttemptDetailResponse(
         UUID attemptId,
@@ -39,8 +44,15 @@ public record EkycAttemptDetailResponse(
         Instant reviewedAt,
         UUID reviewerKeycloakId,
         String reviewerEmail,
-        String reviewerName
+        String reviewerName,
+        boolean aiUnavailable,
+        List<String> requiredIdentityFields,
+        boolean userReportedIncorrect
 ) {
+
+    public EkycAttemptDetailResponse {
+        requiredIdentityFields = requiredIdentityFields == null ? List.of() : List.copyOf(requiredIdentityFields);
+    }
 
     /**
      * Metadata một object bằng chứng; nội dung tải qua endpoint stream riêng.

@@ -28,6 +28,7 @@ import com.finora.user.repository.CicMappingTaskRepository;
 import com.finora.user.repository.EkycAttemptRepository;
 import com.finora.user.repository.EkycEvidenceRepository;
 import com.finora.user.repository.UserProfileRepository;
+import com.finora.user.service.EkycAiOutageService;
 import com.finora.user.service.EkycAttemptService;
 import com.finora.user.service.EkycClaimPublisher;
 import com.finora.user.service.EkycConsentService;
@@ -97,6 +98,7 @@ class EkycVerificationServiceImplTest {
     @Mock private EkycEvidenceService evidenceService;
     @Mock private EkycSessionCleanup sessionCleanup;
     @Mock private EkycClaimPublisher claimPublisher;
+    @Mock private EkycAiOutageService aiOutageService;
 
     private final ObjectMapper objectMapper = EkycTestData.objectMapper();
     private UserProfile profile;
@@ -123,7 +125,7 @@ class EkycVerificationServiceImplTest {
         return new EkycVerificationServiceImpl(userProfileRepository, attemptRepository, evidenceRepository, aiEkycClient,
                 rateLimitService, counterStore, draftStore, consentService, evidenceService,
                 attemptService, identityService, new EkycResultFileImpl(objectMapper), sessionCleanup, claimPublisher,
-                EkycTestData.transactionTemplate(), clock);
+                aiOutageService, EkycTestData.transactionTemplate(), clock);
     }
 
     private EkycVerificationServiceImpl service() {
@@ -452,6 +454,169 @@ class EkycVerificationServiceImplTest {
         }
     }
 
+    // ── AI gặp sự cố: báo rõ và chuyển nhân viên duyệt ──────────────
+
+    @Nested
+    class AiOutage {
+
+        private final AtomicReference<EkycAttempt> savedAttempt = new AtomicReference<>();
+
+        private void givenAttemptPersistence() {
+            when(attemptRepository.findByUserProfileIdAndStatusIn(eq(PROFILE_ID), anyCollection())).thenReturn(List.of());
+            when(attemptRepository.save(any(EkycAttempt.class))).thenAnswer(invocation -> {
+                EkycAttempt attempt = invocation.getArgument(0);
+                ReflectionTestUtils.setField(attempt, "id", 100L);
+                savedAttempt.set(attempt);
+                return attempt;
+            });
+            lenient().when(attemptRepository.findById(100L)).thenAnswer(invocation -> Optional.ofNullable(savedAttempt.get()));
+        }
+
+        private void givenScanPreconditions() {
+            when(consentService.findActiveConsent(PROFILE_ID)).thenReturn(Optional.of(consent));
+            when(evidenceService.isEnabled()).thenReturn(true);
+        }
+
+        @Test
+        void aiDownBelowThresholdSaysSystemIssueWithoutManualOption() {
+            givenScanPreconditions();
+            when(rateLimitService.tryAcquireVerifySlot(USER_ID)).thenReturn(true);
+            when(aiEkycClient.analyzeDocument(any())).thenThrow(aiError(503));
+            when(aiOutageService.recordFailure(USER_ID)).thenReturn(false);
+
+            EkycResultResponse result = service().verify(USER_ID, request());
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.AI_UNAVAILABLE);
+            assertThat(result.message()).isEqualTo("Hệ thống xác minh đang gặp sự cố tạm thời.");
+            assertThat(result.manualReviewAvailable()).isFalse();
+            verify(aiOutageService, never()).recordSuccess(any());
+        }
+
+        @Test
+        void aiDownReachingThresholdOffersManualReviewWithSameMessage() {
+            givenScanPreconditions();
+            when(rateLimitService.tryAcquireVerifySlot(USER_ID)).thenReturn(true);
+            when(aiEkycClient.analyzeDocument(any())).thenReturn(null);
+            when(aiOutageService.recordFailure(USER_ID)).thenReturn(true);
+
+            EkycResultResponse result = service().verify(USER_ID, request());
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.AI_UNAVAILABLE);
+            assertThat(result.message()).as("Hải chốt: không nối thêm câu vào câu chính")
+                    .isEqualTo("Hệ thống xác minh đang gặp sự cố tạm thời.");
+            assertThat(result.manualReviewAvailable()).isTrue();
+            assertThat(result.manualReviewMode()).isFalse();
+            verify(rateLimitService).releaseVerifySlot(USER_ID);
+        }
+
+        @Test
+        void aiAnsweringEvenWithRejectionResetsTheOutageCounter() {
+            givenScanPreconditions();
+            when(rateLimitService.tryAcquireVerifySlot(USER_ID)).thenReturn(true);
+            when(aiEkycClient.analyzeDocument(any())).thenThrow(aiError(422));
+
+            EkycResultResponse result = service().verify(USER_ID, request());
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.OCR_FAILED);
+            verify(aiOutageService).recordSuccess(USER_ID);
+            verify(aiOutageService, never()).recordFailure(any());
+        }
+
+        @Test
+        void retakeIsNotCountedAsOutage() {
+            givenScanPreconditions();
+            when(rateLimitService.tryAcquireVerifySlot(USER_ID)).thenReturn(true);
+            when(aiEkycClient.analyzeDocument(any())).thenReturn(EkycTestData.retakeDocument(
+                    List.of(new RetakeHint("FRONT", "BLUR"))));
+
+            EkycResultResponse result = service().verify(USER_ID, request());
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.RETAKE);
+            verify(aiOutageService).recordSuccess(USER_ID);
+            verify(aiOutageService, never()).recordFailure(any());
+        }
+
+        @Test
+        void manualReviewBeforeThresholdIsRefusedWithoutTouchingStorage() {
+            givenScanPreconditions();
+            when(aiOutageService.isManualReviewAvailable(USER_ID)).thenReturn(false);
+
+            assertThatThrownBy(() -> service().startManualReview(USER_ID, request()))
+                    .isInstanceOfSatisfying(BusinessException.class, e -> {
+                        assertThat(e.getStatus()).isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
+                        assertThat(e.getCode()).isEqualTo("MANUAL_REVIEW_UNAVAILABLE");
+                    });
+            verify(rateLimitService, never()).tryAcquireVerifySlot(any());
+            verify(evidenceService, never()).storeCardImages(anyLong(), any(), any(), any());
+        }
+
+        @Test
+        void manualReviewStoresCardImagesAndOpensEmptyDraftWithoutAi() {
+            givenScanPreconditions();
+            givenAttemptPersistence();
+            when(aiOutageService.isManualReviewAvailable(USER_ID)).thenReturn(true);
+            when(rateLimitService.tryAcquireVerifySlot(USER_ID)).thenReturn(true);
+            when(evidenceService.storeCardImages(anyLong(), any(), any(), any())).thenReturn(List.of(
+                    stored(EkycEvidenceKind.CCCD_FRONT, "front"), stored(EkycEvidenceKind.CCCD_BACK, "back")));
+
+            EkycResultResponse result = service().startManualReview(USER_ID, request());
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.DRAFT_READY);
+            assertThat(result.manualReviewMode()).isTrue();
+            assertThat(result.nextStep()).isEqualTo(EkycNextStep.LIVENESS);
+            assertThat(result.draft()).as("không có trường nào được đọc").isNull();
+            assertThat(result.reviewRequired()).isTrue();
+            EkycAttempt attempt = savedAttempt.get();
+            assertThat(attempt.getStatus()).isEqualTo(EkycAttemptStatus.IN_PROGRESS);
+            assertThat(attempt.getDocumentDecision()).isEqualTo(EkycDocumentDecision.NEEDS_REVIEW);
+            assertThat(attempt.getDocumentReasons()).contains("AI_UNAVAILABLE");
+            assertThat(attempt.getCardType()).isNull();
+            ArgumentCaptor<EkycIdentityDraft> draft = ArgumentCaptor.forClass(EkycIdentityDraft.class);
+            verify(draftStore).save(eq(USER_ID), draft.capture());
+            assertThat(draft.getValue().cardReadWithoutAi()).isTrue();
+            assertThat(draft.getValue().portraitEmbeddingB64()).isNull();
+            verify(evidenceRepository).saveAll(anyList());
+            verify(aiEkycClient, never()).analyzeDocument(any());
+        }
+
+        @Test
+        void manualReviewNeverStartsWithoutEvidenceStorage() {
+            when(consentService.findActiveConsent(PROFILE_ID)).thenReturn(Optional.of(consent));
+            when(evidenceService.isEnabled()).thenReturn(false);
+
+            EkycResultResponse result = service().startManualReview(USER_ID, request());
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.STORAGE_UNAVAILABLE);
+            verify(attemptRepository, never()).save(any());
+        }
+
+        @Test
+        void manualReviewStorageErrorAbandonsAttempt() {
+            givenScanPreconditions();
+            givenAttemptPersistence();
+            when(aiOutageService.isManualReviewAvailable(USER_ID)).thenReturn(true);
+            when(rateLimitService.tryAcquireVerifySlot(USER_ID)).thenReturn(true);
+            when(evidenceService.storeCardImages(anyLong(), any(), any(), any()))
+                    .thenThrow(new EkycStorageException("PutObject thất bại"));
+
+            EkycResultResponse result = service().startManualReview(USER_ID, request());
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.STORAGE_UNAVAILABLE);
+            assertThat(savedAttempt.get().getStatus()).isEqualTo(EkycAttemptStatus.ABANDONED);
+            verify(draftStore, never()).save(any(), any());
+        }
+
+        @Test
+        void manualReviewKeepsConsentGate() {
+            when(consentService.findActiveConsent(PROFILE_ID)).thenReturn(Optional.empty());
+
+            EkycResultResponse result = service().startManualReview(USER_ID, request());
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.CONSENT_REQUIRED);
+            verify(aiOutageService, never()).isManualReviewAvailable(any());
+        }
+    }
+
     // ── Bước xác nhận ───────────────────────────────────────────────
 
     @Nested
@@ -588,6 +753,28 @@ class EkycVerificationServiceImplTest {
             verify(cicMappingTaskRepository, never()).save(any());
             verify(claimPublisher).publish(USER_ID, EkycStatus.MANUAL_REVIEW);
             verify(sessionCleanup).clearAll(USER_ID);
+        }
+
+        @Test
+        void reportIncorrectSendsAutoOkDraftToReviewWithReason() {
+            givenDraft(EkycDocumentDecision.AUTO_OK, EkycLivenessResult.PASS);
+            givenStoredEvidence();
+            ArgumentCaptor<byte[]> json = ArgumentCaptor.forClass(byte[].class);
+
+            EkycResultResponse result = service().confirm(USER_ID, Map.of("address", "Địa chỉ khác"), true);
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.REVIEW_PENDING);
+            assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.MANUAL_REVIEW);
+            assertThat(profile.getIdNumberHash()).as("chưa ghi định danh khi chờ duyệt").isNull();
+            assertThat(attempt.getStatus()).isEqualTo(EkycAttemptStatus.MANUAL_REVIEW);
+            assertThat(attempt.getDocumentReasons()).contains("QR_MRZ_AGREE", "USER_REPORTED_INCORRECT");
+            assertThat(attempt.getDraftEncrypted()).contains("USER_REPORTED_INCORRECT")
+                    .as("báo sai thì bỏ qua chỗ sửa").doesNotContain("Địa chỉ khác");
+            verify(evidenceService).storeResult(eq(PROFILE_ID), eq(attemptId), json.capture());
+            assertThat(new String(json.getValue(), StandardCharsets.UTF_8))
+                    .contains("\"outcome\" : \"MANUAL_REVIEW\"", "USER_REPORTED_INCORRECT");
+            verify(cicMappingTaskRepository, never()).save(any());
+            verify(claimPublisher).publish(USER_ID, EkycStatus.MANUAL_REVIEW);
         }
 
         @Test

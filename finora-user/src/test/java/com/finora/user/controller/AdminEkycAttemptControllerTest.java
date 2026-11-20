@@ -74,7 +74,7 @@ class AdminEkycAttemptControllerTest {
         when(reviewService.list(null, 0, 20)).thenReturn(PageResponse.<EkycAttemptSummaryResponse>builder()
                 .content(List.of(new EkycAttemptSummaryResponse(ATTEMPT, 7L, "nguoidung@example.test", "MANUAL_REVIEW",
                         "CCCD_CHIP_2021", "NEEDS_REVIEW", "REVIEW", 0.41, "GRAY", List.of("QR_MRZ_AGREE"),
-                        Instant.parse("2026-10-16T03:00:00Z"), Instant.parse("2026-10-16T03:05:00Z"), null, null)))
+                        Instant.parse("2026-10-16T03:00:00Z"), Instant.parse("2026-10-16T03:05:00Z"), null, null, false, false)))
                 .page(0).size(20).totalElements(1).totalPages(1).last(true).build());
 
         mockMvc.perform(get(BASE))
@@ -163,7 +163,7 @@ class AdminEkycAttemptControllerTest {
     @Test
     void approveWithLockAuthorityAndOptionalBody() throws Exception {
         authenticateWith("user:admin:lock");
-        when(reviewService.approve(eq(ATTEMPT.toString()), eq(USER_ID), any())).thenReturn(detail("APPROVED"));
+        when(reviewService.approve(eq(ATTEMPT.toString()), eq(USER_ID), any(), any())).thenReturn(detail("APPROVED"));
 
         mockMvc.perform(post(BASE + "/" + ATTEMPT + "/approve"))
                 .andExpect(status().isOk())
@@ -171,13 +171,13 @@ class AdminEkycAttemptControllerTest {
         mockMvc.perform(post(BASE + "/" + ATTEMPT + "/approve")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"note\":\"khớp ảnh\"}"))
                 .andExpect(status().isOk());
-        verify(reviewService).approve(ATTEMPT.toString(), USER_ID, "khớp ảnh");
+        verify(reviewService).approve(ATTEMPT.toString(), USER_ID, "khớp ảnh", null);
     }
 
     @Test
     void staffWithEkycActionCanDecide() throws Exception {
         authenticateWith("ROLE_STAFF", "ops:ekyc:view", "ops:ekyc:action");
-        when(reviewService.approve(eq(ATTEMPT.toString()), eq(USER_ID), any())).thenReturn(detail("APPROVED"));
+        when(reviewService.approve(eq(ATTEMPT.toString()), eq(USER_ID), any(), any())).thenReturn(detail("APPROVED"));
         when(reviewService.reject(ATTEMPT.toString(), USER_ID, "ảnh mờ")).thenReturn(detail("REJECTED"));
 
         mockMvc.perform(post(BASE + "/" + ATTEMPT + "/approve"))
@@ -201,7 +201,7 @@ class AdminEkycAttemptControllerTest {
         mockMvc.perform(post(BASE + "/" + ATTEMPT + "/reject")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"note\":\"sai\"}"))
                 .andExpect(status().isForbidden());
-        verify(reviewService, org.mockito.Mockito.never()).approve(anyString(), any(), any());
+        verify(reviewService, org.mockito.Mockito.never()).approve(anyString(), any(), any(), any());
     }
 
     @Test
@@ -216,7 +216,7 @@ class AdminEkycAttemptControllerTest {
     @Test
     void adminRolePassesWithoutLegacyAuthorities() throws Exception {
         authenticateWith("ROLE_ADMIN");
-        when(reviewService.approve(eq(ATTEMPT.toString()), eq(USER_ID), any())).thenReturn(detail("APPROVED"));
+        when(reviewService.approve(eq(ATTEMPT.toString()), eq(USER_ID), any(), any())).thenReturn(detail("APPROVED"));
 
         mockMvc.perform(post(BASE + "/" + ATTEMPT + "/approve")).andExpect(status().isOk());
     }
@@ -238,6 +238,6 @@ class AdminEkycAttemptControllerTest {
                 Instant.parse("2026-10-16T03:05:00Z"), null, List.of("ACTIONS_MATCH", "FACE_MATCH_GRAY").subList(1, 2),
                 "ekyc-2026-10",
                 List.of(new EkycAttemptDetailResponse.EvidenceItem(11L, "CCCD_FRONT", null, "image/jpeg", 1234L, false)),
-                null, null, null, null, null);
+                null, null, null, null, null, false, List.of(), false);
     }
 }

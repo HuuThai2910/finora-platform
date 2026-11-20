@@ -136,6 +136,42 @@ public class EkycAttempt {
         return status == EkycAttemptStatus.IN_PROGRESS;
     }
 
+    public boolean isWithdrawn() {
+        return status == EkycAttemptStatus.WITHDRAWN;
+    }
+
+    /**
+     * Người dùng rút lại hồ sơ đang chờ duyệt (nhân viên chưa quyết định) để gửi hồ sơ mới. Bản nháp mã hoá bị
+     * xoá ngay; bằng chứng do service xoá trên kho sau commit. Chỉ hợp lệ từ {@code MANUAL_REVIEW}; nhân viên
+     * duyệt cùng lúc thì {@code @Version} làm bên lưu sau thất bại.
+     */
+    public void withdrawFromReview(Instant now) {
+        requireStatus(EkycAttemptStatus.MANUAL_REVIEW);
+        status = EkycAttemptStatus.WITHDRAWN;
+        draftEncrypted = null;
+        decidedAt = now;
+        updatedAt = now;
+    }
+
+    /**
+     * Video đã lưu làm bằng chứng nhưng AI gặp sự cố nên không có kết luận: xoá kết luận/điểm của lần trước (nếu có)
+     * để nhân viên không duyệt theo một kết quả cũ, chỉ để lại mã lý do {@code AI_UNAVAILABLE}.
+     */
+    public void recordLivenessWithoutAi(String reasonsJson, Instant now) {
+        requireStatus(EkycAttemptStatus.IN_PROGRESS);
+        this.livenessResult = null;
+        this.livenessReasons = reasonsJson;
+        this.faceMatchScore = null;
+        this.updatedAt = now;
+    }
+
+    /** Nhân viên bổ sung trường định danh cho hồ sơ AI không đọc được thẻ — ghi trước khi duyệt. */
+    public void replaceReviewDraft(String draftJson, Instant now) {
+        requireStatus(EkycAttemptStatus.MANUAL_REVIEW);
+        draftEncrypted = draftJson;
+        updatedAt = now;
+    }
+
     /** Lượt đang làm dở bị bỏ (quét lại, quá hạn, upload lỗi). Lượt đã kết thúc giữ nguyên. */
     public void abandon(Instant now) {
         if (status == EkycAttemptStatus.IN_PROGRESS) {
@@ -185,6 +221,13 @@ public class EkycAttempt {
         status = EkycAttemptStatus.MANUAL_REVIEW;
         draftEncrypted = draftJson;
         submittedAt = now;
+        updatedAt = now;
+    }
+
+    /** Thay mã lý do bước thẻ (JSON) ngay trước khi gửi duyệt — dùng khi người dùng báo thông tin đọc từ thẻ chưa đúng. */
+    public void replaceDocumentReasons(String documentReasonsJson, Instant now) {
+        requireStatus(EkycAttemptStatus.IN_PROGRESS);
+        documentReasons = documentReasonsJson;
         updatedAt = now;
     }
 

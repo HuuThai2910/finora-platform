@@ -58,7 +58,8 @@ public final class EkycMessages {
         RESULT_MESSAGES.put(EkycResultCode.ID_MISMATCH, "Số định danh trên thẻ không khớp thông tin đã có trong hồ sơ.");
         RESULT_MESSAGES.put(EkycResultCode.ID_TAKEN, "Số định danh này đã được đăng ký cho một tài khoản khác.");
         RESULT_MESSAGES.put(EkycResultCode.RATE_LIMITED, "Bạn thao tác quá nhanh, vui lòng thử lại sau ít giây.");
-        RESULT_MESSAGES.put(EkycResultCode.AI_UNAVAILABLE, "Dịch vụ xác minh đang bận, vui lòng thử lại sau ít phút.");
+        // Hải chốt 17/11: chỉ báo sự cố, không hứa "thử lại"; đủ ngưỡng thì app hiện nút gửi nhân viên duyệt.
+        RESULT_MESSAGES.put(EkycResultCode.AI_UNAVAILABLE, "Hệ thống xác minh đang gặp sự cố tạm thời.");
         RESULT_MESSAGES.put(EkycResultCode.RETAKE, "Vui lòng chụp lại theo hướng dẫn.");
         RESULT_MESSAGES.put(EkycResultCode.CARD_EXPIRED,
                 "Thẻ căn cước đã hết hạn. Vui lòng dùng thẻ còn hiệu lực.");
@@ -83,6 +84,23 @@ public final class EkycMessages {
 
     /** Thông điệp khi hồ sơ đã xác minh từ trước mà client gọi lại. */
     public static final String ALREADY_VERIFIED = "Hồ sơ đã được xác minh trước đó.";
+
+    /** Bước thẻ chuyển duyệt tay vì AI lỗi: đã lưu ảnh, bước tiếp là quay video để gửi nhân viên. */
+    public static final String MANUAL_DRAFT_READY =
+            "Đã nhận ảnh thẻ. Tiếp tục quay video khuôn mặt để gửi hồ sơ cho nhân viên FINORA duyệt.";
+
+    /** Client xin duyệt tay khi AI chưa lỗi đủ số lần liên tiếp (server không tin cờ của client). */
+    public static final String MANUAL_REVIEW_UNAVAILABLE =
+            "Chưa thể gửi hồ sơ cho nhân viên duyệt lúc này. Vui lòng thử xác minh lại.";
+
+    /** Người dùng rút lại đúng lúc nhân viên vừa duyệt/từ chối. */
+    public static final String REVIEW_JUST_DECIDED = "Hồ sơ vừa được nhân viên xử lý, vui lòng tải lại để xem kết quả.";
+
+    /** Rút lại khi không có hồ sơ nào đang chờ duyệt. */
+    public static final String NOTHING_TO_WITHDRAW = "Không có hồ sơ nào đang chờ duyệt để rút lại.";
+
+    /** Nhân viên mở/duyệt hồ sơ người dùng đã rút lại. */
+    public static final String ATTEMPT_WITHDRAWN = "Người dùng đã rút lại hồ sơ này.";
 
     /** Video cần quay lại nhưng AI không nêu lý do có thông điệp. */
     public static final String LIVENESS_RETAKE = "Vui lòng quay lại video theo hướng dẫn trên màn hình.";

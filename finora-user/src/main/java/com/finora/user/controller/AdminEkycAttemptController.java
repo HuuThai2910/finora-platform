@@ -96,7 +96,7 @@ public class AdminEkycAttemptController {
     public ResponseEntity<EkycAttemptDetailResponse> approve(@PathVariable String attemptId,
                                                              @Valid @RequestBody(required = false) EkycApproveRequest request) {
         return ResponseEntity.ok(ekycAdminReviewService.approve(attemptId, SecurityUtils.getCurrentKeycloakUserId(),
-                request == null ? null : request.note()));
+                request == null ? null : request.note(), request == null ? null : request.identity()));
     }
 
     @PostMapping("/{attemptId}/reject")

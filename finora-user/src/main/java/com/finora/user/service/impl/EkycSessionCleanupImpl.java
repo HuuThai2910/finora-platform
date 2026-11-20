@@ -35,6 +35,7 @@ public class EkycSessionCleanupImpl implements EkycSessionCleanup {
             ekycChallengeStore.remove(keycloakUserId);
             ekycCounterStore.resetRetakeCount(keycloakUserId);
             ekycCounterStore.resetLivenessFailures(keycloakUserId);
+            ekycCounterStore.resetAiFailures(keycloakUserId);
         } catch (DataAccessException e) {
             log.warn("Chưa dọn được phiên eKYC trong kho tạm, các bản ghi sẽ tự hết hạn: keycloakUserId={}",
                     keycloakUserId);

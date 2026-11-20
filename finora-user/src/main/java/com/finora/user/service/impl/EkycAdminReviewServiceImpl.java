@@ -13,6 +13,7 @@ import com.finora.user.domain.entity.UserProfile;
 import com.finora.user.domain.enums.EkycAttemptStatus;
 import com.finora.user.domain.enums.EkycDraftFieldName;
 import com.finora.user.domain.model.EkycIdentityDraft;
+import com.finora.user.dto.request.EkycApproveRequest;
 import com.finora.user.dto.response.EkycAttemptDetailResponse.EvidenceItem;
 import com.finora.user.dto.response.EkycAttemptDetailResponse;
 import com.finora.user.dto.response.EkycAttemptSummaryResponse;
@@ -30,7 +31,9 @@ import com.finora.user.service.EkycAttemptService;
 import com.finora.user.service.EkycClaimPublisher;
 import com.finora.user.service.EkycEvidenceService;
 import com.finora.user.service.EkycIdentityService;
+import com.finora.user.service.EkycVerificationService;
 import com.finora.user.util.EkycMessages;
+import com.finora.user.util.EkycStaffIdentityRules;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -43,7 +46,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -56,7 +62,14 @@ import java.util.UUID;
  * <p>
  * Duyệt/từ chối chỉ áp dụng cho lượt {@code MANUAL_REVIEW}. Hai nhân viên bấm cùng lúc: cả hai đọc
  * version cũ, người flush sau nhận lỗi optimistic lock → {@code 409 ATTEMPT_ALREADY_DECIDED} và
- * transaction của họ rollback toàn bộ (kể cả thay đổi hồ sơ).
+ * transaction của họ rollback toàn bộ (kể cả thay đổi hồ sơ). Người dùng rút lại hồ sơ cùng lúc cũng va chạm theo
+ * cùng cơ chế; lượt đã rút lại → {@code 409 ATTEMPT_WITHDRAWN}.
+ * <p>
+ * Hồ sơ AI gặp sự cố (mã {@code AI_UNAVAILABLE}): nhân viên tự đọc thẻ, nhập trường định danh còn trống
+ * ({@link EkycStaffIdentityRules}), tự so mặt trên video; bản nháp đã bổ sung được ghi lại vào lượt.
+ * <p>
+ * Hồ sơ người dùng báo thông tin sai (mã {@code USER_REPORTED_INCORRECT}): nhân viên đối chiếu ảnh thẻ, được sửa mọi
+ * trường ({@link EkycStaffIdentityRules#correct}); kết quả so mặt của AI giữ nguyên.
  */
 @Service
 @Slf4j
@@ -150,7 +163,8 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
     }
 
     @Override
-    public EkycAttemptDetailResponse approve(String attemptId, UUID adminKeycloakId, String note) {
+    public EkycAttemptDetailResponse approve(String attemptId, UUID adminKeycloakId, String note,
+                                             EkycApproveRequest.Identity identity) {
         UUID publicId = parseAttemptId(attemptId);
         Instant now = clock.instant();
         Decision decision;
@@ -158,10 +172,25 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
             decision = transactionTemplate.execute(tx -> {
                 EkycAttempt attempt = findAttempt(publicId);
                 UserProfile profile = requireReviewable(attempt);
-                EkycIdentityDraft draft = ekycAttemptService.readDraft(attempt.getDraftEncrypted());
-                if (draft == null) {
+                EkycIdentityDraft stored = ekycAttemptService.readDraft(attempt.getDraftEncrypted());
+                if (stored == null) {
                     throw new BusinessException(HttpStatus.CONFLICT, "ATTEMPT_DRAFT_MISSING",
                             "Lượt xác minh không còn bản nháp để duyệt.");
+                }
+                boolean aiUnavailable = stored.reviewedWithoutAi() || isAiUnavailable(attempt);
+                boolean userReported = stored.userReportedIncorrect() || isUserReportedIncorrect(attempt);
+                boolean hasIdentity = identity != null && !identity.hasNoValues();
+                if (hasIdentity && !aiUnavailable && !userReported) {
+                    throw new BusinessException(HttpStatus.BAD_REQUEST, "IDENTITY_NOT_ALLOWED",
+                            "Chỉ nhập thông tin định danh cho hồ sơ hệ thống không đọc được thẻ hoặc người dùng báo sai.");
+                }
+                EkycIdentityDraft draft;
+                if (aiUnavailable) {
+                    draft = completeIdentity(stored, identity, now);
+                } else if (userReported) {
+                    draft = correctIdentity(stored, identity, now);
+                } else {
+                    draft = stored;
                 }
                 Optional<EkycResultCode> idProblem = ekycIdentityService.checkIdNumber(
                         profile, draft.value(EkycDraftFieldName.ID_NUMBER));
@@ -169,9 +198,13 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
                     throw new BusinessException(HttpStatus.CONFLICT, idProblem.get().name(),
                             EkycMessages.result(idProblem.get()));
                 }
+                if (draft != stored) {
+                    attempt.replaceReviewDraft(ekycAttemptService.draftJson(draft.withoutBiometrics()), now);
+                }
                 ekycIdentityService.applyIdentity(profile, draft);
-                boolean livenessVerified = attempt.getLivenessResult() != null
-                        && attempt.getLivenessResult().allowsConfirmation();
+                // Hồ sơ AI gặp sự cố không có kết quả liveness: nhân viên duyệt nghĩa là đã tự so mặt trên video.
+                boolean livenessVerified = aiUnavailable || (attempt.getLivenessResult() != null
+                        && attempt.getLivenessResult().allowsConfirmation());
                 profile.markEkycVerified(attempt.getFaceMatchScore(), livenessVerified, now);
                 attempt.approve(adminKeycloakId, trimToNull(note), now);
                 ekycAttemptService.ensureCicTask(profile.getId(), now);
@@ -217,8 +250,77 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
 
     // ── Helper ──────────────────────────────────────────────────────
 
+    /**
+     * Hồ sơ AI gặp sự cố: kiểm và áp trường nhân viên nhập. Không gửi gì mà bản nháp đã đủ (AI chỉ lỗi ở bước so
+     * mặt) thì giữ nguyên bản nháp.
+     */
+    private EkycIdentityDraft completeIdentity(EkycIdentityDraft draft, EkycApproveRequest.Identity identity,
+                                               Instant now) {
+        LocalDate today = LocalDate.ofInstant(now, EkycVerificationService.VIETNAM);
+        if (identity == null || identity.hasNoValues()) {
+            if (EkycStaffIdentityRules.missingRequiredFields(draft).isEmpty()) {
+                return draft;
+            }
+            return EkycStaffIdentityRules.complete(draft, null, Map.of(), false, today);
+        }
+        return EkycStaffIdentityRules.complete(draft, identity.cardType(), identityValues(identity),
+                Boolean.TRUE.equals(identity.noExpiry()), today);
+    }
+
+    /**
+     * Hồ sơ người dùng báo thông tin sai: nhân viên sửa trường sai (ghi đè được). Không sửa gì mà bản nháp đã đủ thì giữ
+     * nguyên — nhân viên thấy thông tin thật ra đã đúng như thẻ.
+     */
+    private EkycIdentityDraft correctIdentity(EkycIdentityDraft draft, EkycApproveRequest.Identity identity,
+                                              Instant now) {
+        LocalDate today = LocalDate.ofInstant(now, EkycVerificationService.VIETNAM);
+        if (identity == null || identity.hasNoValues()) {
+            if (EkycStaffIdentityRules.missingRequiredFields(draft).isEmpty()) {
+                return draft;
+            }
+            return EkycStaffIdentityRules.correct(draft, null, Map.of(), false, today);
+        }
+        return EkycStaffIdentityRules.correct(draft, identity.cardType(), identityValues(identity),
+                Boolean.TRUE.equals(identity.noExpiry()), today);
+    }
+
+    private static Map<EkycDraftFieldName, String> identityValues(EkycApproveRequest.Identity identity) {
+        Map<EkycDraftFieldName, String> values = new EnumMap<>(EkycDraftFieldName.class);
+        putIfPresent(values, EkycDraftFieldName.ID_NUMBER, identity.idNumber());
+        putIfPresent(values, EkycDraftFieldName.FULL_NAME, identity.fullName());
+        putIfPresent(values, EkycDraftFieldName.DATE_OF_BIRTH, identity.dateOfBirth());
+        putIfPresent(values, EkycDraftFieldName.GENDER, identity.gender());
+        putIfPresent(values, EkycDraftFieldName.ADDRESS, identity.address());
+        putIfPresent(values, EkycDraftFieldName.PLACE_OF_ORIGIN, identity.placeOfOrigin());
+        putIfPresent(values, EkycDraftFieldName.BIRTH_REGISTRATION_PLACE, identity.birthRegistrationPlace());
+        putIfPresent(values, EkycDraftFieldName.ISSUE_DATE, identity.issueDate());
+        putIfPresent(values, EkycDraftFieldName.EXPIRY_DATE, identity.expiryDate());
+        return values;
+    }
+
+    /** Mã {@code USER_REPORTED_INCORRECT} trong lý do bước thẻ đã lưu ở lượt (không cần giải mã bản nháp). */
+    private boolean isUserReportedIncorrect(EkycAttempt attempt) {
+        return ekycAttemptService.readCodes(attempt.getDocumentReasons())
+                .contains(EkycIdentityDraft.USER_REPORTED_INCORRECT_REASON);
+    }
+
+    private static void putIfPresent(Map<EkycDraftFieldName, String> values, EkycDraftFieldName name, String value) {
+        if (value != null && !value.isBlank()) {
+            values.put(name, value);
+        }
+    }
+
+    /** Mã {@code AI_UNAVAILABLE} trong lý do bước thẻ hoặc liveness đã lưu ở lượt (không cần giải mã bản nháp). */
+    private boolean isAiUnavailable(EkycAttempt attempt) {
+        return ekycAttemptService.readCodes(attempt.getDocumentReasons()).contains(EkycIdentityDraft.AI_UNAVAILABLE_REASON)
+                || ekycAttemptService.readCodes(attempt.getLivenessReasons()).contains(EkycIdentityDraft.AI_UNAVAILABLE_REASON);
+    }
+
     /** Chỉ lượt đang chờ duyệt của hồ sơ đang chờ duyệt mới được quyết định. */
     private UserProfile requireReviewable(EkycAttempt attempt) {
+        if (attempt.isWithdrawn()) {
+            throw new BusinessException(HttpStatus.CONFLICT, "ATTEMPT_WITHDRAWN", EkycMessages.ATTEMPT_WITHDRAWN);
+        }
         if (attempt.getStatus() != EkycAttemptStatus.MANUAL_REVIEW) {
             throw alreadyDecided();
         }
@@ -246,7 +348,9 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
                 attempt.getCreatedAt(),
                 attempt.getSubmittedAt(),
                 attempt.getDecidedAt(),
-                attempt.getReviewNote());
+                attempt.getReviewNote(),
+                isAiUnavailable(attempt),
+                isUserReportedIncorrect(attempt));
     }
 
     private EkycAttemptDetailResponse toDetail(EkycAttempt attempt) {
@@ -261,6 +365,13 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
                         item.getContentType(), item.getSizeBytes(), item.isDeleted()))
                 .toList();
         List<String> livenessReasons = ekycAttemptService.readCodes(attempt.getLivenessReasons());
+        EkycIdentityDraft draft = ekycAttemptService.readDraft(attempt.getDraftEncrypted());
+        boolean aiUnavailable = isAiUnavailable(attempt) || (draft != null && draft.reviewedWithoutAi());
+        boolean userReported = isUserReportedIncorrect(attempt) || (draft != null && draft.userReportedIncorrect());
+        List<String> requiredIdentityFields = (aiUnavailable || userReported) && draft != null
+                && attempt.getStatus() == EkycAttemptStatus.MANUAL_REVIEW
+                ? EkycStaffIdentityRules.missingRequiredFields(draft)
+                : List.of();
         // Chỉ lưu UUID Keycloak của người duyệt; tra hồ sơ lúc đọc để hiện email/họ tên. Admin tạo thẳng trên
         // Keycloak không có hồ sơ FINORA thì để null — web hiện mã rút gọn như trước.
         Optional<UserProfile> reviewer = attempt.getReviewerKeycloakId() == null
@@ -279,7 +390,7 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
                 ekycAttemptService.readCodes(attempt.getDocumentReasons()),
                 attempt.getCreatedAt(),
                 attempt.getSubmittedAt(),
-                EkycResultMapper.toDraftView(ekycAttemptService.readDraft(attempt.getDraftEncrypted())),
+                EkycResultMapper.toDraftView(draft),
                 livenessReasons,
                 consentVersion,
                 evidence,
@@ -287,7 +398,10 @@ public class EkycAdminReviewServiceImpl implements EkycAdminReviewService {
                 attempt.getDecidedAt(),
                 attempt.getReviewerKeycloakId(),
                 reviewer.map(UserProfile::getEmail).orElse(null),
-                reviewer.map(UserProfile::getFullName).filter(name -> !name.isBlank()).orElse(null));
+                reviewer.map(UserProfile::getFullName).filter(name -> !name.isBlank()).orElse(null),
+                aiUnavailable,
+                requiredIdentityFields,
+                userReported);
     }
 
     private EkycAttempt findAttempt(UUID publicId) {

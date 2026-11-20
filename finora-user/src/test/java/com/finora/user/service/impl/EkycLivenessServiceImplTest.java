@@ -25,10 +25,12 @@ import com.finora.user.integration.ai.client.AiLivenessClient.LivenessMedia;
 import com.finora.user.integration.ai.client.AiLivenessClient.LivenessResult;
 import com.finora.user.integration.ai.client.AiLivenessClient.LivenessSpec;
 import com.finora.user.integration.ai.client.AiLivenessClient;
+import com.finora.user.integration.storage.EkycStorageException;
 import com.finora.user.repository.CicMappingTaskRepository;
 import com.finora.user.repository.EkycAttemptRepository;
 import com.finora.user.repository.EkycEvidenceRepository;
 import com.finora.user.repository.UserProfileRepository;
+import com.finora.user.service.EkycAiOutageService;
 import com.finora.user.service.EkycAttemptService;
 import com.finora.user.service.EkycChallengeStore.StoredChallenge;
 import com.finora.user.service.EkycChallengeStore;
@@ -102,6 +104,7 @@ class EkycLivenessServiceImplTest {
     @Mock private EkycEvidenceService evidenceService;
     @Mock private EkycSessionCleanup sessionCleanup;
     @Mock private EkycClaimPublisher claimPublisher;
+    @Mock private EkycAiOutageService aiOutageService;
     @Mock private LivenessChallengeGenerator challengeGenerator;
 
     private final ObjectMapper objectMapper = EkycTestData.objectMapper();
@@ -122,7 +125,7 @@ class EkycLivenessServiceImplTest {
                 cicMappingTaskRepository, identityService, objectMapper);
         service = new EkycLivenessServiceImpl(userProfileRepository, attemptRepository, evidenceRepository, consentService,
                 draftStore, challengeStore, rateLimitService, counterStore, livenessClient, evidenceService,
-                attemptService, new EkycResultFileImpl(objectMapper), sessionCleanup, claimPublisher, challengeGenerator,
+                attemptService, new EkycResultFileImpl(objectMapper), sessionCleanup, claimPublisher, aiOutageService, challengeGenerator,
                 objectMapper, EkycTestData.transactionTemplate(), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -465,6 +468,166 @@ class EkycLivenessServiceImplTest {
             assertConflict(() -> service.submit(USER_ID, new LivenessUpload(SESSION_ID.toString(), "STILLS", "ios",
                             null, List.of(new UploadedFile("f.jpg", "image/jpeg", big)), "[0]")),
                     HttpStatus.PAYLOAD_TOO_LARGE, "PAYLOAD_TOO_LARGE");
+        }
+    }
+
+    // ── AI gặp sự cố: chế độ gửi nhân viên duyệt ───────────────────
+
+    @Nested
+    class AiOutage {
+
+        private void givenSession(EkycIdentityDraft draft) {
+            when(rateLimitService.tryAcquireLivenessSlot(USER_ID)).thenReturn(true);
+            when(challengeStore.consume(USER_ID)).thenReturn(Optional.of(
+                    new StoredChallenge(SESSION_ID, steps(), ATTEMPT_ID, NOW.minusSeconds(20).toString())));
+            when(draftStore.find(USER_ID)).thenReturn(Optional.of(draft));
+            when(attemptRepository.findByPublicId(ATTEMPT_ID)).thenReturn(Optional.of(attempt));
+            when(counterStore.registerMedia(anyString())).thenReturn(true);
+        }
+
+        private void givenStoredVideoAndCardImages() {
+            when(evidenceService.storeLiveness(anyLong(), eq(ATTEMPT_ID), anyInt(), any(), anyList(), eq(List.of())))
+                    .thenReturn(List.of(new StoredEvidence(EkycEvidenceKind.LIVENESS_VIDEO, null,
+                            "ekyc/dev/7/a/liveness-1.mp4", "e".repeat(64), MP4.length, "video/mp4",
+                            EkycEvidenceStage.PENDING)));
+            when(evidenceRepository.findByAttemptIdOrderByIdAsc(100L)).thenReturn(List.of(
+                    EkycTestData.evidence(1L, 100L, EkycEvidenceKind.CCCD_FRONT, "ekyc/dev/7/a/cccd-front.jpg",
+                            EkycEvidenceStage.PENDING, NOW),
+                    EkycTestData.evidence(2L, 100L, EkycEvidenceKind.CCCD_BACK, "ekyc/dev/7/a/cccd-back.jpg",
+                            EkycEvidenceStage.PENDING, NOW),
+                    EkycTestData.evidence(3L, 100L, EkycEvidenceKind.LIVENESS_VIDEO, "ekyc/dev/7/a/liveness-1.mp4",
+                            EkycEvidenceStage.PENDING, NOW)));
+        }
+
+        private LivenessUpload manual() {
+            return new LivenessUpload(SESSION_ID.toString(), "VIDEO", "android",
+                    new UploadedFile("liveness.mp4", "video/mp4", MP4), List.of(), null, "MANUAL");
+        }
+
+        @Test
+        void aiDownReachingThresholdOffersManualReview() {
+            givenSession(EkycTestData.draft(ATTEMPT_ID, EkycDocumentDecision.AUTO_OK, null));
+            when(livenessClient.analyze(any(), any())).thenThrow(new AiLivenessException("timeout", false, 0));
+            when(aiOutageService.recordFailure(USER_ID)).thenReturn(true);
+
+            EkycResultResponse result = service.submit(USER_ID, video(SESSION_ID.toString(), MP4));
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.AI_UNAVAILABLE);
+            assertThat(result.message()).isEqualTo("Hệ thống xác minh đang gặp sự cố tạm thời.");
+            assertThat(result.manualReviewAvailable()).isTrue();
+            assertThat(result.nextStep()).isEqualTo(EkycNextStep.LIVENESS);
+            verify(rateLimitService).releaseLivenessSlot(USER_ID);
+        }
+
+        @Test
+        void unreadableVideoIsRetakeAndNotAnOutage() {
+            givenSession(EkycTestData.draft(ATTEMPT_ID, EkycDocumentDecision.AUTO_OK, null));
+            when(livenessClient.analyze(any(), any())).thenThrow(new AiLivenessException("bad video", true, 422));
+
+            EkycResultResponse result = service.submit(USER_ID, video(SESSION_ID.toString(), MP4));
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.RETAKE);
+            verify(aiOutageService).recordSuccess(USER_ID);
+            verify(aiOutageService, never()).recordFailure(any());
+        }
+
+        @Test
+        void manualModeBeforeThresholdIsRefusedWithoutConsumingChallenge() {
+            when(rateLimitService.tryAcquireLivenessSlot(USER_ID)).thenReturn(true);
+            when(aiOutageService.isManualReviewAvailable(USER_ID)).thenReturn(false);
+            when(draftStore.find(USER_ID)).thenReturn(Optional.of(EkycTestData.draft(ATTEMPT_ID, EkycDocumentDecision.AUTO_OK, null)));
+
+            assertConflict(() -> service.submit(USER_ID, manual()), HttpStatus.CONFLICT, "MANUAL_REVIEW_UNAVAILABLE");
+            verify(challengeStore, never()).consume(any());
+            verify(livenessClient, never()).analyze(any(), any());
+        }
+
+        @Test
+        void manualModeStoresVideoAndSubmitsForReviewWithoutAi() {
+            when(aiOutageService.isManualReviewAvailable(USER_ID)).thenReturn(true);
+            givenSession(EkycTestData.draft(ATTEMPT_ID, EkycDocumentDecision.AUTO_OK, null));
+            givenStoredVideoAndCardImages();
+            when(evidenceService.storeResult(anyLong(), eq(ATTEMPT_ID), any())).thenReturn(new StoredEvidence(
+                    EkycEvidenceKind.RESULT, null, "ekyc/dev/7/a/result.json", "f".repeat(64), 10L,
+                    "application/json", EkycEvidenceStage.FINAL));
+
+            EkycResultResponse result = service.submit(USER_ID, manual());
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.REVIEW_PENDING);
+            assertThat(result.status()).isEqualTo(EkycStatus.MANUAL_REVIEW);
+            assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.MANUAL_REVIEW);
+            assertThat(attempt.getStatus()).isEqualTo(EkycAttemptStatus.MANUAL_REVIEW);
+            assertThat(attempt.getLivenessResult()).isNull();
+            assertThat(attempt.getFaceMatchScore()).isNull();
+            assertThat(attempt.getLivenessReasons()).contains("AI_UNAVAILABLE");
+            assertThat(attempt.getDraftEncrypted()).contains("AI_UNAVAILABLE").doesNotContain(EkycTestData.EMBEDDING);
+            verify(livenessClient, never()).analyze(any(), any());
+            verify(claimPublisher).publish(USER_ID, EkycStatus.MANUAL_REVIEW);
+            verify(sessionCleanup).clearAll(USER_ID);
+        }
+
+        @Test
+        void draftFromCardStepOutageAlwaysGoesManualEvenWithoutFlag() {
+            givenSession(EkycIdentityDraft.withoutAiReading(ATTEMPT_ID));
+            givenStoredVideoAndCardImages();
+            when(evidenceService.storeResult(anyLong(), eq(ATTEMPT_ID), any())).thenReturn(new StoredEvidence(
+                    EkycEvidenceKind.RESULT, null, "ekyc/dev/7/a/result.json", "f".repeat(64), 10L,
+                    "application/json", EkycEvidenceStage.FINAL));
+
+            EkycResultResponse result = service.submit(USER_ID, video(SESSION_ID.toString(), MP4));
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.REVIEW_PENDING);
+            assertThat(attempt.getStatus()).isEqualTo(EkycAttemptStatus.MANUAL_REVIEW);
+            verify(livenessClient, never()).analyze(any(), any());
+            verify(aiOutageService, never()).isManualReviewAvailable(any());
+        }
+
+        @Test
+        void storageDownInManualModeNeverSubmits() {
+            when(aiOutageService.isManualReviewAvailable(USER_ID)).thenReturn(true);
+            givenSession(EkycTestData.draft(ATTEMPT_ID, EkycDocumentDecision.AUTO_OK, null));
+            when(evidenceService.storeLiveness(anyLong(), eq(ATTEMPT_ID), anyInt(), any(), anyList(), eq(List.of())))
+                    .thenThrow(new EkycStorageException("PutObject thất bại"));
+
+            EkycResultResponse result = service.submit(USER_ID, manual());
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.STORAGE_UNAVAILABLE);
+            assertThat(attempt.getStatus()).isEqualTo(EkycAttemptStatus.IN_PROGRESS);
+            assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.PENDING);
+            verify(claimPublisher, never()).publish(any(), any());
+        }
+
+        @Test
+        void resultFileFailureInManualModeKeepsStatus() {
+            when(aiOutageService.isManualReviewAvailable(USER_ID)).thenReturn(true);
+            givenSession(EkycTestData.draft(ATTEMPT_ID, EkycDocumentDecision.AUTO_OK, null));
+            givenStoredVideoAndCardImages();
+            when(evidenceService.storeResult(anyLong(), eq(ATTEMPT_ID), any())).thenThrow(new EkycStorageException("down"));
+
+            EkycResultResponse result = service.submit(USER_ID, manual());
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.STORAGE_UNAVAILABLE);
+            assertThat(result.nextStep()).isEqualTo(EkycNextStep.LIVENESS);
+            assertThat(attempt.getStatus()).isEqualTo(EkycAttemptStatus.IN_PROGRESS);
+            verify(claimPublisher, never()).publish(any(), any());
+        }
+
+        @Test
+        void missingCardImagesAbandonsInsteadOfSubmitting() {
+            when(aiOutageService.isManualReviewAvailable(USER_ID)).thenReturn(true);
+            givenSession(EkycTestData.draft(ATTEMPT_ID, EkycDocumentDecision.AUTO_OK, null));
+            when(evidenceService.storeLiveness(anyLong(), eq(ATTEMPT_ID), anyInt(), any(), anyList(), eq(List.of())))
+                    .thenReturn(List.of());
+            when(evidenceRepository.findByAttemptIdOrderByIdAsc(100L)).thenReturn(List.of(
+                    EkycTestData.evidence(3L, 100L, EkycEvidenceKind.LIVENESS_VIDEO, "ekyc/dev/7/a/liveness-1.mp4",
+                            EkycEvidenceStage.PENDING, NOW)));
+
+            EkycResultResponse result = service.submit(USER_ID, manual());
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.DRAFT_EXPIRED);
+            assertThat(attempt.getStatus()).isEqualTo(EkycAttemptStatus.ABANDONED);
+            verify(evidenceService, never()).storeResult(anyLong(), any(), any());
+            verify(claimPublisher, never()).publish(any(), any());
         }
     }
 

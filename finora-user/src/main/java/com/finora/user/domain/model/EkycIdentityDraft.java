@@ -1,5 +1,6 @@
 package com.finora.user.domain.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.finora.user.domain.enums.EkycDocumentDecision;
@@ -52,6 +53,33 @@ public record EkycIdentityDraft(
         List<String> editedFields
 ) {
 
+    /**
+     * Mã lý do đánh dấu phần việc AI không làm được vì finora-ai gặp sự cố: trong {@code documentReasons} là bước
+     * đọc thẻ (bản nháp không có trường nào, nhân viên phải đọc thẻ), trong {@code livenessReasons} là bước so mặt
+     * (không có điểm so mặt, nhân viên phải tự so). Cùng tên với mã kết quả {@code AI_UNAVAILABLE}.
+     */
+    public static final String AI_UNAVAILABLE_REASON = "AI_UNAVAILABLE";
+
+    /**
+     * Mã lý do trong {@code documentReasons}: người dùng đã chụp lại nhiều lần mà vẫn báo thông tin đọc từ thẻ chưa đúng
+     * nên hồ sơ đi duyệt tay; nhân viên đối chiếu ảnh thẻ và được sửa mọi trường.
+     */
+    public static final String USER_REPORTED_INCORRECT_REASON = "USER_REPORTED_INCORRECT";
+
+    /**
+     * Bản nháp của lượt chuyển duyệt tay ngay ở bước đọc thẻ vì AI lỗi: chưa có trường nào, không có embedding
+     * chân dung (nên bước liveness sau đó không gọi AI so mặt được). Quyết định giấy tờ luôn {@code NEEDS_REVIEW}.
+     */
+    public static EkycIdentityDraft withoutAiReading(UUID attemptId) {
+        Map<String, EkycDraftField> empty = new LinkedHashMap<>();
+        for (EkycDraftFieldName name : EkycDraftFieldName.values()) {
+            empty.put(name.jsonName(), new EkycDraftField(null, List.of()));
+        }
+        return new EkycIdentityDraft(attemptId, null, EkycDocumentDecision.NEEDS_REVIEW,
+                List.of(AI_UNAVAILABLE_REASON), List.of(), null, null, empty, false, null,
+                null, null, List.of(), null, null, 0, List.of());
+    }
+
     public EkycIdentityDraft {
         // Jackson đọc JSON null thành NullNode cho kiểu JsonNode; chuẩn hoá để bản đọc lại bằng bản gốc.
         if (documentChecks != null && (documentChecks.isNull() || documentChecks.isMissingNode())) {
@@ -86,6 +114,62 @@ public record EkycIdentityDraft(
             return livenessThresholdsVersion;
         }
         return documentThresholdsVersion + "," + livenessThresholdsVersion;
+    }
+
+    /** Thẻ chưa được AI đọc (AI lỗi ở bước thẻ): nhân viên phải đọc thẻ và nhập trường định danh. */
+    @JsonIgnore
+    public boolean cardReadWithoutAi() {
+        return documentReasons.contains(AI_UNAVAILABLE_REASON);
+    }
+
+    /** Hồ sơ có ít nhất một bước AI không làm được vì sự cố (đọc thẻ hoặc so mặt). */
+    @JsonIgnore
+    public boolean reviewedWithoutAi() {
+        return cardReadWithoutAi() || livenessReasons.contains(AI_UNAVAILABLE_REASON);
+    }
+
+    /** Người dùng báo thông tin đọc từ thẻ chưa đúng ({@link #USER_REPORTED_INCORRECT_REASON}). */
+    @JsonIgnore
+    public boolean userReportedIncorrect() {
+        return documentReasons.contains(USER_REPORTED_INCORRECT_REASON);
+    }
+
+    /**
+     * Video đã lưu làm bằng chứng nhưng không có kết quả AI: không có kết luận liveness, không có điểm so mặt,
+     * lý do duy nhất là {@link #AI_UNAVAILABLE_REASON}.
+     */
+    public EkycIdentityDraft withLivenessWithoutAi(String captureMode, int round) {
+        return withLiveness(null, null, List.of(AI_UNAVAILABLE_REASON), null, captureMode, round);
+    }
+
+    /**
+     * Nhân viên điền trường định danh còn trống (hồ sơ AI lỗi); nguồn của trường đó là {@code STAFF}. Kiểm tra hợp
+     * lệ nằm ở service duyệt, hàm này chỉ ghi giá trị.
+     */
+    public EkycIdentityDraft withStaffFields(String staffCardType, Map<EkycDraftFieldName, String> values,
+                                             boolean staffNoExpiry) {
+        Map<String, EkycDraftField> updated = new LinkedHashMap<>(fields);
+        values.forEach((name, value) -> updated.put(name.jsonName(),
+                new EkycDraftField(value, List.of(EkycDraftFieldName.SOURCE_STAFF))));
+        return new EkycIdentityDraft(attemptId, cardType == null ? staffCardType : cardType, documentDecision,
+                documentReasons, documentWarnings, documentChecks, documentThresholdsVersion, updated,
+                noExpiry || staffNoExpiry, portraitEmbeddingB64, livenessResult, faceMatchScore, livenessReasons,
+                livenessThresholdsVersion, livenessCaptureMode, livenessRound, editedFields);
+    }
+
+    /**
+     * Nhân viên sửa hồ sơ người dùng báo sai: ghi đè trường (nguồn {@code STAFF}), loại thẻ (nếu có) và cờ "không thời
+     * hạn" đúng như nhân viên chọn. Kiểm tra hợp lệ nằm ở {@code EkycStaffIdentityRules}, hàm này chỉ ghi giá trị.
+     */
+    public EkycIdentityDraft withStaffCorrections(String staffCardType, Map<EkycDraftFieldName, String> values,
+                                                  boolean staffNoExpiry) {
+        Map<String, EkycDraftField> updated = new LinkedHashMap<>(fields);
+        values.forEach((name, value) -> updated.put(name.jsonName(),
+                new EkycDraftField(value, List.of(EkycDraftFieldName.SOURCE_STAFF))));
+        return new EkycIdentityDraft(attemptId, staffCardType == null ? cardType : staffCardType, documentDecision,
+                documentReasons, documentWarnings, documentChecks, documentThresholdsVersion, updated,
+                staffNoExpiry, portraitEmbeddingB64, livenessResult, faceMatchScore, livenessReasons,
+                livenessThresholdsVersion, livenessCaptureMode, livenessRound, editedFields);
     }
 
     /** Ghi kết luận liveness mới (PASS/REVIEW/FAIL) và tăng số lần gửi video. */
@@ -124,6 +208,19 @@ public record EkycIdentityDraft(
                 documentChecks, documentThresholdsVersion, updated, noExpiry, portraitEmbeddingB64,
                 livenessResult, faceMatchScore, livenessReasons, livenessThresholdsVersion, livenessCaptureMode,
                 livenessRound, edited);
+    }
+
+    /** Đánh dấu người dùng báo thông tin đọc từ thẻ chưa đúng: thêm {@link #USER_REPORTED_INCORRECT_REASON} (không trùng). */
+    public EkycIdentityDraft withUserReportedIncorrect() {
+        if (userReportedIncorrect()) {
+            return this;
+        }
+        List<String> reasons = new ArrayList<>(documentReasons);
+        reasons.add(USER_REPORTED_INCORRECT_REASON);
+        return new EkycIdentityDraft(attemptId, cardType, documentDecision, reasons, documentWarnings,
+                documentChecks, documentThresholdsVersion, fields, noExpiry, portraitEmbeddingB64,
+                livenessResult, faceMatchScore, livenessReasons, livenessThresholdsVersion, livenessCaptureMode,
+                livenessRound, editedFields);
     }
 
     /**

@@ -348,7 +348,7 @@ services:
   # ngừng phát hành image/binary. Chỉ mở S3 API ở 127.0.0.1:9100 — không dùng 9000 vì trùng CIC.
   # Bật: --profile ekyc. File s3.json (2 tài khoản) được sinh lúc khởi động từ docker/.env, không commit:
   #   ekyc-admin   (SEAWEEDFS_ADMIN_*): toàn quyền, chỉ seaweedfs-init dùng để tạo bucket;
-  #   finora-user  (EKYC_S3_*): chỉ Read/Write/List/Tagging trên bucket eKYC.
+  #   finora-user  (EKYC_STORAGE_*): chỉ Read/Write/List/Tagging trên bucket eKYC.
   # Mã hoá khi lưu bằng -s3.encryptVolumeData; truy cập ẩn danh bị từ chối vì đã khai báo identities.
   seaweedfs:
     profiles: ["ekyc"]
@@ -358,24 +358,24 @@ services:
     environment:
       SEAWEEDFS_ADMIN_ACCESS_KEY: "${SEAWEEDFS_ADMIN_ACCESS_KEY:-}"
       SEAWEEDFS_ADMIN_SECRET_KEY: "${SEAWEEDFS_ADMIN_SECRET_KEY:-}"
-      EKYC_S3_ACCESS_KEY: "${EKYC_S3_ACCESS_KEY:-}"
-      EKYC_S3_SECRET_KEY: "${EKYC_S3_SECRET_KEY:-}"
-      EKYC_S3_BUCKET: "${EKYC_S3_BUCKET:-finora-ekyc}"
+      EKYC_STORAGE_ACCESS_KEY: "${EKYC_STORAGE_ACCESS_KEY:-}"
+      EKYC_STORAGE_SECRET_KEY: "${EKYC_STORAGE_SECRET_KEY:-}"
+      EKYC_STORAGE_BUCKET: "${EKYC_STORAGE_BUCKET:-finora-ekyc}"
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         set -e
-        for v in "$$SEAWEEDFS_ADMIN_ACCESS_KEY" "$$SEAWEEDFS_ADMIN_SECRET_KEY" "$$EKYC_S3_ACCESS_KEY" "$$EKYC_S3_SECRET_KEY"; do
+        for v in "$$SEAWEEDFS_ADMIN_ACCESS_KEY" "$$SEAWEEDFS_ADMIN_SECRET_KEY" "$$EKYC_STORAGE_ACCESS_KEY" "$$EKYC_STORAGE_SECRET_KEY"; do
           case "$$v" in
             ""|*[!A-Za-z0-9._~+/=-]*)
-              echo "Thieu SEAWEEDFS_ADMIN_* hoac EKYC_S3_* trong docker/.env (chi chu, so va . _ ~ + / = -)" >&2
+              echo "Thieu SEAWEEDFS_ADMIN_* hoac EKYC_STORAGE_* trong docker/.env (chi chu, so va . _ ~ + / = -)" >&2
               exit 1;;
           esac
         done
         umask 077
         printf '{"identities":[{"name":"ekyc-admin","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]},{"name":"finora-user","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Read:%s","Write:%s","List:%s","Tagging:%s"]}]}\n' \
-          "$$SEAWEEDFS_ADMIN_ACCESS_KEY" "$$SEAWEEDFS_ADMIN_SECRET_KEY" "$$EKYC_S3_ACCESS_KEY" "$$EKYC_S3_SECRET_KEY" \
-          "$$EKYC_S3_BUCKET" "$$EKYC_S3_BUCKET" "$$EKYC_S3_BUCKET" "$$EKYC_S3_BUCKET" > /etc/seaweedfs/s3.json
+          "$$SEAWEEDFS_ADMIN_ACCESS_KEY" "$$SEAWEEDFS_ADMIN_SECRET_KEY" "$$EKYC_STORAGE_ACCESS_KEY" "$$EKYC_STORAGE_SECRET_KEY" \
+          "$$EKYC_STORAGE_BUCKET" "$$EKYC_STORAGE_BUCKET" "$$EKYC_STORAGE_BUCKET" "$$EKYC_STORAGE_BUCKET" > /etc/seaweedfs/s3.json
         chown seaweed:seaweed /etc/seaweedfs/s3.json
         # entrypoint gốc của image tự sửa quyền /data rồi hạ xuống user seaweed trước khi chạy weed.
         exec /entrypoint.sh server -dir=/data -ip.bind=0.0.0.0 -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -s3.encryptVolumeData -master.volumeSizeLimitMB=64
@@ -406,9 +406,9 @@ services:
     environment:
       AWS_ACCESS_KEY_ID: "${SEAWEEDFS_ADMIN_ACCESS_KEY:-}"
       AWS_SECRET_ACCESS_KEY: "${SEAWEEDFS_ADMIN_SECRET_KEY:-}"
-      AWS_DEFAULT_REGION: "${EKYC_S3_REGION:-us-east-1}"
+      AWS_DEFAULT_REGION: "${EKYC_STORAGE_REGION:-us-east-1}"
       AWS_EC2_METADATA_DISABLED: "true"
-      EKYC_S3_BUCKET: "${EKYC_S3_BUCKET:-finora-ekyc}"
+      EKYC_STORAGE_BUCKET: "${EKYC_STORAGE_BUCKET:-finora-ekyc}"
       EKYC_EVIDENCE_RETENTION_DAYS: "${EKYC_EVIDENCE_RETENTION_DAYS:-30}"
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -423,14 +423,14 @@ services:
           sleep 2
         done
         # Bucket đã có (chạy lại init) thì create báo lỗi; head-bucket thành công nghĩa là dùng tiếp.
-        aws $$S3 s3api create-bucket --bucket "$$EKYC_S3_BUCKET" >/dev/null 2>&1 \
-          || aws $$S3 s3api head-bucket --bucket "$$EKYC_S3_BUCKET"
+        aws $$S3 s3api create-bucket --bucket "$$EKYC_STORAGE_BUCKET" >/dev/null 2>&1 \
+          || aws $$S3 s3api head-bucket --bucket "$$EKYC_STORAGE_BUCKET"
         printf '{"Rules":[{"ID":"ekyc-pending","Status":"Enabled","Filter":{"Tag":{"Key":"stage","Value":"pending"}},"Expiration":{"Days":1}},{"ID":"ekyc-final","Status":"Enabled","Filter":{"Tag":{"Key":"stage","Value":"final"}},"Expiration":{"Days":%s}}]}' \
           "$$EKYC_EVIDENCE_RETENTION_DAYS" > /tmp/lifecycle.json
-        aws $$S3 s3api put-bucket-lifecycle-configuration --bucket "$$EKYC_S3_BUCKET" \
+        aws $$S3 s3api put-bucket-lifecycle-configuration --bucket "$$EKYC_STORAGE_BUCKET" \
           --lifecycle-configuration file:///tmp/lifecycle.json \
           || echo "Canh bao: khong dat duoc lifecycle theo tag; worker quet don cua finora-user van xoa dung han" >&2
-        echo "San sang: bucket $$EKYC_S3_BUCKET"
+        echo "San sang: bucket $$EKYC_STORAGE_BUCKET"
     networks:
       - finora-network
 
@@ -714,13 +714,13 @@ services:
       AI_SERVICE_URL: http://ai:8000
       # Bằng chứng eKYC: bật cùng --profile ekyc (SeaweedFS trong cùng mạng Docker).
       EKYC_EVIDENCE_ENABLED: "${EKYC_EVIDENCE_ENABLED:-false}"
-      EKYC_S3_ENDPOINT: http://seaweedfs:8333
-      EKYC_S3_PATH_STYLE: "true"
-      EKYC_S3_REGION: "${EKYC_S3_REGION:-us-east-1}"
-      EKYC_S3_BUCKET: "${EKYC_S3_BUCKET:-finora-ekyc}"
-      EKYC_S3_ACCESS_KEY: "${EKYC_S3_ACCESS_KEY:-}"
-      EKYC_S3_SECRET_KEY: "${EKYC_S3_SECRET_KEY:-}"
-      EKYC_S3_ENV: "${EKYC_S3_ENV:-dev}"
+      EKYC_STORAGE_ENDPOINT: http://seaweedfs:8333
+      EKYC_STORAGE_PATH_STYLE: "true"
+      EKYC_STORAGE_REGION: "${EKYC_STORAGE_REGION:-us-east-1}"
+      EKYC_STORAGE_BUCKET: "${EKYC_STORAGE_BUCKET:-finora-ekyc}"
+      EKYC_STORAGE_ACCESS_KEY: "${EKYC_STORAGE_ACCESS_KEY:-}"
+      EKYC_STORAGE_SECRET_KEY: "${EKYC_STORAGE_SECRET_KEY:-}"
+      EKYC_STORAGE_ENV: "${EKYC_STORAGE_ENV:-dev}"
       EKYC_EVIDENCE_RETENTION_DAYS: "${EKYC_EVIDENCE_RETENTION_DAYS:-30}"
       NOTIFICATION_SERVICE_URL: ${NOTIFICATION_SERVICE_URL:-http://host.docker.internal:8086}
       CIC_SERVICE_URL: ${CIC_SERVICE_URL:-https://cic-service-node.vercel.app}

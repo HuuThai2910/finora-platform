@@ -1,6 +1,7 @@
 package com.finora.user.service;
 
 import com.finora.common.dto.PageResponse;
+import com.finora.user.dto.request.EkycApproveRequest;
 import com.finora.user.dto.response.EkycAttemptDetailResponse;
 import com.finora.user.dto.response.EkycAttemptSummaryResponse;
 import com.finora.user.integration.storage.StoredObject;
@@ -32,9 +33,20 @@ public interface EkycAdminReviewService {
 
     /**
      * Duyệt: ghi định danh từ bản nháp vào hồ sơ, hồ sơ {@code VERIFIED} ({@code livenessVerified} khi
-     * liveness PASS/REVIEW), task ánh xạ CIC, lượt {@code APPROVED} — một transaction; claim sau commit.
+     * liveness PASS/REVIEW, hoặc khi nhân viên tự so mặt ở hồ sơ AI gặp sự cố), task ánh xạ CIC, lượt
+     * {@code APPROVED} — một transaction; claim sau commit.
+     * <p>
+     * Hồ sơ AI gặp sự cố: {@code identity} bắt buộc chứa các trường định danh còn trống (xem
+     * {@code requiredIdentityFields}); hồ sơ thường gửi {@code identity} → {@code 400 IDENTITY_NOT_ALLOWED}.
+     * Người dùng đã rút lại → {@code 409 ATTEMPT_WITHDRAWN}.
      */
-    EkycAttemptDetailResponse approve(String attemptId, UUID adminKeycloakId, String note);
+    EkycAttemptDetailResponse approve(String attemptId, UUID adminKeycloakId, String note,
+                                      EkycApproveRequest.Identity identity);
+
+    /** Duyệt không kèm trường định danh (hồ sơ duyệt tay thông thường). */
+    default EkycAttemptDetailResponse approve(String attemptId, UUID adminKeycloakId, String note) {
+        return approve(attemptId, adminKeycloakId, note, null);
+    }
 
     /** Từ chối: lượt {@code REJECTED}, hồ sơ {@code FAILED} (người dùng làm lại được); claim sau commit. */
     EkycAttemptDetailResponse reject(String attemptId, UUID adminKeycloakId, String note);

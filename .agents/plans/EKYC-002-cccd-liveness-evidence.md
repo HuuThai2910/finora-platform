@@ -397,16 +397,16 @@ CREATE INDEX idx_ekyc_evidence_access_log_attempt_id ON ekyc_evidence_access_log
 
 ERD: `user_profiles 1 — 0..N ekyc_consents` (mỗi lần đồng ý/đồng ý lại một bản ghi); `user_profiles 1 — 0..N ekyc_attempts` (mỗi lần quét đạt một lượt); `ekyc_consents 1 — 0..N ekyc_attempts` (lượt ghi lại đồng ý đang hiệu lực lúc tạo); `ekyc_attempts 1 — 0..N ekyc_evidence`; `ekyc_attempts 1 — 0..N ekyc_evidence_access_log`; `ekyc_evidence 1 — 0..N ekyc_evidence_access_log`.
 
-Vòng đời attempt: `IN_PROGRESS → VERIFIED | MANUAL_REVIEW | ABANDONED`; `MANUAL_REVIEW → APPROVED | REJECTED`. Quét lại khi còn `IN_PROGRESS` → lượt cũ `ABANDONED`, xoá object của nó.
+Vòng đời attempt: `IN_PROGRESS → VERIFIED | MANUAL_REVIEW | ABANDONED`; `MANUAL_REVIEW → APPROVED | REJECTED | WITHDRAWN` (`WITHDRAWN` từ V12, mục 11.4). Quét lại khi còn `IN_PROGRESS` → lượt cũ `ABANDONED`, xoá object của nó.
 
 **Quét dọn** (`@Scheduled`, mỗi giờ, có cờ bật/tắt): attempt `IN_PROGRESS` quá 24 giờ → `ABANDONED` + xoá object `pending`; evidence `final` quá `EKYC_EVIDENCE_RETENTION_DAYS` (30) → xoá object + `deleted_at`. Không phụ thuộc lifecycle của bucket (lifecycle chỉ là lớp phòng thủ thêm).
 
 ## 5. Lưu bằng chứng
 - Interface `EkycEvidenceStorage`: `put(key, bytes, contentType, stage)`, `open(key)` (stream), `setStage(key, stage)` (PutObjectTagging `stage=…`), `delete(key)`, `deletePrefix(prefix)`, `isEnabled()`. Bản AWS SDK v2 (`software.amazon.awssdk:s3`, BOM) + bản tắt (`isEnabled=false`).
 - Gắn tag là **best-effort** (16/10, khi đổi sang SeaweedFS): PutObject kèm tag mà kho từ chối tag (400/403/501) thì ghi lại không tag và log WARN; `setStage` lỗi chỉ log WARN. Cột `ekyc_evidence.stage` + worker quét dọn là nguồn chuẩn cho hạn lưu. Lỗi PutObject/GetObject/DeleteObject thật vẫn là `STORAGE_UNAVAILABLE`.
-- Cấu hình `finora.ekyc.storage.*`: `enabled` (`EKYC_EVIDENCE_ENABLED`, mặc định `false`), `endpoint` (`EKYC_S3_ENDPOINT`), `region` (`EKYC_S3_REGION`, `us-east-1`), `bucket` (`EKYC_S3_BUCKET`, `finora-ekyc`), `path-style` (`EKYC_S3_PATH_STYLE`, `false`), `access-key`/`secret-key` (`EKYC_S3_ACCESS_KEY`/`EKYC_S3_SECRET_KEY`), `env` (`EKYC_S3_ENV`, `dev`), `retention-days` (`EKYC_EVIDENCE_RETENTION_DAYS`, 30).
+- Cấu hình `finora.ekyc.storage.*`: `enabled` (`EKYC_EVIDENCE_ENABLED`, mặc định `false`), `endpoint` (`EKYC_STORAGE_ENDPOINT`), `region` (`EKYC_STORAGE_REGION`, `us-east-1`), `bucket` (`EKYC_STORAGE_BUCKET`, `finora-ekyc`), `path-style` (`EKYC_STORAGE_PATH_STYLE`, `false`), `access-key`/`secret-key` (`EKYC_STORAGE_ACCESS_KEY`/`EKYC_STORAGE_SECRET_KEY`), `env` (`EKYC_STORAGE_ENV`, `dev`), `retention-days` (`EKYC_EVIDENCE_RETENTION_DAYS`, 30).
 - Key: `ekyc/{env}/{userProfileId}/{attemptPublicId}/{file}` — file: `cccd-front.jpg`, `cccd-back.jpg`, `liveness-{n}.mp4|mov`, `liveness-frame-{label}-{n}.jpg`, `still-{n}.jpg`, `result.json`. Không PII trong key/metadata.
-- **SeaweedFS local** (thay MinIO ngày 16/10: repo MinIO đã archive, image `minio/minio`, `minio/mc` và binary dl.min.io không còn tải được): `docker/docker-compose.yml` (và `docker-compose.app.yml`) profile `ekyc` thêm `seaweedfs` (`chrislusf/seaweedfs:4.48`, Apache-2.0; `server -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -s3.encryptVolumeData -master.volumeSizeLimitMB=64`; S3 chỉ ở `127.0.0.1:9100` — **không** dùng 9000 vì trùng cic-service; volume `seaweedfs-data`) + `seaweedfs-init` (`amazon/aws-cli:2.38.1`, tài khoản admin): tạo bucket (bỏ qua nếu đã có), `put-bucket-lifecycle-configuration` lọc theo tag (`pending` 1 ngày, `final` `EKYC_EVIDENCE_RETENTION_DAYS`) — SeaweedFS nhận nhưng chưa chắc thực thi, chỉ là lớp phòng thủ thêm. `s3.json` sinh lúc khởi động từ env: `ekyc-admin` (`SEAWEEDFS_ADMIN_ACCESS_KEY/SECRET_KEY`, Admin) và `finora-user` (`EKYC_S3_ACCESS_KEY/SECRET_KEY`, chỉ `Read/Write/List/Tagging:finora-ekyc`). Mã hoá khi lưu bằng `-s3.encryptVolumeData` (bỏ `MINIO_KMS_SECRET_KEY`); ẩn danh bị từ chối vì đã khai báo identities. finora-user từ IntelliJ: `EKYC_S3_ENDPOINT=http://localhost:9100`, trong compose `http://seaweedfs:8333`; `EKYC_S3_PATH_STYLE=true`, `EKYC_S3_REGION=us-east-1`. Biến trong `docker/.env.example`.
+- **SeaweedFS local** (thay MinIO ngày 16/10: repo MinIO đã archive, image `minio/minio`, `minio/mc` và binary dl.min.io không còn tải được): `docker/docker-compose.yml` (và `docker-compose.app.yml`) profile `ekyc` thêm `seaweedfs` (`chrislusf/seaweedfs:4.48`, Apache-2.0; `server -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -s3.encryptVolumeData -master.volumeSizeLimitMB=64`; S3 chỉ ở `127.0.0.1:9100` — **không** dùng 9000 vì trùng cic-service; volume `seaweedfs-data`) + `seaweedfs-init` (`amazon/aws-cli:2.38.1`, tài khoản admin): tạo bucket (bỏ qua nếu đã có), `put-bucket-lifecycle-configuration` lọc theo tag (`pending` 1 ngày, `final` `EKYC_EVIDENCE_RETENTION_DAYS`) — SeaweedFS nhận nhưng chưa chắc thực thi, chỉ là lớp phòng thủ thêm. `s3.json` sinh lúc khởi động từ env: `ekyc-admin` (`SEAWEEDFS_ADMIN_ACCESS_KEY/SECRET_KEY`, Admin) và `finora-user` (`EKYC_STORAGE_ACCESS_KEY/SECRET_KEY`, chỉ `Read/Write/List/Tagging:finora-ekyc`). Mã hoá khi lưu bằng `-s3.encryptVolumeData` (bỏ `MINIO_KMS_SECRET_KEY`); ẩn danh bị từ chối vì đã khai báo identities. finora-user từ IntelliJ: `EKYC_STORAGE_ENDPOINT=http://localhost:9100`, trong compose `http://seaweedfs:8333`; `EKYC_STORAGE_PATH_STYLE=true`, `EKYC_STORAGE_REGION=us-east-1`. Biến trong `docker/.env.example`.
 - **Không** thêm kho S3 local vào compose Azure (`C:\Users\PC\Desktop\Data\Đồ Án\deploy\docker-compose.azure.yml`); ở đó chỉ thêm `EKYC_EVIDENCE_ENABLED=false` cho user (User → AI dùng service account, mục 10.9). Không deploy.
 
 ## 6. Gateway
@@ -484,7 +484,7 @@ còn mọi thay đổi DB nằm trong khối `TransactionTemplate` ngắn; các 
   (gồm 200 lần lặp kiểm thử thử thách ngẫu nhiên), finora-gateway 22; 0 lỗi, 0 bỏ qua. Lưu ý: auto-build của VS Code Java
   (JDT) đang ghi class Lombok lỗi ("Flexible Constructor Bodies") vào `target/classes`, và compile tăng dần của Maven coi
   chúng là mới — luôn chạy `mvn clean …` trước khi test/install.
-- `S3EkycEvidenceStorageIT` (bật bằng `EKYC_S3_IT_ENDPOINT`): chạy thật với SeaweedFS 4.48 local — put kèm tag, đọc tag, HeadObject content-type, stream, đổi tag `final`, xoá theo tiền tố, NoSuchKey.
+- `S3EkycEvidenceStorageIT` (bật bằng `EKYC_STORAGE_IT_ENDPOINT`): chạy thật với SeaweedFS 4.48 local — put kèm tag, đọc tag, HeadObject content-type, stream, đổi tag `final`, xoá theo tiền tố, NoSuchKey.
 - `docker compose config` cho `docker-compose.yml`, `docker-compose.app.yml`, `deploy/docker-compose.azure.yml`; `sh -n` cho script `seaweedfs`/`seaweedfs-init` và chạy thử bộ sinh `s3.json`.
 
 ### 10.5 Phần finora-ai (Python)
@@ -541,3 +541,91 @@ Chạy thật cả backend trên máy dev, không Docker, không Keycloak, khôn
 - `POST /api/v1/users/profile/ekyc-verify` chịu thêm giới hạn chung của D40 (`@RateLimited` 5 lần/10 phút, `429
   RATE_LIMITED` kèm `Retry-After`) ngoài giới hạn 10 giây của mục 3.
 - Ánh xạ CIC dùng ID hồ sơ `user_profiles.id` làm `borrowerId` (B26 của `main`).
+
+## 11. Bổ sung 17/11/2026 — AI gặp sự cố → nhân viên duyệt tay; người dùng rút lại hồ sơ chờ duyệt
+
+**Trạng thái:** IMPLEMENTED, chưa commit/deploy (unit test finora-user xanh, mobile `tsc` xanh, web build xanh; IT cần
+Docker chưa chạy). Tiến độ và cách thử: `C:\Users\PC\Desktop\Data\Đồ Án\TIEN-DO-EKYC-DUYET-TAY-AI-LOI.md`.
+Pháp lý vẫn theo `LEGAL-DATA-01`: lối duyệt tay không lưu thêm loại dữ liệu nào (vẫn ảnh thẻ + video, không embedding);
+nhân viên xem bằng chứng vẫn ghi `ekyc_evidence_access_log`; hồ sơ rút lại bị xoá bằng chứng như lượt bỏ dở (tối thiểu hoá).
+
+**Vì sao:** khi finora-ai lỗi, người dùng chỉ thấy "dịch vụ đang bận" và kẹt; hồ sơ đã gửi duyệt thì không có cách làm lại.
+
+### 11.1 Đếm lỗi AI và câu báo
+- Bộ đếm `ekyc_ai_failure:<keycloakUserId>` trong kho tạm (`TemporaryStore#incrementRefreshingTtl`, TTL làm mới mỗi lần lỗi,
+  mặc định 1 giờ). Gộp bước đọc thẻ và liveness; chỉ đếm lỗi hệ thống (timeout, 5xx, circuit mở, phản hồi rỗng).
+  AI trả lời được — kể cả `OCR_FAILED` (400/422), `RETAKE`, video không đọc được — xoá bộ đếm. `EkycSessionCleanup` cũng xoá.
+- Cấu hình `finora.ekyc.manual-review.ai-failure-threshold` (`EKYC_AI_FAILURE_THRESHOLD`, 3) và `ai-failure-window`
+  (`EKYC_AI_FAILURE_WINDOW`, `PT1H`) — `EkycManualReviewProperties`, logic ở `EkycAiOutageService`.
+- `AI_UNAVAILABLE` giữ nguyên hành vi cũ (không tính lượt, trả suất rate limit, giữ trạng thái); thông điệp đổi thành
+  **"Hệ thống xác minh đang gặp sự cố tạm thời."** (Hải chốt, không nối thêm câu). `EkycResultResponse` thêm hai field cuối:
+  `manualReviewAvailable` (đủ ngưỡng → app hiện nút "Gửi nhân viên duyệt") và `manualReviewMode` (phiên đang ở chế độ duyệt tay).
+  Không thêm mã mới vào `EkycResultCode` (vùng `finora-common`).
+
+### 11.2 Chuyển nhân viên duyệt
+- **Bước thẻ:** `POST /api/v1/users/profile/ekyc-manual-review` (body như `ekyc-verify`, `user:cccd:scan`, chung bucket
+  `@RateLimited ekyc.ocr` + suất quét thẻ). Thứ tự: đã `VERIFIED`/`MANUAL_REVIEW` → trả như verify; chưa đồng ý →
+  `CONSENT_REQUIRED`; kho tắt → `STORAGE_UNAVAILABLE`; ảnh sai → `400 INVALID_IMAGE`; chưa đủ ngưỡng → `409 MANUAL_REVIEW_UNAVAILABLE`;
+  rate limit. Mở lượt `NEEDS_REVIEW`, `document_reasons=["AI_UNAVAILABLE"]`, `card_type=null`, lưu hai ảnh (lỗi kho → bỏ lượt,
+  `STORAGE_UNAVAILABLE`), bản nháp rỗng trường, không embedding (`EkycIdentityDraft.withoutAiReading`). Trả `DRAFT_READY`,
+  `manualReviewMode=true`, `nextStep=LIVENESS`, `draft=null`.
+- **Bước liveness:** multipart thêm `reviewMode=MANUAL`. Bản nháp từ bước thẻ AI lỗi luôn đi chế độ này. Chế độ duyệt tay:
+  rate limit → (xin duyệt tay mà chưa đủ ngưỡng → `409 MANUAL_REVIEW_UNAVAILABLE`, không tiêu thử thách) → thử thách → bản
+  nháp → kiểm file → chống phát lại → **không gọi AI** → lưu video/ảnh (lỗi → `STORAGE_UNAVAILABLE`) → lượt ghi
+  `liveness_result=null`, `face_match_score=null`, `liveness_reasons=["AI_UNAVAILABLE"]` → kiểm còn đủ ảnh hai mặt thẻ + video
+  (thiếu → bỏ lượt, `DRAFT_EXPIRED`) → `result.json` (lỗi → `STORAGE_UNAVAILABLE`, giữ trạng thái) → `submitForReview` →
+  claim `MANUAL_REVIEW` sau commit → `REVIEW_PENDING`.
+
+### 11.3 Duyệt hồ sơ AI gặp sự cố
+- Admin API thêm `aiUnavailable` (danh sách + chi tiết; suy từ mã `AI_UNAVAILABLE` trong `document_reasons`/`liveness_reasons`,
+  không thêm cột) và `requiredIdentityFields` (chi tiết, chỉ khi đang chờ duyệt).
+- `POST …/approve` body thêm `identity {cardType, idNumber, fullName, dateOfBirth, gender, address, placeOfOrigin,
+  birthRegistrationPlace, issueDate, expiryDate, noExpiry}`. Chỉ nhận cho hồ sơ AI gặp sự cố (hồ sơ thường →
+  `400 IDENTITY_NOT_ALLOWED`); chỉ điền trường trống (đã có → `400 EDIT_NOT_ALLOWED`). Luật (`EkycStaffIdentityRules`):
+  loại thẻ ∈ {CCCD_CHIP_2021, CAN_CUOC_2024, CCCD_CHIP_UNKNOWN, CCCD_BARCODE}; số 12 chữ số; ngày `dd/mm/yyyy` có thật; giới tính
+  Nam/Nữ; đủ 18 tuổi (`400 UNDERAGE`); ngày cấp không ở tương lai, sau ngày sinh; còn hạn (`400 CARD_EXPIRED`) hoặc không
+  thời hạn; thiếu → `400 IDENTITY_REQUIRED`; trùng số → `409 ID_TAKEN`/`ID_MISMATCH` như cũ. Nguồn trường = `STAFF`; bản
+  nháp đầy đủ ghi lại vào lượt. Duyệt hồ sơ AI gặp sự cố → `livenessVerified=true` (nhân viên tự so mặt), `faceMatchScore=null`.
+
+### 11.4 Rút lại hồ sơ chờ duyệt
+- `POST /api/v1/users/profile/ekyc-withdraw` (`user:cccd:scan`, `@RateLimited ekyc.withdraw` 5/10 phút) → `BaseResponse<MyEkycStatusResponse>`.
+  Chỉ khi lượt mới nhất `MANUAL_REVIEW` và hồ sơ `MANUAL_REVIEW` (khác → `409 EKYC_NOT_WITHDRAWABLE`; lượt đã `APPROVED`/`REJECTED`
+  → `409 ATTEMPT_ALREADY_DECIDED` "Hồ sơ vừa được nhân viên xử lý…").
+- Một transaction: lượt → `WITHDRAWN` (xoá `draft_encrypted`, `decided_at`), hồ sơ → `PENDING`; `saveAndFlush` để `@Version`
+  của lượt chặn tranh chấp với nhân viên — bên commit sau nhận 409 (người dùng: `ATTEMPT_ALREADY_DECIDED`; nhân viên:
+  `ATTEMPT_WITHDRAWN` "Người dùng đã rút lại hồ sơ này."). Sau commit: dọn kho tạm, claim `PENDING`, xoá object bằng chứng
+  (best-effort); object lỗi do worker quét dọn (thêm lượt quét `WITHDRAWN`). Đồng ý eKYC giữ nguyên.
+- Migration **`V12__ekyc_attempt_withdrawn.sql`**: thay `ck_ekyc_attempts_status` thêm `WITHDRAWN`.
+- Hàng chờ duyệt (`status=MANUAL_REVIEW`) tự không còn lượt đã rút; chi tiết lượt hiện trạng thái `WITHDRAWN`.
+
+### 11.5 Mobile và web
+- Mobile: câu sự cố + nút "Gửi nhân viên duyệt" (màn chụp mặt sau, màn liveness); phiên duyệt tay có ghi chú, video gửi
+  `reviewMode=MANUAL`; màn "đang chờ duyệt" có "Rút lại hồ sơ" (hộp xác nhận) → về màn điều khoản; tab Hồ sơ: dòng định danh
+  khi chờ duyệt mở màn chờ duyệt; gửi duyệt/rút lại đều tải lại hồ sơ trong phiên. Mock `ekyc` có kịch bản `ekyc-ai-down`,
+  `ekyc-withdraw-race`.
+- Web: dải "AI gặp sự cố — cần nhân viên đọc thẻ và so mặt", form nhập trường định danh khi duyệt, trạng thái
+  "Người dùng đã rút lại", nguồn "Nhân viên nhập", tên thao tác trong Nhật ký hoạt động.
+
+## 12. Bổ sung 19/11/2026 — báo sai 3 lần → nhân viên duyệt; bỏ chọn ảnh có sẵn; kho ảnh SeaweedFS trên Azure
+
+**Trạng thái:** IMPLEMENTED, chưa commit. Đề xuất `C:\Users\PC\Desktop\Data\Đồ Án\DE-XUAT-EKYC-BAO-SAI-THONG-TIN.md`,
+kế hoạch `…\KE-HOACH-EKYC-BAO-SAI-THONG-TIN.md`, tiến độ và kết quả deploy `…\TIEN-DO-EKYC-BAO-SAI-THONG-TIN.md`.
+
+**Vì sao:** trường đọc từ QR/MRZ không cho người dùng sửa, nên khi đọc sai người dùng chỉ có "Sai thông tin — Chụp lại"
+mãi; ảnh chọn từ thư viện không chứng minh người dùng đang cầm thẻ; Azure tắt kho ảnh nên `ekyc-verify` dừng ở
+`STORAGE_UNAVAILABLE`.
+
+- Mobile: bỏ "Chọn ảnh có sẵn" (`capture/gallery.ts`, `RETAKE_GALLERY_AFTER`, nguồn `GALLERY`). Phiên eKYC đếm số lần bấm
+  "Sai thông tin — Chụp lại" (`incorrectReports`, giữ qua các lần chụp lại, xoá khi `reset`). Từ lần soát thứ
+  `REPORT_TO_STAFF_AT = 3`: nút thành "Sai thông tin — Gửi nhân viên kiểm tra", gửi `ekyc-confirm` với
+  `{"reportIncorrect": true}` (không kèm `edits`, không hỏi lại) rồi về màn chờ duyệt.
+- User: `EkycConfirmRequest.reportIncorrect` → bỏ qua `edits`, lượt + hồ sơ luôn `MANUAL_REVIEW`, thêm mã
+  `USER_REPORTED_INCORRECT` vào `document_reasons` và `result.json`. Server không kiểm số lần (đếm trên app; gọi thẳng API
+  chỉ tốn công nhân viên). `ekyc-verify`/`ekyc-manual-review` không nhận `GALLERY` (400). Duyệt hồ sơ báo sai:
+  `approve.identity` ghi đè được mọi trường (`EkycStaffIdentityRules.correct`, nguồn `STAFF`), giữ kết quả so mặt của AI;
+  API quản trị có `userReportedIncorrect`. Không migration.
+- Web: dải "Người dùng báo thông tin đọc từ thẻ chưa đúng…", form nhân viên chế độ sửa (điền sẵn bản nháp, chỉ gửi trường
+  đã đổi).
+- Deploy: `deploy/docker-compose.azure.yml` thêm `seaweedfs` + `seaweedfs-init`, `user` bật kho (`EKYC_EVIDENCE_ENABLED=true`,
+  `EKYC_STORAGE_ENV=azure`, nơi lưu "máy chủ của FINORA tại Malaysia (Microsoft Azure)"); `finora-status.sh` chờ
+  `seaweedfs`. finora-ai không đổi.

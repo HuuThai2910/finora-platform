@@ -28,6 +28,8 @@ public enum EkycDraftFieldName {
     public static final String SOURCE_AI = "AI";
     /** Nguồn gán cho trường người dùng đã sửa. */
     public static final String SOURCE_USER = "USER";
+    /** Nguồn gán cho trường nhân viên nhập khi duyệt hồ sơ mà AI không đọc được thẻ (AI gặp sự cố). */
+    public static final String SOURCE_STAFF = "STAFF";
 
     private final String jsonName;
     private final String aiName;

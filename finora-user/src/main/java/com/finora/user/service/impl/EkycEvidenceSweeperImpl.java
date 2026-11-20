@@ -30,7 +30,8 @@ import java.util.stream.Collectors;
  * Worker quét dọn bằng chứng eKYC (mặc định mỗi giờ, tắt bằng {@code EKYC_SWEEPER_ENABLED=false}).
  * <ol>
  *   <li>Lượt {@code IN_PROGRESS} quá 24 giờ → {@code ABANDONED} (người dùng bỏ dở).</li>
- *   <li>Object của lượt {@code ABANDONED} còn trên kho → xoá (xoá đồng bộ lần trước có thể đã lỗi).</li>
+ *   <li>Object của lượt {@code ABANDONED} hoặc {@code WITHDRAWN} (người dùng rút lại hồ sơ chờ duyệt) còn trên kho
+ *       → xoá (xoá đồng bộ lần trước có thể đã lỗi).</li>
  *   <li>Object {@code final} quá {@code EKYC_EVIDENCE_RETENTION_DAYS} ngày → xoá; bản nháp mã hoá của
  *       lượt đã duyệt/từ chối quá hạn → xoá.</li>
  *   <li>Object tạo trước một lần rút đồng ý của chính chủ → xoá (lần rút đó xoá theo tiền tố bị lỗi).</li>
@@ -83,6 +84,8 @@ public class EkycEvidenceSweeperImpl implements EkycEvidenceSweeper {
             String prefix = ekycEvidenceService.envPrefix() + "%";
             deleted += deleteInBatches(pageable -> ekycEvidenceRepository.findLiveOfAttemptsInStatus(
                     EkycAttemptStatus.ABANDONED, prefix, pageable), now);
+            deleted += deleteInBatches(pageable -> ekycEvidenceRepository.findLiveOfAttemptsInStatus(
+                    EkycAttemptStatus.WITHDRAWN, prefix, pageable), now);
             deleted += deleteInBatches(pageable -> ekycEvidenceRepository.findLiveByStageCreatedBefore(
                     EkycEvidenceStage.FINAL, retentionCutoff, prefix, pageable), now);
             deleted += deleteInBatches(pageable -> ekycEvidenceRepository.findLiveCreatedBeforeWithdrawal(

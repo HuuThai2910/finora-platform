@@ -22,6 +22,10 @@ import java.util.List;
  * @param nextStep       bước client làm tiếp
  * @param attemptsLeft   số lần còn được thử liveness trước khi hồ sơ chuyển duyệt tay
  * @param liveness       kết quả kiểm tra khuôn mặt của lần gọi này
+ * @param manualReviewAvailable AI đã lỗi đủ số lần liên tiếp: client được hiện lối "Gửi nhân viên duyệt"
+ *                              (bước thẻ: {@code ekyc-manual-review}; bước liveness: {@code reviewMode=MANUAL})
+ * @param manualReviewMode      phiên đang ở chế độ duyệt tay vì AI lỗi: bước liveness tiếp theo chỉ lưu video
+ *                              làm bằng chứng rồi gửi nhân viên, không chấm tự động
  */
 public record EkycResultResponse(
         EkycStatus status,
@@ -34,12 +38,22 @@ public record EkycResultResponse(
         DraftView draft,
         EkycNextStep nextStep,
         Integer attemptsLeft,
-        LivenessView liveness
+        LivenessView liveness,
+        boolean manualReviewAvailable,
+        boolean manualReviewMode
 ) {
 
     public EkycResultResponse {
         ocrWarnings = ocrWarnings == null ? List.of() : List.copyOf(ocrWarnings);
         retake = retake == null ? List.of() : List.copyOf(retake);
+    }
+
+    /** Khuôn cũ (trước khi có lối duyệt tay khi AI lỗi): hai cờ duyệt tay là {@code false}. */
+    public EkycResultResponse(EkycStatus status, EkycResultCode resultCode, String message, List<String> ocrWarnings,
+                              String cardType, boolean reviewRequired, List<RetakeItem> retake, DraftView draft,
+                              EkycNextStep nextStep, Integer attemptsLeft, LivenessView liveness) {
+        this(status, resultCode, message, ocrWarnings, cardType, reviewRequired, retake, draft, nextStep,
+                attemptsLeft, liveness, false, false);
     }
 
     /** Mặt thẻ cần chụp lại: {@code side} FRONT/BACK, {@code reason} theo hợp đồng AI. */

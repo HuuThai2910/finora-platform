@@ -12,6 +12,8 @@ import java.util.UUID;
  *       duyệt tay — tín hiệu gian lận đáng để người xem, nhưng không khoá người dùng.</li>
  *   <li>{@code ekyc_media_sha:<sha256>} (30 ngày): video/bộ ảnh đã từng gửi; gửi lại đúng file cũ là
  *       dấu hiệu phát lại.</li>
+ *   <li>{@code ekyc_ai_failure:<uid>} (cửa sổ cấu hình, mặc định 1 giờ từ lần lỗi gần nhất): số lần finora-ai
+ *       lỗi liên tiếp, gộp bước đọc thẻ và liveness; đủ ngưỡng thì mở lối gửi nhân viên duyệt tay.</li>
  * </ul>
  */
 public interface EkycCounterStore {
@@ -44,4 +46,12 @@ public interface EkycCounterStore {
      * @return {@code true} nếu file chưa từng được gửi trong 30 ngày
      */
     boolean registerMedia(String sha256Hex);
+
+    /** Ghi một lần AI lỗi; TTL làm mới mỗi lần để chuỗi lỗi liên tiếp không bị cắt. Trả tổng số lần hiện tại. */
+    int recordAiFailure(UUID keycloakUserId, Duration window);
+
+    int currentAiFailures(UUID keycloakUserId);
+
+    /** AI vừa trả lời được (hoặc phiên đã kết thúc): chuỗi lỗi liên tiếp bị cắt. */
+    void resetAiFailures(UUID keycloakUserId);
 }

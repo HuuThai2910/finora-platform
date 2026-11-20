@@ -52,7 +52,7 @@ Bố cục từ CD-001 (lần deploy đầu bằng CD tự chuyển từ bố c�
 
 | Đường dẫn | Nội dung |
 |---|---|
-| `/opt/finora/env/deploy.env` | Biến chung cho compose: `docker/.env` cộng `FINORA_DOMAIN`, `WEB_DOMAIN` (domain Vercel của web, dùng làm domain cookie), `FINORA_PIN_TOKEN_SECRET`, `BLOCKCHAIN_VM_DB_PASSWORD`. Quyền 600, deploy không bao giờ thay |
+| `/opt/finora/env/deploy.env` | Biến chung cho compose: `docker/.env` cộng `FINORA_DOMAIN`, `WEB_DOMAIN` (domain Vercel của web, dùng làm domain cookie), `FINORA_PIN_TOKEN_SECRET`, `BLOCKCHAIN_VM_DB_PASSWORD`, `CIC_INTERNAL_API_KEY` (trùng biến cùng tên trên Vercel của CIC; User gửi mapping, Loan relay nợ quá hạn, thiếu thì compose dừng). Quyền 600, deploy không bao giờ thay |
 | `/opt/finora/env/finora-<service>.env` | `.env` của ai, user, notification, payment, investment, loan. Quyền 600 |
 | `/opt/finora/releases/<commit>/deploy` | Thư mục `deploy/` của từng commit đã deploy (giữ 5 bản gần nhất) |
 | `/opt/finora/current` | Symlink tới bản đang chạy |
@@ -132,6 +132,20 @@ chaincode 64 MB. Không cổng nào mở ra ngoài VM; `blockchain` gọi `peer0
   fabric-peer0-org1 fabric-peer0-org2 fabric-ccaas-org1 fabric-ccaas-org2`, xóa volume `finora_fabric-*` và
   `/opt/finora/fabric`, rồi chạy tay CD với `services` = `fabric-ccaas`.
 - Đổi `docker/fabric-network/config` (configtx, crypto-config) không có tác dụng với mạng đã dựng; phải dựng lại như trên.
+
+## Kho ảnh eKYC trên VM (SeaweedFS, từ 19/11/2026)
+
+- Service `seaweedfs` (image `chrislusf/seaweedfs:4.48`, volume `seaweedfs-data`, không mở cổng ra ngoài) giữ ảnh hai mặt
+  thẻ, video liveness và `result.json` của eKYC; `seaweedfs-init` chạy một lần tạo bucket `finora-ekyc` và vòng đời theo
+  tag. `user` chỉ khởi động sau khi `seaweedfs-init` xong; `finora-status.sh` chờ `seaweedfs` healthy.
+- Khoá trong `/opt/finora/env/deploy.env`: `SEAWEEDFS_ADMIN_ACCESS_KEY`, `SEAWEEDFS_ADMIN_SECRET_KEY` (chỉ để tạo bucket),
+  `EKYC_STORAGE_ACCESS_KEY`, `EKYC_STORAGE_SECRET_KEY` (finora-user, chỉ đọc/ghi bucket). Sinh bằng `openssl rand -hex 24`,
+  không dùng lại khoá máy dev.
+- Object key dạng `ekyc/azure/…` (`EKYC_STORAGE_ENV=azure`), giữ 30 ngày (`EKYC_EVIDENCE_RETENTION_DAYS`), worker của
+  finora-user xoá đúng hạn. Chưa có sao lưu: xoá volume là mất bằng chứng.
+- Điều khoản eKYC ghi nơi lưu là "máy chủ của FINORA tại Malaysia (Microsoft Azure)" (`EKYC_STORAGE_LOCATION_TEXT`); đổi
+  chữ này thì mọi người phải đồng ý điều khoản lại.
+- Kiểm: `sudo finora-compose logs seaweedfs-init | tail -3` phải có `San sang: bucket finora-ekyc`.
 
 ## Log trên Azure (từ 03/11/2026)
 

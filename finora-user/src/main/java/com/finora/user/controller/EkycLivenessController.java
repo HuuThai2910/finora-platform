@@ -45,7 +45,8 @@ public class EkycLivenessController {
     /**
      * Gửi video ({@code captureMode=VIDEO}, part {@code video}) hoặc chuỗi ảnh ({@code STILLS}, các part
      * {@code frames} + {@code frameTimesMs} JSON). Giới hạn multipart 12 MB/file, 40 MB/request; vượt
-     * trả {@code 413 PAYLOAD_TOO_LARGE}.
+     * trả {@code 413 PAYLOAD_TOO_LARGE}. {@code reviewMode=MANUAL}: AI đang gặp sự cố, video chỉ được lưu làm bằng
+     * chứng rồi hồ sơ chuyển nhân viên duyệt ({@code 409 MANUAL_REVIEW_UNAVAILABLE} khi AI chưa lỗi đủ số lần).
      */
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAuthority('user:cccd:scan')")
@@ -55,10 +56,11 @@ public class EkycLivenessController {
             @RequestParam(value = "platform", required = false) String platform,
             @RequestPart(value = "video", required = false) MultipartFile video,
             @RequestPart(value = "frames", required = false) List<MultipartFile> frames,
-            @RequestParam(value = "frameTimesMs", required = false) String frameTimesMs) {
+            @RequestParam(value = "frameTimesMs", required = false) String frameTimesMs,
+            @RequestParam(value = "reviewMode", required = false) String reviewMode) {
         LivenessUpload upload = new LivenessUpload(sessionId, captureMode, platform, toUploadedFile(video),
                 frames == null ? List.of() : frames.stream().map(EkycLivenessController::toUploadedFile).toList(),
-                frameTimesMs);
+                frameTimesMs, reviewMode);
         return BaseResponse.success(ekycLivenessService.submit(SecurityUtils.getCurrentKeycloakUserId(), upload));
     }
 
