@@ -89,11 +89,11 @@ class EkycConsentServiceImplTest {
     void getReturnsRenderedTermsAndNotAcceptedWithoutRecord() {
         EkycConsentResponse response = service.getConsent(USER_ID);
 
-        assertThat(response.version()).isEqualTo("ekyc-2026-10");
+        assertThat(response.version()).isEqualTo("ekyc-2026-11");
         assertThat(response.title()).isEqualTo("Điều khoản xử lý dữ liệu khi xác minh danh tính (eKYC)");
         assertThat(response.consentLabel())
                 .isEqualTo("Tôi đã đọc và đồng ý với Điều khoản xử lý dữ liệu khi xác minh danh tính.");
-        assertThat(response.purposes()).containsExactly("ID_DOCUMENT", "FACE_BIOMETRIC", "STORAGE_ABROAD", "OWN_DOCUMENT");
+        assertThat(response.purposes()).containsExactly("ID_DOCUMENT", "STORAGE_ABROAD", "OWN_DOCUMENT");
         assertThat(response.textSha256()).isEqualTo(document.textSha256());
         assertThat(response.body()).isEqualTo(document.body());
         assertThat(response.accepted()).isFalse();
@@ -135,7 +135,7 @@ class EkycConsentServiceImplTest {
         ArgumentCaptor<EkycConsent> saved = ArgumentCaptor.forClass(EkycConsent.class);
         verify(consentRepository).save(saved.capture());
         assertThat(saved.getValue().getTextSha256()).isEqualTo(document.textSha256());
-        assertThat(saved.getValue().purposeList()).containsExactly("ID_DOCUMENT", "FACE_BIOMETRIC", "STORAGE_ABROAD", "OWN_DOCUMENT");
+        assertThat(saved.getValue().purposeList()).containsExactly("ID_DOCUMENT", "STORAGE_ABROAD", "OWN_DOCUMENT");
         assertThat(saved.getValue().getPlatform()).isEqualTo("android");
         assertThat(saved.getValue().getAppVersion()).isEqualTo("2.1.0");
     }

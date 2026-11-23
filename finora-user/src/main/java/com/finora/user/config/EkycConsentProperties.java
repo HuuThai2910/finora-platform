@@ -17,7 +17,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class EkycConsentProperties {
 
     /** Phiên bản điều khoản, cũng là hậu tố tên file nội dung. */
-    private String version = "ekyc-2026-10";
+    private String version = "ekyc-2026-11";
 
     /** Email nhận yêu cầu về dữ liệu cá nhân; để trống thì điều khoản chỉ dẫn tới mục Hỗ trợ trong app. */
     private String contactEmail = "";
@@ -29,8 +29,11 @@ public class EkycConsentProperties {
     private String serverLocation = "Malaysia";
 
     /** Ngày áp dụng hiển thị trên điều khoản ({@code dd/mm/yyyy}). */
-    private String effectiveDate = "16/10/2026";
+    private String effectiveDate = "23/11/2026";
 
-    /** Còn gọi Gemini để điền chỗ trống thì phải hiển thị đoạn về chuyển phần chữ trên thẻ cho Google. */
-    private boolean mentionsGemini = true;
+    /**
+     * Còn gọi Gemini để điền chỗ trống thì phải hiển thị đoạn về chuyển phần chữ trên thẻ cho Google. Chỉ điều khoản
+     * {@code ekyc-2026-10} có đoạn này; từ {@code ekyc-2026-11} (23/11) finora-ai không gọi Gemini nữa.
+     */
+    private boolean mentionsGemini = false;
 }

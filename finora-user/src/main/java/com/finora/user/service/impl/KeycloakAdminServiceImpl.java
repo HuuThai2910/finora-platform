@@ -212,8 +212,7 @@ public class KeycloakAdminServiceImpl implements KeycloakAdminService {
             if (e.getStatusCode() == HttpStatus.BAD_REQUEST
                     && e.getResponseBodyAsString().contains("Account disabled")) {
                 log.warn("Đăng nhập tài khoản đã bị khóa: email={}", PiiMasker.maskEmail(email));
-                throw new BusinessException(HttpStatus.FORBIDDEN,
-                        "Tài khoản đã bị khóa. Vui lòng liên hệ bộ phận hỗ trợ FINORA.");
+                throw new BusinessException(HttpStatus.FORBIDDEN, ACCOUNT_LOCKED_CODE, ACCOUNT_LOCKED_MESSAGE);
             }
             log.error("Lỗi Keycloak token endpoint: status={}, email={}",
                     e.getStatusCode(), PiiMasker.maskEmail(email));

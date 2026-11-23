@@ -52,12 +52,12 @@ class EkycConfigurationBindingTest {
     void consentDefaultsKeepVietnameseText() throws IOException {
         EkycConsentProperties consent = binder().bind("finora.ekyc.consent", EkycConsentProperties.class).get();
 
-        assertThat(consent.getVersion()).isEqualTo("ekyc-2026-10");
+        assertThat(consent.getVersion()).isEqualTo("ekyc-2026-11");
         assertThat(consent.getContactEmail()).isEmpty();
         assertThat(consent.getStorageLocation()).isEqualTo("hệ thống lưu trữ thử nghiệm của FINORA");
         assertThat(consent.getServerLocation()).isEqualTo("Malaysia");
-        assertThat(consent.getEffectiveDate()).isEqualTo("16/10/2026");
-        assertThat(consent.isMentionsGemini()).isTrue();
+        assertThat(consent.getEffectiveDate()).isEqualTo("23/11/2026");
+        assertThat(consent.isMentionsGemini()).isFalse();
     }
 
     @Test

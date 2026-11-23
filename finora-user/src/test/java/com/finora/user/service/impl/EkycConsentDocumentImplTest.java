@@ -24,17 +24,18 @@ class EkycConsentDocumentImplTest {
     void defaultConfigurationFillsEveryPlaceholder() {
         EkycConsentDocumentImpl document = document(new EkycConsentProperties(), 30);
 
-        assertThat(document.version()).isEqualTo("ekyc-2026-10");
+        assertThat(document.version()).isEqualTo("ekyc-2026-11");
         assertThat(document.body())
                 .startsWith("### Điều khoản xử lý dữ liệu khi xác minh danh tính (eKYC)")
-                .contains("Phiên bản ekyc-2026-10 · Áp dụng từ 16/10/2026")
+                .contains("Phiên bản ekyc-2026-11 · Áp dụng từ 23/11/2026")
                 .contains("bạn gửi tới mục Hỗ trợ trong ứng dụng FINORA.")
                 .contains("Máy chủ xử lý của FINORA đặt tại **Malaysia**.")
                 .contains("có mã hoá, trên **hệ thống lưu trữ thử nghiệm của FINORA**.")
                 .contains("được lưu trong **30 ngày**, sau đó tự động xoá.")
-                .contains("dịch vụ AI của Google")
+                .contains("FINORA **không** quay video và **không** so khớp khuôn mặt của bạn.")
+                .contains("không gửi ảnh hay thông tin trên thẻ tới dịch vụ AI của bên thứ ba")
                 .doesNotContain("{{", "}}", "<!--", "[email liên hệ]", "[nơi lưu ảnh]", "Bắt đầu xác minh ]",
-                        "☐", "(chỉ khi dùng Gemini)");
+                        "☐", "(chỉ khi dùng Gemini)", "Gemini", "Claude", "video khuôn mặt", "sinh trắc");
         assertThat(document.body()).doesNotEndWith("---");
     }
 
@@ -51,11 +52,17 @@ class EkycConsentDocumentImplTest {
 
     @Test
     void disablingGeminiRemovesItsParagraphAndChangesHash() {
+        // Chỉ điều khoản cũ ekyc-2026-10 (còn liveness + Gemini) có đoạn Gemini.
         EkycConsentProperties withoutGemini = new EkycConsentProperties();
+        withoutGemini.setVersion("ekyc-2026-10");
         withoutGemini.setMentionsGemini(false);
+        EkycConsentProperties gemini = new EkycConsentProperties();
+        gemini.setVersion("ekyc-2026-10");
+        gemini.setMentionsGemini(true);
 
-        EkycConsentDocumentImpl withGemini = document(new EkycConsentProperties(), 30);
+        EkycConsentDocumentImpl withGemini = document(gemini, 30);
         EkycConsentDocumentImpl noGemini = document(withoutGemini, 30);
+        assertThat(withGemini.body()).contains("dịch vụ AI của Google");
 
         assertThat(noGemini.body()).doesNotContain("Google", "<!--");
         assertThat(noGemini.body()).contains("Vì các máy chủ trên đặt ngoài Việt Nam");
