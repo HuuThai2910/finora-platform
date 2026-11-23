@@ -37,8 +37,13 @@ public class BodyMasker {
             "pin", "pwd", "authorization", "cookie", "cvv", "credential", "credentials", "signature",
             "image", "images", "photo", "selfie", "base64", "frame", "frames", "video", "face", "apikey");
     private static final Pattern WORD_BOUNDARY = Pattern.compile("(?<=[a-z0-9])(?=[A-Z])|[^A-Za-z0-9]+");
-    /** Dự phòng khi body không phải JSON hợp lệ (bị cắt ở giới hạn byte): che giá trị chuỗi của trường nhạy cảm. */
-    private static final Pattern JSON_STRING_FIELD = Pattern.compile("\"([^\"\\\\]{1,64})\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"?");
+    /**
+     * Dự phòng khi body không phải JSON hợp lệ (bị cắt ở giới hạn byte): che giá trị chuỗi của trường nhạy cảm.
+     * Giá trị viết dạng {@code [^"\\]*+(?:\\.[^"\\]*+)*+} chứ không phải {@code (?:[^"\\]|\\.)*}: dạng sau đệ quy một
+     * tầng mỗi ký tự, chuỗi base64 vài nghìn ký tự (ảnh CCCD) làm tràn stack và gãy luôn response.
+     */
+    private static final Pattern JSON_STRING_FIELD =
+            Pattern.compile("\"([^\"\\\\]{1,64})\"\\s*:\\s*\"([^\"\\\\]*+(?:\\\\.[^\"\\\\]*+)*+)\"?");
 
     private final ObjectMapper objectMapper;
 

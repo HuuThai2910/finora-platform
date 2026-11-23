@@ -116,6 +116,7 @@ setup_fabric_network() {
 }
 
 # Các service truyền vào (service của project `finora`) phải running và, nếu có healthcheck, healthy.
+# Service chạy một lần (seaweedfs-init) thì đạt khi đã thoát với mã 0.
 # Dùng: wait_healthy <giây> <service...>
 wait_healthy() {
   local timeout=$1 deadline lines svc line pending
@@ -132,6 +133,9 @@ wait_healthy() {
     pending=()
     for svc in "${expected[@]}"; do
       line=$(grep -m1 "^${svc}|" <<<"$lines" || true)
+      if [[ $line == *"|exited|Exited (0)"* ]]; then
+        continue
+      fi
       if [[ -z $line || $line != *"|running|"* || $line == *"(unhealthy)"* || $line == *"(health: starting)"* ]]; then
         pending+=("$svc")
       fi

@@ -4,6 +4,7 @@ import com.finora.common.enums.user.EkycResultCode;
 import com.finora.common.enums.user.EkycStatus;
 import com.finora.common.exception.BusinessException;
 import com.finora.common.exception.ResourceNotFoundException;
+import com.finora.user.config.EkycLivenessProperties;
 import com.finora.user.domain.entity.EkycAttempt;
 import com.finora.user.domain.entity.EkycConsent;
 import com.finora.user.domain.entity.EkycEvidence;
@@ -74,7 +75,9 @@ import java.util.regex.Pattern;
  * (tag {@code pending}) và cất bản nháp mã hoá ở kho tạm — hồ sơ chưa được ghi.
  * <p>
  * <b>Xác nhận</b> ({@link #confirm}): cần liveness PASS/REVIEW. Giấy tờ {@code AUTO_OK} + liveness
- * {@code PASS} → {@code VERIFIED}; còn lại → {@code MANUAL_REVIEW}. Bằng chứng được gắn tag {@code final}
+ * {@code PASS} → {@code VERIFIED}; còn lại → {@code MANUAL_REVIEW}. Tắt liveness ({@link EkycLivenessProperties}, mặc
+ * định từ 23/11) thì xác nhận ngay sau khi đọc thẻ: người dùng xác nhận đúng → {@code VERIFIED}, báo sai →
+ * {@code MANUAL_REVIEW}. Bằng chứng được gắn tag {@code final}
  * và {@code result.json} được ghi <b>trước</b> transaction: không bao giờ chuyển VERIFIED khi chưa lưu đủ
  * bằng chứng. Kho tạm và claim Keycloak chỉ được đụng tới sau khi transaction đã commit.
  * <p>
@@ -113,6 +116,7 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
     private final EkycSessionCleanup ekycSessionCleanup;
     private final EkycClaimPublisher ekycClaimPublisher;
     private final EkycAiOutageService ekycAiOutageService;
+    private final EkycLivenessProperties ekycLivenessProperties;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
 
@@ -199,9 +203,12 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
         CccdMatcher.softFieldWarnings(profile.getFullName(), profile.getDateOfBirth(),
                         draft.value(EkycDraftFieldName.FULL_NAME), draft.value(EkycDraftFieldName.DATE_OF_BIRTH))
                 .stream().filter(code -> !warnings.contains(code)).forEach(warnings::add);
-        log.info("Đã đọc thẻ, chờ liveness: userProfileId={}, attemptId={}, decision={}, cardType={}",
-                profile.getId(), draft.attemptId(), draft.documentDecision(), draft.cardType());
-        return EkycResultMapper.draftReady(status, draft, warnings);
+        boolean livenessEnabled = ekycLivenessProperties.isEnabled();
+        log.info("Đã đọc thẻ, chờ {}: userProfileId={}, attemptId={}, decision={}, cardType={}",
+                livenessEnabled ? "liveness" : "xác nhận", profile.getId(), draft.attemptId(),
+                draft.documentDecision(), draft.cardType());
+        return EkycResultMapper.draftReady(status, draft, warnings,
+                livenessEnabled ? EkycNextStep.LIVENESS : EkycNextStep.CONFIRM);
     }
 
     // ── Bước thẻ chuyển duyệt tay khi AI lỗi ────────────────────────
@@ -249,11 +256,60 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
             return EkycResultMapper.simple(status, EkycResultCode.STORAGE_UNAVAILABLE);
         }
         transactionTemplate.executeWithoutResult(tx -> ekycAttemptService.recordEvidence(started.attemptId(), stored, now));
-        ekycDraftStore.save(keycloakUserId, draft);
         ekycCounterStore.resetRetakeCount(keycloakUserId);
+        if (!ekycLivenessProperties.isEnabled()) {
+            return submitCardsForReview(keycloakUserId, profile, started.attemptId(), draft, now);
+        }
+        ekycDraftStore.save(keycloakUserId, draft);
         log.info("Bước thẻ chuyển duyệt tay vì AI lỗi, chờ video: userProfileId={}, attemptId={}",
                 profile.getId(), draft.attemptId());
         return EkycResultMapper.manualDraftReady(status);
+    }
+
+    /**
+     * Không có bước khuôn mặt: hai ảnh thẻ là đủ bằng chứng, ghi {@code result.json} rồi chuyển lượt + hồ sơ
+     * {@code MANUAL_REVIEW} ngay. Kho lỗi khi ghi tóm tắt → bỏ lượt và trả {@code STORAGE_UNAVAILABLE}, người dùng gửi lại.
+     */
+    private EkycResultResponse submitCardsForReview(UUID keycloakUserId, UserProfile profile, Long attemptId,
+                                                    EkycIdentityDraft draft, Instant now) {
+        EkycStatus status = profile.getEkycStatus();
+        EkycAttempt attempt = ekycAttemptRepository.findById(attemptId).orElse(null);
+        if (attempt == null || !attempt.isInProgress()) {
+            return EkycResultMapper.simple(status, EkycResultCode.DRAFT_EXPIRED);
+        }
+        List<EkycEvidence> liveEvidence = ekycEvidenceRepository.findByAttemptIdOrderByIdAsc(attemptId).stream()
+                .filter(evidence -> !evidence.isDeleted())
+                .toList();
+        ekycEvidenceService.markFinal(liveEvidence.stream().map(EkycEvidence::getObjectKey).toList());
+        StoredEvidence result;
+        try {
+            result = ekycEvidenceService.storeResult(profile.getId(), draft.attemptId(),
+                    ekycResultFile.build(attempt, draft, "MANUAL_REVIEW", liveEvidence, now));
+        } catch (EkycStorageException e) {
+            log.warn("Không ghi được result.json khi gửi duyệt tay vì AI lỗi, bỏ lượt: attemptId={}", draft.attemptId());
+            transactionTemplate.executeWithoutResult(tx -> ekycAttemptService.abandon(attemptId, now));
+            return EkycResultMapper.simple(status, EkycResultCode.STORAGE_UNAVAILABLE);
+        }
+        Boolean submitted = transactionTemplate.execute(tx -> {
+            UserProfile fresh = userProfileRepository.findById(profile.getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Hồ sơ người dùng", "id", profile.getId()));
+            EkycAttempt current = ekycAttemptRepository.findById(attemptId).orElse(null);
+            if (current == null || !current.isInProgress()
+                    || fresh.getEkycStatus() == EkycStatus.VERIFIED || fresh.getEkycStatus() == EkycStatus.MANUAL_REVIEW) {
+                return false;
+            }
+            ekycAttemptService.submitForReview(fresh, current, draft, result, now);
+            return true;
+        });
+        ekycSessionCleanup.clearAll(keycloakUserId);
+        if (!Boolean.TRUE.equals(submitted)) {
+            ekycEvidenceService.deleteObjects(List.of(result.objectKey()));
+            return EkycResultMapper.simple(status, EkycResultCode.DRAFT_EXPIRED);
+        }
+        ekycClaimPublisher.publish(keycloakUserId, EkycStatus.MANUAL_REVIEW);
+        log.info("Gửi nhân viên duyệt ảnh thẻ vì AI gặp sự cố: userProfileId={}, attemptId={}",
+                profile.getId(), draft.attemptId());
+        return EkycResultMapper.reviewPending();
     }
 
     // ── Bước xác nhận ───────────────────────────────────────────────
@@ -272,7 +328,8 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
         if (stored == null) {
             return EkycResultMapper.simple(status, EkycResultCode.DRAFT_EXPIRED);
         }
-        if (stored.livenessResult() == null || !stored.livenessResult().allowsConfirmation()) {
+        boolean livenessEnabled = ekycLivenessProperties.isEnabled();
+        if (livenessEnabled && (stored.livenessResult() == null || !stored.livenessResult().allowsConfirmation())) {
             return EkycResultMapper.simple(status, EkycResultCode.LIVENESS_REQUIRED, EkycNextStep.LIVENESS);
         }
         // Báo sai: không nhận chỗ sửa nào, gắn mã để hồ sơ luôn đi duyệt tay.
@@ -294,9 +351,11 @@ public class EkycVerificationServiceImpl implements EkycVerificationService {
             return EkycResultMapper.simple(status, EkycResultCode.DRAFT_EXPIRED);
         }
 
-        boolean automatic = !reportIncorrect
-                && draft.documentDecision() == EkycDocumentDecision.AUTO_OK
-                && draft.livenessResult() == EkycLivenessResult.PASS;
+        // Chỉ đọc CCCD (Hải chốt 23/11): người dùng xác nhận đúng là xác minh luôn, kể cả khi AI chưa chắc
+        // (NEEDS_REVIEW); báo sai (lần thứ 5 trên app) thì vào nhân viên duyệt.
+        boolean automatic = !reportIncorrect && (!livenessEnabled
+                || (draft.documentDecision() == EkycDocumentDecision.AUTO_OK
+                && draft.livenessResult() == EkycLivenessResult.PASS));
         List<EkycEvidence> liveEvidence = ekycEvidenceRepository.findByAttemptIdOrderByIdAsc(attempt.getId()).stream()
                 .filter(evidence -> !evidence.isDeleted())
                 .toList();

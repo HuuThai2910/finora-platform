@@ -52,6 +52,26 @@ class BodyMaskerTest {
         assertThat(masked).contains("\"password\":\"***\"").doesNotContain("Secret123").endsWith("…(đã cắt)");
     }
 
+    /** Body quét CCCD (base64 vài MB) bị cắt ở 8 KB: không được tràn stack (từng làm gãy response eKYC). */
+    @Test
+    void masksTruncatedLongBase64WithoutStackOverflow() {
+        String body = "{\"cccdFrontBase64\":\"" + "A".repeat(200_000);
+
+        String masked = masker.mask(body, "application/json", true, 3000);
+
+        assertThat(masked).contains("\"cccdFrontBase64\":\"***\"").endsWith("…(đã cắt)");
+    }
+
+    @Test
+    void masksTruncatedJsonWithEscapedQuotes() {
+        String body = "{\"note\":\"say \\\"hi\\\"\",\"pin\":\"123456\",\"memo\":\"" + "B".repeat(500);
+
+        String masked = masker.mask(body, "application/json", true, 3000);
+
+        assertThat(masked).contains("\"note\":\"say \\\"hi\\\"\"").contains("\"pin\":\"***\"")
+                .contains("\"memo\":\"" + "B".repeat(40) + "…(500 ký tự)\"");
+    }
+
     @Test
     void masksFormAndQuery() {
         assertThat(masker.mask("username=hai&password=abc", "application/x-www-form-urlencoded", false, 3000))

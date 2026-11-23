@@ -80,7 +80,7 @@ public class ApiLogFilter extends OncePerRequestFilter {
             long durationMs = (System.nanoTime() - started) / 1_000_000;
             try {
                 log.info(objectMapper.writeValueAsString(line(wrappedRequest, wrappedResponse, failure, durationMs)));
-            } catch (JsonProcessingException | RuntimeException ignored) {
+            } catch (JsonProcessingException | RuntimeException | StackOverflowError ignored) {
                 // Access log không bao giờ được làm hỏng request thật.
             }
         }

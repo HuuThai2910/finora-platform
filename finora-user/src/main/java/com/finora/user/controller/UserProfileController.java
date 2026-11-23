@@ -100,8 +100,9 @@ public class UserProfileController {
      */
     @PostMapping("/profile/ekyc-verify")
     @PreAuthorize("hasAuthority('user:cccd:scan')")
-    // Mỗi lần quét gọi Gemini có tính phí (D40): 5 lần/10 phút mỗi người dùng.
-    @RateLimited(value = "ekyc.ocr", limit = 5, window = "PT10M")
+    // Mỗi lần quét có thể gọi Gemini có tính phí (D40): 20 lần/10 phút mỗi người dùng (23/11 nâng từ 5: người dùng
+    // được chụp lại tới 5 lần ở bước soát, cộng các lần AI bắt chụp lại vì loá/mờ, đều tính vào giới hạn).
+    @RateLimited(value = "ekyc.ocr", limit = 20, window = "PT10M")
     public BaseResponse<EkycResultResponse> verifyEkyc(
             @Valid @RequestBody EkycVerifyRequest request) {
 
@@ -118,7 +119,7 @@ public class UserProfileController {
     @PostMapping("/profile/ekyc-manual-review")
     @PreAuthorize("hasAuthority('user:cccd:scan')")
     // Dùng chung giới hạn với ekyc-verify: cùng là gửi ảnh giấy tờ, không mở thêm đường spam.
-    @RateLimited(value = "ekyc.ocr", limit = 5, window = "PT10M")
+    @RateLimited(value = "ekyc.ocr", limit = 20, window = "PT10M")
     public BaseResponse<EkycResultResponse> startEkycManualReview(@Valid @RequestBody EkycVerifyRequest request) {
         return BaseResponse.success(ekycVerificationService.startManualReview(
                 SecurityUtils.getCurrentKeycloakUserId(), request));

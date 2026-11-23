@@ -114,7 +114,8 @@ public class EkycAttemptServiceImpl implements EkycAttemptService {
     public void completeVerified(UserProfile profile, EkycAttempt attempt, EkycIdentityDraft draft,
                                  StoredEvidence result, Instant now) {
         ekycIdentityService.applyIdentity(profile, draft);
-        profile.markEkycVerified(draft.faceMatchScore(), true, now);
+        // Đã tắt liveness (chỉ đọc CCCD) thì không có kết luận khuôn mặt để ghi nhận.
+        profile.markEkycVerified(draft.faceMatchScore(), draft.livenessResult() != null, now);
         attempt.markVerified(now);
         finalizeEvidence(attempt.getId(), now);
         if (result != null) {
