@@ -5,6 +5,7 @@ import com.finora.common.enums.user.EkycResultCode;
 import com.finora.common.enums.user.EkycStatus;
 import com.finora.common.enums.user.Gender;
 import com.finora.common.exception.BusinessException;
+import com.finora.user.config.EkycLivenessProperties;
 import com.finora.user.domain.entity.CicMappingTask;
 import com.finora.user.domain.entity.EkycAttempt;
 import com.finora.user.domain.entity.EkycConsent;
@@ -118,18 +119,29 @@ class EkycVerificationServiceImplTest {
         lenient().when(userProfileRepository.findById(PROFILE_ID)).thenReturn(Optional.of(profile));
     }
 
-    private EkycVerificationServiceImpl service(Clock clock) {
+    private EkycVerificationServiceImpl service(Clock clock, boolean livenessEnabled) {
         EkycIdentityService identityService = new EkycIdentityServiceImpl(userProfileRepository, EkycTestData.cryptoProperties());
         EkycAttemptService attemptService = new EkycAttemptServiceImpl(attemptRepository, evidenceRepository,
                 cicMappingTaskRepository, identityService, objectMapper);
+        EkycLivenessProperties liveness = new EkycLivenessProperties();
+        liveness.setEnabled(livenessEnabled);
         return new EkycVerificationServiceImpl(userProfileRepository, attemptRepository, evidenceRepository, aiEkycClient,
                 rateLimitService, counterStore, draftStore, consentService, evidenceService,
                 attemptService, identityService, new EkycResultFileImpl(objectMapper), sessionCleanup, claimPublisher,
-                aiOutageService, EkycTestData.transactionTemplate(), clock);
+                aiOutageService, liveness, EkycTestData.transactionTemplate(), clock);
+    }
+
+    private EkycVerificationServiceImpl service(Clock clock) {
+        return service(clock, true);
     }
 
     private EkycVerificationServiceImpl service() {
         return service(Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    /** Cấu hình mặc định từ 23/11: chỉ đọc CCCD, không có bước kiểm tra khuôn mặt. */
+    private EkycVerificationServiceImpl cardOnlyService() {
+        return service(Clock.fixed(NOW, ZoneOffset.UTC), false);
     }
 
     private static EkycVerifyRequest request() {
@@ -416,6 +428,25 @@ class EkycVerificationServiceImplTest {
         }
 
         @Test
+        void withoutLivenessDraftGoesStraightToConfirm() {
+            givenReadyForAi();
+            givenAiReturns(EkycTestData.document("NEEDS_REVIEW", "CCCD_CHIP_2021", ID_NUMBER, "15/03/1995", null, false));
+            givenAttemptPersistence();
+            when(evidenceService.storeCardImages(eq(PROFILE_ID), any(), any(), any())).thenReturn(List.of(
+                    stored(EkycEvidenceKind.CCCD_FRONT, "ekyc/dev/7/a/cccd-front.jpg"),
+                    stored(EkycEvidenceKind.CCCD_BACK, "ekyc/dev/7/a/cccd-back.jpg")));
+
+            EkycResultResponse result = cardOnlyService().verify(USER_ID, request());
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.DRAFT_READY);
+            assertThat(result.nextStep()).isEqualTo(EkycNextStep.CONFIRM);
+            assertThat(result.reviewRequired()).as("xác nhận đúng là xác minh luôn, không báo trước duyệt thêm").isFalse();
+            assertThat(result.message()).isEqualTo("Đã đọc thông tin trên thẻ. Vui lòng kiểm tra và xác nhận.");
+            assertThat(result.draft().idNumber().value()).isEqualTo(ID_NUMBER);
+            verify(draftStore).save(eq(USER_ID), any());
+        }
+
+        @Test
         void storageFailureAbandonsTheNewAttempt() {
             givenReadyForAi();
             givenAiReturns(EkycTestData.okDocument());
@@ -576,6 +607,29 @@ class EkycVerificationServiceImplTest {
             assertThat(draft.getValue().cardReadWithoutAi()).isTrue();
             assertThat(draft.getValue().portraitEmbeddingB64()).isNull();
             verify(evidenceRepository).saveAll(anyList());
+            verify(aiEkycClient, never()).analyzeDocument(any());
+        }
+
+        @Test
+        void withoutLivenessManualReviewSubmitsCardImagesRightAway() {
+            givenScanPreconditions();
+            givenAttemptPersistence();
+            when(aiOutageService.isManualReviewAvailable(USER_ID)).thenReturn(true);
+            when(rateLimitService.tryAcquireVerifySlot(USER_ID)).thenReturn(true);
+            when(evidenceService.storeCardImages(anyLong(), any(), any(), any())).thenReturn(List.of(
+                    stored(EkycEvidenceKind.CCCD_FRONT, "front"), stored(EkycEvidenceKind.CCCD_BACK, "back")));
+            when(evidenceService.storeResult(eq(PROFILE_ID), any(), any())).thenReturn(
+                    stored(EkycEvidenceKind.RESULT, "result.json"));
+
+            EkycResultResponse result = cardOnlyService().startManualReview(USER_ID, request());
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.REVIEW_PENDING);
+            assertThat(result.status()).isEqualTo(EkycStatus.MANUAL_REVIEW);
+            assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.MANUAL_REVIEW);
+            assertThat(savedAttempt.get().getStatus()).isEqualTo(EkycAttemptStatus.MANUAL_REVIEW);
+            verify(draftStore, never()).save(any(), any());
+            verify(sessionCleanup).clearAll(USER_ID);
+            verify(claimPublisher).publish(USER_ID, EkycStatus.MANUAL_REVIEW);
             verify(aiEkycClient, never()).analyzeDocument(any());
         }
 
@@ -775,6 +829,48 @@ class EkycVerificationServiceImplTest {
                     .contains("\"outcome\" : \"MANUAL_REVIEW\"", "USER_REPORTED_INCORRECT");
             verify(cicMappingTaskRepository, never()).save(any());
             verify(claimPublisher).publish(USER_ID, EkycStatus.MANUAL_REVIEW);
+        }
+
+        @Test
+        void withoutLivenessAutoOkDocumentIsVerifiedWithoutFaceCheck() {
+            givenDraft(EkycDocumentDecision.AUTO_OK, null);
+            givenStoredEvidence();
+            when(cicMappingTaskRepository.findByUserProfileId(PROFILE_ID)).thenReturn(Optional.empty());
+
+            EkycResultResponse result = cardOnlyService().confirm(USER_ID, null);
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
+            assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.VERIFIED);
+            assertThat(profile.isDocumentVerified()).isTrue();
+            assertThat(profile.isLivenessVerified()).as("không có bước khuôn mặt").isFalse();
+            assertThat(profile.getIdNumberHash()).isEqualTo(hash(ID_NUMBER));
+            verify(claimPublisher).publish(USER_ID, EkycStatus.VERIFIED);
+        }
+
+        @Test
+        void withoutLivenessUserConfirmationVerifiesEvenWhenAiWasUnsure() {
+            givenDraft(EkycDocumentDecision.NEEDS_REVIEW, null);
+            givenStoredEvidence();
+            when(cicMappingTaskRepository.findByUserProfileId(PROFILE_ID)).thenReturn(Optional.empty());
+
+            EkycResultResponse result = cardOnlyService().confirm(USER_ID, Map.of("address", "Số 1 Lê Lợi"));
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.VERIFIED);
+            assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.VERIFIED);
+            assertThat(profile.getAddress()).isEqualTo("Số 1 Lê Lợi");
+            assertThat(attempt.getStatus()).isEqualTo(EkycAttemptStatus.VERIFIED);
+        }
+
+        @Test
+        void withoutLivenessReportingIncorrectGoesToStaff() {
+            givenDraft(EkycDocumentDecision.AUTO_OK, null);
+            givenStoredEvidence();
+
+            EkycResultResponse result = cardOnlyService().confirm(USER_ID, Map.of(), true);
+
+            assertThat(result.resultCode()).isEqualTo(EkycResultCode.REVIEW_PENDING);
+            assertThat(profile.getEkycStatus()).isEqualTo(EkycStatus.MANUAL_REVIEW);
+            assertThat(attempt.getStatus()).isEqualTo(EkycAttemptStatus.MANUAL_REVIEW);
         }
 
         @Test

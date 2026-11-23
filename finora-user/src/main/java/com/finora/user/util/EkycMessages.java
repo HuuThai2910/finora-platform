@@ -85,6 +85,9 @@ public final class EkycMessages {
     /** Thông điệp khi hồ sơ đã xác minh từ trước mà client gọi lại. */
     public static final String ALREADY_VERIFIED = "Hồ sơ đã được xác minh trước đó.";
 
+    /** Đã đọc thẻ khi không có bước kiểm tra khuôn mặt: bước tiếp là soát và xác nhận. */
+    public static final String DRAFT_READY_CONFIRM = "Đã đọc thông tin trên thẻ. Vui lòng kiểm tra và xác nhận.";
+
     /** Bước thẻ chuyển duyệt tay vì AI lỗi: đã lưu ảnh, bước tiếp là quay video để gửi nhân viên. */
     public static final String MANUAL_DRAFT_READY =
             "Đã nhận ảnh thẻ. Tiếp tục quay video khuôn mặt để gửi hồ sơ cho nhân viên FINORA duyệt.";

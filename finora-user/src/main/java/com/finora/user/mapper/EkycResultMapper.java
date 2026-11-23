@@ -78,11 +78,19 @@ public final class EkycResultMapper {
                 retake, null, EkycNextStep.NONE, null, null);
     }
 
-    /** Đã đọc xong thẻ, bản nháp chờ liveness; hồ sơ chưa lưu gì. */
-    public static EkycResultResponse draftReady(EkycStatus status, EkycIdentityDraft draft, List<String> warnings) {
-        return new EkycResultResponse(status, EkycResultCode.DRAFT_READY,
-                EkycMessages.result(EkycResultCode.DRAFT_READY), warnings, draft.cardType(),
-                requiresReview(draft), List.of(), toDraftView(draft), EkycNextStep.LIVENESS, null, null);
+    /**
+     * Đã đọc xong thẻ, hồ sơ chưa lưu gì. Bản nháp chờ liveness ({@code nextStep=LIVENESS}) hoặc, khi đã tắt liveness,
+     * chờ người dùng soát và xác nhận ({@code nextStep=CONFIRM}).
+     */
+    public static EkycResultResponse draftReady(EkycStatus status, EkycIdentityDraft draft, List<String> warnings,
+                                                EkycNextStep nextStep) {
+        String message = nextStep == EkycNextStep.LIVENESS
+                ? EkycMessages.result(EkycResultCode.DRAFT_READY)
+                : EkycMessages.DRAFT_READY_CONFIRM;
+        // Không có liveness thì người dùng xác nhận là xác minh luôn: không báo trước "sẽ duyệt thêm".
+        boolean reviewRequired = nextStep == EkycNextStep.LIVENESS && requiresReview(draft);
+        return new EkycResultResponse(status, EkycResultCode.DRAFT_READY, message, warnings, draft.cardType(),
+                reviewRequired, List.of(), toDraftView(draft), nextStep, null, null);
     }
 
     /**
