@@ -12,6 +12,11 @@ import java.util.Optional;
  */
 public interface KeycloakAdminService {
 
+    /** Mã lỗi khi tài khoản bị quản trị viên khóa (đăng nhập hoặc làm mới phiên); app dựa vào mã này để báo đúng lý do. */
+    String ACCOUNT_LOCKED_CODE = "ACCOUNT_LOCKED";
+
+    String ACCOUNT_LOCKED_MESSAGE = "Tài khoản đã bị khóa. Vui lòng liên hệ bộ phận hỗ trợ FINORA.";
+
     String createUser(String email, String password, String fullName, UserRole role);
 
     AccessTokenResponse getUserToken(String email, String password);

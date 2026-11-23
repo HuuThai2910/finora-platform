@@ -99,5 +99,5 @@ def test_co_nghiep_vu_mac_dinh_va_gia_tri_la():
     cfg = thresholds.load_settings({"EKYC_GEMINI_MODE": "always"})
     assert cfg.gemini_mode == "off"  # giá trị lạ → tắt AI cho an toàn
     default = thresholds.load_settings({})
-    assert (default.max_retakes, default.gemini_mode) == (2, "fallback")
+    assert (default.max_retakes, default.gemini_mode) == (2, "off")  # 23/11: không gửi thẻ cho AI bên ngoài
     assert not default.allow_single_deterministic and not default.optional_fields

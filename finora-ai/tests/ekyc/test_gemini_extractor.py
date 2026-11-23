@@ -201,7 +201,7 @@ class TestBuildFromEnv:
         monkeypatch.setattr(gemini_extractor, "genai", fake_genai)
         monkeypatch.setenv("GEMINI_API_KEY", "khoa-gia")
         monkeypatch.setenv("GEMINI_OCR_MODEL", "gemini-test")
-        reader = build_from_env(replace(EkycSettings(), gemini_timeout_ms=12345))
+        reader = build_from_env(replace(EkycSettings(), gemini_mode="fallback", gemini_timeout_ms=12345))
         assert isinstance(reader, GeminiCardReader)
         assert reader.model == "gemini-test"
         kwargs = fake_genai.Client.call_args.kwargs
@@ -303,7 +303,7 @@ class TestBuildWithClaude:
         _, fake_anthropic = sdks
         monkeypatch.setenv("GEMINI_API_KEY", "khoa-gemini")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "khoa-claude")
-        reader = build_from_env(replace(EkycSettings(), gemini_timeout_ms=12000))
+        reader = build_from_env(replace(EkycSettings(), gemini_mode="fallback", gemini_timeout_ms=12000))
         assert isinstance(reader, FallbackCardReader)
         assert reader.name == "Gemini→Claude"
         kwargs = fake_anthropic.Anthropic.call_args.kwargs
@@ -313,7 +313,7 @@ class TestBuildWithClaude:
     def test_chi_co_key_claude(self, sdks, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_API_KEY", "khoa-claude")
         monkeypatch.setenv("CLAUDE_OCR_MODEL", "claude-test")
-        reader = build_from_env(EkycSettings())
+        reader = build_from_env(EkycSettings(gemini_mode="fallback"))
         assert isinstance(reader, ClaudeCardReader)
         assert reader.model == "claude-test"
 

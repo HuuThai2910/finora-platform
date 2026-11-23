@@ -27,9 +27,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Triển khai dịch vụ xác thực — đăng ký, đăng nhập, làm mới token, quên/đặt lại mật khẩu.
@@ -46,6 +51,7 @@ public class AuthServiceImpl implements AuthService {
     /** Độ dài mã OTP — client hiển thị đúng số ô nhập theo giá trị này */
     private static final int OTP_LENGTH = 6;
 
+    private static final Pattern TOKEN_SUBJECT = Pattern.compile("\"sub\"\\s*:\\s*\"([0-9a-fA-F-]{36})\"");
     private static final String MSG_OTP_INVALID = "Mã không hợp lệ hoặc đã hết hạn";
     private static final String MSG_REGISTRATION_EXPIRED =
             "Phiên đăng ký đã hết hạn, vui lòng đăng ký lại";
@@ -303,7 +309,42 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional(readOnly = true)
     public AccessTokenResponse refresh(String refreshToken) {
-        return keycloakAdminService.refreshToken(refreshToken);
+        try {
+            return keycloakAdminService.refreshToken(refreshToken);
+        } catch (BusinessException e) {
+            // Khóa tài khoản thu hồi mọi phiên nên Keycloak chỉ báo phiên không còn hiệu lực: tra hồ sơ theo chủ
+            // của refresh token để app báo "tài khoản bị khóa" thay vì "phiên hết hạn".
+            if (e.getStatus() == HttpStatus.UNAUTHORIZED && isLockedOwner(refreshToken)) {
+                throw new BusinessException(HttpStatus.FORBIDDEN, KeycloakAdminService.ACCOUNT_LOCKED_CODE,
+                        KeycloakAdminService.ACCOUNT_LOCKED_MESSAGE);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Chủ của refresh token (claim {@code sub}) đang bị khóa. Chỉ đọc payload để chọn câu báo lỗi, không tin nó cho
+     * việc gì khác: Keycloak đã từ chối token này rồi.
+     */
+    private boolean isLockedOwner(String refreshToken) {
+        return tokenSubject(refreshToken)
+                .flatMap(userProfileRepository::findByKeycloakUserId)
+                .map(profile -> profile.getLockedAt() != null)
+                .orElse(false);
+    }
+
+    static Optional<UUID> tokenSubject(String jwt) {
+        String[] parts = jwt == null ? new String[0] : jwt.split("\\.");
+        if (parts.length < 2) {
+            return Optional.empty();
+        }
+        try {
+            String payload = new String(Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8);
+            Matcher matcher = TOKEN_SUBJECT.matcher(payload);
+            return matcher.find() ? Optional.of(UUID.fromString(matcher.group(1))) : Optional.empty();
+        } catch (IllegalArgumentException malformed) {
+            return Optional.empty();
+        }
     }
 
     // ── Đăng xuất ───────────────────────────────────────────────────

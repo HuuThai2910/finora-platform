@@ -12,9 +12,11 @@ public interface EkycConsentDocument {
     String CONSENT_LABEL =
             "Tôi đã đọc và đồng ý với Điều khoản xử lý dữ liệu khi xác minh danh tính.";
 
-    /** Bốn mục đích ghi vào bản ghi đồng ý; nội dung từng mục nằm trong thân điều khoản. */
-    List<String> PURPOSES =
-            List.of("ID_DOCUMENT", "FACE_BIOMETRIC", "STORAGE_ABROAD", "OWN_DOCUMENT");
+    /**
+     * Mục đích ghi vào bản ghi đồng ý; nội dung từng mục nằm trong thân điều khoản. Từ {@code ekyc-2026-11} không còn
+     * {@code FACE_BIOMETRIC} (eKYC chỉ đọc CCCD, không quay video khuôn mặt).
+     */
+    List<String> PURPOSES = List.of("ID_DOCUMENT", "STORAGE_ABROAD", "OWN_DOCUMENT");
 
     String version();
 

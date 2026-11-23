@@ -130,8 +130,9 @@ class EkycSettings:
     allow_single_deterministic: bool = False
     #: Thu thêm quê quán / nơi đăng ký khai sinh (mặc định tắt: giảm thiểu dữ liệu).
     optional_fields: bool = False
-    #: ``off`` | ``fallback`` — Gemini chỉ điền chỗ trống.
-    gemini_mode: str = GEMINI_MODE_FALLBACK
+    #: ``off`` | ``fallback`` — Gemini chỉ điền chỗ trống. Mặc định ``off`` từ 23/11: điều khoản ekyc-2026-11
+    #: cam kết không gửi ảnh/thông tin thẻ cho dịch vụ AI bên thứ ba.
+    gemini_mode: str = GEMINI_MODE_OFF
     #: Thời gian chờ tối đa một lần gọi Gemini (ms).
     gemini_timeout_ms: int = 15000
     #: Thời gian chờ tối đa một lần gọi Tesseract (giây).
@@ -288,7 +289,7 @@ def _env_bool(env: Mapping[str, str], name: str, default: bool) -> bool:
 def load_settings(env: Mapping[str, str] | None = None) -> EkycSettings:
     """Cờ nghiệp vụ eKYC từ ``env`` (mặc định ``os.environ``)."""
     env = os.environ if env is None else env
-    mode = (env.get("EKYC_GEMINI_MODE") or GEMINI_MODE_FALLBACK).strip().lower()
+    mode = (env.get("EKYC_GEMINI_MODE") or GEMINI_MODE_OFF).strip().lower()
     if mode not in (GEMINI_MODE_OFF, GEMINI_MODE_FALLBACK):
         logger.warning("EKYC_GEMINI_MODE=%s không hợp lệ, dùng 'off'.", mode)
         mode = GEMINI_MODE_OFF

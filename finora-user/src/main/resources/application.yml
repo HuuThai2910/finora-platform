@@ -106,12 +106,13 @@ finora:
   # eKYC (EKYC-002): điều khoản đồng ý, kho bằng chứng S3 và worker quét dọn.
   ekyc:
     consent:
-      version: ekyc-2026-10
+      # 23/11: ekyc-2026-11 — chỉ đọc CCCD, không video khuôn mặt, không gửi thẻ cho Gemini/Claude.
+      version: ekyc-2026-11
       contact-email: ${EKYC_CONSENT_CONTACT_EMAIL:}
       storage-location: ${EKYC_STORAGE_LOCATION_TEXT:hệ thống lưu trữ thử nghiệm của FINORA}
       server-location: ${EKYC_SERVER_LOCATION_TEXT:Malaysia}
-      effective-date: ${EKYC_CONSENT_EFFECTIVE_DATE:16/10/2026}
-      mentions-gemini: ${EKYC_CONSENT_MENTIONS_GEMINI:true}
+      effective-date: ${EKYC_CONSENT_EFFECTIVE_DATE:23/11/2026}
+      mentions-gemini: ${EKYC_CONSENT_MENTIONS_GEMINI:false}
     # Tắt mặc định: chưa có kho thì eKYC dừng ở STORAGE_UNAVAILABLE, không xác minh khi thiếu bằng chứng.
     # Dev local: SeaweedFS (docker/docker-compose.yml, profile ekyc) ở http://localhost:9100, path-style.
     # Deploy: Amazon S3 — bỏ trống endpoint và path-style, đặt region của bucket.
